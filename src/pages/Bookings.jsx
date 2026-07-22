@@ -14,7 +14,6 @@ export default function Bookings() {
   const [activeTab, setActiveTab] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({
@@ -32,11 +31,10 @@ export default function Bookings() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Dynamic package data
   const [packageCategories, setPackageCategories] = useState([]);
   const [categoryMenuItems, setCategoryMenuItems] = useState({});
 
-  // --- Helper: Allocate equipment for booking ---
+  // Helper: allocate equipment for booking on approval
   const allocateEquipmentForBooking = async (bookingId, packageId, paxCount) => {
     try {
       const { data: equipTemplate, error: templateError } = await supabase
@@ -105,79 +103,40 @@ export default function Bookings() {
     }
   };
 
-  // --- Fetch data (safer version – no nested selects) ---
+  // --- Fetch data ---
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch bookings (without nested relations)
       const { data: bookingsData, error: bookingsError } = await supabase
         .from('booking')
-        .select('*')
+        .select(`
+          *,
+          customer:customer_id (first_name, last_name, contact_no),
+          package:package_id (pkg_name, pkg_price)
+        `)
         .eq('booking_type', 'Package')
         .order('event_datetime', { ascending: false });
-
       if (bookingsError) throw bookingsError;
       setBookings(bookingsData || []);
 
-      // 2. Fetch related customers and packages separately
-      if (bookingsData && bookingsData.length > 0) {
-        const customerIds = bookingsData.map(b => b.customer_id).filter(id => id);
-        const packageIds = bookingsData.map(b => b.package_id).filter(id => id);
-
-        let customersMap = {};
-        let packagesMap = {};
-
-        if (customerIds.length > 0) {
-          const { data: customersData, error: customersError } = await supabase
-            .from('customer')
-            .select('customer_id, first_name, last_name, contact_no')
-            .in('customer_id', customerIds);
-          if (customersError) throw customersError;
-          customersMap = Object.fromEntries(customersData.map(c => [c.customer_id, c]));
-        }
-
-        if (packageIds.length > 0) {
-          const { data: packagesData, error: packagesError } = await supabase
-            .from('package')
-            .select('package_id, pkg_name, pkg_price')
-            .in('package_id', packageIds);
-          if (packagesError) throw packagesError;
-          packagesMap = Object.fromEntries(packagesData.map(p => [p.package_id, p]));
-        }
-
-        // Merge details into bookings
-        const enriched = bookingsData.map(booking => ({
-          ...booking,
-          customer: customersMap[booking.customer_id] || null,
-          package: packagesMap[booking.package_id] || null,
-        }));
-        setBookings(enriched);
-      }
-
-      // 3. Fetch customers list for dropdown (always needed)
-      const { data: customersList, error: customersListError } = await supabase
+      const { data: customersData, error: customersError } = await supabase
         .from('customer')
         .select('customer_id, first_name, last_name')
         .eq('account_status', 'Active')
         .order('first_name');
-      if (customersListError) throw customersListError;
-      setCustomers(customersList || []);
+      if (customersError) throw customersError;
+      setCustomers(customersData || []);
 
-      // 4. Fetch packages list for dropdown
-      const { data: packagesList, error: packagesListError } = await supabase
+      const { data: packagesData, error: packagesError } = await supabase
         .from('package')
         .select('package_id, pkg_name')
         .eq('pkg_availability', 'Available')
         .order('pkg_name');
-      if (packagesListError) throw packagesListError;
-      setPackages(packagesList || []);
-
+      if (packagesError) throw packagesError;
+      setPackages(packagesData || []);
     } catch (error) {
-      console.error('Full error object:', error);
-      console.error('Error message:', error.message);
-      console.error('Error code:', error.code);
-      console.error('Error details:', error.details);
-      alert(`Failed to load bookings: ${error.message}`);
+      console.error('Error fetching data:', error);
+      alert('Failed to load bookings.');
     } finally {
       setLoading(false);
     }
@@ -341,7 +300,7 @@ export default function Bookings() {
         delivery_fee: parseFloat(formData.delivery_fee) || 0,
         booking_status: editingId ? undefined : 'Pending',
         menu_selections: formData.menu_selections,
-        book_datetime: new Date().toISOString(), // explicitly set
+        book_datetime: new Date().toISOString(),
       };
 
       if (editingId) {
@@ -535,7 +494,7 @@ export default function Bookings() {
                   <tr key={booking.booking_id} className="hover:bg-slate-50 transition-colors">
                     <td className="p-4">
                       <p
-                        onClick={() => navigate(`/bookings/${booking.booking_id}`)}
+                        onClick={() => navigate(`/app/bookings/${booking.booking_id}`)}
                         className="font-bold text-slate-900 underline decoration-slate-300 underline-offset-4 cursor-pointer hover:text-[#008A45]"
                       >
                         {booking.customer?.first_name} {booking.customer?.last_name}
@@ -574,7 +533,7 @@ export default function Bookings() {
                           </>
                         )}
                         <button
-                          onClick={() => navigate(`/bookings/${booking.booking_id}`)}
+                          onClick={() => navigate(`/app/bookings/${booking.booking_id}`)}
                           className="bg-white border border-slate-300 text-slate-700 font-semibold text-xs px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors"
                         >
                           Details

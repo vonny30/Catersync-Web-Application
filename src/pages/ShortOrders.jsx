@@ -25,11 +25,10 @@ export default function ShortOrders() {
     notes: '',
     total_amount: '0',
     delivery_fee: '0',
-    menu_selections: [], // [{ menu_item_id, quantity }]
+    menu_selections: [],
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Temporary state for adding items in modal
   const [tempItem, setTempItem] = useState({ menu_item_id: '', quantity: 1 });
 
   const fetchData = async () => {
@@ -86,7 +85,7 @@ export default function ShortOrders() {
     }));
   }, [formData.menu_selections, formData.delivery_fee, menuItems]);
 
-  // --- Handlers for modal ---
+  // --- Handlers ---
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -365,7 +364,7 @@ export default function ShortOrders() {
                 filtered.map(order => (
                   <tr key={order.booking_id} className="hover:bg-slate-50 transition-colors">
                     <td className="p-4">
-                      <p onClick={() => navigate(`/orders/${order.booking_id}`)} className="font-bold text-slate-900 underline decoration-slate-300 underline-offset-4 cursor-pointer hover:text-[#008A45]">
+                      <p onClick={() => navigate(`/app/orders/${order.booking_id}`)} className="font-bold text-slate-900 underline decoration-slate-300 underline-offset-4 cursor-pointer hover:text-[#008A45]">
                         {order.customer?.first_name} {order.customer?.last_name}
                       </p>
                       <p className="text-xs text-slate-500 mt-0.5">{order.event_datetime ? new Date(order.event_datetime).toLocaleDateString() : 'No date'}</p>
@@ -390,7 +389,7 @@ export default function ShortOrders() {
                             </button>
                           </>
                         )}
-                        <button onClick={() => navigate(`/orders/${order.booking_id}`)} className="bg-white border border-slate-300 text-slate-700 font-semibold text-xs px-3 py-1.5 rounded-lg hover:bg-slate-50">
+                        <button onClick={() => navigate(`/app/orders/${order.booking_id}`)} className="bg-white border border-slate-300 text-slate-700 font-semibold text-xs px-3 py-1.5 rounded-lg hover:bg-slate-50">
                           Details
                         </button>
                         <button onClick={() => openEditModal(order)} className="text-slate-400 hover:text-slate-700 p-1"><Edit size={16} /></button>
@@ -443,7 +442,7 @@ export default function ShortOrders() {
                 <input type="text" name="venue" value={formData.venue} onChange={handleInputChange} placeholder="e.g. Pick-up or Delivery address" className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]" />
               </div>
 
-              {/* Pax & Delivery Fee (Amount is auto-calculated) */}
+              {/* Pax & Delivery Fee */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Pax Count</label>
@@ -489,7 +488,6 @@ export default function ShortOrders() {
                     <Plus size={16} /> Add
                   </button>
                 </div>
-                {/* Selected Items List */}
                 <div className="border border-slate-200 rounded-lg p-3 min-h-[80px] space-y-1.5 bg-slate-50">
                   {formData.menu_selections.length === 0 ? (
                     <p className="text-xs text-slate-400 italic">No items added yet.</p>

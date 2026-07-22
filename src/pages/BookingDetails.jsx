@@ -10,13 +10,12 @@ export default function BookingDetails() {
   const [booking, setBooking] = useState(null);
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState([]);
-  const [menuSelections, setMenuSelections] = useState([]); // Array of {category_name, menu_name}
-  const [equipment, setEquipment] = useState([]); // Array of {eqm_name, quantity, returned}
+  const [menuSelections, setMenuSelections] = useState([]);
+  const [equipment, setEquipment] = useState([]);
 
   const fetchBooking = async () => {
     setLoading(true);
     try {
-      // 1. Fetch booking with customer and package
       const { data: bookingData, error: bookingError } = await supabase
         .from('booking')
         .select(`
@@ -29,7 +28,6 @@ export default function BookingDetails() {
       if (bookingError) throw bookingError;
       setBooking(bookingData);
 
-      // 2. Fetch payments
       const { data: paymentsData, error: paymentsError } = await supabase
         .from('payment')
         .select('*')
@@ -38,27 +36,23 @@ export default function BookingDetails() {
       if (paymentsError) throw paymentsError;
       setPayments(paymentsData || []);
 
-      // 3. Fetch menu selections (if any)
       if (bookingData.menu_selections && Object.keys(bookingData.menu_selections).length > 0) {
         const selections = bookingData.menu_selections;
         const categoryIds = Object.keys(selections);
         const menuItemIds = Object.values(selections);
 
-        // Fetch category names
         const { data: categories, error: catError } = await supabase
           .from('category')
           .select('category_id, category_name')
           .in('category_id', categoryIds);
         if (catError) throw catError;
 
-        // Fetch menu item names
         const { data: menuItems, error: menuError } = await supabase
           .from('menu_item')
           .select('menu_item_id, menu_name')
           .in('menu_item_id', menuItemIds);
         if (menuError) throw menuError;
 
-        // Build the selections array
         const selectionsList = categoryIds.map(catId => {
           const category = categories?.find(c => c.category_id === catId);
           const menuItemId = selections[catId];
@@ -73,7 +67,6 @@ export default function BookingDetails() {
         setMenuSelections([]);
       }
 
-      // 4. Fetch equipment allocations for this booking
       const { data: equipData, error: equipError } = await supabase
         .from('booking_equipment')
         .select(`
@@ -140,7 +133,7 @@ export default function BookingDetails() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center gap-4">
           <button
-            onClick={() => navigate('/bookings')}
+            onClick={() => navigate('/app/bookings')}
             className="w-10 h-10 bg-white border border-slate-300 rounded-lg flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
           >
             <ArrowLeft size={18} />

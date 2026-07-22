@@ -20,7 +20,6 @@ export default function Dashboard() {
   const [calendarDays, setCalendarDays] = useState([]);
   const [eventDates, setEventDates] = useState({});
 
-  // Modal state for date click
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedDateEvents, setSelectedDateEvents] = useState([]);
   const [showDateModal, setShowDateModal] = useState(false);
@@ -36,7 +35,6 @@ export default function Dashboard() {
       const startOfMonthStr = startOfMonth.toISOString().split('T')[0];
       const endOfMonthStr = endOfMonth.toISOString().split('T')[0];
 
-      // Fetch all bookings for the month (to build calendar)
       const { data: monthBookings, error: monthError } = await supabase
         .from('booking')
         .select('event_datetime, booking_status')
@@ -47,7 +45,6 @@ export default function Dashboard() {
 
       if (monthError) throw monthError;
 
-      // Build event dates map for calendar
       const eventMap = {};
       (monthBookings || []).forEach(b => {
         if (b.event_datetime) {
@@ -58,7 +55,6 @@ export default function Dashboard() {
       });
       setEventDates(eventMap);
 
-      // --- 1. Today's Events ---
       const { data: todayData, error: todayError } = await supabase
         .from('booking')
         .select(`
@@ -78,7 +74,6 @@ export default function Dashboard() {
       setTodayEvents(todayData || []);
       setStats(prev => ({ ...prev, todayEvents: todayData?.length || 0 }));
 
-      // --- 2. Pending Bookings ---
       const { data: pendingData, error: pendingError } = await supabase
         .from('booking')
         .select(`
@@ -97,7 +92,6 @@ export default function Dashboard() {
       setPendingBookings(pendingData || []);
       setStats(prev => ({ ...prev, pendingBookings: pendingData?.length || 0 }));
 
-      // --- 3. Upcoming Events (Approved, future dates) ---
       const { data: upcomingData, error: upcomingError } = await supabase
         .from('booking')
         .select('booking_id')
@@ -109,7 +103,6 @@ export default function Dashboard() {
       if (upcomingError) throw upcomingError;
       setStats(prev => ({ ...prev, upcomingEvents: upcomingData?.length || 0 }));
 
-      // --- 4. Revenue This Month ---
       const { data: revenueData, error: revenueError } = await supabase
         .from('payment')
         .select('amount_paid')
@@ -134,7 +127,6 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // --- Calendar Generation ---
   useEffect(() => {
     generateCalendar(currentMonth);
   }, [currentMonth, eventDates]);
@@ -169,7 +161,6 @@ export default function Dashboard() {
 
   const monthName = currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' });
 
-  // --- Fetch events for a specific date (modal) ---
   const fetchEventsForDate = async (dateStr) => {
     try {
       const { data, error } = await supabase
@@ -202,7 +193,6 @@ export default function Dashboard() {
     setShowDateModal(true);
   };
 
-  // --- Handlers for Pending Bookings ---
   const handleApprove = async (id) => {
     try {
       const { error } = await supabase
@@ -232,7 +222,6 @@ export default function Dashboard() {
     }
   };
 
-  // --- Formatting helpers ---
   const formatTime = (dateStr) => {
     if (!dateStr) return 'N/A';
     return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -255,10 +244,9 @@ export default function Dashboard() {
     return 'No venue set';
   };
 
-  // --- Render ---
   return (
     <div className="max-w-[1200px] space-y-8">
-      {/* Header with Refresh */}
+      {/* Header */}
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
           Good Day, PG's Catering Owner!
@@ -274,7 +262,6 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {/* Loading State */}
       {loading && (
         <div className="flex justify-center py-8">
           <div className="flex items-center gap-3 text-slate-500">
@@ -284,7 +271,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Top Stat Cards */}
+      {/* Stat Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-[#EEF7F6] border border-slate-200 rounded-xl p-6 flex flex-col items-center justify-center text-center shadow-sm">
           <div className="w-10 h-10 border border-slate-300 rounded-full flex items-center justify-center mb-3">
@@ -321,12 +308,9 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Bottom Split Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        
-        {/* LEFT COLUMN: Calendar & Today's Events */}
+        {/* LEFT: Calendar & Today's Events */}
         <div className="bg-[#F8F9FA] border border-slate-200 rounded-xl p-6 shadow-sm">
-          {/* Calendar */}
           <div className="mb-6 border-b border-slate-200 pb-6">
             <div className="flex justify-between items-center mb-4 px-2">
               <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-slate-200 rounded transition-colors">
@@ -338,7 +322,6 @@ export default function Dashboard() {
               </button>
             </div>
             <div className="grid grid-cols-7 gap-y-4 text-center text-sm">
-              {/* FIX: Use unique keys for day headers */}
               {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day, idx) => (
                 <div key={idx} className="text-slate-400 font-medium text-xs">{day}</div>
               ))}
@@ -368,7 +351,7 @@ export default function Dashboard() {
               todayEvents.map((event) => (
                 <div
                   key={event.booking_id}
-                  onClick={() => navigate(`/bookings/${event.booking_id}`)}
+                  onClick={() => navigate(`/app/bookings/${event.booking_id}`)}
                   className="bg-white border border-slate-200 rounded-lg p-4 flex justify-between items-center shadow-sm hover:shadow-md transition-shadow cursor-pointer"
                 >
                   <div>
@@ -382,12 +365,12 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* RIGHT COLUMN: Pending Bookings */}
+        {/* RIGHT: Pending Bookings */}
         <div className="bg-[#F8F9FA] border border-slate-200 rounded-xl p-6 shadow-sm h-fit">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-bold text-slate-900">Pending Bookings</h2>
             <button
-              onClick={() => navigate('/bookings')}
+              onClick={() => navigate('/app/bookings')}
               className="text-sm font-semibold text-slate-900 underline decoration-2 underline-offset-4 hover:text-[#008A45] transition-colors"
             >
               View All
@@ -403,7 +386,7 @@ export default function Dashboard() {
                   <div className="flex justify-between items-start mb-4">
                     <div>
                       <h4
-                        onClick={() => navigate(`/bookings/${booking.booking_id}`)}
+                        onClick={() => navigate(`/app/bookings/${booking.booking_id}`)}
                         className="font-bold text-slate-900 text-sm cursor-pointer hover:text-[#008A45] transition-colors"
                       >
                         {getClientName(booking)}
@@ -436,7 +419,7 @@ export default function Dashboard() {
                       Reject
                     </button>
                     <button
-                      onClick={() => navigate(`/bookings/${booking.booking_id}`)}
+                      onClick={() => navigate(`/app/bookings/${booking.booking_id}`)}
                       className="flex-1 bg-white border border-slate-300 text-slate-800 font-semibold text-sm py-2 rounded-lg hover:bg-slate-50 transition-colors"
                     >
                       View Details
@@ -447,12 +430,9 @@ export default function Dashboard() {
             )}
           </div>
         </div>
-        
       </div>
 
-      {/* ========================================= */}
       {/* DATE EVENTS MODAL */}
-      {/* ========================================= */}
       {showDateModal && createPortal(
         <div className="fixed inset-0 z-[9999] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[80vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
@@ -477,7 +457,7 @@ export default function Dashboard() {
                       key={event.booking_id}
                       onClick={() => {
                         setShowDateModal(false);
-                        navigate(`/bookings/${event.booking_id}`);
+                        navigate(`/app/bookings/${event.booking_id}`);
                       }}
                       className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex justify-between items-center cursor-pointer hover:bg-slate-100 transition-colors"
                     >

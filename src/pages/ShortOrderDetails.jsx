@@ -15,7 +15,6 @@ export default function ShortOrderDetails() {
   const fetchOrder = async () => {
     setLoading(true);
     try {
-      // 1. Fetch the order
       const { data: orderData, error: orderError } = await supabase
         .from('booking')
         .select(`
@@ -27,7 +26,6 @@ export default function ShortOrderDetails() {
       if (orderError) throw orderError;
       setOrder(orderData);
 
-      // 2. Parse menu selections
       let selections = [];
       if (orderData.menu_selections) {
         try {
@@ -41,7 +39,6 @@ export default function ShortOrderDetails() {
         }
       }
 
-      // 3. Fetch menu item details for the selections
       if (selections.length > 0) {
         const menuItemIds = selections.map(s => s.menu_item_id);
         const { data: menuData, error: menuError } = await supabase
@@ -50,7 +47,6 @@ export default function ShortOrderDetails() {
           .in('menu_item_id', menuItemIds);
         if (menuError) throw menuError;
 
-        // Combine with quantities
         const itemsWithDetails = selections.map(sel => {
           const menu = menuData.find(m => m.menu_item_id === sel.menu_item_id);
           return {
@@ -65,7 +61,6 @@ export default function ShortOrderDetails() {
         setMenuItemsDetails([]);
       }
 
-      // 4. Fetch payments
       const { data: paymentsData, error: paymentsError } = await supabase
         .from('payment')
         .select('*')
@@ -92,7 +87,7 @@ export default function ShortOrderDetails() {
     <div className="space-y-6 max-w-6xl mx-auto">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/orders')} className="w-10 h-10 bg-white border border-slate-300 rounded-lg flex items-center justify-center text-slate-600 hover:bg-slate-50 shadow-xs">
+          <button onClick={() => navigate('/app/orders')} className="w-10 h-10 bg-white border border-slate-300 rounded-lg flex items-center justify-center text-slate-600 hover:bg-slate-50 shadow-xs">
             <ArrowLeft size={18} />
           </button>
           <div>
@@ -117,7 +112,6 @@ export default function ShortOrderDetails() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* LEFT COLUMN: Order & Client Details */}
         <div className="lg:col-span-5 space-y-6">
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
             <h3 className="text-sm font-bold text-slate-900 mb-4">Order Details</h3>
@@ -146,10 +140,8 @@ export default function ShortOrderDetails() {
           </div>
         </div>
 
-        {/* RIGHT COLUMN: Menu Items & Payments */}
         <div className="lg:col-span-7 space-y-6">
 
-          {/* Ordered Items */}
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-sm font-bold text-slate-900">Ordered Items</h3>
@@ -183,7 +175,6 @@ export default function ShortOrderDetails() {
             )}
           </div>
 
-          {/* Payment Tracking */}
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
             <h3 className="text-sm font-bold text-slate-900 mb-4">Payment Tracking</h3>
             <div className="border border-slate-300 rounded-lg overflow-hidden">
