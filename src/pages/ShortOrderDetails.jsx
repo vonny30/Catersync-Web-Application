@@ -26,6 +26,7 @@ export default function ShortOrderDetails() {
       if (orderError) throw orderError;
       setOrder(orderData);
 
+      // Parse menu selections – handle empty array
       let selections = [];
       if (orderData.menu_selections) {
         try {
@@ -39,7 +40,7 @@ export default function ShortOrderDetails() {
         }
       }
 
-      if (selections.length > 0) {
+      if (selections && selections.length > 0) {
         const menuItemIds = selections.map(s => s.menu_item_id);
         const { data: menuData, error: menuError } = await supabase
           .from('menu_item')

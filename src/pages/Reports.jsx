@@ -1,4 +1,3 @@
-// pages/Reports.jsx
 import { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
 
@@ -28,40 +27,48 @@ export default function Reports() {
       const now = new Date();
       const currentMonthLabel = now.toLocaleString('default', { month: 'long', year: 'numeric' });
 
-      // ========== FINANCIAL SUMMARY ==========
-      // Total Revenue (sum of all payments)
+      // ========== FINANCIAL SUMMARY (FIXED) ==========
+      // Get all payments with booking_id
       const { data: payments, error: paymentsError } = await supabase
         .from('payment')
-        .select('amount_paid, pay_status, booking_id');
-
+        .select('amount_paid, booking_id');
       if (paymentsError) throw paymentsError;
 
-      // Collected: all payments (downpayment + full) – we consider all payments as collected
-      const totalCollected = payments.reduce((sum, p) => sum + p.amount_paid, 0);
+      // Group payments by booking
+      const paymentMap = {};
+      payments.forEach(p => {
+        if (!paymentMap[p.booking_id]) paymentMap[p.booking_id] = 0;
+        paymentMap[p.booking_id] += p.amount_paid;
+      });
 
       // Get all bookings with total_amount
       const { data: bookings, error: bookingsError } = await supabase
         .from('booking')
         .select('booking_id, total_amount, booking_status')
         .eq('booking_type', 'Package');
-
       if (bookingsError) throw bookingsError;
 
-      // Total contract value = sum of total_amount for all bookings
-      const totalContractValue = bookings.reduce((sum, b) => sum + (b.total_amount || 0), 0);
+      let totalCollected = 0;
+      let totalOutstanding = 0;
+      let totalContractValue = 0;
 
-      // Outstanding = totalContractValue - totalCollected
-      const outstanding = totalContractValue - totalCollected;
+      bookings.forEach(b => {
+        const paid = paymentMap[b.booking_id] || 0;
+        const total = b.total_amount || 0;
+        totalContractValue += total;
+        totalCollected += paid;
+        const outstanding = Math.max(0, total - paid);
+        totalOutstanding += outstanding;
+      });
 
       setFinancialSummary({
         totalRevenue: totalContractValue,
         collected: totalCollected,
-        outstanding: outstanding,
+        outstanding: totalOutstanding,
         currentMonthLabel,
       });
 
-      // ========== MONTHLY REVENUE (for bar chart) ==========
-      // Group payments by month
+      // ========== MONTHLY REVENUE ==========
       const monthMap = {};
       payments.forEach(p => {
         if (!p.pay_datetime) return;
@@ -71,7 +78,6 @@ export default function Reports() {
         monthMap[monthKey] += p.amount_paid;
       });
 
-      // Convert to array and sort by month order (Jan, Feb, ...)
       const monthOrder = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       const monthlyData = monthOrder
         .filter(m => monthMap[m])
@@ -84,7 +90,6 @@ export default function Reports() {
       setMonthlyRevenueData(monthlyData);
 
       // ========== MENU PERFORMANCE ==========
-      // Group bookings by package, count orders and sum revenue
       const { data: packageBookings, error: pkgError } = await supabase
         .from('booking')
         .select(`
@@ -111,7 +116,6 @@ export default function Reports() {
         packageMap[pkgId].revenue += b.total_amount || 0;
       });
 
-      // Calculate performance percentage relative to the highest order count
       const maxOrders = Math.max(...Object.values(packageMap).map(p => p.orders), 1);
       const menuPerf = Object.entries(packageMap).map(([id, data], index) => {
         const performance = Math.round((data.orders / maxOrders) * 100);
@@ -127,7 +131,6 @@ export default function Reports() {
       setMenuPerformanceData(menuPerf);
 
       // ========== EQUIPMENT UTILIZATION ==========
-      // Get equipment inventory
       const { data: equipment, error: equipError } = await supabase
         .from('equipment')
         .select('equipment_id, eqm_name, quantity_available, eqm_status')
@@ -135,7 +138,6 @@ export default function Reports() {
 
       if (equipError) throw equipError;
 
-      // Get deployed quantities from booking_equipment (not returned)
       const { data: deployedData, error: deployedError } = await supabase
         .from('booking_equipment')
         .select('equipment_id, quantity, returned')
@@ -143,26 +145,16 @@ export default function Reports() {
 
       if (deployedError) throw deployedError;
 
-      // Aggregate deployed per equipment
       const deployedMap = {};
       deployedData.forEach(d => {
         if (!deployedMap[d.equipment_id]) deployedMap[d.equipment_id] = 0;
         deployedMap[d.equipment_id] += d.quantity;
       });
 
-      // Build utilization data
       const utilData = equipment.map(eq => {
-        const total = eq.quantity_available + (deployedMap[eq.equipment_id] || 0); // total = available + deployed
+        const total = eq.quantity_available + (deployedMap[eq.equipment_id] || 0);
         const deployed = deployedMap[eq.equipment_id] || 0;
         const available = eq.quantity_available;
-        const damaged = eq.eqm_status === 'Damaged' ? 1 : 0; // simple: if status damaged, count 1 (but we don't have quantity_damaged)
-        // Better: we could have a damaged quantity column, but for now we use status as indicator.
-        // Let's refine: if status damaged, we can assume total includes damaged, but we don't have separate.
-        // We'll just use available and deployed; damaged we set to 0 for simplicity.
-        // Actually we can count items with eqm_status = 'Damaged' as damaged (but we only have status per item, not quantity)
-        // Since each equipment row is a type, not individual units, we'll just show status.
-        // We'll adjust: total = quantity_available + deployed; damaged = 0 (unless we have a damaged count column)
-        // For now, we'll set damaged = 0.
         return {
           id: eq.equipment_id,
           name: eq.eqm_name,
@@ -174,8 +166,7 @@ export default function Reports() {
       });
       setEquipmentUtilizationData(utilData);
 
-      // ========== BOOKING SUMMARY (monthly) ==========
-      // Group bookings by month (based on event_datetime or book_datetime)
+      // ========== BOOKING SUMMARY ==========
       const { data: allBookings, error: allError } = await supabase
         .from('booking')
         .select('booking_id, event_datetime, total_amount, booking_status, package_id, package:package_id (pkg_name)')
@@ -184,7 +175,6 @@ export default function Reports() {
 
       if (allError) throw allError;
 
-      // Group by month
       const monthGroup = {};
       allBookings.forEach(b => {
         const date = new Date(b.event_datetime);
@@ -202,18 +192,11 @@ export default function Reports() {
         const group = monthGroup[monthKey];
         group.bookings += 1;
         group.revenue += b.total_amount || 0;
-        // We need collected and outstanding per month – we can compute from payments
-        // For simplicity, we'll calculate collected per booking from payments later.
-        // For now, we'll set collected and outstanding as 0 and compute separately.
-        // Actually we can compute collected per booking by summing payments.
-        // But that's heavy; we can skip for now and just show revenue.
-        // We'll just show bookings and revenue, and top package.
         const pkgName = b.package?.pkg_name || 'None';
         if (!group.packageCounts[pkgName]) group.packageCounts[pkgName] = 0;
         group.packageCounts[pkgName] += 1;
       });
 
-      // Compute top package for each month
       const summary = Object.entries(monthGroup).map(([month, data], index) => {
         let topPackage = 'None';
         let maxCount = 0;
@@ -223,10 +206,6 @@ export default function Reports() {
             topPackage = pkg;
           }
         });
-        // For collected and outstanding, we can't easily compute per month without payments, but we can approximate:
-        // We'll set collected = 0 for now, outstanding = revenue (since no payment data)
-        // Better: we could fetch payments and group by booking month, but that's complex.
-        // I'll skip collected/outstanding for monthly summary, or set them to 0.
         return {
           id: `RPT-${index + 1}`,
           month: month,

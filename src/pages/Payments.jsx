@@ -1,4 +1,3 @@
-// pages/Payments.jsx
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Upload, X, Image as ImageIcon, Edit, Trash2, Check, DollarSign, RefreshCw } from 'lucide-react';
@@ -7,7 +6,7 @@ import { supabase } from '../supabase';
 export default function Payments() {
   // --- STATE ---
   const [payments, setPayments] = useState([]);
-  const [bookings, setBookings] = useState([]); // for dropdowns
+  const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('All');
   const tabs = ['All', 'Downpayment', 'Full Payment', 'Unpaid'];
@@ -17,6 +16,10 @@ export default function Payments() {
   const [editingId, setEditingId] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  // --- SEARCH STATE for dropdown ---
+  const [bookingSearchTerm, setBookingSearchTerm] = useState('');
 
   const initialFormState = {
     booking_id: '',
@@ -24,7 +27,7 @@ export default function Payments() {
     pay_installment: 1,
     pay_method: 'Cash',
     pay_status: 'Downpayment',
-    pay_proof: 'placeholder.png', // placeholder until file upload is implemented
+    pay_proof: 'placeholder.png',
   };
 
   const [formData, setFormData] = useState(initialFormState);
@@ -33,7 +36,6 @@ export default function Payments() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch payments with booking and customer info
       const { data: paymentsData, error: paymentsError } = await supabase
         .from('payment')
         .select(`
@@ -51,14 +53,16 @@ export default function Payments() {
       if (paymentsError) throw paymentsError;
       setPayments(paymentsData || []);
 
-      // 2. Fetch bookings for dropdown (only those with status not Completed/Rejected)
       const { data: bookingsData, error: bookingsError } = await supabase
         .from('booking')
         .select(`
           booking_id,
           booking_type,
           customer:customer_id (first_name, last_name),
-          total_amount
+          total_amount,
+          venue,
+          event_datetime,
+          booking_status
         `)
         .not('booking_status', 'in', '("Completed","Rejected")')
         .order('event_datetime');
@@ -83,20 +87,6 @@ export default function Payments() {
     .filter(p => p.pay_status === 'Fully Paid' || p.pay_status === 'Downpayment')
     .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
 
-  // Pending balance: sum of total_amount for bookings that are not fully paid
-  // For simplicity, we'll compute from payments: if a booking has payments but not fully paid, we estimate.
-  // Better: we can sum remaining balances from booking table.
-  // Let's compute from payments: any booking with a payment but not fully paid.
-  const pendingBalance = payments
-    .filter(p => p.pay_status === 'Downpayment')
-    .reduce((sum, p) => {
-      // Assume remaining balance = booking total - sum of payments for that booking
-      // We don't have booking total here, so we'll use a placeholder or compute differently.
-      // For now, we'll just show a static placeholder, but you can improve later.
-      return sum + 0;
-    }, 0);
-
-  // Fully paid count
   const fullyPaidCount = payments.filter(p => p.pay_status === 'Fully Paid').length;
 
   // --- FILTER LOGIC ---
@@ -131,6 +121,7 @@ export default function Payments() {
       pay_proof: 'placeholder.png',
     });
     setSelectedFile(null);
+    setBookingSearchTerm('');
     setIsModalOpen(true);
   };
 
@@ -145,6 +136,7 @@ export default function Payments() {
       pay_proof: payment.pay_proof || 'placeholder.png',
     });
     setSelectedFile(null);
+    setBookingSearchTerm('');
     setIsModalOpen(true);
   };
 
@@ -153,15 +145,54 @@ export default function Payments() {
     setEditingId(null);
     setFormData(initialFormState);
     setSelectedFile(null);
+    setBookingSearchTerm('');
     setIsSubmitting(false);
+    setUploading(false);
   };
 
-  // --- CRUD ---
+  // --- Get selected booking details ---
+  const selectedBooking = bookings.find(b => b.booking_id === formData.booking_id);
+
+  // --- Filter bookings for dropdown based on search term ---
+  const filteredBookings = bookings.filter(b => {
+    if (!bookingSearchTerm) return true;
+    const search = bookingSearchTerm.toLowerCase();
+    const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}`.toLowerCase() : '';
+    const id = b.booking_id.toLowerCase();
+    return customerName.includes(search) || id.includes(search);
+  });
+
+  // --- CRUD (with file upload) ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
 
     try {
+      let proofUrl = formData.pay_proof;
+
+      if (selectedFile) {
+        setUploading(true);
+        try {
+          const fileExt = selectedFile.name.split('.').pop();
+          const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+          const filePath = `payments/${fileName}`;
+          const { error: uploadError } = await supabase.storage
+            .from('images')
+            .upload(filePath, selectedFile);
+          if (uploadError) throw uploadError;
+          const { data: publicUrlData } = supabase.storage
+            .from('images')
+            .getPublicUrl(filePath);
+          proofUrl = publicUrlData.publicUrl;
+        } catch (err) {
+          alert('Failed to upload proof image: ' + err.message);
+          setUploading(false);
+          setIsSubmitting(false);
+          return;
+        }
+        setUploading(false);
+      }
+
       const payload = {
         booking_id: formData.booking_id,
         amount_paid: parseFloat(formData.amount) || 0,
@@ -169,18 +200,16 @@ export default function Payments() {
         pay_method: formData.pay_method,
         pay_status: formData.pay_status,
         pay_datetime: new Date().toISOString(),
-        pay_proof: formData.pay_proof || 'placeholder.png',
+        pay_proof: proofUrl || 'placeholder.png',
       };
 
       if (editingId) {
-        // UPDATE
         const { error } = await supabase
           .from('payment')
           .update(payload)
           .eq('payment_id', editingId);
         if (error) throw error;
       } else {
-        // INSERT
         const { error } = await supabase
           .from('payment')
           .insert([payload]);
@@ -194,6 +223,7 @@ export default function Payments() {
       alert(`Error: ${error.message}`);
     } finally {
       setIsSubmitting(false);
+      setUploading(false);
     }
   };
 
@@ -372,12 +402,11 @@ export default function Payments() {
       </div>
 
       {/* ========================================================= */}
-      {/* RECORD / EDIT PAYMENT MODAL */}
+      {/* RECORD / EDIT PAYMENT MODAL – with search and booking details */}
       {/* ========================================================= */}
       {isModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            {/* Header */}
             <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
               <h2 className="text-lg font-bold text-slate-900">
                 {editingId ? 'Edit Payment Record' : 'Record New Payment'}
@@ -390,11 +419,23 @@ export default function Payments() {
               </button>
             </div>
 
-            {/* Form */}
             <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-6 text-left">
-              {/* Booking Selection */}
+              {/* Booking Selection with Search */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Select Booking</label>
+                
+                {/* Search input for bookings */}
+                <div className="relative mb-2">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <input
+                    type="text"
+                    placeholder="Search by customer name or booking ID..."
+                    value={bookingSearchTerm}
+                    onChange={(e) => setBookingSearchTerm(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
+                  />
+                </div>
+
                 <select
                   name="booking_id"
                   value={formData.booking_id}
@@ -403,7 +444,7 @@ export default function Payments() {
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
                 >
                   <option value="">-- Select Booking --</option>
-                  {bookings.map((b) => {
+                  {filteredBookings.map((b) => {
                     const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
                     return (
                       <option key={b.booking_id} value={b.booking_id}>
@@ -411,8 +452,50 @@ export default function Payments() {
                       </option>
                     );
                   })}
+                  {filteredBookings.length === 0 && bookings.length > 0 && (
+                    <option disabled>No matching bookings found</option>
+                  )}
                 </select>
+                <p className="text-xs text-slate-400 mt-1">Type to filter the list above</p>
               </div>
+
+              {/* Booking Details Preview */}
+              {selectedBooking && (
+                <div className="bg-[#F8F9FA] border border-slate-200 rounded-lg p-4 space-y-2 text-sm">
+                  <h4 className="font-bold text-slate-900 text-sm mb-2">Booking Details</h4>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                    <span className="text-slate-600 font-medium">Customer:</span>
+                    <span className="text-slate-900 font-semibold">
+                      {selectedBooking.customer ? `${selectedBooking.customer.first_name} ${selectedBooking.customer.last_name}` : 'Unknown'}
+                    </span>
+                    <span className="text-slate-600 font-medium">Type:</span>
+                    <span className="text-slate-900 font-semibold">{selectedBooking.booking_type || 'N/A'}</span>
+                    <span className="text-slate-600 font-medium">Venue:</span>
+                    <span className="text-slate-900 font-semibold">{selectedBooking.venue || 'N/A'}</span>
+                    <span className="text-slate-600 font-medium">Event Date:</span>
+                    <span className="text-slate-900 font-semibold">
+                      {selectedBooking.event_datetime ? new Date(selectedBooking.event_datetime).toLocaleString() : 'N/A'}
+                    </span>
+                    <span className="text-slate-600 font-medium">Total Amount:</span>
+                    <span className="text-slate-900 font-bold text-[#008A45]">
+                      ₱{selectedBooking.total_amount?.toLocaleString() || '0'}
+                    </span>
+                    <span className="text-slate-600 font-medium">Status:</span>
+                    <span className="text-slate-900 font-semibold capitalize">{selectedBooking.booking_status || 'N/A'}</span>
+                  </div>
+                  {/* Show existing payments summary if any */}
+                  {payments.filter(p => p.booking_id === selectedBooking.booking_id).length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-slate-200 text-xs text-slate-500">
+                      <span className="font-medium">Existing payments: </span>
+                      {payments.filter(p => p.booking_id === selectedBooking.booking_id).map((p, idx) => (
+                        <span key={idx} className="ml-1">
+                          ₱{p.amount_paid.toLocaleString()} ({p.pay_status}) {idx < payments.filter(p2 => p2.booking_id === selectedBooking.booking_id).length - 1 ? '•' : ''}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Payment Details */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -490,7 +573,7 @@ export default function Payments() {
                   </span>
                   <span className="text-[10px] text-slate-400 mt-0.5">PNG, JPG up to 5MB</span>
                 </label>
-                <p className="text-xs text-slate-400 mt-1">You can upload a proof image; currently a placeholder is used.</p>
+                <p className="text-xs text-slate-400 mt-1">Upload a proof image; will be stored in Supabase Storage.</p>
               </div>
 
               {/* Footer */}
@@ -504,10 +587,10 @@ export default function Payments() {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || uploading}
                   className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
                 >
-                  {isSubmitting ? 'Saving...' : editingId ? 'Save Changes' : 'Record Payment'}
+                  {uploading ? 'Uploading...' : (isSubmitting ? 'Saving...' : (editingId ? 'Save Changes' : 'Record Payment'))}
                 </button>
               </div>
             </form>

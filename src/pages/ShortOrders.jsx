@@ -31,28 +31,50 @@ export default function ShortOrders() {
 
   const [tempItem, setTempItem] = useState({ menu_item_id: '', quantity: 1 });
 
+  // --- Fetch data (safer – separate fetches) ---
   const fetchData = async () => {
     setLoading(true);
     try {
+      // 1. Fetch short orders
       const { data: ordersData, error: ordersError } = await supabase
         .from('booking')
-        .select(`
-          *,
-          customer:customer_id (first_name, last_name, contact_no)
-        `)
+        .select('*')
         .eq('booking_type', 'Short Order')
         .order('event_datetime', { ascending: false });
-      if (ordersError) throw ordersError;
-      setOrders(ordersData || []);
 
-      const { data: customersData, error: customersError } = await supabase
+      if (ordersError) throw ordersError;
+
+      // 2. If we have orders, fetch related customers
+      if (ordersData && ordersData.length > 0) {
+        const customerIds = ordersData.map(o => o.customer_id).filter(id => id);
+        let customersMap = {};
+        if (customerIds.length > 0) {
+          const { data: customersData, error: customersError } = await supabase
+            .from('customer')
+            .select('customer_id, first_name, last_name, contact_no')
+            .in('customer_id', customerIds);
+          if (customersError) throw customersError;
+          customersMap = Object.fromEntries(customersData.map(c => [c.customer_id, c]));
+        }
+        const enriched = ordersData.map(order => ({
+          ...order,
+          customer: customersMap[order.customer_id] || null,
+        }));
+        setOrders(enriched);
+      } else {
+        setOrders([]);
+      }
+
+      // 3. Fetch customers list for dropdown
+      const { data: customersList, error: customersListError } = await supabase
         .from('customer')
         .select('customer_id, first_name, last_name')
         .eq('account_status', 'Active')
         .order('first_name');
-      if (customersError) throw customersError;
-      setCustomers(customersData || []);
+      if (customersListError) throw customersListError;
+      setCustomers(customersList || []);
 
+      // 4. Fetch menu items
       const { data: menuData, error: menuError } = await supabase
         .from('menu_item')
         .select('menu_item_id, menu_name, menu_price')
@@ -60,6 +82,7 @@ export default function ShortOrders() {
         .order('menu_name');
       if (menuError) throw menuError;
       setMenuItems(menuData || []);
+
     } catch (error) {
       console.error('Error fetching short orders:', error);
       alert('Failed to load short orders.');
@@ -72,7 +95,7 @@ export default function ShortOrders() {
     fetchData();
   }, []);
 
-  // --- Auto-calculate total when selections or delivery fee change ---
+  // --- Auto-calculate total ---
   useEffect(() => {
     const total = formData.menu_selections.reduce((sum, sel) => {
       const menuItem = menuItems.find(m => m.menu_item_id === sel.menu_item_id);
@@ -156,16 +179,16 @@ export default function ShortOrders() {
   const openEditModal = (order) => {
     setEditingId(order.booking_id);
     let selections = [];
-    try {
-      if (order.menu_selections) {
+    if (order.menu_selections) {
+      try {
         if (typeof order.menu_selections === 'string') {
           selections = JSON.parse(order.menu_selections);
         } else if (Array.isArray(order.menu_selections)) {
           selections = order.menu_selections;
         }
+      } catch (e) {
+        selections = [];
       }
-    } catch (e) {
-      selections = [];
     }
     setFormData({
       customer_id: order.customer_id,

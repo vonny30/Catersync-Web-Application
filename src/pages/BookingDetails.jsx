@@ -1,4 +1,3 @@
-// pages/BookingDetails.jsx
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, X, Plus, RefreshCw } from 'lucide-react';
@@ -16,6 +15,7 @@ export default function BookingDetails() {
   const fetchBooking = async () => {
     setLoading(true);
     try {
+      // 1. Fetch main booking
       const { data: bookingData, error: bookingError } = await supabase
         .from('booking')
         .select(`
@@ -25,69 +25,97 @@ export default function BookingDetails() {
         `)
         .eq('booking_id', id)
         .single();
+
       if (bookingError) throw bookingError;
       setBooking(bookingData);
 
-      const { data: paymentsData, error: paymentsError } = await supabase
-        .from('payment')
-        .select('*')
-        .eq('booking_id', id)
-        .order('pay_datetime', { ascending: false });
-      if (paymentsError) throw paymentsError;
-      setPayments(paymentsData || []);
+      // 2. Fetch payments (non‑critical – errors won't alert)
+      try {
+        const { data: paymentsData, error: paymentsError } = await supabase
+          .from('payment')
+          .select('*')
+          .eq('booking_id', id)
+          .order('pay_datetime', { ascending: false });
+        if (!paymentsError) setPayments(paymentsData || []);
+        else console.warn('Payments fetch error:', paymentsError);
+      } catch (e) {
+        console.warn('Payments fetch error:', e);
+        setPayments([]);
+      }
 
-      if (bookingData.menu_selections && Object.keys(bookingData.menu_selections).length > 0) {
-        const selections = bookingData.menu_selections;
-        const categoryIds = Object.keys(selections);
-        const menuItemIds = Object.values(selections);
+      // 3. Fetch menu selections (if they exist)
+      try {
+        if (
+          bookingData.menu_selections &&
+          typeof bookingData.menu_selections === 'object' &&
+          Object.keys(bookingData.menu_selections).length > 0
+        ) {
+          const selections = bookingData.menu_selections;
+          const categoryIds = Object.keys(selections);
+          const menuItemIds = Object.values(selections);
 
-        const { data: categories, error: catError } = await supabase
-          .from('category')
-          .select('category_id, category_name')
-          .in('category_id', categoryIds);
-        if (catError) throw catError;
+          if (categoryIds.length > 0) {
+            const { data: categories, error: catError } = await supabase
+              .from('category')
+              .select('category_id, category_name')
+              .in('category_id', categoryIds);
+            if (catError) throw catError;
 
-        const { data: menuItems, error: menuError } = await supabase
-          .from('menu_item')
-          .select('menu_item_id, menu_name')
-          .in('menu_item_id', menuItemIds);
-        if (menuError) throw menuError;
+            const { data: menuItems, error: menuError } = await supabase
+              .from('menu_item')
+              .select('menu_item_id, menu_name')
+              .in('menu_item_id', menuItemIds);
+            if (menuError) throw menuError;
 
-        const selectionsList = categoryIds.map(catId => {
-          const category = categories?.find(c => c.category_id === catId);
-          const menuItemId = selections[catId];
-          const menuItem = menuItems?.find(m => m.menu_item_id === menuItemId);
-          return {
-            category_name: category?.category_name || 'Unknown Category',
-            menu_name: menuItem?.menu_name || 'Unknown Menu Item',
-          };
-        });
-        setMenuSelections(selectionsList);
-      } else {
+            const selectionsList = categoryIds.map(catId => {
+              const category = categories?.find(c => c.category_id === catId);
+              const menuItemId = selections[catId];
+              const menuItem = menuItems?.find(m => m.menu_item_id === menuItemId);
+              return {
+                category_name: category?.category_name || 'Unknown Category',
+                menu_name: menuItem?.menu_name || 'Unknown Menu Item',
+              };
+            });
+            setMenuSelections(selectionsList);
+          } else {
+            setMenuSelections([]);
+          }
+        } else {
+          setMenuSelections([]);
+        }
+      } catch (e) {
+        console.warn('Menu selections fetch error:', e);
         setMenuSelections([]);
       }
 
-      const { data: equipData, error: equipError } = await supabase
-        .from('booking_equipment')
-        .select(`
-          quantity,
-          returned,
-          equipment:equipment_id (eqm_name)
-        `)
-        .eq('booking_id', id)
-        .order('assigned_at', { ascending: true });
-      if (equipError) throw equipError;
-      setEquipment(
-        equipData?.map(item => ({
-          eqm_name: item.equipment?.eqm_name || 'Unknown',
-          quantity: item.quantity,
-          returned: item.returned,
-        })) || []
-      );
+      // 4. Fetch equipment allocations
+      try {
+        const { data: equipData, error: equipError } = await supabase
+          .from('booking_equipment')
+          .select(`
+            quantity,
+            returned,
+            equipment:equipment_id (eqm_name)
+          `)
+          .eq('booking_id', id)
+          .order('assigned_at', { ascending: true });
+        if (equipError) throw equipError;
+        setEquipment(
+          equipData?.map(item => ({
+            eqm_name: item.equipment?.eqm_name || 'Unknown',
+            quantity: item.quantity,
+            returned: item.returned,
+          })) || []
+        );
+      } catch (e) {
+        console.warn('Equipment fetch error:', e);
+        setEquipment([]);
+      }
 
     } catch (error) {
       console.error('Error fetching booking details:', error);
-      alert('Failed to load booking details.');
+      // Only alert for critical errors (like booking not found)
+      alert('Failed to load booking details. Please refresh.');
     } finally {
       setLoading(false);
     }

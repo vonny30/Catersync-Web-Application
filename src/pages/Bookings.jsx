@@ -103,40 +103,77 @@ export default function Bookings() {
     }
   };
 
-  // --- Fetch data ---
+  // --- Fetch data (safer version – no nested selects) ---
   const fetchData = async () => {
     setLoading(true);
     try {
+      // 1. Fetch bookings
       const { data: bookingsData, error: bookingsError } = await supabase
         .from('booking')
-        .select(`
-          *,
-          customer:customer_id (first_name, last_name, contact_no),
-          package:package_id (pkg_name, pkg_price)
-        `)
+        .select('*')
         .eq('booking_type', 'Package')
         .order('event_datetime', { ascending: false });
-      if (bookingsError) throw bookingsError;
-      setBookings(bookingsData || []);
 
-      const { data: customersData, error: customersError } = await supabase
+      if (bookingsError) throw bookingsError;
+
+      // 2. If we have bookings, fetch related customers and packages
+      if (bookingsData && bookingsData.length > 0) {
+        const customerIds = bookingsData.map(b => b.customer_id).filter(id => id);
+        const packageIds = bookingsData.map(b => b.package_id).filter(id => id);
+
+        let customersMap = {};
+        let packagesMap = {};
+
+        if (customerIds.length > 0) {
+          const { data: customersData, error: customersError } = await supabase
+            .from('customer')
+            .select('customer_id, first_name, last_name, contact_no')
+            .in('customer_id', customerIds);
+          if (customersError) throw customersError;
+          customersMap = Object.fromEntries(customersData.map(c => [c.customer_id, c]));
+        }
+
+        if (packageIds.length > 0) {
+          const { data: packagesData, error: packagesError } = await supabase
+            .from('package')
+            .select('package_id, pkg_name, pkg_price')
+            .in('package_id', packageIds);
+          if (packagesError) throw packagesError;
+          packagesMap = Object.fromEntries(packagesData.map(p => [p.package_id, p]));
+        }
+
+        // Merge details into bookings
+        const enriched = bookingsData.map(booking => ({
+          ...booking,
+          customer: customersMap[booking.customer_id] || null,
+          package: packagesMap[booking.package_id] || null,
+        }));
+        setBookings(enriched);
+      } else {
+        setBookings([]);
+      }
+
+      // 3. Fetch customers list for dropdown
+      const { data: customersList, error: customersListError } = await supabase
         .from('customer')
         .select('customer_id, first_name, last_name')
         .eq('account_status', 'Active')
         .order('first_name');
-      if (customersError) throw customersError;
-      setCustomers(customersData || []);
+      if (customersListError) throw customersListError;
+      setCustomers(customersList || []);
 
-      const { data: packagesData, error: packagesError } = await supabase
+      // 4. Fetch packages list for dropdown
+      const { data: packagesList, error: packagesListError } = await supabase
         .from('package')
         .select('package_id, pkg_name')
         .eq('pkg_availability', 'Available')
         .order('pkg_name');
-      if (packagesError) throw packagesError;
-      setPackages(packagesData || []);
+      if (packagesListError) throw packagesListError;
+      setPackages(packagesList || []);
+
     } catch (error) {
       console.error('Error fetching data:', error);
-      alert('Failed to load bookings.');
+      alert(`Failed to load bookings: ${error.message}`);
     } finally {
       setLoading(false);
     }
