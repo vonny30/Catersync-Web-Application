@@ -19,13 +19,24 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // --- Auto-redirect if already logged in ---
+  // --- Auto-redirect if already logged in and is a manager ---
   useEffect(() => {
     const checkSession = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        // Already logged in – go to dashboard
-        navigate('/app');
+        // Verify manager existence
+        const { data: manager, error } = await supabase
+          .from('manager')
+          .select('manager_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (!error && manager) {
+          navigate('/app');
+        } else {
+          // Not a manager – sign out to avoid stale session
+          await supabase.auth.signOut();
+        }
       }
     };
     checkSession();
@@ -46,7 +57,7 @@ export default function Login() {
     setErrorMsg('');
 
     try {
-      // 1. Sign in with Supabase Auth
+      // 1. Authenticate with Supabase Auth (email/password)
       const { data, error } = await supabase.auth.signInWithPassword({
         email: formData.email,
         password: formData.password,
@@ -54,7 +65,8 @@ export default function Login() {
 
       if (error) throw error;
 
-      // 2. Check if this user is a manager
+      // 2. Check if this user is authorized as a manager
+      //    The manager table has a user_id column referencing auth.users.id
       const { data: managerData, error: managerError } = await supabase
         .from('manager')
         .select('manager_id')
@@ -64,15 +76,15 @@ export default function Login() {
       if (managerError) throw managerError;
 
       if (!managerData) {
-        // User is authenticated but NOT a manager – sign them out and show error
+        // User exists in auth but not in manager table – deny access
         await supabase.auth.signOut();
         throw new Error('You are not authorized to access this system.');
       }
 
-      // 3. Manager verified – proceed to dashboard
+      // 3. Success – redirect to dashboard
       navigate('/app');
     } catch (error) {
-      console.error('Login Error:', error.message);
+      console.error('Login error:', error.message);
       setErrorMsg(error.message || 'Invalid email or password. Please try again.');
     } finally {
       setIsLoading(false);

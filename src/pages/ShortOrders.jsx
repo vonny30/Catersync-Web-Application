@@ -1,9 +1,10 @@
-// pages/ShortOrders.jsx
+// src/pages/ShortOrders.jsx
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Search, Check, Edit, Trash2, ChevronLeft, ChevronRight, X, RefreshCw, Plus } from 'lucide-react';
 import { supabase } from '../supabase';
+import toast from 'react-hot-toast';
 
 export default function ShortOrders() {
   const navigate = useNavigate();
@@ -14,6 +15,7 @@ export default function ShortOrders() {
   const [activeTab, setActiveTab] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
 
+  // --- Modal states ---
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({
@@ -28,53 +30,48 @@ export default function ShortOrders() {
     menu_selections: [],
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-
   const [tempItem, setTempItem] = useState({ menu_item_id: '', quantity: 1 });
 
-  // --- Fetch data (safer – separate fetches) ---
+  // --- Approval modal state ---
+  const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
+  const [approvalOrder, setApprovalOrder] = useState(null);
+  const [approvalData, setApprovalData] = useState({
+    extraQuantity: 0,
+    additionalFee: 0,
+    extraDeliveryFee: 0,
+    newTotal: 0,
+    baseTotal: 0,
+  });
+
+  // --- Helper: Log technical error and show user-friendly toast ---
+  const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
+    console.error('Error:', error);
+    toast.error(userMessage);
+  };
+
+  // --- Fetch data ---
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch short orders
       const { data: ordersData, error: ordersError } = await supabase
         .from('booking')
-        .select('*')
+        .select(`
+          *,
+          customer:customer_id (first_name, last_name, contact_no)
+        `)
         .eq('booking_type', 'Short Order')
         .order('event_datetime', { ascending: false });
-
       if (ordersError) throw ordersError;
+      setOrders(ordersData || []);
 
-      // 2. If we have orders, fetch related customers
-      if (ordersData && ordersData.length > 0) {
-        const customerIds = ordersData.map(o => o.customer_id).filter(id => id);
-        let customersMap = {};
-        if (customerIds.length > 0) {
-          const { data: customersData, error: customersError } = await supabase
-            .from('customer')
-            .select('customer_id, first_name, last_name, contact_no')
-            .in('customer_id', customerIds);
-          if (customersError) throw customersError;
-          customersMap = Object.fromEntries(customersData.map(c => [c.customer_id, c]));
-        }
-        const enriched = ordersData.map(order => ({
-          ...order,
-          customer: customersMap[order.customer_id] || null,
-        }));
-        setOrders(enriched);
-      } else {
-        setOrders([]);
-      }
-
-      // 3. Fetch customers list for dropdown
-      const { data: customersList, error: customersListError } = await supabase
+      const { data: customersData, error: customersError } = await supabase
         .from('customer')
         .select('customer_id, first_name, last_name')
         .eq('account_status', 'Active')
         .order('first_name');
-      if (customersListError) throw customersListError;
-      setCustomers(customersList || []);
+      if (customersError) throw customersError;
+      setCustomers(customersData || []);
 
-      // 4. Fetch menu items
       const { data: menuData, error: menuError } = await supabase
         .from('menu_item')
         .select('menu_item_id, menu_name, menu_price')
@@ -82,10 +79,9 @@ export default function ShortOrders() {
         .order('menu_name');
       if (menuError) throw menuError;
       setMenuItems(menuData || []);
-
     } catch (error) {
-      console.error('Error fetching short orders:', error);
-      alert('Failed to load short orders.');
+      handleError(error, 'Unable to load short orders. Please refresh the page.');
+      setOrders([]);
     } finally {
       setLoading(false);
     }
@@ -95,7 +91,7 @@ export default function ShortOrders() {
     fetchData();
   }, []);
 
-  // --- Auto-calculate total ---
+  // --- Auto-calculate total when selections change ---
   useEffect(() => {
     const total = formData.menu_selections.reduce((sum, sel) => {
       const menuItem = menuItems.find(m => m.menu_item_id === sel.menu_item_id);
@@ -121,18 +117,18 @@ export default function ShortOrders() {
 
   const addItemToSelection = () => {
     if (!tempItem.menu_item_id) {
-      alert('Please select a menu item.');
+      toast.error('Please select a menu item.');
       return;
     }
     if (tempItem.quantity < 1) {
-      alert('Quantity must be at least 1.');
+      toast.error('Quantity must be at least 1.');
       return;
     }
     const existing = formData.menu_selections.find(
       item => item.menu_item_id === tempItem.menu_item_id
     );
     if (existing) {
-      alert('This item is already added. You can update the quantity by removing and re-adding.');
+      toast.error('This item is already added. Remove it first to change quantity.');
       return;
     }
     setFormData(prev => ({
@@ -179,16 +175,17 @@ export default function ShortOrders() {
   const openEditModal = (order) => {
     setEditingId(order.booking_id);
     let selections = [];
-    if (order.menu_selections) {
-      try {
+    try {
+      if (order.menu_selections) {
         if (typeof order.menu_selections === 'string') {
           selections = JSON.parse(order.menu_selections);
         } else if (Array.isArray(order.menu_selections)) {
           selections = order.menu_selections;
         }
-      } catch (e) {
-        selections = [];
       }
+    } catch (e) {
+      console.warn('Error parsing menu selections:', e);
+      selections = [];
     }
     setFormData({
       customer_id: order.customer_id,
@@ -229,7 +226,7 @@ export default function ShortOrders() {
     setIsSubmitting(true);
     try {
       if (formData.menu_selections.length === 0) {
-        alert('Please add at least one menu item.');
+        toast.error('Please add at least one menu item.');
         setIsSubmitting(false);
         return;
       }
@@ -253,35 +250,75 @@ export default function ShortOrders() {
           .update(payload)
           .eq('booking_id', editingId);
         if (error) throw error;
+        toast.success('Short order updated successfully!');
       } else {
         const { error } = await supabase
           .from('booking')
           .insert([payload]);
         if (error) throw error;
+        toast.success('Short order created successfully!');
       }
       closeModal();
       fetchData();
     } catch (error) {
-      console.error('Error saving order:', error);
-      alert(`Error: ${error.message}`);
+      handleError(error, 'Failed to save short order.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleApprove = async (id) => {
+  // --- Approval modal logic ---
+  const openApprovalModal = (order) => {
+    setApprovalOrder(order);
+    setApprovalData({
+      extraQuantity: 0,
+      additionalFee: 0,
+      extraDeliveryFee: 0,
+      newTotal: order.total_amount || 0,
+      baseTotal: order.total_amount || 0,
+    });
+    setIsApprovalModalOpen(true);
+  };
+
+  const handleApprovalInputChange = (e) => {
+    const { name, value } = e.target;
+    const numValue = parseFloat(value) || 0;
+    setApprovalData(prev => {
+      const updated = { ...prev, [name]: numValue };
+      const newTotal = updated.baseTotal + updated.extraQuantity + updated.additionalFee + updated.extraDeliveryFee;
+      return { ...updated, newTotal };
+    });
+  };
+
+  const handleFinalizeApproval = async () => {
+    if (!approvalOrder) return;
+    setIsSubmitting(true);
     try {
-      const { error } = await supabase
+      const newTotal = approvalData.newTotal;
+      const newDeliveryFee = parseFloat(approvalOrder.delivery_fee || 0) + approvalData.extraDeliveryFee;
+
+      const { error: updateError } = await supabase
         .from('booking')
-        .update({ booking_status: 'Approved' })
-        .eq('booking_id', id);
-      if (error) throw error;
+        .update({
+          booking_status: 'Approved',
+          total_amount: newTotal,
+          delivery_fee: newDeliveryFee,
+        })
+        .eq('booking_id', approvalOrder.booking_id);
+
+      if (updateError) throw updateError;
+
+      setIsApprovalModalOpen(false);
       fetchData();
+      toast.success('Short order approved successfully!');
     } catch (error) {
-      alert('Failed to approve.');
+      handleError(error, 'Failed to approve short order.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
+  // --- Handlers (reject, delete, mark completed) ---
   const handleReject = async (id) => {
     if (!confirm('Reject this order?')) return;
     try {
@@ -290,23 +327,40 @@ export default function ShortOrders() {
         .update({ booking_status: 'Rejected' })
         .eq('booking_id', id);
       if (error) throw error;
+      toast.success('Order rejected.');
       fetchData();
     } catch (error) {
-      alert('Failed to reject.');
+      handleError(error, 'Failed to reject order.');
+    }
+  };
+
+  const handleMarkCompleted = async (id) => {
+    if (!confirm('Mark this order as completed?')) return;
+    try {
+      const { error } = await supabase
+        .from('booking')
+        .update({ booking_status: 'Completed' })
+        .eq('booking_id', id);
+      if (error) throw error;
+      toast.success('Order marked as completed!');
+      fetchData();
+    } catch (error) {
+      handleError(error, 'Failed to update status.');
     }
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this order?')) return;
+    if (!confirm('Delete this order? This cannot be undone.')) return;
     try {
       const { error } = await supabase
         .from('booking')
         .delete()
         .eq('booking_id', id);
       if (error) throw error;
+      toast.success('Order deleted.');
       fetchData();
     } catch (error) {
-      alert('Failed to delete.');
+      handleError(error, 'Failed to delete order.');
     }
   };
 
@@ -360,7 +414,7 @@ export default function ShortOrders() {
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
         </div>
         <button onClick={fetchData} className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-xs">
-          <RefreshCw size={16} /> Refresh
+          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
         </button>
       </div>
 
@@ -380,7 +434,7 @@ export default function ShortOrders() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan="6" className="p-6 text-center text-slate-400">Loading...</td></tr>
+                <tr><td colSpan="6" className="p-6 text-center text-slate-400">Loading short orders...</td></tr>
               ) : filtered.length === 0 ? (
                 <tr><td colSpan="6" className="p-6 text-center text-slate-500 italic">No short orders found.</td></tr>
               ) : (
@@ -404,13 +458,27 @@ export default function ShortOrders() {
                       <div className="flex items-center justify-center gap-2 flex-wrap">
                         {order.booking_status === 'Pending' && (
                           <>
-                            <button onClick={() => handleApprove(order.booking_id)} className="bg-[#C1DEDC] border border-[#a8cfcc] text-slate-800 font-semibold text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-[#b8dad7]">
+                            <button
+                              onClick={() => openApprovalModal(order)}
+                              className="bg-[#C1DEDC] border border-[#a8cfcc] text-slate-800 font-semibold text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-[#b8dad7]"
+                            >
                               <Check size={14} /> Approve
                             </button>
-                            <button onClick={() => handleReject(order.booking_id)} className="bg-red-100 border border-red-200 text-red-700 font-semibold text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-red-200">
+                            <button
+                              onClick={() => handleReject(order.booking_id)}
+                              className="bg-red-100 border border-red-200 text-red-700 font-semibold text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-red-200"
+                            >
                               <X size={14} /> Reject
                             </button>
                           </>
+                        )}
+                        {order.booking_status === 'Approved' && (
+                          <button
+                            onClick={() => handleMarkCompleted(order.booking_id)}
+                            className="bg-blue-100 border border-blue-200 text-blue-700 font-semibold text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-blue-200"
+                          >
+                            <Check size={14} /> Mark Completed
+                          </button>
                         )}
                         <button onClick={() => navigate(`/app/orders/${order.booking_id}`)} className="bg-white border border-slate-300 text-slate-700 font-semibold text-xs px-3 py-1.5 rounded-lg hover:bg-slate-50">
                           Details
@@ -435,7 +503,7 @@ export default function ShortOrders() {
         </div>
       </div>
 
-      {/* ========== MODAL ========== */}
+      {/* ========== NEW/EDIT SHORT ORDER MODAL ========== */}
       {isModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
@@ -552,13 +620,6 @@ export default function ShortOrders() {
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                 <label className="block text-xs font-bold text-slate-700 mb-1">Total Amount</label>
                 <div className="text-xl font-bold text-[#008A45]">₱{formData.total_amount || '0.00'}</div>
-                <div className="text-xs text-slate-500 mt-1">
-                  {formData.menu_selections.length > 0 && `Items subtotal: ₱${formData.menu_selections.reduce((sum, sel) => {
-                    const m = menuItems.find(i => i.menu_item_id === sel.menu_item_id);
-                    return sum + (m ? m.menu_price * sel.quantity : 0);
-                  }, 0).toFixed(2)}`}
-                  {parseFloat(formData.delivery_fee) > 0 && ` + Delivery: ₱${formData.delivery_fee}`}
-                </div>
                 <input type="hidden" name="total_amount" value={formData.total_amount} />
               </div>
 
@@ -576,6 +637,111 @@ export default function ShortOrders() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ========== APPROVAL MODAL ========== */}
+      {isApprovalModalOpen && approvalOrder && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
+              <h2 className="text-lg font-bold text-slate-900">Approve Short Order – Adjust Fees</h2>
+              <button
+                onClick={() => setIsApprovalModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto space-y-6 text-left">
+              {/* Order summary */}
+              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-sm">
+                <div className="grid grid-cols-2 gap-2">
+                  <span className="font-medium text-slate-600">Customer:</span>
+                  <span className="font-bold text-slate-900">
+                    {approvalOrder.customer?.first_name} {approvalOrder.customer?.last_name}
+                  </span>
+                  <span className="font-medium text-slate-600">Venue:</span>
+                  <span className="font-bold text-slate-900">{approvalOrder.venue || 'N/A'}</span>
+                  <span className="font-medium text-slate-600">Current Total:</span>
+                  <span className="font-bold text-slate-900">₱{approvalOrder.total_amount?.toLocaleString() || '0'}</span>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">Short order pricing is per unit (per pax or per kilo). You can add extra fees below.</p>
+              </div>
+
+              {/* Adjustment fields */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Extra Quantity Fee (additional servings/items)</label>
+                  <input
+                    type="number"
+                    name="extraQuantity"
+                    min="0"
+                    step="0.01"
+                    value={approvalData.extraQuantity}
+                    onChange={handleApprovalInputChange}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                    placeholder="e.g. 1000"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">Enter the total additional cost for extra quantity.</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Additional Delivery Fee</label>
+                  <input
+                    type="number"
+                    name="extraDeliveryFee"
+                    min="0"
+                    step="0.01"
+                    value={approvalData.extraDeliveryFee}
+                    onChange={handleApprovalInputChange}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                    placeholder="e.g. 500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons, special requests)</label>
+                  <input
+                    type="number"
+                    name="additionalFee"
+                    min="0"
+                    step="0.01"
+                    value={approvalData.additionalFee}
+                    onChange={handleApprovalInputChange}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                    placeholder="e.g. 2000"
+                  />
+                </div>
+              </div>
+
+              {/* New total display */}
+              <div className="bg-[#EAF3F2] border border-[#d2e8e5] rounded-lg p-4 flex justify-between items-center">
+                <span className="font-bold text-slate-800">New Total:</span>
+                <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+              </div>
+              <div className="text-sm text-slate-500">
+                <p>Down payment (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
+                <p className="text-xs mt-1">* Down payment may be required for large orders (subject to business policy).</p>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setIsApprovalModalOpen(false)}
+                  className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleFinalizeApproval}
+                  disabled={isSubmitting}
+                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>,
         document.body

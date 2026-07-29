@@ -1,9 +1,10 @@
-// pages/Bookings.jsx
+// src/pages/Bookings.jsx
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Search, Check, Edit, Trash2, ChevronLeft, ChevronRight, Filter, X, RefreshCw } from 'lucide-react';
 import { supabase } from '../supabase';
+import toast from 'react-hot-toast';
 
 export default function Bookings() {
   const navigate = useNavigate();
@@ -14,6 +15,7 @@ export default function Bookings() {
   const [activeTab, setActiveTab] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({
@@ -34,7 +36,24 @@ export default function Bookings() {
   const [packageCategories, setPackageCategories] = useState([]);
   const [categoryMenuItems, setCategoryMenuItems] = useState({});
 
-  // Helper: allocate equipment for booking on approval
+  // Approval modal state
+  const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
+  const [approvalBooking, setApprovalBooking] = useState(null);
+  const [approvalData, setApprovalData] = useState({
+    extraPax: 0,
+    additionalFee: 0,
+    extraDeliveryFee: 0,
+    newTotal: 0,
+    baseTotal: 0,
+  });
+
+  // Helper: log technical error and show user-friendly toast
+  const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
+    console.error('Error:', error);
+    toast.error(userMessage);
+  };
+
+  // --- Allocate equipment (helper) ---
   const allocateEquipmentForBooking = async (bookingId, packageId, paxCount) => {
     try {
       const { data: equipTemplate, error: templateError } = await supabase
@@ -53,7 +72,8 @@ export default function Bookings() {
         return;
       }
 
-      const allocations = equipTemplate.map(item => {
+      const allocations = [];
+      for (const item of equipTemplate) {
         let quantity;
         if (item.per_pax) {
           const raw = item.included_quantity * (paxCount || 0);
@@ -61,15 +81,21 @@ export default function Bookings() {
         } else {
           quantity = item.included_quantity || 1;
         }
-        return {
+        const available = item.equipment?.quantity_available || 0;
+        if (quantity > available) {
+          throw new Error(
+            `Not enough ${item.equipment?.eqm_name || 'equipment'}. Needed ${quantity}, only ${available} available.`
+          );
+        }
+        allocations.push({
           booking_id: bookingId,
           equipment_id: item.equipment_id,
           quantity: quantity,
           notes: `Auto-allocated from package (${paxCount} pax)`,
           returned: false,
           assigned_at: new Date().toISOString(),
-        };
-      });
+        });
+      }
 
       const { error: insertError } = await supabase
         .from('booking_equipment')
@@ -85,10 +111,6 @@ export default function Bookings() {
         if (fetchError) throw fetchError;
 
         const newQuantity = equipData.quantity_available - alloc.quantity;
-        if (newQuantity < 0) {
-          console.warn(`Warning: Negative inventory for equipment ${alloc.equipment_id} would occur. Skipping.`);
-          continue;
-        }
         const { error: updateError } = await supabase
           .from('equipment')
           .update({ quantity_available: newQuantity })
@@ -103,11 +125,10 @@ export default function Bookings() {
     }
   };
 
-  // --- Fetch data (safer version – no nested selects) ---
+  // --- Fetch data (with generic error handling) ---
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch bookings
       const { data: bookingsData, error: bookingsError } = await supabase
         .from('booking')
         .select('*')
@@ -116,7 +137,6 @@ export default function Bookings() {
 
       if (bookingsError) throw bookingsError;
 
-      // 2. If we have bookings, fetch related customers and packages
       if (bookingsData && bookingsData.length > 0) {
         const customerIds = bookingsData.map(b => b.customer_id).filter(id => id);
         const packageIds = bookingsData.map(b => b.package_id).filter(id => id);
@@ -142,7 +162,6 @@ export default function Bookings() {
           packagesMap = Object.fromEntries(packagesData.map(p => [p.package_id, p]));
         }
 
-        // Merge details into bookings
         const enriched = bookingsData.map(booking => ({
           ...booking,
           customer: customersMap[booking.customer_id] || null,
@@ -153,7 +172,6 @@ export default function Bookings() {
         setBookings([]);
       }
 
-      // 3. Fetch customers list for dropdown
       const { data: customersList, error: customersListError } = await supabase
         .from('customer')
         .select('customer_id, first_name, last_name')
@@ -162,7 +180,6 @@ export default function Bookings() {
       if (customersListError) throw customersListError;
       setCustomers(customersList || []);
 
-      // 4. Fetch packages list for dropdown
       const { data: packagesList, error: packagesListError } = await supabase
         .from('package')
         .select('package_id, pkg_name')
@@ -172,8 +189,8 @@ export default function Bookings() {
       setPackages(packagesList || []);
 
     } catch (error) {
-      console.error('Error fetching data:', error);
-      alert(`Failed to load bookings: ${error.message}`);
+      handleError(error, 'Unable to load bookings. Please refresh the page.');
+      setBookings([]);
     } finally {
       setLoading(false);
     }
@@ -222,13 +239,14 @@ export default function Bookings() {
         setCategoryMenuItems(menuItemsMap);
       } catch (error) {
         console.error('Error fetching package details:', error);
+        toast.error('Unable to load menu items for this package.');
       }
     };
 
     fetchPackageDetails();
   }, [formData.package_id]);
 
-  // --- Handlers for modal ---
+  // --- Modal handlers ---
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -309,7 +327,7 @@ export default function Bookings() {
     setIsSubmitting(true);
 
     if (!formData.package_id) {
-      alert('Please select a package for this booking.');
+      toast.error('Please select a package for this booking.');
       setIsSubmitting(false);
       return;
     }
@@ -318,7 +336,7 @@ export default function Bookings() {
     const selectedCategories = Object.keys(formData.menu_selections);
     const missing = requiredCategories.filter(c => !selectedCategories.includes(c));
     if (missing.length > 0) {
-      alert('Please select a menu item for each category.');
+      toast.error('Please select a menu item for each category.');
       setIsSubmitting(false);
       return;
     }
@@ -346,58 +364,106 @@ export default function Bookings() {
           .update(payload)
           .eq('booking_id', editingId);
         if (error) throw error;
+        toast.success('Booking updated successfully!');
       } else {
         const { error } = await supabase
           .from('booking')
           .insert([payload]);
         if (error) throw error;
+        toast.success('Booking created successfully!');
       }
 
       closeModal();
       fetchData();
     } catch (error) {
-      console.error('Error saving booking:', error);
-      alert(`Error: ${error.message}`);
+      handleError(error, 'Failed to save booking. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // --- APPROVE with automatic equipment allocation ---
-  const handleApprove = async (id) => {
+  // --- Approval Modal Logic ---
+  const openApprovalModal = (booking) => {
+    setApprovalBooking(booking);
+    const baseTotal = booking.total_amount || (booking.package?.pkg_price * booking.pax_count) || 0;
+    setApprovalData({
+      extraPax: 0,
+      additionalFee: 0,
+      extraDeliveryFee: 0,
+      newTotal: baseTotal,
+      baseTotal: baseTotal,
+    });
+    setIsApprovalModalOpen(true);
+  };
+
+  const handleApprovalInputChange = (e) => {
+    const { name, value } = e.target;
+    const numValue = parseFloat(value) || 0;
+    setApprovalData(prev => {
+      const updated = { ...prev, [name]: numValue };
+      const pkgPrice = approvalBooking?.package?.pkg_price || 0;
+      const extraPaxCost = updated.extraPax * pkgPrice;
+      const newTotal = updated.baseTotal + extraPaxCost + updated.additionalFee + updated.extraDeliveryFee;
+      return { ...updated, newTotal };
+    });
+  };
+
+  const handleFinalizeApproval = async () => {
+    if (!approvalBooking) return;
+    setIsSubmitting(true);
     try {
-      const { data: booking, error: fetchError } = await supabase
-        .from('booking')
-        .select('package_id, pax_count')
-        .eq('booking_id', id)
-        .single();
-      if (fetchError) throw fetchError;
+      const newPax = approvalBooking.pax_count + approvalData.extraPax;
+      const newTotal = approvalData.newTotal;
+      const newDeliveryFee = parseFloat(approvalBooking.delivery_fee || 0) + approvalData.extraDeliveryFee;
 
       const { error: updateError } = await supabase
         .from('booking')
-        .update({ booking_status: 'Approved' })
-        .eq('booking_id', id);
+        .update({
+          booking_status: 'Approved',
+          pax_count: newPax,
+          total_amount: newTotal,
+          delivery_fee: newDeliveryFee,
+        })
+        .eq('booking_id', approvalBooking.booking_id);
+
       if (updateError) throw updateError;
 
-      if (booking.package_id) {
+      if (approvalBooking.package_id) {
         try {
-          await allocateEquipmentForBooking(id, booking.package_id, booking.pax_count);
-          alert('Booking approved and equipment allocated successfully!');
+          await allocateEquipmentForBooking(approvalBooking.booking_id, approvalBooking.package_id, newPax);
         } catch (allocError) {
           console.error('Equipment allocation failed:', allocError);
-          alert('Booking approved, but equipment allocation encountered errors. Please check inventory manually.');
+          toast.error('Booking approved, but equipment allocation had errors. Please check inventory manually.');
         }
-      } else {
-        alert('Booking approved successfully (no equipment to allocate).');
       }
 
+      setIsApprovalModalOpen(false);
       fetchData();
+      toast.success('Booking approved successfully!');
     } catch (error) {
-      console.error('Error approving:', error);
-      alert('Failed to approve booking.');
+      handleError(error, 'Failed to approve booking. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
+  // --- Mark as Completed ---
+  const handleMarkCompleted = async (id) => {
+    if (!confirm('Mark this booking as completed?')) return;
+    try {
+      const { error } = await supabase
+        .from('booking')
+        .update({ booking_status: 'Completed' })
+        .eq('booking_id', id);
+      if (error) throw error;
+      toast.success('Booking marked as completed!');
+      fetchData();
+    } catch (error) {
+      handleError(error, 'Failed to update status.');
+    }
+  };
+
+  // --- Reject & Delete ---
   const handleReject = async (id) => {
     if (!confirm('Reject this booking?')) return;
     try {
@@ -406,25 +472,25 @@ export default function Bookings() {
         .update({ booking_status: 'Rejected' })
         .eq('booking_id', id);
       if (error) throw error;
+      toast.success('Booking rejected.');
       fetchData();
     } catch (error) {
-      console.error('Error rejecting:', error);
-      alert('Failed to reject.');
+      handleError(error, 'Failed to reject booking.');
     }
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Permanently delete this booking?')) return;
+    if (!confirm('Permanently delete this booking? This cannot be undone.')) return;
     try {
       const { error } = await supabase
         .from('booking')
         .delete()
         .eq('booking_id', id);
       if (error) throw error;
+      toast.success('Booking deleted.');
       fetchData();
     } catch (error) {
-      console.error('Error deleting:', error);
-      alert('Failed to delete.');
+      handleError(error, 'Failed to delete booking.');
     }
   };
 
@@ -502,7 +568,7 @@ export default function Bookings() {
           onClick={fetchData}
           className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-xs"
         >
-          <RefreshCw size={16} /> Refresh
+          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
         </button>
       </div>
 
@@ -523,7 +589,7 @@ export default function Bookings() {
             </thead>
             <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
               {loading ? (
-                <tr><td colSpan="7" className="p-6 text-center text-slate-400">Loading...</td></tr>
+                <tr><td colSpan="7" className="p-6 text-center text-slate-400">Loading bookings...</td></tr>
               ) : filtered.length === 0 ? (
                 <tr><td colSpan="7" className="p-6 text-center text-slate-500 italic">No package bookings found.</td></tr>
               ) : (
@@ -556,7 +622,7 @@ export default function Bookings() {
                         {booking.booking_status === 'Pending' && (
                           <>
                             <button
-                              onClick={() => handleApprove(booking.booking_id)}
+                              onClick={() => openApprovalModal(booking)}
                               className="bg-[#C1DEDC] border border-[#a8cfcc] text-slate-800 font-semibold text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-[#b8dad7] transition-colors"
                             >
                               <Check size={14} /> Approve
@@ -568,6 +634,14 @@ export default function Bookings() {
                               <X size={14} /> Reject
                             </button>
                           </>
+                        )}
+                        {booking.booking_status === 'Approved' && (
+                          <button
+                            onClick={() => handleMarkCompleted(booking.booking_id)}
+                            className="bg-blue-100 border border-blue-200 text-blue-700 font-semibold text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-blue-200 transition-colors"
+                          >
+                            <Check size={14} /> Mark Completed
+                          </button>
                         )}
                         <button
                           onClick={() => navigate(`/app/bookings/${booking.booking_id}`)}
@@ -607,7 +681,7 @@ export default function Bookings() {
         </div>
       </div>
 
-      {/* ========== MODAL ========== */}
+      {/* NEW/EDIT BOOKING MODAL */}
       {isModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
@@ -785,6 +859,111 @@ export default function Bookings() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* APPROVAL MODAL */}
+      {isApprovalModalOpen && approvalBooking && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
+              <h2 className="text-lg font-bold text-slate-900">Approve Booking – Adjust Fees</h2>
+              <button
+                onClick={() => setIsApprovalModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto space-y-6 text-left">
+              {/* Booking summary */}
+              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-sm">
+                <div className="grid grid-cols-2 gap-2">
+                  <span className="font-medium text-slate-600">Customer:</span>
+                  <span className="font-bold text-slate-900">
+                    {approvalBooking.customer?.first_name} {approvalBooking.customer?.last_name}
+                  </span>
+                  <span className="font-medium text-slate-600">Package:</span>
+                  <span className="font-bold text-slate-900">{approvalBooking.package?.pkg_name}</span>
+                  <span className="font-medium text-slate-600">Current Pax:</span>
+                  <span className="font-bold text-slate-900">{approvalBooking.pax_count}</span>
+                  <span className="font-medium text-slate-600">Current Total:</span>
+                  <span className="font-bold text-slate-900">₱{approvalBooking.total_amount?.toLocaleString() || '0'}</span>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">* Package price is per pax. Adjust extra pax or add fees below.</p>
+              </div>
+
+              {/* Adjustment fields */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Extra Pax (additional headcount)</label>
+                  <input
+                    type="number"
+                    name="extraPax"
+                    min="0"
+                    value={approvalData.extraPax}
+                    onChange={handleApprovalInputChange}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">Each extra pax costs ₱{approvalBooking.package?.pkg_price || 0} (package price per pax).</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Additional Delivery Fee</label>
+                  <input
+                    type="number"
+                    name="extraDeliveryFee"
+                    min="0"
+                    step="0.01"
+                    value={approvalData.extraDeliveryFee}
+                    onChange={handleApprovalInputChange}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                    placeholder="e.g. 500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons, extra services)</label>
+                  <input
+                    type="number"
+                    name="additionalFee"
+                    min="0"
+                    step="0.01"
+                    value={approvalData.additionalFee}
+                    onChange={handleApprovalInputChange}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                    placeholder="e.g. 2000"
+                  />
+                </div>
+              </div>
+
+              {/* New total display */}
+              <div className="bg-[#EAF3F2] border border-[#d2e8e5] rounded-lg p-4 flex justify-between items-center">
+                <span className="font-bold text-slate-800">New Total:</span>
+                <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+              </div>
+              <div className="text-sm text-slate-500">
+                <p>Down payment (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
+                <p className="text-xs mt-1">* Down payment is required to secure the booking (non-refundable within 3 days of event).</p>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setIsApprovalModalOpen(false)}
+                  className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleFinalizeApproval}
+                  disabled={isSubmitting}
+                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>,
         document.body

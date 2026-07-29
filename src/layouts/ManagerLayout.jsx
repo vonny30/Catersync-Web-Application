@@ -1,7 +1,6 @@
 // layouts/ManagerLayout.jsx
-import { useEffect, useState } from 'react';
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { supabase } from '../supabase';
+import { Link, Outlet, useLocation } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import {
   LayoutDashboard,
   CalendarDays,
@@ -36,55 +35,10 @@ const styles = {
 
 export default function ManagerLayout() {
   const location = useLocation();
-  const navigate = useNavigate();
-  const [isManager, setIsManager] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const { user, logout } = useAuth(); // get user and logout from context
 
-  useEffect(() => {
-    const checkManager = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        navigate('/');
-        setLoading(false);
-        return;
-      }
-
-      const { data: managerData } = await supabase
-        .from('manager')
-        .select('manager_id')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (!managerData) {
-        // Not a manager – sign out and redirect
-        await supabase.auth.signOut();
-        navigate('/');
-        setLoading(false);
-        return;
-      }
-
-      setIsManager(true);
-      setLoading(false);
-    };
-
-    checkManager();
-  }, [navigate]);
-
-  // If still loading, show a simple loader
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-slate-50">
-        <div className="text-slate-500">Loading...</div>
-      </div>
-    );
-  }
-
-  // If not manager (should be redirected already), but just in case:
-  if (!isManager) {
-    return null;
-  }
+  // Note: ProtectedRoute already ensures user is authenticated and is a manager,
+  // so we don't need to check again.
 
   const navLinks = [
     { name: 'Dashboard', path: '/app', icon: LayoutDashboard },
@@ -98,6 +52,12 @@ export default function ManagerLayout() {
   ];
 
   const isSettingsActive = location.pathname === '/app/settings';
+
+  const handleLogout = async () => {
+    await logout();
+    // ProtectedRoute will redirect to login automatically,
+    // but we can also navigate if needed – no need, because logout clears user state.
+  };
 
   return (
     <div className={styles.wrapper}>
@@ -118,7 +78,9 @@ export default function ManagerLayout() {
               />
             </svg>
           </div>
-          <span className="font-semibold underline decoration-2 underline-offset-4">Owner</span>
+          <span className="font-semibold underline decoration-2 underline-offset-4">
+            {user?.email || 'Owner'}
+          </span>
           <span className="text-xs">▼</span>
         </div>
       </header>
@@ -163,17 +125,13 @@ export default function ManagerLayout() {
               Settings
             </Link>
 
-            {/* Sign Out Link */}
-            <Link
-              to="/"
-              className={`${styles.navItem} text-slate-600 font-medium hover:bg-slate-50 hover:text-slate-900`}
-              onClick={async () => {
-                await supabase.auth.signOut();
-                // Navigate is handled by the Link
-              }}
+            {/* Sign Out Link – now uses logout from context */}
+            <button
+              onClick={handleLogout}
+              className={`${styles.navItem} text-slate-600 font-medium hover:bg-slate-50 hover:text-slate-900 w-full text-left`}
             >
               <LogOut size={18} className="text-slate-400" /> Sign Out
-            </Link>
+            </button>
           </div>
         </aside>
 

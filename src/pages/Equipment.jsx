@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, Edit, Trash2, X, CheckCircle, Settings, ClipboardList, RefreshCw, Undo2 } from 'lucide-react';
 import { supabase } from '../supabase';
+import toast from 'react-hot-toast';
 
 export default function Equipment() {
   // --- DATA STATE ---
@@ -44,6 +45,12 @@ export default function Equipment() {
     quantity: 1,
     notes: ''
   });
+
+  // --- Helper: Log technical error and show user-friendly toast ---
+  const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
+    console.error('Error:', error);
+    toast.error(userMessage);
+  };
 
   // --- FETCH DATA ---
   const fetchData = async () => {
@@ -90,8 +97,7 @@ export default function Equipment() {
       setAssignments(assignData || []);
 
     } catch (error) {
-      console.error('Error fetching data:', error);
-      alert('Failed to load equipment data.');
+      handleError(error, 'Unable to load equipment data. Please refresh the page.');
     } finally {
       setIsLoading(false);
     }
@@ -123,6 +129,7 @@ export default function Equipment() {
     } catch (error) {
       console.error('Error fetching usage:', error);
       setEquipmentUsage([]);
+      toast.error('Unable to load usage history.');
     }
   };
 
@@ -170,10 +177,10 @@ export default function Equipment() {
 
       setIsAddModalOpen(false);
       setAddFormData({ equipmentName: '', quantity: 0, description: '', condition: 'Good Condition' });
+      toast.success('Equipment added successfully!');
       await fetchData();
     } catch (error) {
-      console.error('Error adding equipment:', error);
-      alert(`Failed to add equipment: ${error.message}`);
+      handleError(error, 'Failed to add equipment.');
     } finally {
       setIsSubmitting(false);
     }
@@ -209,10 +216,10 @@ export default function Equipment() {
       if (error) throw error;
 
       setIsEditModalOpen(false);
+      toast.success('Equipment updated successfully!');
       await fetchData();
     } catch (error) {
-      console.error('Error updating equipment:', error);
-      alert(`Failed to update: ${error.message}`);
+      handleError(error, 'Failed to update equipment.');
     } finally {
       setIsSubmitting(false);
     }
@@ -229,10 +236,10 @@ export default function Equipment() {
         .eq('equipment_id', id);
 
       if (error) throw error;
+      toast.success('Equipment deleted.');
       await fetchData();
     } catch (error) {
-      console.error('Error deleting equipment:', error);
-      alert('Failed to delete.');
+      handleError(error, 'Failed to delete equipment. It may be in use.');
     }
   };
 
@@ -243,13 +250,30 @@ export default function Equipment() {
 
     try {
       const selectedEquipment = equipmentList.find(eq => eq.equipment_id === assignFormData.equipment_id);
-      if (!selectedEquipment) throw new Error('Equipment not found');
-      if (assignFormData.quantity > selectedEquipment.quantity_available) {
-        alert(`Not enough stock! Only ${selectedEquipment.quantity_available} available.`);
+      if (!selectedEquipment) {
+        toast.error('Equipment not found.');
         setIsSubmitting(false);
         return;
       }
 
+      // Check stock
+      if (assignFormData.quantity > selectedEquipment.quantity_available) {
+        toast.error(`Not enough stock! Only ${selectedEquipment.quantity_available} available.`);
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Check if this equipment is already assigned to this booking
+      const existingAssign = assignments.find(
+        a => a.booking_id === assignFormData.booking_id && a.equipment_id === assignFormData.equipment_id && !a.returned
+      );
+      if (existingAssign) {
+        toast.error('This equipment is already assigned to this booking. Please update the quantity or return it first.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Insert assignment
       const { error: insertError } = await supabase
         .from('booking_equipment')
         .insert([{
@@ -261,6 +285,7 @@ export default function Equipment() {
         }]);
       if (insertError) throw insertError;
 
+      // Update stock
       const newQuantity = selectedEquipment.quantity_available - assignFormData.quantity;
       const { error: updateError } = await supabase
         .from('equipment')
@@ -270,11 +295,10 @@ export default function Equipment() {
 
       setIsAssignModalOpen(false);
       setAssignFormData({ booking_id: '', equipment_id: '', quantity: 1, notes: '' });
+      toast.success('Equipment assigned successfully!');
       await fetchData();
-      alert('Equipment assigned successfully!');
     } catch (error) {
-      console.error('Error assigning equipment:', error);
-      alert(`Failed to assign: ${error.message}`);
+      handleError(error, 'Failed to assign equipment.');
     } finally {
       setIsSubmitting(false);
     }
@@ -305,11 +329,10 @@ export default function Equipment() {
         .eq('equipment_id', equipmentId);
       if (updateEquipError) throw updateEquipError;
 
+      toast.success('Equipment returned successfully!');
       await fetchData();
-      alert('Equipment returned successfully!');
     } catch (error) {
-      console.error('Error returning equipment:', error);
-      alert(`Failed to return: ${error.message}`);
+      handleError(error, 'Failed to return equipment.');
     }
   };
 
@@ -351,7 +374,7 @@ export default function Equipment() {
             onClick={fetchData}
             className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 px-3 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-xs"
           >
-            <RefreshCw size={16} />
+            <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
@@ -395,7 +418,7 @@ export default function Equipment() {
             <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
               {isLoading ? (
                 <tr>
-                  <td colSpan="5" className="p-6 text-center text-slate-400">Loading...</td>
+                  <td colSpan="5" className="p-6 text-center text-slate-400">Loading equipment...</td>
                 </tr>
               ) : equipmentList.length === 0 ? (
                 <tr>
@@ -478,7 +501,7 @@ export default function Equipment() {
             </thead>
             <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
               {isLoading ? (
-                <tr><td colSpan="7" className="p-6 text-center text-slate-400">Loading...</td></tr>
+                <tr><td colSpan="7" className="p-6 text-center text-slate-400">Loading assignments...</td></tr>
               ) : assignments.filter(a => !a.returned).length === 0 ? (
                 <tr><td colSpan="7" className="p-6 text-center text-slate-400 italic">No active assignments.</td></tr>
               ) : (

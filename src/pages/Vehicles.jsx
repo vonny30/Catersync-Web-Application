@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, Edit, Trash2, X, Truck, Car, Settings } from 'lucide-react';
 import { supabase } from '../supabase';
+import toast from 'react-hot-toast';
 
 export default function Vehicles() {
   // --- DATA STATE ---
   const [vehicles, setVehicles] = useState([]);
   const [bookings, setBookings] = useState([]);
-  const [assignments, setAssignments] = useState([]); // NEW: stores all assignments with event date
+  const [assignments, setAssignments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -37,6 +38,12 @@ export default function Vehicles() {
     assignment_status: 'Scheduled',
   });
 
+  // --- Helper: Log technical error and show user-friendly toast ---
+  const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
+    console.error('Error:', error);
+    toast.error(userMessage);
+  };
+
   // --- FETCH VEHICLES, ASSIGNMENTS, BOOKINGS ---
   const fetchVehicles = async () => {
     setIsLoading(true);
@@ -61,19 +68,16 @@ export default function Vehicles() {
 
       // 3. Enrich vehicles with dynamic status
       const today = new Date();
-      today.setHours(0, 0, 0, 0); // start of today
+      today.setHours(0, 0, 0, 0);
 
       const enrichedVehicles = vehiclesData.map(vehicle => {
-        // Filter assignments for this vehicle
         const vehicleAssigns = assignmentsData.filter(a => a.vehicle_id === vehicle.vehicle_id);
-        // Find assignments for today (event date matches today)
         const todayAssign = vehicleAssigns.find(a => {
           if (!a.booking?.event_datetime) return false;
           const eventDate = new Date(a.booking.event_datetime);
           eventDate.setHours(0, 0, 0, 0);
           return eventDate.getTime() === today.getTime() && a.booking.booking_status !== 'Rejected';
         });
-        // Find future assignments (event date > today)
         const futureAssign = vehicleAssigns.find(a => {
           if (!a.booking?.event_datetime) return false;
           const eventDate = new Date(a.booking.event_datetime);
@@ -81,10 +85,9 @@ export default function Vehicles() {
           return eventDate.getTime() > today.getTime() && a.booking.booking_status !== 'Rejected';
         });
 
-        let displayStatus = vehicle.vehicle_status; // base status from DB
+        let displayStatus = vehicle.vehicle_status;
         let statusNote = '';
 
-        // If base status is not "Available", keep that (e.g., Maintenance)
         if (vehicle.vehicle_status === 'Available') {
           if (todayAssign) {
             displayStatus = 'Deployed Today';
@@ -102,14 +105,13 @@ export default function Vehicles() {
           ...vehicle,
           displayStatus,
           statusNote,
-          assignments: vehicleAssigns, // keep for reference
+          assignments: vehicleAssigns,
         };
       });
 
       setVehicles(enrichedVehicles);
     } catch (error) {
-      console.error('Error fetching vehicles:', error);
-      alert('Failed to load vehicles. Please refresh.');
+      handleError(error, 'Unable to load vehicles. Please refresh.');
     } finally {
       setIsLoading(false);
     }
@@ -153,7 +155,7 @@ export default function Vehicles() {
   const handleAddVehicle = async (e) => {
     e.preventDefault();
     if (!newVehicleForm.plate_number) {
-      alert('Plate number is required.');
+      toast.error('Plate number is required.');
       return;
     }
 
@@ -170,11 +172,10 @@ export default function Vehicles() {
       if (error) throw error;
 
       setNewVehicleForm({ plate_number: '', vehicle_type: 'Car', vehicle_status: 'Available' });
+      toast.success('Vehicle added successfully!');
       await fetchVehicles();
-      alert('Vehicle added successfully!');
     } catch (error) {
-      console.error('Error adding vehicle:', error);
-      alert(`Failed to add vehicle: ${error.message}`);
+      handleError(error, 'Failed to add vehicle.');
     } finally {
       setIsSubmitting(false);
     }
@@ -194,7 +195,7 @@ export default function Vehicles() {
   const handleEditSubmit = async (e) => {
     e.preventDefault();
     if (!editVehicleForm.plate_number) {
-      alert('Plate number is required.');
+      toast.error('Plate number is required.');
       return;
     }
 
@@ -212,11 +213,10 @@ export default function Vehicles() {
       if (error) throw error;
 
       setIsEditModalOpen(false);
+      toast.success('Vehicle updated successfully!');
       await fetchVehicles();
-      alert('Vehicle updated successfully!');
     } catch (error) {
-      console.error('Error updating vehicle:', error);
-      alert(`Failed to update: ${error.message}`);
+      handleError(error, 'Failed to update vehicle.');
     } finally {
       setIsSubmitting(false);
     }
@@ -233,21 +233,51 @@ export default function Vehicles() {
         .eq('vehicle_id', vehicleId);
 
       if (error) throw error;
+      toast.success('Vehicle removed successfully.');
       await fetchVehicles();
-      alert('Vehicle removed successfully.');
     } catch (error) {
-      console.error('Error deleting vehicle:', error);
-      alert('Failed to delete vehicle. Make sure it is not assigned to any event.');
+      handleError(error, 'Failed to delete vehicle. Make sure it is not assigned to any event.');
     }
   };
 
-  // --- ASSIGN VEHICLE (no permanent status change) ---
+  // --- ASSIGN VEHICLE (with date conflict check) ---
   const handleAssignSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
 
     try {
-      // Insert assignment (do NOT update vehicle_status)
+      // Get the selected booking
+      const selectedBooking = bookings.find(b => b.booking_id === assignForm.booking_id);
+      if (!selectedBooking) {
+        toast.error('Selected booking not found.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Get the event date of the booking
+      const eventDate = selectedBooking.event_datetime ? new Date(selectedBooking.event_datetime) : null;
+      if (!eventDate) {
+        toast.error('Booking has no event date.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Check if the selected vehicle is already assigned to another booking on the same event date
+      const existingAssign = assignments.find(a => {
+        if (a.vehicle_id !== assignForm.vehicle_id) return false;
+        if (!a.booking?.event_datetime) return false;
+        const assignEventDate = new Date(a.booking.event_datetime);
+        // Compare dates (ignore time)
+        return assignEventDate.toDateString() === eventDate.toDateString() && a.booking.booking_status !== 'Rejected';
+      });
+
+      if (existingAssign) {
+        toast.error('This vehicle is already assigned to another event on the same date. Please choose another vehicle.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Insert assignment
       const { error: assignError } = await supabase
         .from('vehicle_assign')
         .insert([{
@@ -261,17 +291,16 @@ export default function Vehicles() {
 
       setIsAssignModalOpen(false);
       setAssignForm({ vehicle_id: '', booking_id: '', dispatch_datetime: '', assignment_status: 'Scheduled' });
+      toast.success('Vehicle assigned successfully!');
       await fetchVehicles();
-      alert('Vehicle assigned successfully!');
     } catch (error) {
-      console.error('Error assigning vehicle:', error);
-      alert(`Failed to assign: ${error.message}`);
+      handleError(error, 'Failed to assign vehicle.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // --- CALCULATED STATS (based on dynamic status) ---
+  // --- CALCULATED STATS ---
   const totalCars = vehicles.filter((v) => v.vehicle_type === 'Car').length;
   const totalMotorcycles = vehicles.filter((v) => v.vehicle_type === 'Motorcycle').length;
   const availableCount = vehicles.filter((v) => v.displayStatus === 'Available').length;
@@ -303,7 +332,7 @@ export default function Vehicles() {
         </div>
       </div>
 
-      {/* SUMMARY STAT CARDS (updated counts) */}
+      {/* SUMMARY STAT CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5">
           <p className="text-xs font-semibold text-slate-600 mb-1">Total Fleet</p>
@@ -347,7 +376,7 @@ export default function Vehicles() {
             <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
               {isLoading ? (
                 <tr>
-                  <td colSpan="5" className="p-6 text-center text-slate-400">Loading...</td>
+                  <td colSpan="5" className="p-6 text-center text-slate-400">Loading fleet...</td>
                 </tr>
               ) : vehicles.length === 0 ? (
                 <tr>
@@ -560,7 +589,7 @@ export default function Vehicles() {
       )}
 
       {/* ========================================================= */}
-      {/* 3. ASSIGN VEHICLE MODAL (unchanged) */}
+      {/* 3. ASSIGN VEHICLE MODAL (with date conflict check) */}
       {/* ========================================================= */}
       {isAssignModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
@@ -612,17 +641,17 @@ export default function Vehicles() {
                 >
                   <option value="">-- Choose Vehicle --</option>
                   {vehicles
-                    .filter((v) => v.vehicle_status === 'Available') // only base available
+                    .filter((v) => v.vehicle_status === 'Available' && v.displayStatus !== 'Deployed Today' && v.displayStatus !== 'Upcoming')
                     .map((v) => (
                       <option key={v.vehicle_id} value={v.vehicle_id}>
                         {v.plate_number} ({v.vehicle_type}) – {v.displayStatus}
                       </option>
                     ))}
-                  {vehicles.filter((v) => v.vehicle_status === 'Available').length === 0 && (
+                  {vehicles.filter((v) => v.vehicle_status === 'Available' && v.displayStatus !== 'Deployed Today' && v.displayStatus !== 'Upcoming').length === 0 && (
                     <option disabled>No Available Vehicles</option>
                   )}
                 </select>
-                <p className="text-xs text-slate-400 mt-1">Only vehicles with base status 'Available' can be assigned.</p>
+                <p className="text-xs text-slate-400 mt-1">Only vehicles with base status 'Available' and not already scheduled for today or future events can be assigned.</p>
               </div>
 
               <div>

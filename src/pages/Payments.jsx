@@ -1,7 +1,9 @@
+// src/pages/Payments.jsx
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Upload, X, Image as ImageIcon, Edit, Trash2, Check, DollarSign, RefreshCw } from 'lucide-react';
 import { supabase } from '../supabase';
+import toast from 'react-hot-toast';
 
 export default function Payments() {
   // --- STATE ---
@@ -9,7 +11,7 @@ export default function Payments() {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('All');
-  const tabs = ['All', 'Downpayment', 'Full Payment', 'Unpaid'];
+  const tabs = ['All', 'Downpayment', 'Full Payment'];
 
   // --- MODAL STATE ---
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -20,6 +22,11 @@ export default function Payments() {
 
   // --- SEARCH STATE for dropdown ---
   const [bookingSearchTerm, setBookingSearchTerm] = useState('');
+
+  // --- SUMMARY STATE ---
+  const [totalCollected, setTotalCollected] = useState(0);
+  const [pendingBalance, setPendingBalance] = useState(0);
+  const [fullyPaidCount, setFullyPaidCount] = useState(0);
 
   const initialFormState = {
     booking_id: '',
@@ -32,10 +39,17 @@ export default function Payments() {
 
   const [formData, setFormData] = useState(initialFormState);
 
+  // --- Helper: Log technical error and show user-friendly toast ---
+  const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
+    console.error('Error:', error);
+    toast.error(userMessage);
+  };
+
   // --- FETCH DATA ---
   const fetchData = async () => {
     setLoading(true);
     try {
+      // 1. Fetch payments with booking details
       const { data: paymentsData, error: paymentsError } = await supabase
         .from('payment')
         .select(`
@@ -53,6 +67,7 @@ export default function Payments() {
       if (paymentsError) throw paymentsError;
       setPayments(paymentsData || []);
 
+      // 2. Fetch bookings (approved/pending, not completed/rejected) for dropdown
       const { data: bookingsData, error: bookingsError } = await supabase
         .from('booking')
         .select(`
@@ -70,9 +85,40 @@ export default function Payments() {
       if (bookingsError) throw bookingsError;
       setBookings(bookingsData || []);
 
+      // 3. Compute summary statistics
+      // Total collected: sum of all positive payments (Downpayment + Fully Paid)
+      const collected = paymentsData
+        .filter(p => p.pay_status === 'Fully Paid' || p.pay_status === 'Downpayment')
+        .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+      setTotalCollected(collected);
+
+      // Fully paid count: count of bookings where sum(amount_paid) >= total_amount
+      // We need to compute per booking from paymentsData
+      const bookingTotals = {};
+      paymentsData.forEach(p => {
+        if (p.booking_id) {
+          if (!bookingTotals[p.booking_id]) bookingTotals[p.booking_id] = 0;
+          bookingTotals[p.booking_id] += p.amount_paid || 0;
+        }
+      });
+      let fullyPaid = 0;
+      bookingsData.forEach(b => {
+        const paid = bookingTotals[b.booking_id] || 0;
+        if (paid >= (b.total_amount || 0)) fullyPaid++;
+      });
+      setFullyPaidCount(fullyPaid);
+
+      // Pending balance: sum of remaining balances for all bookings (total_amount - paid)
+      let pending = 0;
+      bookingsData.forEach(b => {
+        const paid = bookingTotals[b.booking_id] || 0;
+        const remaining = (b.total_amount || 0) - paid;
+        if (remaining > 0) pending += remaining;
+      });
+      setPendingBalance(pending);
+
     } catch (error) {
-      console.error('Error fetching data:', error);
-      alert('Failed to load payments.');
+      handleError(error, 'Unable to load payments. Please refresh the page.');
     } finally {
       setLoading(false);
     }
@@ -82,19 +128,11 @@ export default function Payments() {
     fetchData();
   }, []);
 
-  // --- SUMMARY CALCULATIONS ---
-  const totalCollected = payments
-    .filter(p => p.pay_status === 'Fully Paid' || p.pay_status === 'Downpayment')
-    .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-
-  const fullyPaidCount = payments.filter(p => p.pay_status === 'Fully Paid').length;
-
   // --- FILTER LOGIC ---
   const filteredPayments = payments.filter(p => {
     if (activeTab === 'All') return true;
     if (activeTab === 'Downpayment') return p.pay_status === 'Downpayment';
     if (activeTab === 'Full Payment') return p.pay_status === 'Fully Paid';
-    if (activeTab === 'Unpaid') return p.pay_status === 'Unpaid';
     return true;
   });
 
@@ -150,8 +188,18 @@ export default function Payments() {
     setUploading(false);
   };
 
-  // --- Get selected booking details ---
+  // --- Get selected booking details and remaining balance ---
   const selectedBooking = bookings.find(b => b.booking_id === formData.booking_id);
+  const getRemainingBalance = (bookingId) => {
+    if (!bookingId) return 0;
+    const booking = bookings.find(b => b.booking_id === bookingId);
+    if (!booking) return 0;
+    const paid = payments
+      .filter(p => p.booking_id === bookingId)
+      .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+    return Math.max(0, (booking.total_amount || 0) - paid);
+  };
+  const remainingBalanceForSelected = getRemainingBalance(formData.booking_id);
 
   // --- Filter bookings for dropdown based on search term ---
   const filteredBookings = bookings.filter(b => {
@@ -166,6 +214,19 @@ export default function Payments() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+
+    // Validate amount against remaining balance
+    const amount = parseFloat(formData.amount) || 0;
+    if (amount <= 0) {
+      toast.error('Amount must be greater than zero.');
+      setIsSubmitting(false);
+      return;
+    }
+    if (remainingBalanceForSelected < amount) {
+      toast.error(`Amount exceeds remaining balance of ₱${remainingBalanceForSelected.toLocaleString()}.`);
+      setIsSubmitting(false);
+      return;
+    }
 
     try {
       let proofUrl = formData.pay_proof;
@@ -185,7 +246,8 @@ export default function Payments() {
             .getPublicUrl(filePath);
           proofUrl = publicUrlData.publicUrl;
         } catch (err) {
-          alert('Failed to upload proof image: ' + err.message);
+          console.error('Upload error:', err);
+          toast.error('Failed to upload proof image. Please try again.');
           setUploading(false);
           setIsSubmitting(false);
           return;
@@ -195,12 +257,13 @@ export default function Payments() {
 
       const payload = {
         booking_id: formData.booking_id,
-        amount_paid: parseFloat(formData.amount) || 0,
+        amount_paid: amount,
         pay_installment: parseInt(formData.pay_installment) || 1,
         pay_method: formData.pay_method,
         pay_status: formData.pay_status,
         pay_datetime: new Date().toISOString(),
         pay_proof: proofUrl || 'placeholder.png',
+        customer_id: selectedBooking?.customer?.customer_id || null, // optional
       };
 
       if (editingId) {
@@ -209,18 +272,19 @@ export default function Payments() {
           .update(payload)
           .eq('payment_id', editingId);
         if (error) throw error;
+        toast.success('Payment updated successfully!');
       } else {
         const { error } = await supabase
           .from('payment')
           .insert([payload]);
         if (error) throw error;
+        toast.success('Payment recorded successfully!');
       }
 
       closeModal();
       fetchData();
     } catch (error) {
-      console.error('Error saving payment:', error);
-      alert(`Error: ${error.message}`);
+      handleError(error, 'Failed to save payment.');
     } finally {
       setIsSubmitting(false);
       setUploading(false);
@@ -235,10 +299,10 @@ export default function Payments() {
         .delete()
         .eq('payment_id', id);
       if (error) throw error;
+      toast.success('Payment deleted.');
       fetchData();
     } catch (error) {
-      console.error('Error deleting payment:', error);
-      alert('Failed to delete payment.');
+      handleError(error, 'Failed to delete payment.');
     }
   };
 
@@ -279,7 +343,7 @@ export default function Payments() {
             onClick={fetchData}
             className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-xs"
           >
-            <RefreshCw size={16} /> Refresh
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
           </button>
           <button
             onClick={openNewPaymentModal}
@@ -299,8 +363,8 @@ export default function Payments() {
         </div>
         <div className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5">
           <p className="text-xs font-semibold text-slate-600 mb-1">Pending Balance</p>
-          <h3 className="text-3xl font-extrabold text-slate-900">₱0</h3>
-          <p className="text-xs text-slate-500 mt-2">From outstanding bookings</p>
+          <h3 className="text-3xl font-extrabold text-slate-900">₱{pendingBalance.toLocaleString()}</h3>
+          <p className="text-xs text-slate-500 mt-2">Outstanding from all bookings</p>
         </div>
         <div className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5">
           <p className="text-xs font-semibold text-slate-600 mb-1">Fully Paid</p>
@@ -345,7 +409,7 @@ export default function Payments() {
             </thead>
             <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
               {loading ? (
-                <tr><td colSpan="9" className="p-6 text-center text-slate-400">Loading...</td></tr>
+                <tr><td colSpan="9" className="p-6 text-center text-slate-400">Loading payments...</td></tr>
               ) : filteredPayments.length === 0 ? (
                 <tr><td colSpan="9" className="p-6 text-center text-slate-500 italic">No payments found.</td></tr>
               ) : (
@@ -402,7 +466,7 @@ export default function Payments() {
       </div>
 
       {/* ========================================================= */}
-      {/* RECORD / EDIT PAYMENT MODAL – with search and booking details */}
+      {/* RECORD / EDIT PAYMENT MODAL */}
       {/* ========================================================= */}
       {isModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
@@ -483,7 +547,7 @@ export default function Payments() {
                     <span className="text-slate-600 font-medium">Status:</span>
                     <span className="text-slate-900 font-semibold capitalize">{selectedBooking.booking_status || 'N/A'}</span>
                   </div>
-                  {/* Show existing payments summary if any */}
+                  {/* Show existing payments summary */}
                   {payments.filter(p => p.booking_id === selectedBooking.booking_id).length > 0 && (
                     <div className="mt-2 pt-2 border-t border-slate-200 text-xs text-slate-500">
                       <span className="font-medium">Existing payments: </span>
@@ -492,6 +556,15 @@ export default function Payments() {
                           ₱{p.amount_paid.toLocaleString()} ({p.pay_status}) {idx < payments.filter(p2 => p2.booking_id === selectedBooking.booking_id).length - 1 ? '•' : ''}
                         </span>
                       ))}
+                      <br />
+                      <span className="font-medium">Remaining balance: </span>
+                      <span className="font-bold text-amber-700">₱{remainingBalanceForSelected.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {payments.filter(p => p.booking_id === selectedBooking.booking_id).length === 0 && (
+                    <div className="mt-2 pt-2 border-t border-slate-200 text-xs text-slate-500">
+                      <span className="font-medium">Remaining balance: </span>
+                      <span className="font-bold text-amber-700">₱{remainingBalanceForSelected.toLocaleString()}</span>
                     </div>
                   )}
                 </div>
@@ -511,6 +584,9 @@ export default function Payments() {
                     required
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
                   />
+                  {selectedBooking && (
+                    <p className="text-xs text-slate-400 mt-1">Max: ₱{remainingBalanceForSelected.toLocaleString()}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Installment #</label>
@@ -533,7 +609,6 @@ export default function Payments() {
                   >
                     <option value="Downpayment">Downpayment</option>
                     <option value="Fully Paid">Fully Paid</option>
-                    <option value="Unpaid">Unpaid</option>
                   </select>
                 </div>
               </div>

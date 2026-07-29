@@ -2,9 +2,10 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
+import toast from 'react-hot-toast';
 
 export default function PackagesAndMenus() {
-  // --- STATE (unchanged) ---
+  // --- STATE ---
   const [activeTab, setActiveTab] = useState('All');
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -39,7 +40,13 @@ export default function PackagesAndMenus() {
   });
   const [isCategorySubmitting, setIsCategorySubmitting] = useState(false);
 
-  // --- FETCH DATA (unchanged) ---
+  // --- Helper: Log technical error and show user-friendly toast ---
+  const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
+    console.error('Error:', error);
+    toast.error(userMessage);
+  };
+
+  // --- FETCH DATA ---
   const fetchData = async () => {
     setIsLoading(true);
     try {
@@ -62,14 +69,13 @@ export default function PackagesAndMenus() {
 
       await fetchPackageAssociations(packagesRes.data || []);
     } catch (error) {
-      console.error('Error fetching data:', error);
-      alert('Failed to load data. Please refresh.');
+      handleError(error, 'Unable to load catalog data. Please refresh the page.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // --- FETCH ASSOCIATIONS (unchanged) ---
+  // --- FETCH ASSOCIATIONS ---
   const fetchPackageAssociations = async (packagesData) => {
     if (!packagesData || packagesData.length === 0) {
       setPackageEquipment({});
@@ -126,6 +132,7 @@ export default function PackagesAndMenus() {
       console.error('Error fetching package associations:', error);
       setPackageEquipment({});
       setPackageCategories({});
+      toast.error('Unable to load package associations.');
     }
   };
 
@@ -133,7 +140,7 @@ export default function PackagesAndMenus() {
     fetchData();
   }, []);
 
-  // --- FETCH ASSOCIATIONS FOR EDIT (unchanged) ---
+  // --- FETCH ASSOCIATIONS FOR EDIT ---
   const fetchPackageAssociationsForEdit = async (packageId) => {
     try {
       const { data: catData, error: catError } = await supabase
@@ -158,11 +165,12 @@ export default function PackagesAndMenus() {
       return { selectedCategories, selectedEquipment, equipmentQuantities };
     } catch (error) {
       console.error('Error fetching associations for edit:', error);
+      toast.error('Unable to load package details for editing.');
       return { selectedCategories: [], selectedEquipment: [], equipmentQuantities: {} };
     }
   };
 
-  // --- HANDLERS (unchanged) ---
+  // --- HANDLERS ---
   const handleInputChange = (e) => {
     const { name, value, files } = e.target;
     if (name === 'imageFile' && files.length > 0) {
@@ -271,7 +279,7 @@ export default function PackagesAndMenus() {
     setIsSubmitting(false);
   };
 
-  // --- SUBMIT (unchanged) ---
+  // --- SUBMIT ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -281,21 +289,27 @@ export default function PackagesAndMenus() {
       let uploadedImageUrl = null;
 
       if (formData.imageFile) {
-        const fileExt = formData.imageFile.name.split('.').pop();
-        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-        const filePath = `${modalType === 'Package' ? 'packages' : 'menu'}/${fileName}`;
+        try {
+          const fileExt = formData.imageFile.name.split('.').pop();
+          const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+          const filePath = `${modalType === 'Package' ? 'packages' : 'menu'}/${fileName}`;
 
-        const { error: uploadError } = await supabase.storage
-          .from('images')
-          .upload(filePath, formData.imageFile);
+          const { error: uploadError } = await supabase.storage
+            .from('images')
+            .upload(filePath, formData.imageFile);
 
-        if (uploadError) throw uploadError;
+          if (uploadError) throw uploadError;
 
-        const { data: publicUrlData } = supabase.storage
-          .from('images')
-          .getPublicUrl(filePath);
+          const { data: publicUrlData } = supabase.storage
+            .from('images')
+            .getPublicUrl(filePath);
 
-        uploadedImageUrl = publicUrlData.publicUrl;
+          uploadedImageUrl = publicUrlData.publicUrl;
+        } catch (uploadErr) {
+          handleError(uploadErr, 'Failed to upload image. Please try again.');
+          setIsSubmitting(false);
+          return;
+        }
       }
 
       if (modalType === 'Package') {
@@ -324,6 +338,7 @@ export default function PackagesAndMenus() {
           packageId = newPackage[0].package_id;
         }
 
+        // Update categories
         const { error: deleteCatError } = await supabase
           .from('package_category')
           .delete()
@@ -342,6 +357,7 @@ export default function PackagesAndMenus() {
           if (insertCatError) throw insertCatError;
         }
 
+        // Update equipment
         const { error: deleteEquipError } = await supabase
           .from('package_equipment')
           .delete()
@@ -361,6 +377,7 @@ export default function PackagesAndMenus() {
           if (insertEquipError) throw insertEquipError;
         }
 
+        toast.success(editingId ? 'Package updated successfully!' : 'Package created successfully!');
         await fetchData();
 
       } else {
@@ -377,27 +394,28 @@ export default function PackagesAndMenus() {
             .update(menuData)
             .eq('menu_item_id', editingId);
           if (error) throw error;
+          toast.success('Menu item updated successfully!');
         } else {
           const { error } = await supabase
             .from('menu_item')
             .insert([{ ...menuData, menu_availability: 'Available' }]);
           if (error) throw error;
+          toast.success('Menu item created successfully!');
         }
       }
 
       handleCloseModal();
       fetchData();
     } catch (error) {
-      console.error('Error saving:', error);
-      alert(`Error: ${error.message}`);
+      handleError(error, 'Failed to save item.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // --- DELETE (unchanged) ---
+  // --- DELETE ---
   const handleDelete = async (id, type) => {
-    if (!confirm(`Delete this ${type}?`)) return;
+    if (!confirm(`Delete this ${type}? This action cannot be undone.`)) return;
 
     try {
       if (type === 'Package') {
@@ -407,7 +425,7 @@ export default function PackagesAndMenus() {
           .eq('package_id', id);
         if (countError) throw countError;
         if (count > 0) {
-          alert(`Cannot delete this package because it is used in ${count} booking(s). Please remove the bookings first.`);
+          toast.error(`Cannot delete this package because it is used in ${count} booking(s). Please remove the bookings first.`);
           return;
         }
 
@@ -415,6 +433,7 @@ export default function PackagesAndMenus() {
         await supabase.from('package_equipment').delete().eq('package_id', id);
         const { error } = await supabase.from('package').delete().eq('package_id', id);
         if (error) throw error;
+        toast.success('Package deleted.');
       } else {
         const { count, error: countError } = await supabase
           .from('package_menu')
@@ -422,7 +441,7 @@ export default function PackagesAndMenus() {
           .eq('menu_item_id', id);
         if (countError) throw countError;
         if (count > 0) {
-          alert(`Cannot delete this menu item because it is included in ${count} package(s). Please remove it from packages first.`);
+          toast.error(`Cannot delete this menu item because it is included in ${count} package(s). Please remove it from packages first.`);
           return;
         }
 
@@ -431,15 +450,15 @@ export default function PackagesAndMenus() {
           .delete()
           .eq('menu_item_id', id);
         if (error) throw error;
+        toast.success('Menu item deleted.');
       }
       fetchData();
     } catch (error) {
-      console.error('Error deleting:', error);
-      alert('Failed to delete. Please check console for details.');
+      handleError(error, 'Failed to delete item.');
     }
   };
 
-  // --- TOGGLE ARCHIVE (unchanged) ---
+  // --- TOGGLE ARCHIVE ---
   const toggleArchive = async (id, type) => {
     try {
       if (type === 'package') {
@@ -450,6 +469,7 @@ export default function PackagesAndMenus() {
           .update({ pkg_availability: newStatus })
           .eq('package_id', id);
         if (error) throw error;
+        toast.success(`Package ${newStatus === 'Archived' ? 'archived' : 'unarchived'}.`);
       } else {
         const target = menuItems.find(m => m.menu_item_id === id);
         const newStatus = target?.menu_availability === 'Archived' ? 'Available' : 'Archived';
@@ -458,15 +478,15 @@ export default function PackagesAndMenus() {
           .update({ menu_availability: newStatus })
           .eq('menu_item_id', id);
         if (error) throw error;
+        toast.success(`Menu item ${newStatus === 'Archived' ? 'archived' : 'unarchived'}.`);
       }
       fetchData();
     } catch (error) {
-      console.error('Error toggling archive:', error);
-      alert('Failed to update status.');
+      handleError(error, 'Failed to update status.');
     }
   };
 
-  // --- CATEGORY MANAGEMENT (unchanged) ---
+  // --- CATEGORY MANAGEMENT ---
   const handleOpenCategoryModal = (category = null) => {
     setCategoryForm({
       category_id: category?.category_id || null,
@@ -495,17 +515,18 @@ export default function PackagesAndMenus() {
           .update(data)
           .eq('category_id', categoryForm.category_id);
         if (error) throw error;
+        toast.success('Category updated!');
       } else {
         const { error } = await supabase
           .from('category')
           .insert([data]);
         if (error) throw error;
+        toast.success('Category added!');
       }
       setIsCategoryModalOpen(false);
       fetchData();
     } catch (error) {
-      console.error('Error saving category:', error);
-      alert('Failed to save category.');
+      handleError(error, 'Failed to save category.');
     } finally {
       setIsCategorySubmitting(false);
     }
@@ -519,14 +540,14 @@ export default function PackagesAndMenus() {
         .delete()
         .eq('category_id', categoryId);
       if (error) throw error;
+      toast.success('Category deleted.');
       fetchData();
     } catch (error) {
-      console.error('Error deleting category:', error);
-      alert('Failed to delete category.');
+      handleError(error, 'Failed to delete category.');
     }
   };
 
-  // --- FILTER LOGIC (unchanged) ---
+  // --- FILTER LOGIC ---
   const getDisplayedPackages = () => {
     if (activeTab === 'Archived') {
       return packages.filter(p => p.pkg_availability === 'Archived');
@@ -558,7 +579,6 @@ export default function PackagesAndMenus() {
   // --- RENDER HELPER for images ---
   const renderImage = (src, alt, className) => {
     if (!src) {
-      // No image – return fallback div
       return (
         <div className={`${className} flex items-center justify-center bg-slate-100 text-slate-400`}>
           <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -569,14 +589,12 @@ export default function PackagesAndMenus() {
       );
     }
 
-    // If src exists, render img with onError fallback
     return (
       <img
         src={src}
         alt={alt}
         className={className}
         onError={(e) => {
-          // Replace broken image with fallback
           e.target.style.display = 'none';
           const parent = e.target.parentNode;
           const fallback = document.createElement('div');
@@ -597,7 +615,7 @@ export default function PackagesAndMenus() {
   // --- RENDER ---
   return (
     <div className="space-y-6 relative pb-12">
-      {/* HEADER (unchanged) */}
+      {/* HEADER */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Packages & Menu</h1>
@@ -625,7 +643,7 @@ export default function PackagesAndMenus() {
         </div>
       </div>
 
-      {/* TABS (unchanged) */}
+      {/* TABS */}
       <div className="border-b border-slate-200">
         <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
           {['All', 'Catering Packages', 'Menu Items', 'Archived'].map((tab) => (
@@ -802,7 +820,7 @@ export default function PackagesAndMenus() {
         </div>
       )}
 
-      {/* ========== MODAL (unchanged except image upload uses the same render helper) ========== */}
+      {/* ========== MODAL ========== */}
       {isModalOpen && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -821,7 +839,7 @@ export default function PackagesAndMenus() {
             {/* Body */}
             <div className="p-6 overflow-y-auto">
               <form id="item-form" onSubmit={handleSubmit} className="space-y-6">
-                {/* Type Toggle (unchanged) */}
+                {/* Type Toggle */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-2">Type</label>
                   <div className="flex gap-4">
@@ -848,7 +866,7 @@ export default function PackagesAndMenus() {
                   </div>
                 </div>
 
-                {/* Package Fields (unchanged) */}
+                {/* Package Fields */}
                 {modalType === 'Package' && (
                   <div className="space-y-4">
                     <div className="grid grid-cols-4 gap-4">
@@ -955,7 +973,7 @@ export default function PackagesAndMenus() {
                   </div>
                 )}
 
-                {/* Menu Item Fields (unchanged) */}
+                {/* Menu Item Fields */}
                 {modalType === 'Menu Item' && (
                   <div className="space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -990,7 +1008,7 @@ export default function PackagesAndMenus() {
                   </div>
                 )}
 
-                {/* Image Upload (unchanged) */}
+                {/* Image Upload */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Upload Image</label>
                   <label className={`border-2 border-dashed border-slate-300 rounded-lg h-32 flex flex-col items-center justify-center text-slate-400 bg-slate-50 transition-colors relative overflow-hidden ${isSubmitting ? 'opacity-50 cursor-wait' : 'cursor-pointer hover:bg-slate-100'}`}>
@@ -1011,7 +1029,7 @@ export default function PackagesAndMenus() {
               </form>
             </div>
 
-            {/* Footer (unchanged) */}
+            {/* Footer */}
             <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 sticky bottom-0">
               <button type="button" onClick={handleCloseModal} disabled={isSubmitting}
                 className="px-5 py-2.5 text-sm font-bold text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50">
@@ -1028,7 +1046,7 @@ export default function PackagesAndMenus() {
         document.body
       )}
 
-      {/* CATEGORY MANAGEMENT MODAL (unchanged) */}
+      {/* CATEGORY MANAGEMENT MODAL */}
       {isCategoryModalOpen && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
