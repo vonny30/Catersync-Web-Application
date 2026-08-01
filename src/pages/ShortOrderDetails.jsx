@@ -1,13 +1,16 @@
+// src/pages/ShortOrderDetails.jsx
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Edit, Trash2, Check, X, Plus, Image as ImageIcon } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
+import { useConfirm } from '../contexts/ConfirmContext';
 
 export default function ShortOrderDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { showConfirm } = useConfirm();
   const [order, setOrder] = useState(null);
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -156,15 +159,73 @@ export default function ShortOrderDetails() {
     fetchDropdownData();
   }, [id]);
 
-  // --- Approve / Reject ---
+  // --- Approve (with 50% check and payment status sync) ---
   const handleApprove = async () => {
+    const confirmed = await showConfirm({
+      title: 'Approve Order?',
+      message: 'Are you sure you want to approve this order? Payment statuses will be set to Downpayment.',
+      confirmLabel: 'Approve',
+      confirmVariant: 'success',
+    });
+    if (!confirmed) return;
+
     try {
+      // --- Check 50% payment condition ---
+      const { data: paymentsData, error: paymentsError } = await supabase
+        .from('payment')
+        .select('amount_paid')
+        .eq('booking_id', id);
+
+      if (paymentsError) throw paymentsError;
+
+      const totalPaid = paymentsData.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+      const totalAmount = order.total_amount || 0;
+      const required = totalAmount * 0.5;
+
+      if (totalPaid < required) {
+        toast.error(
+          `Cannot approve. Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}). Please record more payments.`,
+          { duration: 6000 }
+        );
+        return;
+      }
+
+      // 1. Update order status
       const { error } = await supabase
         .from('booking')
         .update({ booking_status: 'Approved' })
         .eq('booking_id', id);
       if (error) throw error;
-      toast.success('Order approved successfully!');
+
+      // 2. Update all payments to 'Downpayment' (sync with Approved)
+      const { error: updatePaymentsError } = await supabase
+        .from('payment')
+        .update({ pay_status: 'Downpayment' })
+        .eq('booking_id', id);
+      if (updatePaymentsError) throw updatePaymentsError;
+
+      // 3. If no payments exist yet (shouldn't happen, but safe), create one
+      const { data: existingPayments, error: countError } = await supabase
+        .from('payment')
+        .select('payment_id', { count: 'exact', head: true })
+        .eq('booking_id', id);
+      if (countError) throw countError;
+      if (existingPayments.length === 0) {
+        const { error: insertError } = await supabase
+          .from('payment')
+          .insert([{
+            booking_id: id,
+            amount_paid: 0,
+            pay_installment: 1,
+            pay_method: 'Pending',
+            pay_status: 'Downpayment',
+            pay_datetime: new Date().toISOString(),
+            pay_proof: 'placeholder.png',
+          }]);
+        if (insertError) throw insertError;
+      }
+
+      toast.success('Order approved and payments set to Downpayment.');
       fetchOrder();
     } catch (error) {
       handleError(error, 'Failed to approve order.');
@@ -172,7 +233,14 @@ export default function ShortOrderDetails() {
   };
 
   const handleReject = async () => {
-    if (!confirm('Reject this order? This will cancel it.')) return;
+    const confirmed = await showConfirm({
+      title: 'Reject Order?',
+      message: 'Are you sure you want to reject this order? This will cancel it and cannot be undone.',
+      confirmLabel: 'Reject',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
       const { error } = await supabase
         .from('booking')
@@ -186,15 +254,31 @@ export default function ShortOrderDetails() {
     }
   };
 
-  // --- Delete ---
+  // --- Delete (with payment deletion first) ---
   const handleDelete = async () => {
-    if (!confirm('Permanently delete this order? This cannot be undone.')) return;
+    const confirmed = await showConfirm({
+      title: 'Delete Order?',
+      message: 'Are you sure you want to permanently delete this order? This action cannot be undone. All associated payments will also be deleted.',
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
+      // FIRST: Delete all associated payments
+      const { error: paymentsError } = await supabase
+        .from('payment')
+        .delete()
+        .eq('booking_id', id);
+      if (paymentsError) throw paymentsError;
+
+      // THEN: Delete the order
       const { error } = await supabase
         .from('booking')
         .delete()
         .eq('booking_id', id);
       if (error) throw error;
+
       toast.success('Order deleted.');
       navigate('/app/orders');
     } catch (error) {
@@ -433,11 +517,14 @@ export default function ShortOrderDetails() {
       let shouldRefund = false;
 
       if (totalDownpayment > 0 && isRefundable) {
-        shouldRefund = confirm(
-          `This order has a downpayment of ₱${totalDownpayment.toLocaleString()}. ` +
-          `Since the event is ${daysUntilEvent} days away (>= 3 days), the downpayment is refundable. ` +
-          `Do you want to record a refund?`
-        );
+        const refundConfirm = await showConfirm({
+          title: 'Refund Downpayment?',
+          message: `This order has a downpayment of ₱${totalDownpayment.toLocaleString()}. Since the event is ${daysUntilEvent} days away (>= 3 days), the downpayment is refundable. Do you want to record a refund?`,
+          confirmLabel: 'Yes, Refund',
+          cancelLabel: 'No, Keep',
+          confirmVariant: 'warning',
+        });
+        shouldRefund = refundConfirm;
         if (shouldRefund) {
           refundNote = 'Downpayment refunded due to client cancellation.';
         } else {
@@ -844,9 +931,17 @@ export default function ShortOrderDetails() {
               </div>
 
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                <label className="block text-xs font-bold text-slate-700 mb-1">Total Amount</label>
-                <div className="text-xl font-bold text-[#008A45]">₱{editFormData.total_amount || '0.00'}</div>
-                <input type="hidden" name="total_amount" value={editFormData.total_amount} />
+                <label className="block text-xs font-bold text-slate-700 mb-1">Total Amount (editable)</label>
+                <input
+                  type="number"
+                  name="total_amount"
+                  value={editFormData.total_amount}
+                  onChange={handleEditInputChange}
+                  placeholder="Auto-calculated"
+                  step="0.01"
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                />
+                <p className="text-xs text-slate-400 mt-1">Auto-calculated from menu items × quantity + delivery fee. You can adjust.</p>
               </div>
 
               <div>
@@ -972,11 +1067,11 @@ export default function ShortOrderDetails() {
                       key={method}
                       type="button"
                       onClick={() => setPaymentFormData(prev => ({ ...prev, pay_method: method }))}
-                      className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border text-sm font-semibold transition-all ${
+                      className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border text-sm font-semibold transition-all ${(
                         paymentFormData.pay_method === method
                           ? 'bg-[#CBDEDD]/60 border-[#008A45] text-slate-900 shadow-xs'
                           : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
-                      }`}
+                      )}`}
                     >
                       <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${paymentFormData.pay_method === method ? 'border-[#008A45]' : 'border-slate-400'}`}>
                         {paymentFormData.pay_method === method && <div className="w-1.5 h-1.5 rounded-full bg-[#008A45]" />}

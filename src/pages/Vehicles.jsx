@@ -1,10 +1,13 @@
+// pages/Vehicles.jsx
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Edit, Trash2, X, Truck, Car, Settings } from 'lucide-react';
+import { Plus, Edit, Trash2, X, Truck, Car, Settings, Calendar, MapPin, Users, Clock } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
+import { useConfirm } from '../contexts/ConfirmContext';
 
 export default function Vehicles() {
+  const { showConfirm } = useConfirm();
   // --- DATA STATE ---
   const [vehicles, setVehicles] = useState([]);
   const [bookings, setBookings] = useState([]);
@@ -32,11 +35,13 @@ export default function Vehicles() {
   });
 
   const [assignForm, setAssignForm] = useState({
-    vehicle_id: '',
     booking_id: '',
     dispatch_datetime: '',
     assignment_status: 'Scheduled',
   });
+
+  // --- MULTIPLE VEHICLE SELECTION ---
+  const [selectedVehicleIds, setSelectedVehicleIds] = useState([]);
 
   // --- Helper: Log technical error and show user-friendly toast ---
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
@@ -48,14 +53,12 @@ export default function Vehicles() {
   const fetchVehicles = async () => {
     setIsLoading(true);
     try {
-      // 1. Fetch all vehicles
       const { data: vehiclesData, error: vehiclesError } = await supabase
         .from('vehicle')
         .select('*')
         .order('plate_number');
       if (vehiclesError) throw vehiclesError;
 
-      // 2. Fetch all assignments with booking details to get event date
       const { data: assignmentsData, error: assignError } = await supabase
         .from('vehicle_assign')
         .select(`
@@ -66,7 +69,6 @@ export default function Vehicles() {
       if (assignError) throw assignError;
       setAssignments(assignmentsData || []);
 
-      // 3. Enrich vehicles with dynamic status
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
@@ -121,7 +123,16 @@ export default function Vehicles() {
     try {
       const { data, error } = await supabase
         .from('booking')
-        .select('booking_id, customer:customer_id (first_name, last_name), event_datetime')
+        .select(`
+          booking_id,
+          booking_type,
+          booking_status,
+          event_datetime,
+          venue,
+          pax_count,
+          notes,
+          customer:customer_id (first_name, last_name, contact_no, cus_address)
+        `)
         .eq('booking_status', 'Approved')
         .order('event_datetime', { ascending: false });
       if (!error) setBookings(data || []);
@@ -150,6 +161,38 @@ export default function Vehicles() {
     const { name, value } = e.target;
     setAssignForm((prev) => ({ ...prev, [name]: value }));
   };
+
+  // --- When booking is selected, auto-suggest dispatch time ---
+  const handleBookingSelect = (e) => {
+    const bookingId = e.target.value;
+    setAssignForm(prev => ({ ...prev, booking_id: bookingId }));
+
+    if (bookingId) {
+      const selectedBooking = bookings.find(b => b.booking_id === bookingId);
+      if (selectedBooking && selectedBooking.event_datetime) {
+        const eventDate = new Date(selectedBooking.event_datetime);
+        const dispatchDate = new Date(eventDate.getTime() - 2 * 60 * 60 * 1000);
+        const formatted = dispatchDate.toISOString().slice(0, 16);
+        setAssignForm(prev => ({ ...prev, dispatch_datetime: formatted }));
+      }
+    } else {
+      setAssignForm(prev => ({ ...prev, dispatch_datetime: '' }));
+    }
+    // Reset selected vehicles when booking changes
+    setSelectedVehicleIds([]);
+  };
+
+  // --- Toggle vehicle selection ---
+  const toggleVehicleSelection = (vehicleId) => {
+    setSelectedVehicleIds(prev =>
+      prev.includes(vehicleId)
+        ? prev.filter(id => id !== vehicleId)
+        : [...prev, vehicleId]
+    );
+  };
+
+  // --- Get selected booking details ---
+  const selectedBooking = bookings.find(b => b.booking_id === assignForm.booking_id);
 
   // --- ADD VEHICLE ---
   const handleAddVehicle = async (e) => {
@@ -224,7 +267,13 @@ export default function Vehicles() {
 
   // --- DELETE VEHICLE ---
   const handleDeleteVehicle = async (vehicleId) => {
-    if (!confirm('Delete this vehicle from the fleet? This action cannot be undone.')) return;
+    const confirmed = await showConfirm({
+      title: 'Delete Vehicle?',
+      message: 'Are you sure you want to delete this vehicle from the fleet? This action cannot be undone.',
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
 
     try {
       const { error } = await supabase
@@ -240,13 +289,21 @@ export default function Vehicles() {
     }
   };
 
-  // --- ASSIGN VEHICLE (with date conflict check) ---
+  // --- ASSIGN VEHICLES (Multiple) ---
   const handleAssignSubmit = async (e) => {
     e.preventDefault();
+    if (selectedVehicleIds.length === 0) {
+      toast.error('Please select at least one vehicle.');
+      return;
+    }
+    if (!assignForm.booking_id) {
+      toast.error('Please select a booking.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      // Get the selected booking
       const selectedBooking = bookings.find(b => b.booking_id === assignForm.booking_id);
       if (!selectedBooking) {
         toast.error('Selected booking not found.');
@@ -254,7 +311,6 @@ export default function Vehicles() {
         return;
       }
 
-      // Get the event date of the booking
       const eventDate = selectedBooking.event_datetime ? new Date(selectedBooking.event_datetime) : null;
       if (!eventDate) {
         toast.error('Booking has no event date.');
@@ -262,39 +318,48 @@ export default function Vehicles() {
         return;
       }
 
-      // Check if the selected vehicle is already assigned to another booking on the same event date
-      const existingAssign = assignments.find(a => {
-        if (a.vehicle_id !== assignForm.vehicle_id) return false;
-        if (!a.booking?.event_datetime) return false;
-        const assignEventDate = new Date(a.booking.event_datetime);
-        // Compare dates (ignore time)
-        return assignEventDate.toDateString() === eventDate.toDateString() && a.booking.booking_status !== 'Rejected';
-      });
+      // Check conflicts for all selected vehicles
+      const conflicts = [];
+      for (const vehicleId of selectedVehicleIds) {
+        const existingAssign = assignments.find(a => {
+          if (a.vehicle_id !== vehicleId) return false;
+          if (!a.booking?.event_datetime) return false;
+          const assignEventDate = new Date(a.booking.event_datetime);
+          return assignEventDate.toDateString() === eventDate.toDateString() && a.booking.booking_status !== 'Rejected';
+        });
+        if (existingAssign) {
+          const vehicle = vehicles.find(v => v.vehicle_id === vehicleId);
+          conflicts.push(`${vehicle?.plate_number || vehicleId}`);
+        }
+      }
 
-      if (existingAssign) {
-        toast.error('This vehicle is already assigned to another event on the same date. Please choose another vehicle.');
+      if (conflicts.length > 0) {
+        toast.error(`Cannot assign: Vehicle(s) ${conflicts.join(', ')} already assigned to another event on ${eventDate.toLocaleDateString()}.`);
         setIsSubmitting(false);
         return;
       }
 
-      // Insert assignment
+      // Insert all assignments
+      const inserts = selectedVehicleIds.map(vehicleId => ({
+        vehicle_id: vehicleId,
+        booking_id: assignForm.booking_id,
+        dispatch_datetime: assignForm.dispatch_datetime,
+        assignment_status: 'Scheduled',
+      }));
+
       const { error: assignError } = await supabase
         .from('vehicle_assign')
-        .insert([{
-          vehicle_id: assignForm.vehicle_id,
-          booking_id: assignForm.booking_id,
-          dispatch_datetime: assignForm.dispatch_datetime,
-          assignment_status: 'Scheduled',
-        }]);
+        .insert(inserts);
 
       if (assignError) throw assignError;
 
       setIsAssignModalOpen(false);
-      setAssignForm({ vehicle_id: '', booking_id: '', dispatch_datetime: '', assignment_status: 'Scheduled' });
-      toast.success('Vehicle assigned successfully!');
+      setAssignForm({ booking_id: '', dispatch_datetime: '', assignment_status: 'Scheduled' });
+      setSelectedVehicleIds([]);
+      toast.success(`Successfully assigned ${inserts.length} vehicle(s).`);
       await fetchVehicles();
     } catch (error) {
-      handleError(error, 'Failed to assign vehicle.');
+      handleError(error, 'Failed to assign vehicles.');
     } finally {
       setIsSubmitting(false);
     }
@@ -324,7 +389,7 @@ export default function Vehicles() {
             <Settings size={16} /> Manage Fleet
           </button>
           <button
-            onClick={() => setIsAssignModalOpen(true)}
+            onClick={() => { setSelectedVehicleIds([]); setIsAssignModalOpen(true); }}
             className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-sm cursor-pointer"
           >
             <Plus size={16} /> Assign Vehicle
@@ -589,31 +654,32 @@ export default function Vehicles() {
       )}
 
       {/* ========================================================= */}
-      {/* 3. ASSIGN VEHICLE MODAL (with date conflict check) */}
+      {/* 3. ASSIGN VEHICLE MODAL - Multiple Vehicle Selection */}
       {/* ========================================================= */}
       {isAssignModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
               <div>
-                <h2 className="text-lg font-bold text-slate-900">Assign Vehicle</h2>
-                <p className="text-xs text-slate-500">Deploy a vehicle to an event (scheduled deployment)</p>
+                <h2 className="text-lg font-bold text-slate-900">Assign Vehicles</h2>
+                <p className="text-xs text-slate-500">Deploy multiple vehicles to an event</p>
               </div>
               <button
-                onClick={() => setIsAssignModalOpen(false)}
+                onClick={() => { setIsAssignModalOpen(false); setSelectedVehicleIds([]); }}
                 className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors cursor-pointer"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <form onSubmit={handleAssignSubmit} className="p-6 space-y-5 text-left">
+            <form onSubmit={handleAssignSubmit} className="p-6 overflow-y-auto space-y-5 text-left">
+              {/* Booking Selection */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Select Booking</label>
                 <select
                   name="booking_id"
                   value={assignForm.booking_id}
-                  onChange={handleAssignChange}
+                  onChange={handleBookingSelect}
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white font-semibold text-slate-800 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
                   required
                 >
@@ -630,32 +696,82 @@ export default function Vehicles() {
                 </select>
               </div>
 
+              {/* Booking Details Preview */}
+              {selectedBooking && (
+                <div className="bg-[#F8F9FA] border border-slate-200 rounded-lg p-4 space-y-3">
+                  <div className="flex justify-between items-start">
+                    <h4 className="font-bold text-slate-900 text-sm">Booking Details</h4>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 border border-green-200">
+                      {selectedBooking.booking_status}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="flex items-center gap-2 col-span-2">
+                      <Users size={14} className="text-slate-400" />
+                      <span className="text-slate-600">Customer:</span>
+                      <span className="font-semibold text-slate-900">
+                        {selectedBooking.customer ? `${selectedBooking.customer.first_name} ${selectedBooking.customer.last_name}` : 'Unknown'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 col-span-2">
+                      <Calendar size={14} className="text-slate-400" />
+                      <span className="text-slate-600">Event Date:</span>
+                      <span className="font-semibold text-slate-900">
+                        {selectedBooking.event_datetime ? new Date(selectedBooking.event_datetime).toLocaleString() : 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 col-span-2">
+                      <MapPin size={14} className="text-slate-400" />
+                      <span className="text-slate-600">Venue:</span>
+                      <span className="font-semibold text-slate-900">{selectedBooking.venue || 'N/A'}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Users size={14} className="text-slate-400" />
+                      <span className="text-slate-600">Pax:</span>
+                      <span className="font-semibold text-slate-900">{selectedBooking.pax_count || 0}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-600">Type:</span>
+                      <span className="font-semibold text-slate-900">{selectedBooking.booking_type || 'Package'}</span>
+                    </div>
+                    {selectedBooking.notes && (
+                      <div className="col-span-2 text-xs text-slate-500 border-t border-slate-200 pt-2 mt-1">
+                        <span className="font-medium text-slate-600">Notes:</span> {selectedBooking.notes}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Vehicle Selection (Checkboxes) */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Select Vehicle</label>
-                <select
-                  name="vehicle_id"
-                  value={assignForm.vehicle_id}
-                  onChange={handleAssignChange}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white font-semibold text-slate-800 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                  required
-                >
-                  <option value="">-- Choose Vehicle --</option>
-                  {vehicles
-                    .filter((v) => v.vehicle_status === 'Available' && v.displayStatus !== 'Deployed Today' && v.displayStatus !== 'Upcoming')
-                    .map((v) => (
-                      <option key={v.vehicle_id} value={v.vehicle_id}>
-                        {v.plate_number} ({v.vehicle_type}) – {v.displayStatus}
-                      </option>
-                    ))}
-                  {vehicles.filter((v) => v.vehicle_status === 'Available' && v.displayStatus !== 'Deployed Today' && v.displayStatus !== 'Upcoming').length === 0 && (
-                    <option disabled>No Available Vehicles</option>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Select Vehicles</label>
+                <div className="border border-slate-200 rounded-lg max-h-48 overflow-y-auto p-2 bg-slate-50">
+                  {vehicles.filter(v => v.vehicle_status === 'Available' && v.displayStatus !== 'Deployed Today' && v.displayStatus !== 'Upcoming').length === 0 ? (
+                    <p className="text-sm text-slate-500 italic p-2">No available vehicles.</p>
+                  ) : (
+                    vehicles.filter(v => v.vehicle_status === 'Available' && v.displayStatus !== 'Deployed Today' && v.displayStatus !== 'Upcoming').map((v) => (
+                      <label key={v.vehicle_id} className="flex items-center gap-2 p-2 hover:bg-slate-100 rounded cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedVehicleIds.includes(v.vehicle_id)}
+                          onChange={() => toggleVehicleSelection(v.vehicle_id)}
+                          className="w-4 h-4 text-[#008A45] focus:ring-[#008A45]"
+                        />
+                        <span className="text-sm font-medium text-slate-700">{v.plate_number}</span>
+                        <span className="text-xs text-slate-500">({v.vehicle_type}) – {v.displayStatus}</span>
+                      </label>
+                    ))
                   )}
-                </select>
-                <p className="text-xs text-slate-400 mt-1">Only vehicles with base status 'Available' and not already scheduled for today or future events can be assigned.</p>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  Selected: <span className="font-bold">{selectedVehicleIds.length}</span> vehicle{selectedVehicleIds.length !== 1 ? 's' : ''}
+                </p>
               </div>
 
+              {/* Dispatch Date/Time */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Dispatch Date/Time</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Dispatch Date/Time (for all selected vehicles)</label>
                 <input
                   type="datetime-local"
                   name="dispatch_datetime"
@@ -664,12 +780,21 @@ export default function Vehicles() {
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm font-medium text-slate-800 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
                   required
                 />
+                {selectedBooking && selectedBooking.event_datetime && (
+                  <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
+                    <Clock size={12} className="text-slate-400" />
+                    <span>Event starts at: <span className="font-semibold text-slate-700">{new Date(selectedBooking.event_datetime).toLocaleString()}</span></span>
+                    <span className="mx-1">•</span>
+                    <span className="text-[#008A45] font-medium">Auto-suggested: 2 hours before event</span>
+                  </div>
+                )}
+                <p className="text-xs text-slate-400 mt-1">Adjust the dispatch time as needed. All selected vehicles will have the same dispatch time.</p>
               </div>
 
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
                 <button
                   type="button"
-                  onClick={() => setIsAssignModalOpen(false)}
+                  onClick={() => { setIsAssignModalOpen(false); setSelectedVehicleIds([]); }}
                   className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors cursor-pointer"
                 >
                   Cancel
@@ -679,7 +804,7 @@ export default function Vehicles() {
                   disabled={isSubmitting}
                   className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm cursor-pointer disabled:opacity-50"
                 >
-                  {isSubmitting ? 'Assigning...' : 'Assign Vehicle'}
+                  {isSubmitting ? 'Assigning...' : `Assign ${selectedVehicleIds.length} Vehicle${selectedVehicleIds.length !== 1 ? 's' : ''}`}
                 </button>
               </div>
             </form>

@@ -1,11 +1,13 @@
 // pages/Equipment.jsx
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Edit, Trash2, X, CheckCircle, Settings, ClipboardList, RefreshCw, Undo2 } from 'lucide-react';
+import { Plus, Edit, Trash2, X, CheckCircle, Settings, ClipboardList, RefreshCw, Undo2, Calendar, MapPin, Users, Clock } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
+import { useConfirm } from '../contexts/ConfirmContext';
 
 export default function Equipment() {
+  const { showConfirm } = useConfirm();
   // --- DATA STATE ---
   const [equipmentList, setEquipmentList] = useState([]);
   const [assignments, setAssignments] = useState([]);
@@ -41,10 +43,13 @@ export default function Equipment() {
 
   const [assignFormData, setAssignFormData] = useState({
     booking_id: '',
-    equipment_id: '',
-    quantity: 1,
     notes: ''
   });
+
+  // --- MULTIPLE ASSIGNMENT QUEUE ---
+  const [assignmentQueue, setAssignmentQueue] = useState([]);
+  const [tempEquipId, setTempEquipId] = useState('');
+  const [tempQuantity, setTempQuantity] = useState(1);
 
   // --- Helper: Log technical error and show user-friendly toast ---
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
@@ -56,7 +61,6 @@ export default function Equipment() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      // 1. Equipment
       const { data: equipData, error: equipError } = await supabase
         .from('equipment')
         .select('*')
@@ -64,15 +68,17 @@ export default function Equipment() {
       if (equipError) throw equipError;
       setEquipmentList(equipData || []);
 
-      // 2. Bookings (approved or pending)
       const { data: bookingData, error: bookingError } = await supabase
         .from('booking')
         .select(`
           booking_id,
+          booking_type,
           booking_status,
           event_datetime,
           venue,
-          customer:customer_id (first_name, last_name)
+          pax_count,
+          notes,
+          customer:customer_id (first_name, last_name, contact_no, cus_address)
         `)
         .eq('booking_type', 'Package')
         .in('booking_status', ['Approved', 'Pending'])
@@ -80,7 +86,6 @@ export default function Equipment() {
       if (bookingError) throw bookingError;
       setBookings(bookingData || []);
 
-      // 3. Assignments
       const { data: assignData, error: assignError } = await supabase
         .from('booking_equipment')
         .select(`
@@ -133,6 +138,9 @@ export default function Equipment() {
     }
   };
 
+  // --- Get selected booking details ---
+  const selectedBooking = bookings.find(b => b.booking_id === assignFormData.booking_id);
+
   // --- HANDLERS ---
   const handleAddInputChange = (e) => {
     const { name, value } = e.target;
@@ -152,10 +160,7 @@ export default function Equipment() {
 
   const handleAssignInputChange = (e) => {
     const { name, value } = e.target;
-    setAssignFormData(prev => ({
-      ...prev,
-      [name]: name === 'quantity' ? parseInt(value) || 1 : value
-    }));
+    setAssignFormData(prev => ({ ...prev, [name]: value }));
   };
 
   // --- ADD EQUIPMENT ---
@@ -227,7 +232,13 @@ export default function Equipment() {
 
   // --- DELETE EQUIPMENT ---
   const handleDeleteEquipment = async (id) => {
-    if (!confirm('Delete this equipment? This cannot be undone.')) return;
+    const confirmed = await showConfirm({
+      title: 'Delete Equipment?',
+      message: 'Are you sure you want to delete this equipment? This action cannot be undone.',
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
 
     try {
       const { error } = await supabase
@@ -243,62 +254,102 @@ export default function Equipment() {
     }
   };
 
-  // --- ASSIGN EQUIPMENT (Manual) ---
+  // --- QUEUE FUNCTIONS ---
+  const addToQueue = () => {
+    if (!tempEquipId) {
+      toast.error('Please select equipment.');
+      return;
+    }
+    if (tempQuantity < 1) {
+      toast.error('Quantity must be at least 1.');
+      return;
+    }
+    const existing = assignmentQueue.find(item => item.equipment_id === tempEquipId);
+    if (existing) {
+      toast.error('This equipment is already in the list. Remove it first if you want to change quantity.');
+      return;
+    }
+    const equip = equipmentList.find(e => e.equipment_id === tempEquipId);
+    if (!equip) {
+      toast.error('Equipment not found.');
+      return;
+    }
+    if (tempQuantity > equip.quantity_available) {
+      toast.error(`Not enough stock! Only ${equip.quantity_available} available.`);
+      return;
+    }
+    setAssignmentQueue([...assignmentQueue, { equipment_id: tempEquipId, quantity: tempQuantity }]);
+    setTempEquipId('');
+    setTempQuantity(1);
+  };
+
+  const removeFromQueue = (equipment_id) => {
+    setAssignmentQueue(assignmentQueue.filter(item => item.equipment_id !== equipment_id));
+  };
+
+  // --- ASSIGN EQUIPMENT (Multiple) ---
   const handleAssignSubmit = async (e) => {
     e.preventDefault();
+    if (assignmentQueue.length === 0) {
+      toast.error('Please add at least one equipment to assign.');
+      return;
+    }
+    if (!assignFormData.booking_id) {
+      toast.error('Please select a booking.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      const selectedEquipment = equipmentList.find(eq => eq.equipment_id === assignFormData.equipment_id);
-      if (!selectedEquipment) {
-        toast.error('Equipment not found.');
-        setIsSubmitting(false);
-        return;
+      // Validate all items have enough stock
+      const itemsToAssign = assignmentQueue.map(item => {
+        const equip = equipmentList.find(e => e.equipment_id === item.equipment_id);
+        if (!equip) throw new Error(`Equipment ${item.equipment_id} not found.`);
+        if (item.quantity > equip.quantity_available) {
+          throw new Error(`Not enough stock for ${equip.eqm_name}. Needed ${item.quantity}, only ${equip.quantity_available} available.`);
+        }
+        return { ...item, equip };
+      });
+
+      // Insert all assignments and update stock
+      for (const item of itemsToAssign) {
+        // Check if this equipment is already assigned to this booking
+        const existingAssign = assignments.find(
+          a => a.booking_id === assignFormData.booking_id && a.equipment_id === item.equipment_id && !a.returned
+        );
+        if (existingAssign) {
+          throw new Error(`Equipment ${item.equip.eqm_name} is already assigned to this booking. Please return it first.`);
+        }
+
+        // Insert assignment
+        const { error: insertError } = await supabase
+          .from('booking_equipment')
+          .insert([{
+            booking_id: assignFormData.booking_id,
+            equipment_id: item.equipment_id,
+            quantity: item.quantity,
+            notes: assignFormData.notes || null,
+            returned: false
+          }]);
+        if (insertError) throw insertError;
+
+        // Update stock
+        const newQuantity = item.equip.quantity_available - item.quantity;
+        const { error: updateError } = await supabase
+          .from('equipment')
+          .update({ quantity_available: newQuantity })
+          .eq('equipment_id', item.equipment_id);
+        if (updateError) throw updateError;
       }
 
-      // Check stock
-      if (assignFormData.quantity > selectedEquipment.quantity_available) {
-        toast.error(`Not enough stock! Only ${selectedEquipment.quantity_available} available.`);
-        setIsSubmitting(false);
-        return;
-      }
-
-      // Check if this equipment is already assigned to this booking
-      const existingAssign = assignments.find(
-        a => a.booking_id === assignFormData.booking_id && a.equipment_id === assignFormData.equipment_id && !a.returned
-      );
-      if (existingAssign) {
-        toast.error('This equipment is already assigned to this booking. Please update the quantity or return it first.');
-        setIsSubmitting(false);
-        return;
-      }
-
-      // Insert assignment
-      const { error: insertError } = await supabase
-        .from('booking_equipment')
-        .insert([{
-          booking_id: assignFormData.booking_id,
-          equipment_id: assignFormData.equipment_id,
-          quantity: assignFormData.quantity,
-          notes: assignFormData.notes || null,
-          returned: false
-        }]);
-      if (insertError) throw insertError;
-
-      // Update stock
-      const newQuantity = selectedEquipment.quantity_available - assignFormData.quantity;
-      const { error: updateError } = await supabase
-        .from('equipment')
-        .update({ quantity_available: newQuantity })
-        .eq('equipment_id', assignFormData.equipment_id);
-      if (updateError) throw updateError;
-
+      setAssignmentQueue([]);
       setIsAssignModalOpen(false);
-      setAssignFormData({ booking_id: '', equipment_id: '', quantity: 1, notes: '' });
-      toast.success('Equipment assigned successfully!');
+      setAssignFormData({ booking_id: '', notes: '' });
+      toast.success(`Successfully assigned ${itemsToAssign.length} equipment items.`);
       await fetchData();
     } catch (error) {
-      handleError(error, 'Failed to assign equipment.');
+      handleError(error, error.message || 'Failed to assign equipment.');
     } finally {
       setIsSubmitting(false);
     }
@@ -306,7 +357,13 @@ export default function Equipment() {
 
   // --- RETURN EQUIPMENT ---
   const handleReturnEquipment = async (assignmentId, equipmentId, quantity) => {
-    if (!confirm('Mark this equipment as returned? This will restore the quantity.')) return;
+    const confirmed = await showConfirm({
+      title: 'Return Equipment?',
+      message: 'Are you sure you want to mark this equipment as returned? This will restore the quantity to inventory.',
+      confirmLabel: 'Return',
+      confirmVariant: 'success',
+    });
+    if (!confirmed) return;
 
     try {
       const { error: updateAssignError } = await supabase
@@ -365,7 +422,7 @@ export default function Equipment() {
             <Settings size={16} /> Add Stock
           </button>
           <button
-            onClick={() => setIsAssignModalOpen(true)}
+            onClick={() => { setAssignmentQueue([]); setIsAssignModalOpen(true); }}
             className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-sm cursor-pointer"
           >
             <ClipboardList size={16} /> Assign Equipment
@@ -661,77 +718,185 @@ export default function Equipment() {
       )}
 
       {/* ========================================================= */}
-      {/* ASSIGN EQUIPMENT MODAL */}
+      {/* ASSIGN EQUIPMENT MODAL - Multiple Assignment */}
       {/* ========================================================= */}
       {isAssignModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-xl w-full overflow-hidden">
-            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
-              <h2 className="text-lg font-bold text-slate-900">Assign Equipment</h2>
-              <button onClick={() => setIsAssignModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors cursor-pointer"><X size={18} /></button>
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Assign Equipment</h2>
+                <p className="text-xs text-slate-500">Select a booking and add multiple equipment items</p>
+              </div>
+              <button
+                onClick={() => {
+                  setIsAssignModalOpen(false);
+                  setAssignmentQueue([]);
+                }}
+                className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
             </div>
-            <form onSubmit={handleAssignSubmit} className="p-6 space-y-5 text-left">
+            <form onSubmit={handleAssignSubmit} className="p-6 overflow-y-auto space-y-5 text-left">
+              {/* Booking Selection */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Select Booking</label>
-                <select name="booking_id" value={assignFormData.booking_id} onChange={handleAssignInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none font-medium text-slate-800" required>
+                <select
+                  name="booking_id"
+                  value={assignFormData.booking_id}
+                  onChange={handleAssignInputChange}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none font-medium text-slate-800"
+                  required
+                >
                   <option value="">Select approved booking...</option>
                   {bookings.map((b) => {
                     const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
-                    return <option key={b.booking_id} value={b.booking_id}>{b.booking_id.slice(0, 8)} - {customerName} ({b.venue || 'No venue'})</option>;
+                    const date = b.event_datetime ? new Date(b.event_datetime).toLocaleDateString() : 'No date';
+                    return (
+                      <option key={b.booking_id} value={b.booking_id}>
+                        {b.booking_id.slice(0, 8)} - {customerName} ({date})
+                      </option>
+                    );
                   })}
                   {bookings.length === 0 && <option disabled>No approved bookings available</option>}
                 </select>
               </div>
-              {assignFormData.booking_id && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                  <div>
-                    <p className="text-xs font-medium text-slate-500">Client</p>
-                    <p className="text-sm font-semibold text-slate-800">
-                      {bookings.find(b => b.booking_id === assignFormData.booking_id)?.customer?.first_name || ''} 
-                      {bookings.find(b => b.booking_id === assignFormData.booking_id)?.customer?.last_name || ''}
-                    </p>
+
+              {/* Booking Details Preview */}
+              {selectedBooking && (
+                <div className="bg-[#F8F9FA] border border-slate-200 rounded-lg p-4 space-y-3">
+                  <div className="flex justify-between items-start">
+                    <h4 className="font-bold text-slate-900 text-sm">Booking Details</h4>
+                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      selectedBooking.booking_status === 'Approved' ? 'bg-green-100 text-green-700 border border-green-200' :
+                      selectedBooking.booking_status === 'Pending' ? 'bg-amber-100 text-amber-700 border border-amber-200' :
+                      'bg-slate-100 text-slate-700 border border-slate-200'
+                    }`}>
+                      {selectedBooking.booking_status}
+                    </span>
                   </div>
-                  <div>
-                    <p className="text-xs font-medium text-slate-500">Venue</p>
-                    <p className="text-sm font-semibold text-slate-800">
-                      {bookings.find(b => b.booking_id === assignFormData.booking_id)?.venue || 'N/A'}
-                    </p>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <p className="text-xs font-medium text-slate-500">Event Date</p>
-                    <p className="text-sm font-semibold text-slate-800">
-                      {bookings.find(b => b.booking_id === assignFormData.booking_id)?.event_datetime 
-                        ? new Date(bookings.find(b => b.booking_id === assignFormData.booking_id).event_datetime).toLocaleDateString()
-                        : 'N/A'}
-                    </p>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="flex items-center gap-2 col-span-2">
+                      <Users size={14} className="text-slate-400" />
+                      <span className="text-slate-600">Customer:</span>
+                      <span className="font-semibold text-slate-900">
+                        {selectedBooking.customer ? `${selectedBooking.customer.first_name} ${selectedBooking.customer.last_name}` : 'Unknown'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 col-span-2">
+                      <Calendar size={14} className="text-slate-400" />
+                      <span className="text-slate-600">Event Date:</span>
+                      <span className="font-semibold text-slate-900">
+                        {selectedBooking.event_datetime ? new Date(selectedBooking.event_datetime).toLocaleString() : 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 col-span-2">
+                      <MapPin size={14} className="text-slate-400" />
+                      <span className="text-slate-600">Venue:</span>
+                      <span className="font-semibold text-slate-900">{selectedBooking.venue || 'N/A'}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Users size={14} className="text-slate-400" />
+                      <span className="text-slate-600">Pax:</span>
+                      <span className="font-semibold text-slate-900">{selectedBooking.pax_count || 0}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-600">Type:</span>
+                      <span className="font-semibold text-slate-900">{selectedBooking.booking_type || 'Package'}</span>
+                    </div>
+                    {selectedBooking.notes && (
+                      <div className="col-span-2 text-xs text-slate-500 border-t border-slate-200 pt-2 mt-1">
+                        <span className="font-medium text-slate-600">Notes:</span> {selectedBooking.notes}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Select Equipment</label>
-                  <select name="equipment_id" value={assignFormData.equipment_id} onChange={handleAssignInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none font-medium text-slate-800" required>
-                    <option value="">Choose equipment...</option>
+
+              {/* Add Equipment to Queue */}
+              <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Add Equipment to Assignment List</label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <select
+                    value={tempEquipId}
+                    onChange={(e) => setTempEquipId(e.target.value)}
+                    className="flex-1 border border-slate-300 rounded-lg p-2 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                  >
+                    <option value="">Select equipment...</option>
                     {equipmentList.map((eq) => (
                       <option key={eq.equipment_id} value={eq.equipment_id} disabled={eq.quantity_available === 0}>
                         {eq.eqm_name} ({eq.quantity_available} available)
                       </option>
                     ))}
                   </select>
+                  <input
+                    type="number"
+                    min="1"
+                    value={tempQuantity}
+                    onChange={(e) => setTempQuantity(parseInt(e.target.value) || 1)}
+                    className="w-20 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={addToQueue}
+                    className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1"
+                  >
+                    <Plus size={16} /> Add
+                  </button>
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Quantity</label>
-                  <input type="number" name="quantity" min="1" value={assignFormData.quantity} onChange={handleAssignInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" required />
-                </div>
+                {assignmentQueue.length > 0 && (
+                  <div className="mt-3 space-y-1.5">
+                    <p className="text-xs font-medium text-slate-600">Selected Equipment:</p>
+                    {assignmentQueue.map((item) => {
+                      const equip = equipmentList.find(e => e.equipment_id === item.equipment_id);
+                      return (
+                        <div key={item.equipment_id} className="flex items-center justify-between bg-white border border-slate-200 rounded px-3 py-1.5 text-sm">
+                          <span className="font-medium text-slate-700">{equip?.eqm_name || 'Unknown'} × {item.quantity}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeFromQueue(item.equipment_id)}
+                            className="text-red-500 hover:text-red-700 text-xs font-bold"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
+
+              {/* Notes */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Notes (optional)</label>
-                <textarea name="notes" rows="2" placeholder="Any special instructions..." value={assignFormData.notes} onChange={handleAssignInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm text-slate-700 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none" />
+                <textarea
+                  name="notes"
+                  rows="2"
+                  placeholder="Any special instructions..."
+                  value={assignFormData.notes}
+                  onChange={handleAssignInputChange}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm text-slate-700 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
+                />
               </div>
+
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
-                <button type="button" onClick={() => setIsAssignModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors cursor-pointer">Cancel</button>
-                <button type="submit" disabled={isSubmitting} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm cursor-pointer disabled:opacity-50">
-                  {isSubmitting ? 'Assigning...' : 'Assign Equipment'}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAssignModalOpen(false);
+                    setAssignmentQueue([]);
+                  }}
+                  className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Assigning...' : `Assign ${assignmentQueue.length} Item${assignmentQueue.length !== 1 ? 's' : ''}`}
                 </button>
               </div>
             </form>

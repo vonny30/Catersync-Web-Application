@@ -4,8 +4,10 @@ import { createPortal } from 'react-dom';
 import { Search, Upload, X, Image as ImageIcon, Edit, Trash2, Check, DollarSign, RefreshCw } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
+import { useConfirm } from '../contexts/ConfirmContext';
 
 export default function Payments() {
+  const { showConfirm } = useConfirm();
   // --- STATE ---
   const [payments, setPayments] = useState([]);
   const [bookings, setBookings] = useState([]);
@@ -86,14 +88,11 @@ export default function Payments() {
       setBookings(bookingsData || []);
 
       // 3. Compute summary statistics
-      // Total collected: sum of all positive payments (Downpayment + Fully Paid)
       const collected = paymentsData
         .filter(p => p.pay_status === 'Fully Paid' || p.pay_status === 'Downpayment')
         .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
       setTotalCollected(collected);
 
-      // Fully paid count: count of bookings where sum(amount_paid) >= total_amount
-      // We need to compute per booking from paymentsData
       const bookingTotals = {};
       paymentsData.forEach(p => {
         if (p.booking_id) {
@@ -108,7 +107,6 @@ export default function Payments() {
       });
       setFullyPaidCount(fullyPaid);
 
-      // Pending balance: sum of remaining balances for all bookings (total_amount - paid)
       let pending = 0;
       bookingsData.forEach(b => {
         const paid = bookingTotals[b.booking_id] || 0;
@@ -215,7 +213,6 @@ export default function Payments() {
     e.preventDefault();
     setIsSubmitting(true);
 
-    // Validate amount against remaining balance
     const amount = parseFloat(formData.amount) || 0;
     if (amount <= 0) {
       toast.error('Amount must be greater than zero.');
@@ -263,7 +260,7 @@ export default function Payments() {
         pay_status: formData.pay_status,
         pay_datetime: new Date().toISOString(),
         pay_proof: proofUrl || 'placeholder.png',
-        customer_id: selectedBooking?.customer?.customer_id || null, // optional
+        customer_id: selectedBooking?.customer?.customer_id || null,
       };
 
       if (editingId) {
@@ -292,7 +289,14 @@ export default function Payments() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Permanently delete this payment record?')) return;
+    const confirmed = await showConfirm({
+      title: 'Delete Payment?',
+      message: 'Are you sure you want to permanently delete this payment record? This action cannot be undone.',
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
       const { error } = await supabase
         .from('payment')

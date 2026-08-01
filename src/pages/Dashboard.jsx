@@ -1,12 +1,15 @@
-// pages/Dashboard.jsx
+// src/pages/Dashboard.jsx
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Calendar as CalendarIcon, Clock, CheckCircle, TrendingUp, ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react';
 import { supabase } from '../supabase';
+import toast from 'react-hot-toast';
+import { useConfirm } from '../contexts/ConfirmContext';
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { showConfirm } = useConfirm();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     todayEvents: 0,
@@ -23,6 +26,11 @@ export default function Dashboard() {
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedDateEvents, setSelectedDateEvents] = useState([]);
   const [showDateModal, setShowDateModal] = useState(false);
+
+  const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
+    console.error('Error:', error);
+    toast.error(userMessage);
+  };
 
   // --- Fetch Dashboard Data ---
   const fetchDashboardData = async () => {
@@ -114,8 +122,7 @@ export default function Dashboard() {
       setStats(prev => ({ ...prev, revenueThisMonth: totalRevenue }));
 
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-      alert('Failed to load dashboard data.');
+      handleError(error, 'Failed to load dashboard data.');
     } finally {
       setLoading(false);
     }
@@ -183,6 +190,7 @@ export default function Dashboard() {
     } catch (error) {
       console.error('Error fetching events for date:', error);
       setSelectedDateEvents([]);
+      toast.error('Failed to load events for this date.');
     }
   };
 
@@ -200,25 +208,32 @@ export default function Dashboard() {
         .update({ booking_status: 'Approved' })
         .eq('booking_id', id);
       if (error) throw error;
+      toast.success('Booking approved successfully!');
       fetchDashboardData();
     } catch (error) {
-      console.error('Error approving:', error);
-      alert('Failed to approve.');
+      handleError(error, 'Failed to approve booking.');
     }
   };
 
   const handleReject = async (id) => {
-    if (!confirm('Reject this booking?')) return;
+    const confirmed = await showConfirm({
+      title: 'Reject Booking?',
+      message: 'Are you sure you want to reject this booking? This will cancel it and cannot be undone.',
+      confirmLabel: 'Reject',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
       const { error } = await supabase
         .from('booking')
         .update({ booking_status: 'Rejected' })
         .eq('booking_id', id);
       if (error) throw error;
+      toast.success('Booking rejected.');
       fetchDashboardData();
     } catch (error) {
-      console.error('Error rejecting:', error);
-      alert('Failed to reject.');
+      handleError(error, 'Failed to reject booking.');
     }
   };
 

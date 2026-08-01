@@ -2,12 +2,14 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, Check, Edit, Trash2, ChevronLeft, ChevronRight, Filter, X, RefreshCw } from 'lucide-react';
+import { Search, Check, Edit, Trash2, ChevronLeft, ChevronRight, Filter, X, RefreshCw, Calendar, User, Package as PackageIcon, MapPin, RotateCcw } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
+import { useConfirm } from '../contexts/ConfirmContext';
 
 export default function Bookings() {
   const navigate = useNavigate();
+  const { showConfirm } = useConfirm();
   const [bookings, setBookings] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [packages, setPackages] = useState([]);
@@ -15,7 +17,18 @@ export default function Bookings() {
   const [activeTab, setActiveTab] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Modal states
+  // --- Filter state ---
+  const [filters, setFilters] = useState({
+    dateFrom: '',
+    dateTo: '',
+    customerId: '',
+    packageId: '',
+    venue: '',
+    status: '', // optional – will combine with tab
+  });
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+
+  // Modal states for booking create/edit
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({
@@ -52,6 +65,24 @@ export default function Bookings() {
     console.error('Error:', error);
     toast.error(userMessage);
   };
+
+  // --- Auto-calculate total amount when package, pax, or delivery fee change ---
+  useEffect(() => {
+    if (formData.package_id && formData.pax_count) {
+      const selectedPkg = packages.find(p => p.package_id === formData.package_id);
+      if (selectedPkg) {
+        const pkgPrice = selectedPkg.pkg_price || 0;
+        const pax = parseInt(formData.pax_count) || 0;
+        const deliveryFee = parseFloat(formData.delivery_fee) || 0;
+        const baseTotal = pkgPrice * pax;
+        const total = baseTotal + deliveryFee;
+        setFormData(prev => ({
+          ...prev,
+          total_amount: total.toFixed(2),
+        }));
+      }
+    }
+  }, [formData.package_id, formData.pax_count, formData.delivery_fee, packages]);
 
   // --- Allocate equipment (helper) ---
   const allocateEquipmentForBooking = async (bookingId, packageId, paxCount) => {
@@ -125,7 +156,7 @@ export default function Bookings() {
     }
   };
 
-  // --- Fetch data (with generic error handling) ---
+  // --- Fetch data ---
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -182,7 +213,7 @@ export default function Bookings() {
 
       const { data: packagesList, error: packagesListError } = await supabase
         .from('package')
-        .select('package_id, pkg_name')
+        .select('package_id, pkg_name, pkg_price')
         .eq('pkg_availability', 'Available')
         .order('pkg_name');
       if (packagesListError) throw packagesListError;
@@ -321,6 +352,36 @@ export default function Bookings() {
     setIsSubmitting(false);
   };
 
+  // --- Filter Modal handlers ---
+  const openFilterModal = () => {
+    setIsFilterModalOpen(true);
+  };
+
+  const closeFilterModal = () => {
+    setIsFilterModalOpen(false);
+  };
+
+  const handleFilterChange = (e) => {
+    const { name, value } = e.target;
+    setFilters(prev => ({ ...prev, [name]: value }));
+  };
+
+  const applyFilters = () => {
+    // We just close the modal; the filter logic is applied in the filtered variable
+    setIsFilterModalOpen(false);
+  };
+
+  const clearFilters = () => {
+    setFilters({
+      dateFrom: '',
+      dateTo: '',
+      customerId: '',
+      packageId: '',
+      venue: '',
+      status: '',
+    });
+  };
+
   // --- CRUD Operations ---
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -366,10 +427,26 @@ export default function Bookings() {
         if (error) throw error;
         toast.success('Booking updated successfully!');
       } else {
-        const { error } = await supabase
+        const { data: newBooking, error } = await supabase
           .from('booking')
-          .insert([payload]);
+          .insert([payload])
+          .select();
         if (error) throw error;
+        const bookingId = newBooking[0].booking_id;
+
+        const { error: paymentError } = await supabase
+          .from('payment')
+          .insert([{
+            booking_id: bookingId,
+            amount_paid: 0,
+            pay_installment: 1,
+            pay_method: 'Pending',
+            pay_status: 'Pending',
+            pay_datetime: new Date().toISOString(),
+            pay_proof: 'placeholder.png',
+          }]);
+        if (paymentError) throw paymentError;
+
         toast.success('Booking created successfully!');
       }
 
@@ -412,6 +489,25 @@ export default function Bookings() {
     if (!approvalBooking) return;
     setIsSubmitting(true);
     try {
+      const { data: payments, error: paymentsError } = await supabase
+        .from('payment')
+        .select('amount_paid')
+        .eq('booking_id', approvalBooking.booking_id);
+
+      if (paymentsError) throw paymentsError;
+
+      const totalPaid = payments.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+      const required = approvalData.newTotal * 0.5;
+
+      if (totalPaid < required) {
+        toast.error(
+          `Cannot approve. Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}). Please record more payments.`,
+          { duration: 6000 }
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
       const newPax = approvalBooking.pax_count + approvalData.extraPax;
       const newTotal = approvalData.newTotal;
       const newDeliveryFee = parseFloat(approvalBooking.delivery_fee || 0) + approvalData.extraDeliveryFee;
@@ -428,6 +524,13 @@ export default function Bookings() {
 
       if (updateError) throw updateError;
 
+      const { error: updatePaymentsError } = await supabase
+        .from('payment')
+        .update({ pay_status: 'Downpayment' })
+        .eq('booking_id', approvalBooking.booking_id);
+
+      if (updatePaymentsError) throw updatePaymentsError;
+
       if (approvalBooking.package_id) {
         try {
           await allocateEquipmentForBooking(approvalBooking.booking_id, approvalBooking.package_id, newPax);
@@ -439,7 +542,7 @@ export default function Bookings() {
 
       setIsApprovalModalOpen(false);
       fetchData();
-      toast.success('Booking approved successfully!');
+      toast.success('Booking approved and payments set to Downpayment.');
     } catch (error) {
       handleError(error, 'Failed to approve booking. Please try again.');
     } finally {
@@ -449,23 +552,44 @@ export default function Bookings() {
 
   // --- Mark as Completed ---
   const handleMarkCompleted = async (id) => {
-    if (!confirm('Mark this booking as completed?')) return;
+    const confirmed = await showConfirm({
+      title: 'Mark as Completed?',
+      message: 'Are you sure you want to mark this booking as completed?',
+      confirmLabel: 'Complete',
+      confirmVariant: 'success',
+    });
+    if (!confirmed) return;
+
     try {
       const { error } = await supabase
         .from('booking')
         .update({ booking_status: 'Completed' })
         .eq('booking_id', id);
       if (error) throw error;
-      toast.success('Booking marked as completed!');
+
+      const { error: updatePaymentsError } = await supabase
+        .from('payment')
+        .update({ pay_status: 'Fully Paid' })
+        .eq('booking_id', id);
+      if (updatePaymentsError) throw updatePaymentsError;
+
+      toast.success('Booking marked completed and payments set to Fully Paid.');
       fetchData();
     } catch (error) {
       handleError(error, 'Failed to update status.');
     }
   };
 
-  // --- Reject & Delete ---
+  // --- Reject ---
   const handleReject = async (id) => {
-    if (!confirm('Reject this booking?')) return;
+    const confirmed = await showConfirm({
+      title: 'Reject Booking?',
+      message: 'Are you sure you want to reject this booking? This will cancel it and cannot be undone.',
+      confirmLabel: 'Reject',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
       const { error } = await supabase
         .from('booking')
@@ -479,14 +603,29 @@ export default function Bookings() {
     }
   };
 
+  // --- Delete ---
   const handleDelete = async (id) => {
-    if (!confirm('Permanently delete this booking? This cannot be undone.')) return;
+    const confirmed = await showConfirm({
+      title: 'Delete Booking?',
+      message: 'Are you sure you want to permanently delete this booking? This action cannot be undone. All associated payments will also be deleted.',
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
+      const { error: paymentsError } = await supabase
+        .from('payment')
+        .delete()
+        .eq('booking_id', id);
+      if (paymentsError) throw paymentsError;
+
       const { error } = await supabase
         .from('booking')
         .delete()
         .eq('booking_id', id);
       if (error) throw error;
+      
       toast.success('Booking deleted.');
       fetchData();
     } catch (error) {
@@ -496,15 +635,53 @@ export default function Bookings() {
 
   // --- Filter logic ---
   const tabs = ['All', 'Pending', 'Approved', 'Completed', 'Rejected'];
+  
   const filtered = bookings.filter(b => {
+    // Tab filter (status)
     if (activeTab !== 'All' && b.booking_status !== activeTab) return false;
+    
+    // Search filter (client name or booking id)
     if (searchTerm) {
       const name = `${b.customer?.first_name || ''} ${b.customer?.last_name || ''}`.toLowerCase();
       const id = b.booking_id.toLowerCase();
-      return name.includes(searchTerm.toLowerCase()) || id.includes(searchTerm.toLowerCase());
+      const search = searchTerm.toLowerCase();
+      if (!name.includes(search) && !id.includes(search)) return false;
     }
+
+    // --- Date range filter ---
+    if (filters.dateFrom && b.event_datetime) {
+      const eventDate = new Date(b.event_datetime);
+      const fromDate = new Date(filters.dateFrom);
+      fromDate.setHours(0,0,0,0);
+      if (eventDate < fromDate) return false;
+    }
+    if (filters.dateTo && b.event_datetime) {
+      const eventDate = new Date(b.event_datetime);
+      const toDate = new Date(filters.dateTo);
+      toDate.setHours(23,59,59,999);
+      if (eventDate > toDate) return false;
+    }
+
+    // Customer filter
+    if (filters.customerId && b.customer_id !== filters.customerId) return false;
+
+    // Package filter
+    if (filters.packageId && b.package_id !== filters.packageId) return false;
+
+    // Venue filter (partial match)
+    if (filters.venue && b.venue) {
+      const venueLower = b.venue.toLowerCase();
+      const searchVenue = filters.venue.toLowerCase();
+      if (!venueLower.includes(searchVenue)) return false;
+    }
+
+    // (Optional) Status filter – if we want to combine with tabs, we skip here because tabs already handle it.
+    // But we could also allow filter status to override, but we'll keep it as an extra – but we'll ignore status from filter since tabs do it.
+
     return true;
   });
+
+  const hasActiveFilters = filters.dateFrom || filters.dateTo || filters.customerId || filters.packageId || filters.venue;
 
   const getStatusBadge = (status) => {
     const map = {
@@ -561,9 +738,25 @@ export default function Bookings() {
           />
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
         </div>
-        <button className="flex items-center gap-2 px-4 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 bg-white shadow-xs">
-          <Filter size={16} /> Filter
+        <button
+          onClick={openFilterModal}
+          className="flex items-center gap-2 px-4 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 bg-white shadow-xs"
+        >
+          <Filter size={16} />
+          Filter
+          {hasActiveFilters && (
+            <span className="ml-1 w-2 h-2 rounded-full bg-[#008A45] inline-block" />
+          )}
         </button>
+        {hasActiveFilters && (
+          <button
+            onClick={clearFilters}
+            className="flex items-center gap-2 px-4 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 bg-white shadow-xs"
+          >
+            <RotateCcw size={16} />
+            Clear
+          </button>
+        )}
         <button
           onClick={fetchData}
           className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-xs"
@@ -785,7 +978,7 @@ export default function Bookings() {
                 />
               </div>
 
-              {/* Pax, Color, Amount, Delivery Fee */}
+              {/* Pax, Color, Delivery Fee, Total Amount */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Pax Count</label>
@@ -810,17 +1003,6 @@ export default function Bookings() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Total Amount</label>
-                  <input
-                    type="number"
-                    name="total_amount"
-                    value={formData.total_amount}
-                    onChange={handleInputChange}
-                    placeholder="0.00"
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
-                  />
-                </div>
-                <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Delivery Fee</label>
                   <input
                     type="number"
@@ -830,6 +1012,19 @@ export default function Bookings() {
                     placeholder="0.00"
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
                   />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Total Amount (editable)</label>
+                  <input
+                    type="number"
+                    name="total_amount"
+                    value={formData.total_amount}
+                    onChange={handleInputChange}
+                    placeholder="Auto-calculated"
+                    step="0.01"
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">Auto-calculated from package price × pax + delivery fee. You can adjust.</p>
                 </div>
               </div>
 
@@ -961,6 +1156,118 @@ export default function Bookings() {
                   className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
                 >
                   {isSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* FILTER MODAL */}
+      {isFilterModalOpen && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
+              <h2 className="text-lg font-bold text-slate-900">Filter Bookings</h2>
+              <button
+                onClick={closeFilterModal}
+                className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto space-y-5 text-left">
+              {/* Date Range */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Event Date From</label>
+                  <input
+                    type="date"
+                    name="dateFrom"
+                    value={filters.dateFrom}
+                    onChange={handleFilterChange}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Event Date To</label>
+                  <input
+                    type="date"
+                    name="dateTo"
+                    value={filters.dateTo}
+                    onChange={handleFilterChange}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Customer */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Customer</label>
+                <select
+                  name="customerId"
+                  value={filters.customerId}
+                  onChange={handleFilterChange}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
+                >
+                  <option value="">All Customers</option>
+                  {customers.map(c => (
+                    <option key={c.customer_id} value={c.customer_id}>
+                      {c.first_name} {c.last_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Package */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Package</label>
+                <select
+                  name="packageId"
+                  value={filters.packageId}
+                  onChange={handleFilterChange}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
+                >
+                  <option value="">All Packages</option>
+                  {packages.map(p => (
+                    <option key={p.package_id} value={p.package_id}>
+                      {p.pkg_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Venue */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Venue (contains)</label>
+                <input
+                  type="text"
+                  name="venue"
+                  value={filters.venue}
+                  onChange={handleFilterChange}
+                  placeholder="e.g. Grand Pavilion"
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearFilters();
+                    closeFilterModal();
+                  }}
+                  className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"
+                >
+                  Clear Filters
+                </button>
+                <button
+                  type="button"
+                  onClick={applyFilters}
+                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors"
+                >
+                  Apply Filters
                 </button>
               </div>
             </div>

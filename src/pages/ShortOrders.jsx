@@ -5,9 +5,11 @@ import { useNavigate } from 'react-router-dom';
 import { Search, Check, Edit, Trash2, ChevronLeft, ChevronRight, X, RefreshCw, Plus } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
+import { useConfirm } from '../contexts/ConfirmContext';
 
 export default function ShortOrders() {
   const navigate = useNavigate();
+  const { showConfirm } = useConfirm();
   const [orders, setOrders] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
@@ -252,10 +254,28 @@ export default function ShortOrders() {
         if (error) throw error;
         toast.success('Short order updated successfully!');
       } else {
-        const { error } = await supabase
+        // 1. Insert short order and get the new ID
+        const { data: newOrder, error } = await supabase
           .from('booking')
-          .insert([payload]);
+          .insert([payload])
+          .select();
         if (error) throw error;
+        const orderId = newOrder[0].booking_id;
+
+        // 2. Insert a payment record with 'Pending' status (sync with booking)
+        const { error: paymentError } = await supabase
+          .from('payment')
+          .insert([{
+            booking_id: orderId,
+            amount_paid: 0,
+            pay_installment: 1,
+            pay_method: 'Pending',
+            pay_status: 'Pending',   // matches booking status
+            pay_datetime: new Date().toISOString(),
+            pay_proof: 'placeholder.png',
+          }]);
+        if (paymentError) throw paymentError;
+
         toast.success('Short order created successfully!');
       }
       closeModal();
@@ -294,9 +314,30 @@ export default function ShortOrders() {
     if (!approvalOrder) return;
     setIsSubmitting(true);
     try {
+      // --- Check 50% payment condition ---
+      const { data: payments, error: paymentsError } = await supabase
+        .from('payment')
+        .select('amount_paid')
+        .eq('booking_id', approvalOrder.booking_id);
+
+      if (paymentsError) throw paymentsError;
+
+      const totalPaid = payments.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+      const required = approvalData.newTotal * 0.5;
+
+      if (totalPaid < required) {
+        toast.error(
+          `Cannot approve. Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}). Please record more payments.`,
+          { duration: 6000 }
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
       const newTotal = approvalData.newTotal;
       const newDeliveryFee = parseFloat(approvalOrder.delivery_fee || 0) + approvalData.extraDeliveryFee;
 
+      // 1. Update order status
       const { error: updateError } = await supabase
         .from('booking')
         .update({
@@ -308,9 +349,17 @@ export default function ShortOrders() {
 
       if (updateError) throw updateError;
 
+      // 2. Update all payments to 'Downpayment' (sync with Approved)
+      const { error: updatePaymentsError } = await supabase
+        .from('payment')
+        .update({ pay_status: 'Downpayment' })
+        .eq('booking_id', approvalOrder.booking_id);
+
+      if (updatePaymentsError) throw updatePaymentsError;
+
       setIsApprovalModalOpen(false);
       fetchData();
-      toast.success('Short order approved successfully!');
+      toast.success('Short order approved and payments set to Downpayment.');
     } catch (error) {
       handleError(error, 'Failed to approve short order.');
     } finally {
@@ -320,7 +369,14 @@ export default function ShortOrders() {
 
   // --- Handlers (reject, delete, mark completed) ---
   const handleReject = async (id) => {
-    if (!confirm('Reject this order?')) return;
+    const confirmed = await showConfirm({
+      title: 'Reject Order?',
+      message: 'Are you sure you want to reject this order? This will cancel it and cannot be undone.',
+      confirmLabel: 'Reject',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
       const { error } = await supabase
         .from('booking')
@@ -335,14 +391,30 @@ export default function ShortOrders() {
   };
 
   const handleMarkCompleted = async (id) => {
-    if (!confirm('Mark this order as completed?')) return;
+    const confirmed = await showConfirm({
+      title: 'Mark as Completed?',
+      message: 'Are you sure you want to mark this order as completed?',
+      confirmLabel: 'Complete',
+      confirmVariant: 'success',
+    });
+    if (!confirmed) return;
+
     try {
+      // 1. Update order status
       const { error } = await supabase
         .from('booking')
         .update({ booking_status: 'Completed' })
         .eq('booking_id', id);
       if (error) throw error;
-      toast.success('Order marked as completed!');
+
+      // 2. Update all payments to 'Fully Paid' (sync with Completed)
+      const { error: updatePaymentsError } = await supabase
+        .from('payment')
+        .update({ pay_status: 'Fully Paid' })
+        .eq('booking_id', id);
+      if (updatePaymentsError) throw updatePaymentsError;
+
+      toast.success('Order marked completed and payments set to Fully Paid.');
       fetchData();
     } catch (error) {
       handleError(error, 'Failed to update status.');
@@ -350,13 +422,29 @@ export default function ShortOrders() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this order? This cannot be undone.')) return;
+    const confirmed = await showConfirm({
+      title: 'Delete Order?',
+      message: 'Are you sure you want to permanently delete this order? This action cannot be undone. All associated payments will also be deleted.',
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
+      // FIRST: Delete all associated payments
+      const { error: paymentsError } = await supabase
+        .from('payment')
+        .delete()
+        .eq('booking_id', id);
+      if (paymentsError) throw paymentsError;
+
+      // THEN: Delete the order
       const { error } = await supabase
         .from('booking')
         .delete()
         .eq('booking_id', id);
       if (error) throw error;
+
       toast.success('Order deleted.');
       fetchData();
     } catch (error) {
@@ -616,11 +704,19 @@ export default function ShortOrders() {
                 <p className="text-xs text-slate-400 mt-1">Add at least one menu item.</p>
               </div>
 
-              {/* Total Amount (auto-calculated, read-only) */}
+              {/* Total Amount (editable) */}
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                <label className="block text-xs font-bold text-slate-700 mb-1">Total Amount</label>
-                <div className="text-xl font-bold text-[#008A45]">₱{formData.total_amount || '0.00'}</div>
-                <input type="hidden" name="total_amount" value={formData.total_amount} />
+                <label className="block text-xs font-bold text-slate-700 mb-1">Total Amount (editable)</label>
+                <input
+                  type="number"
+                  name="total_amount"
+                  value={formData.total_amount}
+                  onChange={handleInputChange}
+                  placeholder="Auto-calculated"
+                  step="0.01"
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                />
+                <p className="text-xs text-slate-400 mt-1">Auto-calculated from menu items × quantity + delivery fee. You can adjust.</p>
               </div>
 
               {/* Notes */}

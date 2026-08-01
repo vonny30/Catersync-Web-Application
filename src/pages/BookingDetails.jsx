@@ -5,10 +5,12 @@ import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, ClipboardList, Imag
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
+import { useConfirm } from '../contexts/ConfirmContext';
 
 export default function BookingDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { showConfirm } = useConfirm();
   const [booking, setBooking] = useState(null);
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState([]);
@@ -207,15 +209,73 @@ export default function BookingDetails() {
     fetchDropdownData();
   }, [id]);
 
-  // --- Approve / Reject ---
+  // --- Approve (with 50% check and payment status sync) ---
   const handleApprove = async () => {
+    const confirmed = await showConfirm({
+      title: 'Approve Booking?',
+      message: 'Are you sure you want to approve this booking? Payment statuses will be set to Downpayment.',
+      confirmLabel: 'Approve',
+      confirmVariant: 'success',
+    });
+    if (!confirmed) return;
+
     try {
+      // --- Check 50% payment condition ---
+      const { data: paymentsData, error: paymentsError } = await supabase
+        .from('payment')
+        .select('amount_paid')
+        .eq('booking_id', id);
+
+      if (paymentsError) throw paymentsError;
+
+      const totalPaid = paymentsData.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+      const totalAmount = booking.total_amount || 0;
+      const required = totalAmount * 0.5;
+
+      if (totalPaid < required) {
+        toast.error(
+          `Cannot approve. Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}). Please record more payments.`,
+          { duration: 6000 }
+        );
+        return;
+      }
+
+      // 1. Update booking status
       const { error } = await supabase
         .from('booking')
         .update({ booking_status: 'Approved' })
         .eq('booking_id', id);
       if (error) throw error;
-      toast.success('Booking approved successfully!');
+
+      // 2. Update all payments to 'Downpayment' (sync with Approved)
+      const { error: updatePaymentsError } = await supabase
+        .from('payment')
+        .update({ pay_status: 'Downpayment' })
+        .eq('booking_id', id);
+      if (updatePaymentsError) throw updatePaymentsError;
+
+      // 3. Create an initial payment record if none exists (shouldn't happen, but safe)
+      const { data: existingPayments, error: countError } = await supabase
+        .from('payment')
+        .select('payment_id', { count: 'exact', head: true })
+        .eq('booking_id', id);
+      if (countError) throw countError;
+      if (existingPayments.length === 0) {
+        const { error: insertError } = await supabase
+          .from('payment')
+          .insert([{
+            booking_id: id,
+            amount_paid: 0,
+            pay_installment: 1,
+            pay_method: 'Pending',
+            pay_status: 'Downpayment',
+            pay_datetime: new Date().toISOString(),
+            pay_proof: 'placeholder.png',
+          }]);
+        if (insertError) throw insertError;
+      }
+
+      toast.success('Booking approved and payments set to Downpayment.');
       fetchBooking();
     } catch (error) {
       handleError(error, 'Failed to approve booking.');
@@ -223,7 +283,14 @@ export default function BookingDetails() {
   };
 
   const handleReject = async () => {
-    if (!confirm('Reject this booking? This will cancel it.')) return;
+    const confirmed = await showConfirm({
+      title: 'Reject Booking?',
+      message: 'Are you sure you want to reject this booking? This will cancel it and cannot be undone.',
+      confirmLabel: 'Reject',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
       const { error } = await supabase
         .from('booking')
@@ -269,11 +336,14 @@ export default function BookingDetails() {
       let shouldRefund = false;
 
       if (totalDownpayment > 0 && isRefundable) {
-        shouldRefund = confirm(
-          `This booking has a downpayment of ₱${totalDownpayment.toLocaleString()}. ` +
-          `Since the event is ${daysUntilEvent} days away (>= 3 days), the downpayment is refundable. ` +
-          `Do you want to record a refund?`
-        );
+        const refundConfirm = await showConfirm({
+          title: 'Refund Downpayment?',
+          message: `This booking has a downpayment of ₱${totalDownpayment.toLocaleString()}. Since the event is ${daysUntilEvent} days away (>= 3 days), the downpayment is refundable. Do you want to record a refund?`,
+          confirmLabel: 'Yes, Refund',
+          cancelLabel: 'No, Keep',
+          confirmVariant: 'warning',
+        });
+        shouldRefund = refundConfirm;
         if (shouldRefund) {
           refundNote = 'Downpayment refunded due to client cancellation.';
         } else {
@@ -322,15 +392,31 @@ export default function BookingDetails() {
     }
   };
 
-  // --- Delete ---
+  // --- Delete (with payment deletion first) ---
   const handleDelete = async () => {
-    if (!confirm('Permanently delete this booking? This cannot be undone.')) return;
+    const confirmed = await showConfirm({
+      title: 'Delete Booking?',
+      message: 'Are you sure you want to permanently delete this booking? This action cannot be undone. All associated payments will also be deleted.',
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
+      // FIRST: Delete all associated payments
+      const { error: paymentsError } = await supabase
+        .from('payment')
+        .delete()
+        .eq('booking_id', id);
+      if (paymentsError) throw paymentsError;
+
+      // THEN: Delete the booking
       const { error } = await supabase
         .from('booking')
         .delete()
         .eq('booking_id', id);
       if (error) throw error;
+
       toast.success('Booking deleted.');
       navigate('/app/bookings');
     } catch (error) {
@@ -412,9 +498,12 @@ export default function BookingDetails() {
     try {
       // Warn if package changed and equipment may need reallocation
       if (editFormData.package_id !== booking.package_id) {
-        const shouldContinue = confirm(
-          'You have changed the package. Equipment assignments may need to be updated manually after saving. Continue?'
-        );
+        const shouldContinue = await showConfirm({
+          title: 'Package Changed',
+          message: 'You have changed the package. Equipment assignments may need to be updated manually after saving. Continue?',
+          confirmLabel: 'Continue',
+          confirmVariant: 'warning',
+        });
         if (!shouldContinue) {
           setIsSubmitting(false);
           return;
@@ -519,7 +608,14 @@ export default function BookingDetails() {
 
   // --- Remove Equipment Assignment ---
   const handleRemoveEquipment = async (assignmentId, equipmentId, quantity) => {
-    if (!confirm('Remove this equipment assignment? Stock will be restored.')) return;
+    const confirmed = await showConfirm({
+      title: 'Remove Equipment?',
+      message: 'Are you sure you want to remove this equipment assignment? Stock will be restored.',
+      confirmLabel: 'Remove',
+      confirmVariant: 'warning',
+    });
+    if (!confirmed) return;
+
     try {
       const { error: deleteError } = await supabase
         .from('booking_equipment')

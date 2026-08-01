@@ -3,8 +3,10 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
+import { useConfirm } from '../contexts/ConfirmContext';
 
 export default function PackagesAndMenus() {
+  const { showConfirm } = useConfirm();
   // --- STATE ---
   const [activeTab, setActiveTab] = useState('All');
   const [isLoading, setIsLoading] = useState(true);
@@ -415,7 +417,13 @@ export default function PackagesAndMenus() {
 
   // --- DELETE ---
   const handleDelete = async (id, type) => {
-    if (!confirm(`Delete this ${type}? This action cannot be undone.`)) return;
+    const confirmed = await showConfirm({
+      title: `Delete ${type}?`,
+      message: `Are you sure you want to delete this ${type}? This action cannot be undone.`,
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
 
     try {
       if (type === 'Package') {
@@ -460,6 +468,16 @@ export default function PackagesAndMenus() {
 
   // --- TOGGLE ARCHIVE ---
   const toggleArchive = async (id, type) => {
+    const confirmed = await showConfirm({
+      title: type === 'package' ? 'Archive Package?' : 'Archive Menu Item?',
+      message: type === 'package' 
+        ? 'Are you sure you want to archive this package? It will be hidden from customers.'
+        : 'Are you sure you want to archive this menu item? It will be hidden from customers.',
+      confirmLabel: 'Archive',
+      confirmVariant: 'warning',
+    });
+    if (!confirmed) return;
+
     try {
       if (type === 'package') {
         const target = packages.find(p => p.package_id === id);
@@ -533,7 +551,14 @@ export default function PackagesAndMenus() {
   };
 
   const handleDeleteCategory = async (categoryId) => {
-    if (!confirm('Delete this category? It will be removed from all packages.')) return;
+    const confirmed = await showConfirm({
+      title: 'Delete Category?',
+      message: 'Are you sure you want to delete this category? It will be removed from all packages.',
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
       const { error } = await supabase
         .from('category')
@@ -612,7 +637,6 @@ export default function PackagesAndMenus() {
     );
   };
 
-  // --- RENDER ---
   return (
     <div className="space-y-6 relative pb-12">
       {/* HEADER */}

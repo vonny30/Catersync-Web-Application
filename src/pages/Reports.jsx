@@ -1,5 +1,7 @@
+// src/pages/Reports.jsx
 import { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
+import toast from 'react-hot-toast';
 
 export default function Reports() {
   // --- UI STATE ---
@@ -19,6 +21,11 @@ export default function Reports() {
   const [equipmentUtilizationData, setEquipmentUtilizationData] = useState([]);
   const [bookingSummaryData, setBookingSummaryData] = useState([]);
 
+  const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
+    console.error('Error:', error);
+    toast.error(userMessage);
+  };
+
   // --- FETCH ALL REPORT DATA ---
   const fetchReportData = async () => {
     setIsLoading(true);
@@ -27,21 +34,18 @@ export default function Reports() {
       const now = new Date();
       const currentMonthLabel = now.toLocaleString('default', { month: 'long', year: 'numeric' });
 
-      // ========== FINANCIAL SUMMARY (FIXED) ==========
-      // Get all payments with booking_id
+      // ========== FINANCIAL SUMMARY ==========
       const { data: payments, error: paymentsError } = await supabase
         .from('payment')
         .select('amount_paid, booking_id');
       if (paymentsError) throw paymentsError;
 
-      // Group payments by booking
       const paymentMap = {};
       payments.forEach(p => {
         if (!paymentMap[p.booking_id]) paymentMap[p.booking_id] = 0;
         paymentMap[p.booking_id] += p.amount_paid;
       });
 
-      // Get all bookings with total_amount
       const { data: bookings, error: bookingsError } = await supabase
         .from('booking')
         .select('booking_id, total_amount, booking_status')
@@ -161,7 +165,7 @@ export default function Reports() {
           total: total,
           available: available,
           deployed: deployed,
-          damaged: 0, // no separate damaged count
+          damaged: 0,
         };
       });
       setEquipmentUtilizationData(utilData);
@@ -211,7 +215,7 @@ export default function Reports() {
           month: month,
           bookings: data.bookings,
           revenue: data.revenue,
-          collected: 0, // would need payment grouping
+          collected: 0,
           outstanding: 0,
           topPackage: topPackage,
         };
@@ -220,8 +224,7 @@ export default function Reports() {
       setBookingSummaryData(summary);
 
     } catch (error) {
-      console.error('Error fetching report data:', error);
-      alert('Failed to load report data. Please check console.');
+      handleError(error, 'Failed to load report data. Please refresh the page.');
     } finally {
       setIsLoading(false);
     }

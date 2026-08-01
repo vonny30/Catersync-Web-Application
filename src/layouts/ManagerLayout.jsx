@@ -1,4 +1,5 @@
-// layouts/ManagerLayout.jsx
+// src/layouts/ManagerLayout.jsx
+import { useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -13,12 +14,14 @@ import {
   Settings,
   LogOut,
   ChevronRight,
+  X,
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 const styles = {
   wrapper: 'flex flex-col h-screen bg-slate-50 font-sans overflow-hidden',
   header:
-    'bg-[#008A45] text-white h-16 flex items-center justify-between px-6 z-10 w-full shrink-0 relative',
+    'bg-[#008A45] text-white h-16 flex items-center justify-between px-4 md:px-6 z-20 w-full shrink-0 relative',
   logoContainer: 'flex items-center gap-3',
   logoBadge:
     'bg-white rounded-full w-9 h-9 flex items-center justify-center text-[#008A45] font-bold text-xs',
@@ -27,18 +30,24 @@ const styles = {
   profileAvatar:
     'w-8 h-8 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center overflow-hidden border-2 border-white',
   mainContainer: 'flex flex-1 overflow-hidden relative z-0',
-  sidebar:
+  sidebarDesktop:
     'w-64 bg-white border-r border-slate-200 flex flex-col justify-between shrink-0 hidden md:flex relative z-10',
+  sidebarMobile:
+    'fixed inset-y-0 left-0 w-64 bg-white border-r border-slate-200 flex flex-col justify-between z-50 transform transition-transform duration-300 ease-in-out md:hidden',
+  sidebarOpen: 'translate-x-0',
+  sidebarClosed: '-translate-x-full',
+  overlay: 'fixed inset-0 bg-slate-900/50 z-40 md:hidden',
   navItem: 'flex items-center gap-3 px-4 py-3 rounded-lg text-sm transition-all duration-200',
-  contentWindow: 'flex-1 overflow-y-auto bg-transparent p-8',
+  contentWindow: 'flex-1 overflow-y-auto bg-transparent p-4 md:p-8',
 };
 
 export default function ManagerLayout() {
   const location = useLocation();
-  const { user, logout } = useAuth(); // get user and logout from context
+  const { user, logout } = useAuth();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // Note: ProtectedRoute already ensures user is authenticated and is a manager,
-  // so we don't need to check again.
+  const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
+  const closeSidebar = () => setIsSidebarOpen(false);
 
   const navLinks = [
     { name: 'Dashboard', path: '/app', icon: LayoutDashboard },
@@ -54,18 +63,98 @@ export default function ManagerLayout() {
   const isSettingsActive = location.pathname === '/app/settings';
 
   const handleLogout = async () => {
-    await logout();
-    // ProtectedRoute will redirect to login automatically,
-    // but we can also navigate if needed – no need, because logout clears user state.
+    try {
+      await logout();
+      toast.success('Logged out successfully');
+    } catch (error) {
+      toast.error('Failed to log out');
+    }
+  };
+
+  // Helper to render nav items (used in both desktop and mobile sidebars)
+  const renderNavItems = (isMobile = false) => {
+    const navItems = navLinks.map((link) => {
+      const Icon = link.icon;
+      const isActive = location.pathname === link.path;
+
+      const activeStyles = isActive
+        ? 'bg-[#EAF3F2] font-bold text-[#008A45]'
+        : 'text-slate-600 font-medium hover:bg-slate-50 hover:text-slate-900';
+
+      return (
+        <Link
+          key={link.name}
+          to={link.path}
+          onClick={isMobile ? closeSidebar : undefined}
+          className={`${styles.navItem} ${activeStyles}`}
+        >
+          <Icon size={18} className={isActive ? 'text-[#008A45]' : 'text-slate-400'} />
+          {link.name}
+          <ChevronRight
+            size={16}
+            className={`ml-auto ${isActive ? 'text-[#008A45]' : 'text-slate-300'}`}
+          />
+        </Link>
+      );
+    });
+
+    const settingsLink = (
+      <Link
+        key="settings"
+        to="/app/settings"
+        onClick={isMobile ? closeSidebar : undefined}
+        className={`${styles.navItem} ${
+          isSettingsActive
+            ? 'bg-[#EAF3F2] font-bold text-[#008A45]'
+            : 'text-slate-600 font-medium hover:bg-slate-50 hover:text-slate-900'
+        }`}
+      >
+        <Settings size={18} className={isSettingsActive ? 'text-[#008A45]' : 'text-slate-400'} />
+        Settings
+      </Link>
+    );
+
+    const logoutButton = (
+      <button
+        key="logout"
+        onClick={() => {
+          handleLogout();
+          if (isMobile) closeSidebar();
+        }}
+        className={`${styles.navItem} text-slate-600 font-medium hover:bg-slate-50 hover:text-slate-900 w-full text-left`}
+      >
+        <LogOut size={18} className="text-slate-400" /> Sign Out
+      </button>
+    );
+
+    return (
+      <>
+        <nav className="p-3 space-y-1 mt-2">{navItems}</nav>
+        <div className="p-3 space-y-1 mb-2 border-t border-slate-100 pt-4">
+          {settingsLink}
+          {logoutButton}
+        </div>
+      </>
+    );
   };
 
   return (
     <div className={styles.wrapper}>
       {/* TOP NAVIGATION BAR */}
       <header className={styles.header}>
-        <div className={styles.logoContainer}>
-          <div className={styles.logoBadge}>CS</div>
-          <h1 className="text-xl font-bold tracking-wide">Catersync</h1>
+        <div className="flex items-center gap-3">
+          {/* Hamburger button (visible on mobile) */}
+          <button
+            onClick={toggleSidebar}
+            className="md:hidden p-1 rounded-lg hover:bg-white/10 transition-colors"
+            aria-label="Toggle menu"
+          >
+            <MenuIcon size={24} />
+          </button>
+          <div className={styles.logoContainer}>
+            <div className={styles.logoBadge}>CS</div>
+            <h1 className="text-xl font-bold tracking-wide">Catersync</h1>
+          </div>
         </div>
 
         <div className={styles.profileMenu}>
@@ -78,61 +167,44 @@ export default function ManagerLayout() {
               />
             </svg>
           </div>
-          <span className="font-semibold underline decoration-2 underline-offset-4">
+          <span className="font-semibold underline decoration-2 underline-offset-4 hidden sm:inline">
             {user?.email || 'Owner'}
           </span>
-          <span className="text-xs">▼</span>
+          <span className="text-xs hidden sm:inline">▼</span>
         </div>
       </header>
 
+      {/* OVERLAY (visible when mobile sidebar is open) */}
+      {isSidebarOpen && (
+        <div className={styles.overlay} onClick={closeSidebar} />
+      )}
+
       {/* MAIN CONTAINER */}
       <div className={styles.mainContainer}>
-        {/* SIDEBAR */}
-        <aside className={styles.sidebar}>
-          <nav className="p-3 space-y-1 mt-2">
-            {navLinks.map((link) => {
-              const Icon = link.icon;
-              const isActive = location.pathname === link.path;
+        {/* DESKTOP SIDEBAR */}
+        <aside className={styles.sidebarDesktop}>{renderNavItems(false)}</aside>
 
-              const activeStyles = isActive
-                ? 'bg-[#EAF3F2] font-bold text-[#008A45]'
-                : 'text-slate-600 font-medium hover:bg-slate-50 hover:text-slate-900';
-
-              return (
-                <Link key={link.name} to={link.path} className={`${styles.navItem} ${activeStyles}`}>
-                  <Icon size={18} className={isActive ? 'text-[#008A45]' : 'text-slate-400'} />
-                  {link.name}
-                  <ChevronRight
-                    size={16}
-                    className={`ml-auto ${isActive ? 'text-[#008A45]' : 'text-slate-300'}`}
-                  />
-                </Link>
-              );
-            })}
-          </nav>
-
-          <div className="p-3 space-y-1 mb-2 border-t border-slate-100 pt-4">
-            {/* Settings Link */}
-            <Link
-              to="/app/settings"
-              className={`${styles.navItem} ${
-                isSettingsActive
-                  ? 'bg-[#EAF3F2] font-bold text-[#008A45]'
-                  : 'text-slate-600 font-medium hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              <Settings size={18} className={isSettingsActive ? 'text-[#008A45]' : 'text-slate-400'} />
-              Settings
-            </Link>
-
-            {/* Sign Out Link – now uses logout from context */}
+        {/* MOBILE SIDEBAR (slide-out) */}
+        <aside
+          className={`${styles.sidebarMobile} ${
+            isSidebarOpen ? styles.sidebarOpen : styles.sidebarClosed
+          }`}
+        >
+          {/* Mobile sidebar header with close button */}
+          <div className="flex items-center justify-between p-4 border-b border-slate-200">
+            <div className="flex items-center gap-3">
+              <div className={styles.logoBadge}>CS</div>
+              <span className="font-bold text-slate-900">Catersync</span>
+            </div>
             <button
-              onClick={handleLogout}
-              className={`${styles.navItem} text-slate-600 font-medium hover:bg-slate-50 hover:text-slate-900 w-full text-left`}
+              onClick={closeSidebar}
+              className="p-1 rounded-lg hover:bg-slate-100 transition-colors"
+              aria-label="Close menu"
             >
-              <LogOut size={18} className="text-slate-400" /> Sign Out
+              <X size={20} className="text-slate-500" />
             </button>
           </div>
+          {renderNavItems(true)}
         </aside>
 
         {/* PAGE CONTENT WINDOW */}
