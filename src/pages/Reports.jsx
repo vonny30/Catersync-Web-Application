@@ -99,7 +99,7 @@ export default function Reports() {
         .select(`
           package_id,
           total_amount,
-          package:package_id (pkg_name)
+          package:package_id (pkg_name, pricing_type)
         `)
         .eq('booking_type', 'Package')
         .not('package_id', 'is', null);
@@ -112,6 +112,7 @@ export default function Reports() {
         if (!packageMap[pkgId]) {
           packageMap[pkgId] = {
             name: b.package?.pkg_name || 'Unknown',
+            pricing_type: b.package?.pricing_type || 'per_pax',
             orders: 0,
             revenue: 0,
           };
@@ -126,6 +127,7 @@ export default function Reports() {
         return {
           id: `PKG-${index + 1}`,
           name: data.name,
+          pricing_type: data.pricing_type,
           performance: performance,
           totalOrders: data.orders,
           revenueGenerated: data.revenue,
@@ -400,6 +402,7 @@ export default function Reports() {
                   <thead>
                     <tr className="bg-[#EAF3F2] text-slate-800 text-xs font-bold border-b border-slate-200">
                       <th className="p-4">Package Name</th>
+                      <th className="p-4">Pricing Type</th>
                       <th className="p-4">Popularity Metric</th>
                       <th className="p-4">Total Orders Filled</th>
                       <th className="p-4">Gross Revenue Share</th>
@@ -409,6 +412,17 @@ export default function Reports() {
                     {menuPerformanceData.map((pkg) => (
                       <tr key={pkg.id} className="hover:bg-slate-50 transition-colors">
                         <td className="p-4 font-bold text-slate-900">{pkg.name}</td>
+                        <td className="p-4">
+                          {pkg.pricing_type === 'fixed' ? (
+                            <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full border border-purple-200 whitespace-nowrap">
+                              Fixed
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full border border-blue-200 whitespace-nowrap">
+                              Per Pax
+                            </span>
+                          )}
+                        </td>
                         <td className="p-4 w-1/3">
                           <div className="flex items-center gap-3">
                             <span className="text-xs font-semibold text-slate-600 w-8">{pkg.performance}%</span>

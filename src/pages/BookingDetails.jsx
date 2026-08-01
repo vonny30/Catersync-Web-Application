@@ -1,7 +1,7 @@
 // src/pages/BookingDetails.jsx
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, ClipboardList, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, ClipboardList, Image as ImageIcon, ExternalLink } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -81,7 +81,7 @@ export default function BookingDetails() {
         .select(`
           *,
           customer:customer_id (first_name, last_name, contact_no, cus_address),
-          package:package_id (pkg_name, pkg_price, pkg_description)
+          package:package_id (pkg_name, pkg_price, pkg_description, pricing_type, max_pax, extra_pax_price)
         `)
         .eq('booking_id', id)
         .single();
@@ -196,7 +196,7 @@ export default function BookingDetails() {
 
         const { data: pkgs, error: pkgError } = await supabase
           .from('package')
-          .select('package_id, pkg_name')
+          .select('package_id, pkg_name, pricing_type, max_pax, extra_pax_price')
           .eq('pkg_availability', 'Available')
           .order('pkg_name');
         if (pkgError) throw pkgError;
@@ -747,6 +747,34 @@ export default function BookingDetails() {
 
   const canCancel = booking.booking_status === 'Approved';
 
+  // Helper to render proof image
+  const renderProof = (proofUrl) => {
+    if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
+      return <span className="text-xs text-slate-400 italic">None</span>;
+    }
+    return (
+      <button
+        onClick={() => window.open(proofUrl, '_blank')}
+        className="w-8 h-8 rounded border border-slate-200 overflow-hidden hover:shadow-md transition-shadow cursor-pointer flex items-center justify-center bg-slate-50"
+        title="Click to view proof"
+      >
+        <img
+          src={proofUrl}
+          alt="Payment proof"
+          className="w-full h-full object-cover"
+          onError={(e) => {
+            e.target.style.display = 'none';
+            const parent = e.target.parentElement;
+            const fallback = document.createElement('div');
+            fallback.className = 'w-full h-full flex items-center justify-center text-slate-400';
+            fallback.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>`;
+            parent.appendChild(fallback);
+          }}
+        />
+      </button>
+    );
+  };
+
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
       {/* Header */}
@@ -804,12 +832,12 @@ export default function BookingDetails() {
 
       {/* Status Badge */}
       <div>
-        <span className={`px-4 py-1.5 rounded-full text-xs font-bold border ${
+        <span className={`px-4 py-1.5 rounded-full text-xs font-bold border ${(
           booking.booking_status === 'Pending' ? 'bg-amber-50 border-amber-200 text-amber-700' :
           booking.booking_status === 'Approved' ? 'bg-[#EAF3F2] border-[#C1DEDC] text-slate-800' :
           booking.booking_status === 'Completed' ? 'bg-blue-50 border-blue-200 text-blue-700' :
           'bg-red-50 border-red-200 text-red-700'
-        }`}>
+        )}`}>
           {booking.booking_status}
         </span>
       </div>
@@ -824,6 +852,34 @@ export default function BookingDetails() {
               <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Venue</span><span className="col-span-2">{booking.venue || 'N/A'}</span></div>
               <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Pax</span><span className="col-span-2">{booking.pax_count}</span></div>
               <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Package</span><span className="col-span-2">{booking.package?.pkg_name || 'None'}</span></div>
+              
+              {/* Pricing Model Section */}
+              {booking.package && (
+                <div className="grid grid-cols-3">
+                  <span className="text-slate-700 font-bold">Pricing</span>
+                  <span className="col-span-2">
+                    {booking.package.pricing_type === 'fixed' ? (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full border border-purple-200">Fixed</span>
+                        <span className="font-semibold">₱{booking.package.pkg_price?.toLocaleString()}</span>
+                        {booking.package.max_pax && (
+                          <span className="text-xs text-slate-500">(up to {booking.package.max_pax} pax)</span>
+                        )}
+                        {booking.package.extra_pax_price > 0 && (
+                          <span className="text-xs text-slate-500">· ₱{booking.package.extra_pax_price}/extra pax</span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full border border-blue-200">Per Pax</span>
+                        <span className="font-semibold">₱{booking.package.pkg_price?.toLocaleString()}</span>
+                        <span className="text-xs text-slate-500">/pax</span>
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
+
               <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Color</span><span className="col-span-2">{booking.motif_color || 'N/A'}</span></div>
               <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Total</span><span className="col-span-2 font-bold">₱{booking.total_amount?.toLocaleString() || '0'}</span></div>
             </div>
@@ -870,9 +926,9 @@ export default function BookingDetails() {
               <span className="font-medium text-slate-700">Total Paid:</span>
               <span className="font-bold text-[#008A45]">₱{totalPaid.toLocaleString()}</span>
             </div>
-            <div className={`rounded-lg p-3 flex justify-between items-center text-sm border ${
+            <div className={`rounded-lg p-3 flex justify-between items-center text-sm border ${(
               remainingBalance <= 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'
-            }`}>
+            )}`}>
               <span className="font-medium text-slate-700">Remaining Balance:</span>
               <span className={`font-bold ${remainingBalance <= 0 ? 'text-green-700' : 'text-amber-700'}`}>
                 ₱{remainingBalance.toLocaleString()}
@@ -886,6 +942,7 @@ export default function BookingDetails() {
                       <th className="p-3">Amount</th>
                       <th className="p-3">Method</th>
                       <th className="p-3">Status</th>
+                      <th className="p-3">Proof</th>
                       <th className="p-3">Date</th>
                     </tr>
                   </thead>
@@ -897,14 +954,15 @@ export default function BookingDetails() {
                         </td>
                         <td className="p-3">{p.pay_method || 'N/A'}</td>
                         <td className="p-3">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${(
                             p.pay_status === 'Refunded' ? 'bg-red-100 text-red-700 border border-red-200' :
                             p.pay_status === 'Fully Paid' ? 'bg-green-100 text-green-700 border border-green-200' :
                             'bg-amber-100 text-amber-700 border border-amber-200'
-                          }`}>
+                          )}`}>
                             {p.pay_status || 'N/A'}
                           </span>
                         </td>
+                        <td className="p-3">{renderProof(p.pay_proof)}</td>
                         <td className="p-3">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleString() : 'N/A'}</td>
                       </tr>
                     ))}
@@ -961,9 +1019,9 @@ export default function BookingDetails() {
                       <span className="text-xs text-slate-500 ml-2">× {item.quantity}</span>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${(
                         item.returned ? 'bg-green-100 border border-green-200 text-green-700' : 'bg-amber-100 border border-amber-200 text-amber-700'
-                      }`}>
+                      )}`}>
                         {item.returned ? '✅ Returned' : '📌 Assigned'}
                       </span>
                       {!item.returned && (
@@ -1025,7 +1083,9 @@ export default function BookingDetails() {
                 >
                   <option value="">Select Package</option>
                   {packages.map(p => (
-                    <option key={p.package_id} value={p.package_id}>{p.pkg_name}</option>
+                    <option key={p.package_id} value={p.package_id}>
+                      {p.pkg_name} {p.pricing_type === 'fixed' ? '(Fixed)' : '(Per Pax)'}
+                    </option>
                   ))}
                 </select>
                 {editFormData.package_id !== booking.package_id && (
@@ -1343,11 +1403,11 @@ export default function BookingDetails() {
                       key={method}
                       type="button"
                       onClick={() => setPaymentFormData(prev => ({ ...prev, pay_method: method }))}
-                      className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border text-sm font-semibold transition-all ${
+                      className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border text-sm font-semibold transition-all ${(
                         paymentFormData.pay_method === method
                           ? 'bg-[#CBDEDD]/60 border-[#008A45] text-slate-900 shadow-xs'
                           : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
-                      }`}
+                      )}`}
                     >
                       <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${paymentFormData.pay_method === method ? 'border-[#008A45]' : 'border-slate-400'}`}>
                         {paymentFormData.pay_method === method && <div className="w-1.5 h-1.5 rounded-full bg-[#008A45]" />}
@@ -1410,9 +1470,9 @@ export default function BookingDetails() {
             </div>
             <div className="p-6 space-y-4">
               {/* Warning / Info */}
-              <div className={`p-3 rounded-lg text-sm border ${
+              <div className={`p-3 rounded-lg text-sm border ${(
                 eventDate && daysUntilEvent < 3 ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-700'
-              }`}>
+              )}`}>
                 <p className="font-bold">Event Date: {eventDate ? new Date(eventDate).toLocaleString() : 'N/A'}</p>
                 {eventDate && daysUntilEvent !== null && (
                   <p>

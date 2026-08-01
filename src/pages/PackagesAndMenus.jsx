@@ -32,6 +32,9 @@ export default function PackagesAndMenus() {
     selectedCategories: [],
     selectedEquipment: [],
     equipmentQuantities: {},
+    pricing_type: 'per_pax',      // NEW
+    max_pax: '',                  // NEW
+    extra_pax_price: '',          // NEW
   });
 
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
@@ -235,6 +238,9 @@ export default function PackagesAndMenus() {
         selectedCategories,
         selectedEquipment,
         equipmentQuantities,
+        pricing_type: item.pricing_type || 'per_pax',
+        max_pax: item.max_pax?.toString() || '',
+        extra_pax_price: item.extra_pax_price?.toString() || '',
       });
     } else if (item && type === 'Menu Item') {
       setFormData({
@@ -247,6 +253,9 @@ export default function PackagesAndMenus() {
         selectedCategories: [],
         selectedEquipment: [],
         equipmentQuantities: {},
+        pricing_type: 'per_pax',
+        max_pax: '',
+        extra_pax_price: '',
       });
     } else {
       setFormData({
@@ -259,6 +268,9 @@ export default function PackagesAndMenus() {
         selectedCategories: [],
         selectedEquipment: [],
         equipmentQuantities: {},
+        pricing_type: 'per_pax',
+        max_pax: '',
+        extra_pax_price: '',
       });
     }
     setIsModalOpen(true);
@@ -277,6 +289,9 @@ export default function PackagesAndMenus() {
       selectedCategories: [],
       selectedEquipment: [],
       equipmentQuantities: {},
+      pricing_type: 'per_pax',
+      max_pax: '',
+      extra_pax_price: '',
     });
     setIsSubmitting(false);
   };
@@ -320,6 +335,9 @@ export default function PackagesAndMenus() {
           pkg_description: formData.description || 'No description provided.',
           pkg_price: cleanPrice,
           minimum_pax: parseInt(formData.minPax) || 0,
+          pricing_type: formData.pricing_type || 'per_pax',
+          max_pax: formData.pricing_type === 'fixed' ? (parseInt(formData.max_pax) || null) : null,
+          extra_pax_price: formData.pricing_type === 'fixed' ? (parseFloat(formData.extra_pax_price) || 0) : 0,
         };
         if (uploadedImageUrl) packageData.pkg_image = uploadedImageUrl;
 
@@ -716,7 +734,16 @@ export default function PackagesAndMenus() {
                     <div className="p-6 flex-1 flex flex-col justify-between">
                       <div>
                         <div className="flex flex-wrap justify-between items-start gap-4 mb-2">
-                          <h3 className="text-xl font-bold text-slate-900">{pkg.pkg_name}</h3>
+                          <div>
+                            <h3 className="text-xl font-bold text-slate-900">{pkg.pkg_name}</h3>
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium mt-1 ${
+                              pkg.pricing_type === 'fixed' 
+                                ? 'bg-purple-50 border border-purple-200 text-purple-700' 
+                                : 'bg-blue-50 border border-blue-200 text-blue-700'
+                            }`}>
+                              {pkg.pricing_type === 'fixed' ? '📦 Fixed Price' : '👤 Per Pax'}
+                            </span>
+                          </div>
                           <div className="flex flex-wrap gap-2">
                             <button
                               onClick={() => handleOpenModal('Package', pkg)}
@@ -774,15 +801,29 @@ export default function PackagesAndMenus() {
                           </div>
                         )}
 
-                        <div className="flex gap-8">
+                        <div className="flex gap-8 flex-wrap">
                           <div>
-                            <p className="text-xs text-slate-500 mb-0.5">Price</p>
-                            <p className="font-bold text-slate-900">₱{Number(pkg.pkg_price).toLocaleString()}</p>
+                            <p className="text-xs text-slate-500 mb-0.5">
+                              {pkg.pricing_type === 'fixed' ? 'Fixed Price' : 'Price per Pax'}
+                            </p>
+                            <p className="font-bold text-slate-900">
+                              ₱{Number(pkg.pkg_price).toLocaleString()}
+                              {pkg.pricing_type === 'per_pax' && <span className="text-sm font-normal text-slate-500">/pax</span>}
+                            </p>
                           </div>
                           <div>
                             <p className="text-xs text-slate-500 mb-0.5">Min pax.</p>
                             <p className="font-bold text-slate-900">{pkg.minimum_pax}</p>
                           </div>
+                          {pkg.pricing_type === 'fixed' && pkg.max_pax && (
+                            <div>
+                              <p className="text-xs text-slate-500 mb-0.5">Max pax included</p>
+                              <p className="font-bold text-slate-900">{pkg.max_pax}</p>
+                              {pkg.extra_pax_price > 0 && (
+                                <p className="text-xs text-slate-500">Extra: ₱{pkg.extra_pax_price}/pax</p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -873,7 +914,7 @@ export default function PackagesAndMenus() {
                     `}>
                       <input type="radio" name="itemType" value="Package" checked={modalType === 'Package'}
                         disabled={!!editingId || isSubmitting}
-                        onChange={() => { setModalType('Package'); setFormData({ title: '', price: '', minPax: '', categoryId: '', description: '', imageFile: null, selectedCategories: [], selectedEquipment: [], equipmentQuantities: {} }); }}
+                        onChange={() => { setModalType('Package'); setFormData({ title: '', price: '', minPax: '', categoryId: '', description: '', imageFile: null, selectedCategories: [], selectedEquipment: [], equipmentQuantities: {}, pricing_type: 'per_pax', max_pax: '', extra_pax_price: '' }); }}
                         className="w-4 h-4 text-[#008A45] focus:ring-[#008A45]" />
                       <span className="font-medium text-sm">Package</span>
                     </label>
@@ -883,7 +924,7 @@ export default function PackagesAndMenus() {
                     `}>
                       <input type="radio" name="itemType" value="Menu Item" checked={modalType === 'Menu Item'}
                         disabled={!!editingId || isSubmitting}
-                        onChange={() => { setModalType('Menu Item'); setFormData({ title: '', price: '', minPax: '', categoryId: '', description: '', imageFile: null, selectedCategories: [], selectedEquipment: [], equipmentQuantities: {} }); }}
+                        onChange={() => { setModalType('Menu Item'); setFormData({ title: '', price: '', minPax: '', categoryId: '', description: '', imageFile: null, selectedCategories: [], selectedEquipment: [], equipmentQuantities: {}, pricing_type: 'per_pax', max_pax: '', extra_pax_price: '' }); }}
                         className="w-4 h-4 text-[#008A45] focus:ring-[#008A45]" />
                       <span className="font-medium text-sm">Menu Item</span>
                     </label>
@@ -910,13 +951,97 @@ export default function PackagesAndMenus() {
                       </div>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Price</label>
-                      <input type="number" name="price" value={formData.price} onChange={handleInputChange}
-                        placeholder="e.g. 150"
-                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45] outline-none"
-                        required disabled={isSubmitting} />
+                    {/* Pricing Model Selection */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1.5">Pricing Model</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, pricing_type: 'per_pax' }))}
+                            className={`p-2 rounded-lg border-2 text-sm font-semibold transition-all ${
+                              formData.pricing_type === 'per_pax'
+                                ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900'
+                                : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                            }`}
+                          >
+                            <div className="flex items-center justify-center gap-2">
+                              <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
+                                formData.pricing_type === 'per_pax' ? 'border-[#008A45]' : 'border-slate-400'
+                              }`}>
+                                {formData.pricing_type === 'per_pax' && <div className="w-1.5 h-1.5 rounded-full bg-[#008A45]" />}
+                              </div>
+                              Per Pax
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, pricing_type: 'fixed' }))}
+                            className={`p-2 rounded-lg border-2 text-sm font-semibold transition-all ${
+                              formData.pricing_type === 'fixed'
+                                ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900'
+                                : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                            }`}
+                          >
+                            <div className="flex items-center justify-center gap-2">
+                              <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
+                                formData.pricing_type === 'fixed' ? 'border-[#008A45]' : 'border-slate-400'
+                              }`}>
+                                {formData.pricing_type === 'fixed' && <div className="w-1.5 h-1.5 rounded-full bg-[#008A45]" />}
+                              </div>
+                              Fixed
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                          {formData.pricing_type === 'per_pax' ? 'Price per Pax (₱)' : 'Fixed Price (₱)'}
+                        </label>
+                        <input
+                          type="number"
+                          name="price"
+                          value={formData.price}
+                          onChange={handleInputChange}
+                          placeholder={formData.pricing_type === 'per_pax' ? 'e.g. 500' : 'e.g. 25000'}
+                          className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                          required
+                          disabled={isSubmitting}
+                        />
+                      </div>
                     </div>
+
+                    {/* Fixed Price Extra Fields */}
+                    {formData.pricing_type === 'fixed' && (
+                      <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1.5">Max Pax Included</label>
+                          <input
+                            type="number"
+                            name="max_pax"
+                            value={formData.max_pax}
+                            onChange={handleInputChange}
+                            placeholder="e.g. 100"
+                            className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                            disabled={isSubmitting}
+                          />
+                          <p className="text-xs text-slate-400 mt-1">Guests above this pay extra</p>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1.5">Extra Pax Price (₱)</label>
+                          <input
+                            type="number"
+                            name="extra_pax_price"
+                            value={formData.extra_pax_price}
+                            onChange={handleInputChange}
+                            placeholder="e.g. 250"
+                            className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                            disabled={isSubmitting}
+                          />
+                          <p className="text-xs text-slate-400 mt-1">Price per guest above max</p>
+                        </div>
+                      </div>
+                    )}
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">Description</label>

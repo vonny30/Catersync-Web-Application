@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, Check, Edit, Trash2, ChevronLeft, ChevronRight, Filter, X, RefreshCw, Calendar, User, Package as PackageIcon, MapPin, RotateCcw } from 'lucide-react';
+import { Search, Check, Edit, Trash2, ChevronLeft, ChevronRight, Filter, X, RefreshCw, RotateCcw } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -24,7 +24,7 @@ export default function Bookings() {
     customerId: '',
     packageId: '',
     venue: '',
-    status: '', // optional – will combine with tab
+    status: '',
   });
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
 
@@ -66,15 +66,31 @@ export default function Bookings() {
     toast.error(userMessage);
   };
 
-  // --- Auto-calculate total amount when package, pax, or delivery fee change ---
+  // --- Auto-calculate total amount based on pricing type ---
   useEffect(() => {
     if (formData.package_id && formData.pax_count) {
       const selectedPkg = packages.find(p => p.package_id === formData.package_id);
       if (selectedPkg) {
-        const pkgPrice = selectedPkg.pkg_price || 0;
         const pax = parseInt(formData.pax_count) || 0;
         const deliveryFee = parseFloat(formData.delivery_fee) || 0;
-        const baseTotal = pkgPrice * pax;
+        let baseTotal = 0;
+
+        if (selectedPkg.pricing_type === 'per_pax') {
+          // Per Pax: price × number of guests
+          const pkgPrice = selectedPkg.pkg_price || 0;
+          baseTotal = pkgPrice * pax;
+        } else {
+          // Fixed Price: flat rate
+          baseTotal = selectedPkg.pkg_price || 0;
+          
+          // If pax exceeds max_pax, charge extra
+          if (selectedPkg.max_pax && pax > selectedPkg.max_pax) {
+            const extraPax = pax - selectedPkg.max_pax;
+            const extraPrice = selectedPkg.extra_pax_price || 0;
+            baseTotal += extraPax * extraPrice;
+          }
+        }
+
         const total = baseTotal + deliveryFee;
         setFormData(prev => ({
           ...prev,
@@ -187,7 +203,7 @@ export default function Bookings() {
         if (packageIds.length > 0) {
           const { data: packagesData, error: packagesError } = await supabase
             .from('package')
-            .select('package_id, pkg_name, pkg_price')
+            .select('package_id, pkg_name, pkg_price, pricing_type, max_pax, extra_pax_price')
             .in('package_id', packageIds);
           if (packagesError) throw packagesError;
           packagesMap = Object.fromEntries(packagesData.map(p => [p.package_id, p]));
@@ -213,7 +229,7 @@ export default function Bookings() {
 
       const { data: packagesList, error: packagesListError } = await supabase
         .from('package')
-        .select('package_id, pkg_name, pkg_price')
+        .select('package_id, pkg_name, pkg_price, pricing_type, max_pax, extra_pax_price')
         .eq('pkg_availability', 'Available')
         .order('pkg_name');
       if (packagesListError) throw packagesListError;
@@ -367,7 +383,6 @@ export default function Bookings() {
   };
 
   const applyFilters = () => {
-    // We just close the modal; the filter logic is applied in the filtered variable
     setIsFilterModalOpen(false);
   };
 
@@ -462,7 +477,7 @@ export default function Bookings() {
   // --- Approval Modal Logic ---
   const openApprovalModal = (booking) => {
     setApprovalBooking(booking);
-    const baseTotal = booking.total_amount || (booking.package?.pkg_price * booking.pax_count) || 0;
+    const baseTotal = booking.total_amount || 0;
     setApprovalData({
       extraPax: 0,
       additionalFee: 0,
@@ -637,10 +652,8 @@ export default function Bookings() {
   const tabs = ['All', 'Pending', 'Approved', 'Completed', 'Rejected'];
   
   const filtered = bookings.filter(b => {
-    // Tab filter (status)
     if (activeTab !== 'All' && b.booking_status !== activeTab) return false;
     
-    // Search filter (client name or booking id)
     if (searchTerm) {
       const name = `${b.customer?.first_name || ''} ${b.customer?.last_name || ''}`.toLowerCase();
       const id = b.booking_id.toLowerCase();
@@ -648,7 +661,6 @@ export default function Bookings() {
       if (!name.includes(search) && !id.includes(search)) return false;
     }
 
-    // --- Date range filter ---
     if (filters.dateFrom && b.event_datetime) {
       const eventDate = new Date(b.event_datetime);
       const fromDate = new Date(filters.dateFrom);
@@ -662,21 +674,14 @@ export default function Bookings() {
       if (eventDate > toDate) return false;
     }
 
-    // Customer filter
     if (filters.customerId && b.customer_id !== filters.customerId) return false;
-
-    // Package filter
     if (filters.packageId && b.package_id !== filters.packageId) return false;
 
-    // Venue filter (partial match)
     if (filters.venue && b.venue) {
       const venueLower = b.venue.toLowerCase();
       const searchVenue = filters.venue.toLowerCase();
       if (!venueLower.includes(searchVenue)) return false;
     }
-
-    // (Optional) Status filter – if we want to combine with tabs, we skip here because tabs already handle it.
-    // But we could also allow filter status to override, but we'll keep it as an extra – but we'll ignore status from filter since tabs do it.
 
     return true;
   });
@@ -916,7 +921,9 @@ export default function Bookings() {
                 >
                   <option value="">Select Package</option>
                   {packages.map(p => (
-                    <option key={p.package_id} value={p.package_id}>{p.pkg_name}</option>
+                    <option key={p.package_id} value={p.package_id}>
+                      {p.pkg_name} {p.pricing_type === 'fixed' ? '(Fixed)' : '(Per Pax)'}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -1024,7 +1031,7 @@ export default function Bookings() {
                     step="0.01"
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
                   />
-                  <p className="text-xs text-slate-400 mt-1">Auto-calculated from package price × pax + delivery fee. You can adjust.</p>
+                  <p className="text-xs text-slate-400 mt-1">Auto-calculated based on package pricing. You can adjust.</p>
                 </div>
               </div>
 
@@ -1087,7 +1094,7 @@ export default function Bookings() {
                   <span className="font-medium text-slate-600">Current Total:</span>
                   <span className="font-bold text-slate-900">₱{approvalBooking.total_amount?.toLocaleString() || '0'}</span>
                 </div>
-                <p className="text-xs text-slate-500 mt-2">* Package price is per pax. Adjust extra pax or add fees below.</p>
+                <p className="text-xs text-slate-500 mt-2">* Adjust extra pax or add fees below.</p>
               </div>
 
               {/* Adjustment fields */}
@@ -1232,7 +1239,7 @@ export default function Bookings() {
                   <option value="">All Packages</option>
                   {packages.map(p => (
                     <option key={p.package_id} value={p.package_id}>
-                      {p.pkg_name}
+                      {p.pkg_name} {p.pricing_type === 'fixed' ? '(Fixed)' : ''}
                     </option>
                   ))}
                 </select>

@@ -592,6 +592,38 @@ export default function ShortOrderDetails() {
   // Only show Cancel button for Approved orders
   const canCancel = order.booking_status === 'Approved';
 
+  // Calculate subtotal for display
+  const itemsSubtotal = menuItemsDetails.reduce((sum, i) => sum + (i.menu_price * i.quantity), 0);
+  const deliveryFee = order.delivery_fee || 0;
+
+  // Helper to render proof image
+  const renderProof = (proofUrl) => {
+    if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
+      return <span className="text-xs text-slate-400 italic">None</span>;
+    }
+    return (
+      <button
+        onClick={() => window.open(proofUrl, '_blank')}
+        className="w-8 h-8 rounded border border-slate-200 overflow-hidden hover:shadow-md transition-shadow cursor-pointer flex items-center justify-center bg-slate-50"
+        title="Click to view proof"
+      >
+        <img
+          src={proofUrl}
+          alt="Payment proof"
+          className="w-full h-full object-cover"
+          onError={(e) => {
+            e.target.style.display = 'none';
+            const parent = e.target.parentElement;
+            const fallback = document.createElement('div');
+            fallback.className = 'w-full h-full flex items-center justify-center text-slate-400';
+            fallback.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>`;
+            parent.appendChild(fallback);
+          }}
+        />
+      </button>
+    );
+  };
+
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -642,12 +674,12 @@ export default function ShortOrderDetails() {
       </div>
 
       <div>
-        <span className={`px-4 py-1.5 rounded-full text-xs font-bold border ${
+        <span className={`px-4 py-1.5 rounded-full text-xs font-bold border ${(
           order.booking_status === 'Pending' ? 'bg-amber-50 border-amber-200 text-amber-700' :
           order.booking_status === 'Approved' ? 'bg-[#EAF3F2] border-[#C1DEDC] text-slate-800' :
           order.booking_status === 'Completed' ? 'bg-blue-50 border-blue-200 text-blue-700' :
           'bg-red-50 border-red-200 text-red-700'
-        }`}>
+        )}`}>
           {order.booking_status}
         </span>
       </div>
@@ -660,8 +692,14 @@ export default function ShortOrderDetails() {
               <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Date</span><span className="col-span-2">{order.event_datetime ? new Date(order.event_datetime).toLocaleString() : 'N/A'}</span></div>
               <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Venue</span><span className="col-span-2">{order.venue || 'N/A'}</span></div>
               <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Pax</span><span className="col-span-2">{order.pax_count}</span></div>
-              <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Delivery Fee</span><span className="col-span-2">₱{order.delivery_fee?.toLocaleString() || '0'}</span></div>
-              <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Total</span><span className="col-span-2 font-bold text-[#008A45]">₱{order.total_amount?.toLocaleString() || '0'}</span></div>
+              
+              {/* Pricing Breakdown */}
+              <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Subtotal</span><span className="col-span-2">₱{itemsSubtotal.toFixed(2)}</span></div>
+              <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Delivery Fee</span><span className="col-span-2">₱{deliveryFee.toLocaleString()}</span></div>
+              <div className="grid grid-cols-3 border-t border-slate-200 pt-2 mt-1">
+                <span className="text-slate-700 font-bold">Total</span>
+                <span className="col-span-2 font-bold text-[#008A45]">₱{order.total_amount?.toLocaleString() || '0'}</span>
+              </div>
             </div>
             {order.notes && (
               <div className="pt-4 mt-4 border-t border-slate-100">
@@ -705,9 +743,9 @@ export default function ShortOrderDetails() {
               <span className="font-medium text-slate-700">Total Paid:</span>
               <span className="font-bold text-[#008A45]">₱{totalPaid.toLocaleString()}</span>
             </div>
-            <div className={`rounded-lg p-3 flex justify-between items-center text-sm border ${
+            <div className={`rounded-lg p-3 flex justify-between items-center text-sm border ${(
               remainingBalance <= 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'
-            }`}>
+            )}`}>
               <span className="font-medium text-slate-700">Remaining Balance:</span>
               <span className={`font-bold ${remainingBalance <= 0 ? 'text-green-700' : 'text-amber-700'}`}>
                 ₱{remainingBalance.toLocaleString()}
@@ -721,6 +759,7 @@ export default function ShortOrderDetails() {
                       <th className="p-3">Amount</th>
                       <th className="p-3">Method</th>
                       <th className="p-3">Status</th>
+                      <th className="p-3">Proof</th>
                       <th className="p-3">Date</th>
                     </tr>
                   </thead>
@@ -732,14 +771,15 @@ export default function ShortOrderDetails() {
                         </td>
                         <td className="p-3">{p.pay_method || 'N/A'}</td>
                         <td className="p-3">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${(
                             p.pay_status === 'Refunded' ? 'bg-red-100 text-red-700 border border-red-200' :
                             p.pay_status === 'Fully Paid' ? 'bg-green-100 text-green-700 border border-green-200' :
                             'bg-amber-100 text-amber-700 border border-amber-200'
-                          }`}>
+                          )}`}>
                             {p.pay_status || 'N/A'}
                           </span>
                         </td>
+                        <td className="p-3">{renderProof(p.pay_proof)}</td>
                         <td className="p-3">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleString() : 'N/A'}</td>
                       </tr>
                     ))}
@@ -774,10 +814,19 @@ export default function ShortOrderDetails() {
                     </div>
                   );
                 })}
-                <div className="flex justify-end pt-2 border-t border-slate-200 mt-1">
+                <div className="flex justify-between pt-2 border-t border-slate-200 mt-1">
+                  <span className="text-sm font-bold text-slate-900">Subtotal</span>
                   <span className="text-sm font-bold text-slate-900">
-                    Subtotal: ₱{menuItemsDetails.reduce((sum, i) => sum + (i.menu_price * i.quantity), 0).toFixed(2)}
+                    ₱{menuItemsDetails.reduce((sum, i) => sum + (i.menu_price * i.quantity), 0).toFixed(2)}
                   </span>
+                </div>
+                <div className="flex justify-between text-sm text-slate-500">
+                  <span>Delivery Fee</span>
+                  <span>₱{order.delivery_fee?.toLocaleString() || '0'}</span>
+                </div>
+                <div className="flex justify-between pt-1 border-t border-slate-200 font-bold text-slate-900">
+                  <span>Total</span>
+                  <span className="text-[#008A45]">₱{order.total_amount?.toLocaleString() || '0'}</span>
                 </div>
               </div>
             )}
@@ -1131,9 +1180,9 @@ export default function ShortOrderDetails() {
               </button>
             </div>
             <div className="p-6 space-y-4">
-              <div className={`p-3 rounded-lg text-sm border ${
+              <div className={`p-3 rounded-lg text-sm border ${(
                 eventDate && daysUntilEvent < 3 ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-700'
-              }`}>
+              )}`}>
                 <p className="font-bold">Event Date: {eventDate ? new Date(eventDate).toLocaleString() : 'N/A'}</p>
                 {eventDate && daysUntilEvent !== null && (
                   <p>
