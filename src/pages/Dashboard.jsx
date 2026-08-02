@@ -260,7 +260,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="max-w-[1200px] space-y-8">
+    <div className="space-y-8">
       {/* Header */}
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-slate-900 tracking-tight">

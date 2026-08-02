@@ -28,6 +28,9 @@ function AppContent() {
     <>
       <Toaster
         position="bottom-right"
+        containerStyle={{
+          zIndex: 999999, // 👈 Higher than all modals (z-[9999] / z-[99999])
+        }}
         toastOptions={{
           duration: 4000,
           style: {

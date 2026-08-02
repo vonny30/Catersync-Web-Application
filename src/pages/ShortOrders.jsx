@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, Check, Edit, Trash2, ChevronLeft, ChevronRight, X, RefreshCw, Plus } from 'lucide-react';
+import { Search, Check, Edit, Trash2, ChevronLeft, ChevronRight, X, RefreshCw, Plus, UserPlus } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -32,7 +32,17 @@ export default function ShortOrders() {
     menu_selections: [],
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [tempItem, setTempItem] = useState({ menu_item_id: '', quantity: 1 });
+  const [tempItem, setTempItem] = useState({ menu_item_id: '' });
+
+  // --- Walk-in customer state ---
+  const [isWalkIn, setIsWalkIn] = useState(false);
+  const [walkInData, setWalkInData] = useState({
+    first_name: '',
+    last_name: '',
+    contact_no: '',
+    email_address: '',
+    cus_address: '',
+  });
 
   // --- Approval modal state ---
   const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
@@ -106,10 +116,29 @@ export default function ShortOrders() {
     }));
   }, [formData.menu_selections, formData.delivery_fee, menuItems]);
 
+  // --- Auto-update quantities when pax count changes ---
+  useEffect(() => {
+    const pax = parseInt(formData.pax_count) || 1;
+    if (formData.menu_selections.length > 0) {
+      setFormData(prev => ({
+        ...prev,
+        menu_selections: prev.menu_selections.map(item => ({
+          ...item,
+          quantity: pax,
+        })),
+      }));
+    }
+  }, [formData.pax_count]);
+
   // --- Handlers ---
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleWalkInChange = (e) => {
+    const { name, value } = e.target;
+    setWalkInData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleTempItemChange = (e) => {
@@ -122,22 +151,23 @@ export default function ShortOrders() {
       toast.error('Please select a menu item.');
       return;
     }
-    if (tempItem.quantity < 1) {
-      toast.error('Quantity must be at least 1.');
+    const pax = parseInt(formData.pax_count) || 1;
+    if (pax < 1) {
+      toast.error('Please enter a valid pax count first.');
       return;
     }
     const existing = formData.menu_selections.find(
       item => item.menu_item_id === tempItem.menu_item_id
     );
     if (existing) {
-      toast.error('This item is already added. Remove it first to change quantity.');
+      toast.error('This item is already added.');
       return;
     }
     setFormData(prev => ({
       ...prev,
-      menu_selections: [...prev.menu_selections, { ...tempItem }],
+      menu_selections: [...prev.menu_selections, { menu_item_id: tempItem.menu_item_id, quantity: pax }],
     }));
-    setTempItem({ menu_item_id: '', quantity: 1 });
+    setTempItem({ menu_item_id: '' });
   };
 
   const removeItemFromSelection = (menu_item_id) => {
@@ -147,18 +177,16 @@ export default function ShortOrders() {
     }));
   };
 
-  const updateItemQuantity = (menu_item_id, quantity) => {
-    if (quantity < 1) return;
-    setFormData(prev => ({
-      ...prev,
-      menu_selections: prev.menu_selections.map(item =>
-        item.menu_item_id === menu_item_id ? { ...item, quantity: parseInt(quantity) } : item
-      ),
-    }));
-  };
-
   const openNewModal = () => {
     setEditingId(null);
+    setIsWalkIn(false);
+    setWalkInData({
+      first_name: '',
+      last_name: '',
+      contact_no: '',
+      email_address: '',
+      cus_address: '',
+    });
     setFormData({
       customer_id: '',
       booking_type: 'Short Order',
@@ -170,12 +198,20 @@ export default function ShortOrders() {
       delivery_fee: '0',
       menu_selections: [],
     });
-    setTempItem({ menu_item_id: '', quantity: 1 });
+    setTempItem({ menu_item_id: '' });
     setIsModalOpen(true);
   };
 
   const openEditModal = (order) => {
     setEditingId(order.booking_id);
+    setIsWalkIn(false);
+    setWalkInData({
+      first_name: '',
+      last_name: '',
+      contact_no: '',
+      email_address: '',
+      cus_address: '',
+    });
     let selections = [];
     try {
       if (order.menu_selections) {
@@ -200,13 +236,21 @@ export default function ShortOrders() {
       delivery_fee: order.delivery_fee?.toString() || '0',
       menu_selections: selections,
     });
-    setTempItem({ menu_item_id: '', quantity: 1 });
+    setTempItem({ menu_item_id: '' });
     setIsModalOpen(true);
   };
 
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingId(null);
+    setIsWalkIn(false);
+    setWalkInData({
+      first_name: '',
+      last_name: '',
+      contact_no: '',
+      email_address: '',
+      cus_address: '',
+    });
     setFormData({
       customer_id: '',
       booking_type: 'Short Order',
@@ -218,9 +262,169 @@ export default function ShortOrders() {
       delivery_fee: '0',
       menu_selections: [],
     });
-    setTempItem({ menu_item_id: '', quantity: 1 });
+    setTempItem({ menu_item_id: '' });
     setIsSubmitting(false);
   };
+
+  // -------- WALK-IN CUSTOMER CREATION (embedded) ----------
+  const createWalkInCustomer = async () => {
+    // Set global flag to prevent auto‑logout during Auth user creation
+    window.isCreatingWalkIn = true;
+
+    try {
+      // 1. Save current session (manager)
+      const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+
+      if (!currentSession) {
+        throw new Error('You must be logged in as a manager to create walk‑in customers.');
+      }
+
+      // 2. Check email existence
+      const { data: existingCustomer, error: checkError } = await supabase
+        .from('customer')
+        .select('customer_id')
+        .eq('email_address', walkInData.email_address)
+        .maybeSingle();
+      if (checkError) throw checkError;
+
+      if (existingCustomer) {
+        toast.info('Customer with this email already exists. Using existing account.');
+        return existingCustomer.customer_id;
+      }
+
+      // 3. Generate unique username
+      const username = walkInData.email_address.split('@')[0];
+      let finalUsername = username;
+      let counter = 1;
+      while (true) {
+        const { data: existingUsername, error: usernameCheckError } = await supabase
+          .from('customer')
+          .select('customer_id')
+          .eq('username', finalUsername)
+          .maybeSingle();
+        if (usernameCheckError) throw usernameCheckError;
+        if (!existingUsername) break;
+        finalUsername = `${username}${counter}`;
+        counter++;
+      }
+
+      // 4. Create Supabase Auth user
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: walkInData.email_address,
+        password: 'password123',
+        options: {
+          emailRedirectTo: window.location.origin,
+        },
+      });
+
+      if (authError) {
+        if (authError.message.includes('already registered')) {
+          const { data: existing } = await supabase
+            .from('customer')
+            .select('customer_id')
+            .eq('email_address', walkInData.email_address)
+            .maybeSingle();
+          if (existing) {
+            toast.info('Customer already exists. Using existing account.');
+            return existing.customer_id;
+          }
+          throw new Error('Email already registered but no customer record found. Please use a different email.');
+        }
+        throw authError;
+      }
+
+      // 5. Insert customer record
+      const { data: newCustomer, error: customerError } = await supabase
+        .from('customer')
+        .insert([{
+          first_name: walkInData.first_name,
+          last_name: walkInData.last_name,
+          contact_no: walkInData.contact_no,
+          email_address: walkInData.email_address,
+          cus_address: walkInData.cus_address || 'N/A',
+          username: finalUsername,
+          password: 'password123',
+          account_status: 'Active',
+          user_id: authData.user?.id,
+        }])
+        .select()
+        .single();
+
+      if (customerError) throw customerError;
+
+      // 6. Restore manager session
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      if (currentSession) {
+        const { error: restoreError } = await supabase.auth.setSession({
+          access_token: currentSession.access_token,
+          refresh_token: currentSession.refresh_token,
+        });
+        if (restoreError) {
+          console.error('Failed to restore manager session:', restoreError);
+          const { error: refreshError } = await supabase.auth.refreshSession();
+          if (refreshError) {
+            console.error('Refresh also failed:', refreshError);
+            const managerSession = localStorage.getItem('supabase.auth.token');
+            if (managerSession) {
+              try {
+                const parsed = JSON.parse(managerSession);
+                await supabase.auth.setSession(parsed);
+              } catch (e) {
+                console.error('Failed to restore from localStorage:', e);
+              }
+            }
+          }
+        } else {
+          console.log('✅ Manager session restored');
+        }
+      }
+
+      // 7. Wait a bit more to let the auth state propagate
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // 8. Verify session is restored
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: manager } = await supabase
+          .from('manager')
+          .select('manager_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (!manager) {
+          if (currentSession) {
+            await supabase.auth.setSession({
+              access_token: currentSession.access_token,
+              refresh_token: currentSession.refresh_token,
+            });
+          }
+          const { data: { user: finalUser } } = await supabase.auth.getUser();
+          if (finalUser) {
+            const { data: finalManager } = await supabase
+              .from('manager')
+              .select('manager_id')
+              .eq('user_id', finalUser.id)
+              .maybeSingle();
+            if (!finalManager) {
+              throw new Error('Failed to restore manager session. Please refresh the page.');
+            }
+          }
+        }
+      }
+
+      toast.success('Customer account created! Default password: password123');
+      return newCustomer.customer_id;
+
+    } catch (error) {
+      console.error('Error creating walk-in customer:', error);
+      throw new Error(error.message || 'Failed to create customer account. Please try again.');
+    } finally {
+      // Clear the global flag
+      window.isCreatingWalkIn = false;
+    }
+  };
+  // ------------------------------------------------------------
 
   // --- CRUD ---
   const handleSubmit = async (e) => {
@@ -233,8 +437,36 @@ export default function ShortOrders() {
         return;
       }
 
+      let customerId = formData.customer_id;
+
+      // If walk-in, create customer account first
+      if (isWalkIn) {
+        if (!walkInData.first_name || !walkInData.last_name || !walkInData.contact_no || !walkInData.email_address) {
+          toast.error('Please fill in all customer details for walk-in customer.');
+          setIsSubmitting(false);
+          return;
+        }
+        if (!walkInData.email_address.includes('@')) {
+          toast.error('Please enter a valid email address.');
+          setIsSubmitting(false);
+          return;
+        }
+        try {
+          customerId = await createWalkInCustomer();
+          if (!customerId) {
+            toast.error('Failed to create customer account.');
+            setIsSubmitting(false);
+            return;
+          }
+        } catch (err) {
+          toast.error(err.message);
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       const payload = {
-        customer_id: formData.customer_id,
+        customer_id: customerId,
         booking_type: 'Short Order',
         event_datetime: formData.event_datetime ? new Date(formData.event_datetime).toISOString() : null,
         venue: formData.venue || null,
@@ -270,7 +502,7 @@ export default function ShortOrders() {
             amount_paid: 0,
             pay_installment: 1,
             pay_method: 'Pending',
-            pay_status: 'Pending',   // matches booking status
+            pay_status: 'Pending',
             pay_datetime: new Date().toISOString(),
             pay_proof: 'placeholder.png',
           }]);
@@ -600,14 +832,133 @@ export default function ShortOrders() {
               <button onClick={closeModal} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1"><X size={18} /></button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 text-left">
-              {/* Customer */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Customer *</label>
-                <select name="customer_id" value={formData.customer_id} onChange={handleInputChange} required className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]">
-                  <option value="">Select Customer</option>
-                  {customers.map(c => <option key={c.customer_id} value={c.customer_id}>{c.first_name} {c.last_name}</option>)}
-                </select>
-              </div>
+              {/* Customer Selection / Walk-in Toggle */}
+              {!editingId && (
+                <div className="mb-4">
+                  <label className="block text-xs font-bold text-slate-700 mb-2">Customer Type</label>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsWalkIn(false)}
+                      className={`flex-1 py-2 px-4 rounded-lg border-2 text-sm font-semibold transition-all ${
+                        !isWalkIn
+                          ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900'
+                          : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      Existing Customer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsWalkIn(true)}
+                      className={`flex-1 py-2 px-4 rounded-lg border-2 text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+                        isWalkIn
+                          ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900'
+                          : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      <UserPlus size={16} />
+                      Walk-in Customer
+                    </button>
+                  </div>
+                  {isWalkIn && (
+                    <p className="text-xs text-amber-600 mt-2">
+                      ⚠️ A customer account will be created with default password: <strong>password123</strong>
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Customer Dropdown (only if not walk-in) */}
+              {!isWalkIn && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Customer *</label>
+                  <select
+                    name="customer_id"
+                    value={formData.customer_id}
+                    onChange={handleInputChange}
+                    required
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                  >
+                    <option value="">Select Customer</option>
+                    {customers.map(c => (
+                      <option key={c.customer_id} value={c.customer_id}>
+                        {c.first_name} {c.last_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Walk-in Customer Fields */}
+              {isWalkIn && (
+                <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                  <p className="text-xs font-bold text-slate-700 mb-1">Walk-in Customer Details</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">First Name *</label>
+                      <input
+                        type="text"
+                        name="first_name"
+                        value={walkInData.first_name}
+                        onChange={handleWalkInChange}
+                        placeholder="e.g. Juan"
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                        required={isWalkIn}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Last Name *</label>
+                      <input
+                        type="text"
+                        name="last_name"
+                        value={walkInData.last_name}
+                        onChange={handleWalkInChange}
+                        placeholder="e.g. Dela Cruz"
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                        required={isWalkIn}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Contact Number *</label>
+                      <input
+                        type="text"
+                        name="contact_no"
+                        value={walkInData.contact_no}
+                        onChange={handleWalkInChange}
+                        placeholder="e.g. 09123456789"
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                        required={isWalkIn}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Email Address *</label>
+                      <input
+                        type="email"
+                        name="email_address"
+                        value={walkInData.email_address}
+                        onChange={handleWalkInChange}
+                        placeholder="e.g. juan@email.com"
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                        required={isWalkIn}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-0.5">Address</label>
+                    <input
+                      type="text"
+                      name="cus_address"
+                      value={walkInData.cus_address}
+                      onChange={handleWalkInChange}
+                      placeholder="e.g. Banga, Bayawan City"
+                      className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Event Date & Time */}
               <div>
@@ -624,8 +975,18 @@ export default function ShortOrders() {
               {/* Pax & Delivery Fee */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Pax Count</label>
-                  <input type="number" name="pax_count" value={formData.pax_count} onChange={handleInputChange} placeholder="e.g. 20" className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]" />
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Pax Count *</label>
+                  <input
+                    type="number"
+                    name="pax_count"
+                    value={formData.pax_count}
+                    onChange={handleInputChange}
+                    placeholder="e.g. 20"
+                    min="1"
+                    required
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">Menu item quantities will be set to this number.</p>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Delivery Fee</label>
@@ -633,7 +994,7 @@ export default function ShortOrders() {
                 </div>
               </div>
 
-              {/* Menu Item Selection */}
+              {/* Menu Item Selection (no quantity input) */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Select Menu Items</label>
                 <div className="flex gap-2 mb-2">
@@ -650,15 +1011,6 @@ export default function ShortOrders() {
                       </option>
                     ))}
                   </select>
-                  <input
-                    type="number"
-                    name="quantity"
-                    min="1"
-                    value={tempItem.quantity}
-                    onChange={handleTempItemChange}
-                    className="w-20 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                    placeholder="Qty"
-                  />
                   <button
                     type="button"
                     onClick={addItemToSelection}
@@ -680,28 +1032,19 @@ export default function ShortOrders() {
                             {menuItem?.menu_name || 'Unknown'} × {item.quantity}
                             <span className="text-xs text-slate-500 ml-2">₱{subtotal.toFixed(2)}</span>
                           </span>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="number"
-                              min="1"
-                              value={item.quantity}
-                              onChange={(e) => updateItemQuantity(item.menu_item_id, e.target.value)}
-                              className="w-14 border border-slate-300 rounded p-0.5 text-sm text-center"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => removeItemFromSelection(item.menu_item_id)}
-                              className="text-red-500 hover:text-red-700 text-xs font-bold"
-                            >
-                              ✕
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeItemFromSelection(item.menu_item_id)}
+                            className="text-red-500 hover:text-red-700 text-xs font-bold"
+                          >
+                            ✕
+                          </button>
                         </div>
                       );
                     })
                   )}
                 </div>
-                <p className="text-xs text-slate-400 mt-1">Add at least one menu item.</p>
+                <p className="text-xs text-slate-400 mt-1">Quantity is automatically set to the Pax Count. Add at least one item.</p>
               </div>
 
               {/* Total Amount (editable) */}

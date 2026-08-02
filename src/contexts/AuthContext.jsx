@@ -40,39 +40,45 @@ export const AuthProvider = ({ children }) => {
     };
   }, []);
 
-  // Check if user exists in manager table
-  const checkManager = async (authUser) => {
-    try {
-      const { data: manager, error } = await supabase
-        .from('manager')
-        .select('manager_id')
-        .eq('user_id', authUser.id)
-        .maybeSingle();
+// Check if user exists in manager table – with global flag guard
+const checkManager = async (authUser) => {
+  try {
+    // 🔥 If we are in the middle of creating a walk‑in customer, do NOT update state
+    if (window.isCreatingWalkIn) {
+      // Keep the current state unchanged; just finish loading
+      setLoading(false);
+      return;
+    }
 
-      if (error) throw error;
+    const { data: manager, error } = await supabase
+      .from('manager')
+      .select('manager_id')
+      .eq('user_id', authUser.id)
+      .maybeSingle();
 
-      if (manager) {
-        setUser(authUser);
-        setIsManager(true);
-      } else {
-        // Not a manager – sign out and clear state
-        await supabase.auth.signOut();
-        setUser(null);
-        setIsManager(false);
-      }
-    } catch (error) {
-      console.error('Error checking manager status:', error);
+    if (error) throw error;
+
+    if (manager) {
+      setUser(authUser);
+      setIsManager(true);
+    } else {
+      // Not a manager – sign out and clear state
+      await supabase.auth.signOut();
       setUser(null);
       setIsManager(false);
-    } finally {
-      setLoading(false);
     }
-  };
+  } catch (error) {
+    console.error('Error checking manager status:', error);
+    setUser(null);
+    setIsManager(false);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const login = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
-    // The onAuthStateChange will handle setting user
     return data;
   };
 

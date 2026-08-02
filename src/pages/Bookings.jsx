@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, Check, Edit, Trash2, ChevronLeft, ChevronRight, Filter, X, RefreshCw, RotateCcw } from 'lucide-react';
+import { Search, Check, Edit, Trash2, ChevronLeft, ChevronRight, Filter, X, RefreshCw, RotateCcw, UserPlus } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -31,6 +31,7 @@ export default function Bookings() {
   // Modal states for booking create/edit
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [isWalkIn, setIsWalkIn] = useState(false);
   const [formData, setFormData] = useState({
     customer_id: '',
     package_id: '',
@@ -43,6 +44,13 @@ export default function Bookings() {
     total_amount: '',
     delivery_fee: '0',
     menu_selections: {},
+  });
+  const [walkInData, setWalkInData] = useState({
+    first_name: '',
+    last_name: '',
+    contact_no: '',
+    email_address: '',
+    cus_address: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -66,6 +74,165 @@ export default function Bookings() {
     toast.error(userMessage);
   };
 
+  // --- Create walk-in customer with session restore and global flag ---
+  const createWalkInCustomer = async () => {
+    // 🔥 Set the global flag to prevent auto‑logout
+    window.isCreatingWalkIn = true;
+
+    try {
+      // 1. Save current session (manager)
+      const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+
+      if (!currentSession) {
+        throw new Error('You must be logged in as a manager to create walk-in customers.');
+      }
+
+      // 2. Check email existence
+      const { data: existingCustomer, error: checkError } = await supabase
+        .from('customer')
+        .select('customer_id')
+        .eq('email_address', walkInData.email_address)
+        .maybeSingle();
+      if (checkError) throw checkError;
+
+      if (existingCustomer) {
+        toast.info('Customer with this email already exists. Using existing account.');
+        return existingCustomer.customer_id;
+      }
+
+      // 3. Generate unique username
+      const username = walkInData.email_address.split('@')[0];
+      let finalUsername = username;
+      let counter = 1;
+      while (true) {
+        const { data: existingUsername, error: usernameCheckError } = await supabase
+          .from('customer')
+          .select('customer_id')
+          .eq('username', finalUsername)
+          .maybeSingle();
+        if (usernameCheckError) throw usernameCheckError;
+        if (!existingUsername) break;
+        finalUsername = `${username}${counter}`;
+        counter++;
+      }
+
+      // 4. Create Supabase Auth user
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: walkInData.email_address,
+        password: 'password123',
+        options: {
+          emailRedirectTo: window.location.origin,
+        },
+      });
+
+      if (authError) {
+        if (authError.message.includes('already registered')) {
+          const { data: existing } = await supabase
+            .from('customer')
+            .select('customer_id')
+            .eq('email_address', walkInData.email_address)
+            .maybeSingle();
+          if (existing) {
+            toast.info('Customer already exists. Using existing account.');
+            return existing.customer_id;
+          }
+          throw new Error('Email already registered but no customer record found. Please use a different email.');
+        }
+        throw authError;
+      }
+
+      // 5. Insert customer record
+      const { data: newCustomer, error: customerError } = await supabase
+        .from('customer')
+        .insert([{
+          first_name: walkInData.first_name,
+          last_name: walkInData.last_name,
+          contact_no: walkInData.contact_no,
+          email_address: walkInData.email_address,
+          cus_address: walkInData.cus_address || 'N/A',
+          username: finalUsername,
+          password: 'password123',
+          account_status: 'Active',
+          user_id: authData.user?.id,
+        }])
+        .select()
+        .single();
+
+      if (customerError) throw customerError;
+
+      // 6. ✅ CRITICAL: Restore manager session
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      if (currentSession) {
+        const { error: restoreError } = await supabase.auth.setSession({
+          access_token: currentSession.access_token,
+          refresh_token: currentSession.refresh_token,
+        });
+        if (restoreError) {
+          console.error('Failed to restore manager session:', restoreError);
+          const { error: refreshError } = await supabase.auth.refreshSession();
+          if (refreshError) {
+            console.error('Refresh also failed:', refreshError);
+            const managerSession = localStorage.getItem('supabase.auth.token');
+            if (managerSession) {
+              try {
+                const parsed = JSON.parse(managerSession);
+                await supabase.auth.setSession(parsed);
+              } catch (e) {
+                console.error('Failed to restore from localStorage:', e);
+              }
+            }
+          }
+        } else {
+          console.log('✅ Manager session restored');
+        }
+      }
+
+      // 7. Wait a bit more to let the auth state propagate
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // 8. Verify session is restored
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: manager } = await supabase
+          .from('manager')
+          .select('manager_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (!manager) {
+          if (currentSession) {
+            await supabase.auth.setSession({
+              access_token: currentSession.access_token,
+              refresh_token: currentSession.refresh_token,
+            });
+          }
+          const { data: { user: finalUser } } = await supabase.auth.getUser();
+          if (finalUser) {
+            const { data: finalManager } = await supabase
+              .from('manager')
+              .select('manager_id')
+              .eq('user_id', finalUser.id)
+              .maybeSingle();
+            if (!finalManager) {
+              throw new Error('Failed to restore manager session. Please refresh the page.');
+            }
+          }
+        }
+      }
+
+      toast.success('Customer account created! Default password: password123');
+      return newCustomer.customer_id;
+
+    } catch (error) {
+      console.error('Error creating walk-in customer:', error);
+      throw new Error(error.message || 'Failed to create customer account. Please try again.');
+    } finally {
+      // 🔥 Clear the global flag
+      window.isCreatingWalkIn = false;
+    }
+  };
+
   // --- Auto-calculate total amount based on pricing type ---
   useEffect(() => {
     if (formData.package_id && formData.pax_count) {
@@ -76,14 +243,10 @@ export default function Bookings() {
         let baseTotal = 0;
 
         if (selectedPkg.pricing_type === 'per_pax') {
-          // Per Pax: price × number of guests
           const pkgPrice = selectedPkg.pkg_price || 0;
           baseTotal = pkgPrice * pax;
         } else {
-          // Fixed Price: flat rate
           baseTotal = selectedPkg.pkg_price || 0;
-          
-          // If pax exceeds max_pax, charge extra
           if (selectedPkg.max_pax && pax > selectedPkg.max_pax) {
             const extraPax = pax - selectedPkg.max_pax;
             const extraPrice = selectedPkg.extra_pax_price || 0;
@@ -299,6 +462,11 @@ export default function Bookings() {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  const handleWalkInChange = (e) => {
+    const { name, value } = e.target;
+    setWalkInData(prev => ({ ...prev, [name]: value }));
+  };
+
   const handleMenuSelectionChange = (categoryId, menuItemId) => {
     setFormData(prev => ({
       ...prev,
@@ -311,6 +479,7 @@ export default function Bookings() {
 
   const openNewBookingModal = () => {
     setEditingId(null);
+    setIsWalkIn(false);
     setFormData({
       customer_id: '',
       package_id: '',
@@ -324,6 +493,13 @@ export default function Bookings() {
       delivery_fee: '0',
       menu_selections: {},
     });
+    setWalkInData({
+      first_name: '',
+      last_name: '',
+      contact_no: '',
+      email_address: '',
+      cus_address: '',
+    });
     setPackageCategories([]);
     setCategoryMenuItems({});
     setIsModalOpen(true);
@@ -331,6 +507,7 @@ export default function Bookings() {
 
   const openEditModal = (booking) => {
     setEditingId(booking.booking_id);
+    setIsWalkIn(false);
     setFormData({
       customer_id: booking.customer_id,
       package_id: booking.package_id || '',
@@ -344,12 +521,20 @@ export default function Bookings() {
       delivery_fee: booking.delivery_fee?.toString() || '0',
       menu_selections: booking.menu_selections || {},
     });
+    setWalkInData({
+      first_name: '',
+      last_name: '',
+      contact_no: '',
+      email_address: '',
+      cus_address: '',
+    });
     setIsModalOpen(true);
   };
 
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingId(null);
+    setIsWalkIn(false);
     setFormData({
       customer_id: '',
       package_id: '',
@@ -362,6 +547,13 @@ export default function Bookings() {
       total_amount: '',
       delivery_fee: '0',
       menu_selections: {},
+    });
+    setWalkInData({
+      first_name: '',
+      last_name: '',
+      contact_no: '',
+      email_address: '',
+      cus_address: '',
     });
     setPackageCategories([]);
     setCategoryMenuItems({});
@@ -418,8 +610,30 @@ export default function Bookings() {
     }
 
     try {
+      let customerId = formData.customer_id;
+
+      // If walk-in, create customer account first
+      if (isWalkIn) {
+        if (!walkInData.first_name || !walkInData.last_name || !walkInData.contact_no || !walkInData.email_address) {
+          toast.error('Please fill in all customer details for walk-in customer.');
+          setIsSubmitting(false);
+          return;
+        }
+        if (!walkInData.email_address.includes('@')) {
+          toast.error('Please enter a valid email address.');
+          setIsSubmitting(false);
+          return;
+        }
+        customerId = await createWalkInCustomer();
+        if (!customerId) {
+          toast.error('Failed to create customer account.');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       const payload = {
-        customer_id: formData.customer_id,
+        customer_id: customerId,
         package_id: formData.package_id,
         booking_type: 'Package',
         event_datetime: formData.event_datetime ? new Date(formData.event_datetime).toISOString() : null,
@@ -441,14 +655,22 @@ export default function Bookings() {
           .eq('booking_id', editingId);
         if (error) throw error;
         toast.success('Booking updated successfully!');
-      } else {
-        const { data: newBooking, error } = await supabase
-          .from('booking')
-          .insert([payload])
-          .select();
-        if (error) throw error;
-        const bookingId = newBooking[0].booking_id;
+        closeModal();
+        fetchData();
+        setIsSubmitting(false);
+        return;
+      }
 
+      // --- NEW BOOKING ---
+      const { data: newBooking, error } = await supabase
+        .from('booking')
+        .insert([payload])
+        .select();
+      if (error) throw error;
+      const bookingId = newBooking[0].booking_id;
+
+      // Insert payment record – with graceful error handling
+      try {
         const { error: paymentError } = await supabase
           .from('payment')
           .insert([{
@@ -460,13 +682,30 @@ export default function Bookings() {
             pay_datetime: new Date().toISOString(),
             pay_proof: 'placeholder.png',
           }]);
-        if (paymentError) throw paymentError;
 
-        toast.success('Booking created successfully!');
+        if (paymentError) {
+          console.error('Payment insert failed:', paymentError);
+          toast.warning(
+            'Booking created, but payment record could not be created. Please add payment manually.',
+            { duration: 5000 }
+          );
+        } else {
+          console.log('✅ Payment record created');
+        }
+      } catch (paymentErr) {
+        console.error('Payment insert error:', paymentErr);
+        toast.warning('Booking created, but payment record could not be created. Please add payment manually.');
       }
 
+      // ✅ If walk-in, wait a moment for the session to stabilise
+      if (isWalkIn) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      toast.success('Booking created successfully!');
       closeModal();
       fetchData();
+
     } catch (error) {
       handleError(error, 'Failed to save booking. Please try again.');
     } finally {
@@ -720,11 +959,11 @@ export default function Bookings() {
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`pb-3 text-sm font-semibold transition-colors border-b-2 shrink-0 ${
+            className={`pb-3 text-sm font-semibold transition-colors border-b-2 shrink-0 ${(
               activeTab === tab
                 ? 'border-[#008A45] text-slate-900'
                 : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
+            )}`}
           >
             {tab}
           </button>
@@ -890,24 +1129,133 @@ export default function Bookings() {
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 text-left">
-              {/* Customer */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Customer *</label>
-                <select
-                  name="customer_id"
-                  value={formData.customer_id}
-                  onChange={handleInputChange}
-                  required
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
-                >
-                  <option value="">Select Customer</option>
-                  {customers.map(c => (
-                    <option key={c.customer_id} value={c.customer_id}>
-                      {c.first_name} {c.last_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {/* Customer Selection / Walk-in Toggle */}
+              {!editingId && (
+                <div className="mb-4">
+                  <label className="block text-xs font-bold text-slate-700 mb-2">Customer Type</label>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsWalkIn(false)}
+                      className={`flex-1 py-2 px-4 rounded-lg border-2 text-sm font-semibold transition-all ${(
+                        !isWalkIn
+                          ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900'
+                          : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                      )}`}
+                    >
+                      Existing Customer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsWalkIn(true)}
+                      className={`flex-1 py-2 px-4 rounded-lg border-2 text-sm font-semibold transition-all flex items-center justify-center gap-2 ${(
+                        isWalkIn
+                          ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900'
+                          : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                      )}`}
+                    >
+                      <UserPlus size={16} />
+                      Walk-in Customer
+                    </button>
+                  </div>
+                  {isWalkIn && (
+                    <p className="text-xs text-amber-600 mt-2">
+                      ⚠️ A customer account will be created with default password: <strong>password123</strong>
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Existing Customer Dropdown */}
+              {!isWalkIn && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Customer *</label>
+                  <select
+                    name="customer_id"
+                    value={formData.customer_id}
+                    onChange={handleInputChange}
+                    required
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                  >
+                    <option value="">Select Customer</option>
+                    {customers.map(c => (
+                      <option key={c.customer_id} value={c.customer_id}>
+                        {c.first_name} {c.last_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Walk-in Customer Fields */}
+              {isWalkIn && (
+                <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                  <p className="text-xs font-bold text-slate-700 mb-1">Walk-in Customer Details</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">First Name *</label>
+                      <input
+                        type="text"
+                        name="first_name"
+                        value={walkInData.first_name}
+                        onChange={handleWalkInChange}
+                        placeholder="e.g. Juan"
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                        required={isWalkIn}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Last Name *</label>
+                      <input
+                        type="text"
+                        name="last_name"
+                        value={walkInData.last_name}
+                        onChange={handleWalkInChange}
+                        placeholder="e.g. Dela Cruz"
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                        required={isWalkIn}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Contact Number *</label>
+                      <input
+                        type="text"
+                        name="contact_no"
+                        value={walkInData.contact_no}
+                        onChange={handleWalkInChange}
+                        placeholder="e.g. 09123456789"
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                        required={isWalkIn}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Email Address *</label>
+                      <input
+                        type="email"
+                        name="email_address"
+                        value={walkInData.email_address}
+                        onChange={handleWalkInChange}
+                        placeholder="e.g. juan@email.com"
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                        required={isWalkIn}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-0.5">Address</label>
+                    <input
+                      type="text"
+                      name="cus_address"
+                      value={walkInData.cus_address}
+                      onChange={handleWalkInChange}
+                      placeholder="e.g. Banga, Bayawan City"
+                      className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Package */}
               <div>
@@ -1080,7 +1428,6 @@ export default function Bookings() {
               </button>
             </div>
             <div className="p-6 overflow-y-auto space-y-6 text-left">
-              {/* Booking summary */}
               <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-sm">
                 <div className="grid grid-cols-2 gap-2">
                   <span className="font-medium text-slate-600">Customer:</span>
@@ -1097,7 +1444,6 @@ export default function Bookings() {
                 <p className="text-xs text-slate-500 mt-2">* Adjust extra pax or add fees below.</p>
               </div>
 
-              {/* Adjustment fields */}
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Extra Pax (additional headcount)</label>
@@ -1139,7 +1485,6 @@ export default function Bookings() {
                 </div>
               </div>
 
-              {/* New total display */}
               <div className="bg-[#EAF3F2] border border-[#d2e8e5] rounded-lg p-4 flex justify-between items-center">
                 <span className="font-bold text-slate-800">New Total:</span>
                 <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
@@ -1185,7 +1530,6 @@ export default function Bookings() {
               </button>
             </div>
             <div className="p-6 overflow-y-auto space-y-5 text-left">
-              {/* Date Range */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Event Date From</label>
@@ -1209,7 +1553,6 @@ export default function Bookings() {
                 </div>
               </div>
 
-              {/* Customer */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Customer</label>
                 <select
@@ -1227,7 +1570,6 @@ export default function Bookings() {
                 </select>
               </div>
 
-              {/* Package */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Package</label>
                 <select
@@ -1245,7 +1587,6 @@ export default function Bookings() {
                 </select>
               </div>
 
-              {/* Venue */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Venue (contains)</label>
                 <input

@@ -1,5 +1,5 @@
 // src/layouts/ManagerLayout.jsx
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -33,10 +33,9 @@ const styles = {
   sidebarDesktop:
     'w-64 bg-white border-r border-slate-200 flex flex-col justify-between shrink-0 hidden md:flex relative z-10',
   sidebarMobile:
-    'fixed inset-y-0 left-0 w-64 bg-white border-r border-slate-200 flex flex-col justify-between z-50 transform transition-transform duration-300 ease-in-out md:hidden',
+    'fixed inset-y-0 left-0 w-64 bg-white border-r border-slate-200 flex flex-col justify-between z-50 transform transition-transform duration-300 ease-in-out md:hidden shadow-2xl',
   sidebarOpen: 'translate-x-0',
   sidebarClosed: '-translate-x-full',
-  overlay: 'fixed inset-0 bg-slate-900/50 z-40 md:hidden',
   navItem: 'flex items-center gap-3 px-4 py-3 rounded-lg text-sm transition-all duration-200',
   contentWindow: 'flex-1 overflow-y-auto bg-transparent p-4 md:p-8',
 };
@@ -45,9 +44,22 @@ export default function ManagerLayout() {
   const location = useLocation();
   const { user, logout } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const profileRef = useRef(null);
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
   const closeSidebar = () => setIsSidebarOpen(false);
+
+  // Close profile dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (profileRef.current && !profileRef.current.contains(event.target)) {
+        setIsProfileOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const navLinks = [
     { name: 'Dashboard', path: '/app', icon: LayoutDashboard },
@@ -157,27 +169,58 @@ export default function ManagerLayout() {
           </div>
         </div>
 
-        <div className={styles.profileMenu}>
-          <div className={styles.profileAvatar}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2m8-10a4 4 0 100-8 4 4 0 000 8z"
-              />
-            </svg>
+        {/* Profile dropdown – shows only icon and "Manager" label */}
+        <div className="relative" ref={profileRef}>
+          <div
+            className={styles.profileMenu}
+            onClick={() => setIsProfileOpen(!isProfileOpen)}
+          >
+            <div className={styles.profileAvatar}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2m8-10a4 4 0 100-8 4 4 0 000 8z"
+                />
+              </svg>
+            </div>
+            <span className="font-semibold text-sm hidden sm:inline">Manager</span>
+            <span className="text-xs hidden sm:inline">
+              {isProfileOpen ? '▲' : '▼'}
+            </span>
           </div>
-          <span className="font-semibold underline decoration-2 underline-offset-4 hidden sm:inline">
-            {user?.email || 'Owner'}
-          </span>
-          <span className="text-xs hidden sm:inline">▼</span>
+
+          {/* Dropdown – shows email and role */}
+          {isProfileOpen && (
+            <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50">
+              <div className="px-4 py-2 border-b border-slate-100">
+                <p className="text-sm font-semibold text-slate-900 truncate">
+                  {user?.email || 'Owner'}
+                </p>
+                <p className="text-xs text-slate-500">Manager</p>
+              </div>
+              <Link
+                to="/app/settings"
+                className="flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                onClick={() => setIsProfileOpen(false)}
+              >
+                <Settings size={16} />
+                Profile Settings
+              </Link>
+              <button
+                onClick={() => {
+                  setIsProfileOpen(false);
+                  handleLogout();
+                }}
+                className="flex items-center gap-3 w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors border-t border-slate-100"
+              >
+                <LogOut size={16} />
+                Sign Out
+              </button>
+            </div>
+          )}
         </div>
       </header>
-
-      {/* OVERLAY (visible when mobile sidebar is open) */}
-      {isSidebarOpen && (
-        <div className={styles.overlay} onClick={closeSidebar} />
-      )}
 
       {/* MAIN CONTAINER */}
       <div className={styles.mainContainer}>
