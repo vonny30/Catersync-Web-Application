@@ -72,6 +72,28 @@ export default function BookingDetails() {
     toast.error(userMessage);
   };
 
+  // --- Helper: Get full public URL for proof images ---
+  const getProofUrl = (proofUrl) => {
+    if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
+      return null;
+    }
+    // If it's a relative path to storage, get the public URL
+    if (proofUrl.startsWith('payments/')) {
+      const { data } = supabase.storage.from('images').getPublicUrl(proofUrl);
+      return data.publicUrl;
+    }
+    // If it's already a full URL, return it as-is
+    if (proofUrl.startsWith('http://') || proofUrl.startsWith('https://')) {
+      return proofUrl;
+    }
+    // If it's just a filename, construct the path
+    if (!proofUrl.includes('/')) {
+      const { data } = supabase.storage.from('images').getPublicUrl(`payments/${proofUrl}`);
+      return data.publicUrl;
+    }
+    return proofUrl;
+  };
+
   // --- Fetch booking ---
   const fetchBooking = async () => {
     setLoading(true);
@@ -747,19 +769,26 @@ export default function BookingDetails() {
 
   const canCancel = booking.booking_status === 'Approved';
 
-  // Helper to render proof image
+  // Helper to render proof image with proper Supabase URL
   const renderProof = (proofUrl) => {
     if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
       return <span className="text-xs text-slate-400 italic">None</span>;
     }
+
+    // Get the full public URL
+    const fullUrl = getProofUrl(proofUrl);
+    if (!fullUrl) {
+      return <span className="text-xs text-slate-400 italic">Invalid</span>;
+    }
+
     return (
       <button
-        onClick={() => window.open(proofUrl, '_blank')}
+        onClick={() => window.open(fullUrl, '_blank')}
         className="w-8 h-8 rounded border border-slate-200 overflow-hidden hover:shadow-md transition-shadow cursor-pointer flex items-center justify-center bg-slate-50"
         title="Click to view proof"
       >
         <img
-          src={proofUrl}
+          src={fullUrl}
           alt="Payment proof"
           className="w-full h-full object-cover"
           onError={(e) => {

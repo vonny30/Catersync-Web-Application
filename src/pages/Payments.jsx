@@ -1,7 +1,7 @@
 // src/pages/Payments.jsx
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Upload, X, Image as ImageIcon, Edit, Trash2, Check, DollarSign, RefreshCw } from 'lucide-react';
+import { Search, Upload, X, Image as ImageIcon, Edit, Trash2, Check, DollarSign, RefreshCw, Eye } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -45,6 +45,28 @@ export default function Payments() {
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
     console.error('Error:', error);
     toast.error(userMessage);
+  };
+
+  // --- Helper: Get full public URL for proof images ---
+  const getProofUrl = (proofUrl) => {
+    if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
+      return null;
+    }
+    // If it's a relative path to storage, get the public URL
+    if (proofUrl.startsWith('payments/')) {
+      const { data } = supabase.storage.from('images').getPublicUrl(proofUrl);
+      return data.publicUrl;
+    }
+    // If it's already a full URL, return it as-is
+    if (proofUrl.startsWith('http://') || proofUrl.startsWith('https://')) {
+      return proofUrl;
+    }
+    // If it's just a filename, construct the path
+    if (!proofUrl.includes('/')) {
+      const { data } = supabase.storage.from('images').getPublicUrl(`payments/${proofUrl}`);
+      return data.publicUrl;
+    }
+    return proofUrl;
   };
 
   // --- FETCH DATA ---
@@ -334,6 +356,41 @@ export default function Payments() {
     return map[status] || 'bg-slate-100 text-slate-600';
   };
 
+  // Helper to render proof image with proper Supabase URL
+  const renderProof = (proofUrl) => {
+    if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
+      return <span className="text-xs text-slate-400 italic">None</span>;
+    }
+
+    // Get the full public URL
+    const fullUrl = getProofUrl(proofUrl);
+    if (!fullUrl) {
+      return <span className="text-xs text-slate-400 italic">Invalid</span>;
+    }
+
+    return (
+      <button
+        onClick={() => window.open(fullUrl, '_blank')}
+        className="inline-flex items-center justify-center w-10 h-10 border border-slate-300 rounded bg-slate-50 hover:bg-slate-100 hover:shadow-md transition-all cursor-pointer"
+        title="Click to view proof"
+      >
+        <img
+          src={fullUrl}
+          alt="Payment proof"
+          className="w-full h-full object-cover rounded"
+          onError={(e) => {
+            e.target.style.display = 'none';
+            const parent = e.target.parentElement;
+            const fallback = document.createElement('div');
+            fallback.className = 'w-full h-full flex items-center justify-center text-slate-400';
+            fallback.innerHTML = `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>`;
+            parent.appendChild(fallback);
+          }}
+        />
+      </button>
+    );
+  };
+
   return (
     <div className="space-y-6 relative">
       {/* PAGE HEADER */}
@@ -435,13 +492,7 @@ export default function Payments() {
                       {payment.pay_datetime ? new Date(payment.pay_datetime).toLocaleDateString() : 'N/A'}
                     </td>
                     <td className="p-4 text-center">
-                      {payment.pay_proof ? (
-                        <div className="inline-flex items-center justify-center w-20 h-10 border border-slate-300 rounded bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors text-slate-600">
-                          <ImageIcon size={18} />
-                        </div>
-                      ) : (
-                        <span className="text-xs text-slate-400 italic">None</span>
-                      )}
+                      {renderProof(payment.pay_proof)}
                     </td>
                     <td className="p-4 text-right">
                       <div className="flex items-center justify-end gap-3">
