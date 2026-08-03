@@ -16,6 +16,7 @@ export default function ShortOrders() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedOrders, setSelectedOrders] = useState([]); // 👈 added
 
   // --- Modal states ---
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -436,6 +437,22 @@ export default function ShortOrders() {
         setIsSubmitting(false);
         return;
       }
+      // Validate required fields
+      if (!formData.event_datetime) {
+        toast.error('Please select an event date and time.');
+        setIsSubmitting(false);
+        return;
+      }
+      if (!formData.venue || formData.venue.trim() === '') {
+        toast.error('Please enter a venue or delivery location.');
+        setIsSubmitting(false);
+        return;
+      }
+      if (!formData.pax_count || parseInt(formData.pax_count) < 1) {
+        toast.error('Please enter a valid pax count (must be at least 1).');
+        setIsSubmitting(false);
+        return;
+      }
 
       let customerId = formData.customer_id;
 
@@ -684,6 +701,57 @@ export default function ShortOrders() {
     }
   };
 
+  // --- Multi‑select handlers ---
+  const toggleSelectOrder = (orderId) => {
+    setSelectedOrders(prev =>
+      prev.includes(orderId)
+        ? prev.filter(id => id !== orderId)
+        : [...prev, orderId]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    const visibleIds = filtered.map(o => o.booking_id);
+    const allSelected = visibleIds.every(id => selectedOrders.includes(id));
+    setSelectedOrders(allSelected ? [] : visibleIds);
+  };
+
+  const clearSelection = () => setSelectedOrders([]);
+
+  const handleBulkDelete = async () => {
+    if (selectedOrders.length === 0) return;
+
+    const confirmed = await showConfirm({
+      title: 'Delete Selected Orders?',
+      message: `You are about to delete ${selectedOrders.length} order(s). This action cannot be undone and will also delete all associated payments.`,
+      confirmLabel: 'Delete All',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
+
+    try {
+      // Delete payments first
+      const { error: paymentsError } = await supabase
+        .from('payment')
+        .delete()
+        .in('booking_id', selectedOrders);
+      if (paymentsError) throw paymentsError;
+
+      // Delete orders
+      const { error: ordersError } = await supabase
+        .from('booking')
+        .delete()
+        .in('booking_id', selectedOrders);
+      if (ordersError) throw ordersError;
+
+      toast.success(`Successfully deleted ${selectedOrders.length} order(s).`);
+      clearSelection();
+      fetchData();
+    } catch (error) {
+      handleError(error, 'Failed to delete selected orders.');
+    }
+  };
+
   // --- Filter and status helpers ---
   const tabs = ['All', 'Pending', 'Approved', 'Completed', 'Rejected'];
   const filtered = orders.filter(o => {
@@ -727,15 +795,25 @@ export default function ShortOrders() {
         ))}
       </div>
 
-      {/* Search & Refresh */}
+      {/* Search & Refresh + Bulk Delete */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <input type="text" placeholder="Search by client..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full border border-slate-300 rounded-lg py-2.5 pl-4 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] bg-white" />
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
         </div>
-        <button onClick={fetchData} className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-xs">
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
-        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          {selectedOrders.length > 0 && (
+            <button
+              onClick={handleBulkDelete}
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-sm"
+            >
+              <Trash2 size={16} /> Delete Selected ({selectedOrders.length})
+            </button>
+          )}
+          <button onClick={fetchData} className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-xs">
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
+          </button>
+        </div>
       </div>
 
       {/* Table */}
@@ -744,6 +822,15 @@ export default function ShortOrders() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
+                <th className="p-4 w-10">
+                  <input
+                    type="checkbox"
+                    checked={filtered.length > 0 && filtered.every(o => selectedOrders.includes(o.booking_id))}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
+                    disabled={filtered.length === 0}
+                  />
+                </th>
                 <th className="p-4 font-bold">Client</th>
                 <th className="p-4 font-bold">Venue</th>
                 <th className="p-4 font-bold">Pax</th>
@@ -754,12 +841,20 @@ export default function ShortOrders() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan="6" className="p-6 text-center text-slate-400">Loading short orders...</td></tr>
+                <tr><td colSpan="7" className="p-6 text-center text-slate-400">Loading short orders...</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan="6" className="p-6 text-center text-slate-500 italic">No short orders found.</td></tr>
+                <tr><td colSpan="7" className="p-6 text-center text-slate-500 italic">No short orders found.</td></tr>
               ) : (
                 filtered.map(order => (
                   <tr key={order.booking_id} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-4">
+                      <input
+                        type="checkbox"
+                        checked={selectedOrders.includes(order.booking_id)}
+                        onChange={() => toggleSelectOrder(order.booking_id)}
+                        className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
+                      />
+                    </td>
                     <td className="p-4">
                       <p onClick={() => navigate(`/app/orders/${order.booking_id}`)} className="font-bold text-slate-900 underline decoration-slate-300 underline-offset-4 cursor-pointer hover:text-[#008A45]">
                         {order.customer?.first_name} {order.customer?.last_name}
@@ -962,14 +1057,14 @@ export default function ShortOrders() {
 
               {/* Event Date & Time */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Event Date & Time</label>
-                <input type="datetime-local" name="event_datetime" value={formData.event_datetime} onChange={handleInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]" />
+                <label className="block text-xs font-bold text-slate-700 mb-1">Event Date & Time *</label>
+                <input type="datetime-local" name="event_datetime" value={formData.event_datetime} onChange={handleInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]" required />
               </div>
 
               {/* Venue */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Venue / Location</label>
-                <input type="text" name="venue" value={formData.venue} onChange={handleInputChange} placeholder="e.g. Pick-up or Delivery address" className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]" />
+                <label className="block text-xs font-bold text-slate-700 mb-1">Venue / Location *</label>
+                <input type="text" name="venue" value={formData.venue} onChange={handleInputChange} placeholder="e.g. Pick-up or Delivery address" className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]" required />
               </div>
 
               {/* Pax & Delivery Fee */}

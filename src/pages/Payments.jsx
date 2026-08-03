@@ -33,7 +33,6 @@ export default function Payments() {
   const initialFormState = {
     booking_id: '',
     amount: '',
-    pay_installment: 1,
     pay_method: 'Cash',
     pay_status: 'Downpayment',
     pay_proof: 'placeholder.png',
@@ -173,7 +172,6 @@ export default function Payments() {
     setFormData({
       booking_id: '',
       amount: '',
-      pay_installment: 1,
       pay_method: 'Cash',
       pay_status: 'Downpayment',
       pay_proof: 'placeholder.png',
@@ -188,7 +186,6 @@ export default function Payments() {
     setFormData({
       booking_id: payment.booking_id,
       amount: payment.amount_paid?.toString() || '',
-      pay_installment: payment.pay_installment || 1,
       pay_method: payment.pay_method || 'Cash',
       pay_status: payment.pay_status || 'Downpayment',
       pay_proof: payment.pay_proof || 'placeholder.png',
@@ -277,7 +274,6 @@ export default function Payments() {
       const payload = {
         booking_id: formData.booking_id,
         amount_paid: amount,
-        pay_installment: parseInt(formData.pay_installment) || 1,
         pay_method: formData.pay_method,
         pay_status: formData.pay_status,
         pay_datetime: new Date().toISOString(),
@@ -643,17 +639,7 @@ export default function Payments() {
                     <p className="text-xs text-slate-400 mt-1">Max: ₱{remainingBalanceForSelected.toLocaleString()}</p>
                   )}
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Installment #</label>
-                  <input
-                    type="number"
-                    name="pay_installment"
-                    value={formData.pay_installment}
-                    onChange={handleInputChange}
-                    min="1"
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                  />
-                </div>
+                
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Payment Status</label>
                   <select

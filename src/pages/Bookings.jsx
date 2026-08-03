@@ -16,6 +16,7 @@ export default function Bookings() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedBookings, setSelectedBookings] = useState([]); // 👈 added
 
   // --- Filter state ---
   const [filters, setFilters] = useState({
@@ -599,6 +600,22 @@ export default function Bookings() {
       setIsSubmitting(false);
       return;
     }
+        // Validate required fields
+    if (!formData.event_datetime) {
+      toast.error('Please select an event date and time.');
+      setIsSubmitting(false);
+      return;
+    }
+    if (!formData.venue || formData.venue.trim() === '') {
+      toast.error('Please enter a venue.');
+      setIsSubmitting(false);
+      return;
+    }
+    if (!formData.pax_count || parseInt(formData.pax_count) < 1) {
+      toast.error('Please enter a valid pax count (must be at least 1).');
+      setIsSubmitting(false);
+      return;
+    }
 
     const requiredCategories = packageCategories.map(c => c.category_id);
     const selectedCategories = Object.keys(formData.menu_selections);
@@ -608,6 +625,30 @@ export default function Bookings() {
       setIsSubmitting(false);
       return;
     }
+
+    // --- 🔥 Check event date proximity (reminder only) ---
+    if (formData.event_datetime) {
+      const eventDate = new Date(formData.event_datetime);
+      const now = new Date();
+      const diffTime = eventDate.getTime() - now.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      // Trigger warning if event is 2 days or less away (0, 1, or 2 days)
+      if (diffDays < 3 && diffDays >= 0) {
+        const proceed = await showConfirm({
+          title: '⚠️ Booking is Very Soon',
+          message: `This event is ${diffDays} day${diffDays !== 1 ? 's' : ''} away (within 2 days). Please confirm if you still want to proceed with this booking.`,
+          confirmLabel: 'Yes, Proceed',
+          cancelLabel: 'Cancel',
+          confirmVariant: 'warning',
+        });
+        if (!proceed) {
+          setIsSubmitting(false);
+          return;
+        }
+      }
+    }
+    // --- End of date check ---
 
     try {
       let customerId = formData.customer_id;
@@ -669,34 +710,6 @@ export default function Bookings() {
       if (error) throw error;
       const bookingId = newBooking[0].booking_id;
 
-      // Insert payment record – with graceful error handling
-      try {
-        const { error: paymentError } = await supabase
-          .from('payment')
-          .insert([{
-            booking_id: bookingId,
-            amount_paid: 0,
-            pay_installment: 1,
-            pay_method: 'Pending',
-            pay_status: 'Pending',
-            pay_datetime: new Date().toISOString(),
-            pay_proof: 'placeholder.png',
-          }]);
-
-        if (paymentError) {
-          console.error('Payment insert failed:', paymentError);
-          toast.warning(
-            'Booking created, but payment record could not be created. Please add payment manually.',
-            { duration: 5000 }
-          );
-        } else {
-          console.log('✅ Payment record created');
-        }
-      } catch (paymentErr) {
-        console.error('Payment insert error:', paymentErr);
-        toast.warning('Booking created, but payment record could not be created. Please add payment manually.');
-      }
-
       // ✅ If walk-in, wait a moment for the session to stabilise
       if (isWalkIn) {
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -743,6 +756,7 @@ export default function Bookings() {
     if (!approvalBooking) return;
     setIsSubmitting(true);
     try {
+      // --- Check 50% payment condition ---
       const { data: payments, error: paymentsError } = await supabase
         .from('payment')
         .select('amount_paid')
@@ -753,19 +767,26 @@ export default function Bookings() {
       const totalPaid = payments.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
       const required = approvalData.newTotal * 0.5;
 
+      // Warn but allow approval
       if (totalPaid < required) {
-        toast.error(
-          `Cannot approve. Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}). Please record more payments.`,
-          { duration: 6000 }
-        );
-        setIsSubmitting(false);
-        return;
+        const proceed = await showConfirm({
+          title: 'Insufficient Downpayment',
+          message: `Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}). Approving this booking may leave an unpaid balance. Do you still want to approve?`,
+          confirmLabel: 'Yes, Approve',
+          cancelLabel: 'Cancel',
+          confirmVariant: 'warning',
+        });
+        if (!proceed) {
+          setIsSubmitting(false);
+          return;
+        }
       }
 
       const newPax = approvalBooking.pax_count + approvalData.extraPax;
       const newTotal = approvalData.newTotal;
       const newDeliveryFee = parseFloat(approvalBooking.delivery_fee || 0) + approvalData.extraDeliveryFee;
 
+      // 1. Update booking status
       const { error: updateError } = await supabase
         .from('booking')
         .update({
@@ -778,6 +799,7 @@ export default function Bookings() {
 
       if (updateError) throw updateError;
 
+      // 2. Update all payments to 'Downpayment'
       const { error: updatePaymentsError } = await supabase
         .from('payment')
         .update({ pay_status: 'Downpayment' })
@@ -785,18 +807,19 @@ export default function Bookings() {
 
       if (updatePaymentsError) throw updatePaymentsError;
 
-      if (approvalBooking.package_id) {
-        try {
-          await allocateEquipmentForBooking(approvalBooking.booking_id, approvalBooking.package_id, newPax);
-        } catch (allocError) {
-          console.error('Equipment allocation failed:', allocError);
-          toast.error('Booking approved, but equipment allocation had errors. Please check inventory manually.');
-        }
-      }
+      // ---------------------------------------------------------
+      // ❌ Auto‑equipment allocation is removed.
+      // Equipment must be assigned manually via the Equipment page
+      // or the "Assign Equipment" button in Booking Details.
+      // ---------------------------------------------------------
 
+      // 3. Finalize UI
       setIsApprovalModalOpen(false);
       fetchData();
+
+      // 4. Show success toast
       toast.success('Booking approved and payments set to Downpayment.');
+
     } catch (error) {
       handleError(error, 'Failed to approve booking. Please try again.');
     } finally {
@@ -879,7 +902,7 @@ export default function Bookings() {
         .delete()
         .eq('booking_id', id);
       if (error) throw error;
-      
+
       toast.success('Booking deleted.');
       fetchData();
     } catch (error) {
@@ -887,12 +910,63 @@ export default function Bookings() {
     }
   };
 
+  // --- Multi‑select handlers ---
+  const toggleSelectBooking = (bookingId) => {
+    setSelectedBookings(prev =>
+      prev.includes(bookingId)
+        ? prev.filter(id => id !== bookingId)
+        : [...prev, bookingId]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    const visibleIds = filtered.map(b => b.booking_id);
+    const allSelected = visibleIds.every(id => selectedBookings.includes(id));
+    setSelectedBookings(allSelected ? [] : visibleIds);
+  };
+
+  const clearSelection = () => setSelectedBookings([]);
+
+  const handleBulkDelete = async () => {
+    if (selectedBookings.length === 0) return;
+
+    const confirmed = await showConfirm({
+      title: 'Delete Selected Bookings?',
+      message: `You are about to delete ${selectedBookings.length} booking(s). This action cannot be undone and will also delete all associated payments.`,
+      confirmLabel: 'Delete All',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
+
+    try {
+      // Delete payments first
+      const { error: paymentsError } = await supabase
+        .from('payment')
+        .delete()
+        .in('booking_id', selectedBookings);
+      if (paymentsError) throw paymentsError;
+
+      // Delete bookings
+      const { error: bookingsError } = await supabase
+        .from('booking')
+        .delete()
+        .in('booking_id', selectedBookings);
+      if (bookingsError) throw bookingsError;
+
+      toast.success(`Successfully deleted ${selectedBookings.length} booking(s).`);
+      clearSelection();
+      fetchData();
+    } catch (error) {
+      handleError(error, 'Failed to delete selected bookings.');
+    }
+  };
+
   // --- Filter logic ---
   const tabs = ['All', 'Pending', 'Approved', 'Completed', 'Rejected'];
-  
+
   const filtered = bookings.filter(b => {
     if (activeTab !== 'All' && b.booking_status !== activeTab) return false;
-    
+
     if (searchTerm) {
       const name = `${b.customer?.first_name || ''} ${b.customer?.last_name || ''}`.toLowerCase();
       const id = b.booking_id.toLowerCase();
@@ -959,18 +1033,18 @@ export default function Bookings() {
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`pb-3 text-sm font-semibold transition-colors border-b-2 shrink-0 ${(
+            className={`pb-3 text-sm font-semibold transition-colors border-b-2 shrink-0 ${
               activeTab === tab
                 ? 'border-[#008A45] text-slate-900'
                 : 'border-transparent text-slate-500 hover:text-slate-700'
-            )}`}
+            }`}
           >
             {tab}
           </button>
         ))}
       </div>
 
-      {/* Search & Filter */}
+      {/* Search & Filter + Bulk Delete Button */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <input
@@ -982,31 +1056,41 @@ export default function Bookings() {
           />
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
         </div>
-        <button
-          onClick={openFilterModal}
-          className="flex items-center gap-2 px-4 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 bg-white shadow-xs"
-        >
-          <Filter size={16} />
-          Filter
-          {hasActiveFilters && (
-            <span className="ml-1 w-2 h-2 rounded-full bg-[#008A45] inline-block" />
+        <div className="flex items-center gap-3 flex-wrap">
+          {selectedBookings.length > 0 && (
+            <button
+              onClick={handleBulkDelete}
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-sm"
+            >
+              <Trash2 size={16} /> Delete Selected ({selectedBookings.length})
+            </button>
           )}
-        </button>
-        {hasActiveFilters && (
           <button
-            onClick={clearFilters}
+            onClick={openFilterModal}
             className="flex items-center gap-2 px-4 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 bg-white shadow-xs"
           >
-            <RotateCcw size={16} />
-            Clear
+            <Filter size={16} />
+            Filter
+            {hasActiveFilters && (
+              <span className="ml-1 w-2 h-2 rounded-full bg-[#008A45] inline-block" />
+            )}
           </button>
-        )}
-        <button
-          onClick={fetchData}
-          className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-xs"
-        >
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
-        </button>
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              className="flex items-center gap-2 px-4 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 bg-white shadow-xs"
+            >
+              <RotateCcw size={16} />
+              Clear
+            </button>
+          )}
+          <button
+            onClick={fetchData}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-xs"
+          >
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
+          </button>
+        </div>
       </div>
 
       {/* Table */}
@@ -1015,6 +1099,15 @@ export default function Bookings() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
+                <th className="p-4 w-10">
+                  <input
+                    type="checkbox"
+                    checked={filtered.length > 0 && filtered.every(b => selectedBookings.includes(b.booking_id))}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
+                    disabled={filtered.length === 0}
+                  />
+                </th>
                 <th className="p-4 font-bold">Client</th>
                 <th className="p-4 font-bold">Venue</th>
                 <th className="p-4 font-bold">Pax</th>
@@ -1026,12 +1119,20 @@ export default function Bookings() {
             </thead>
             <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
               {loading ? (
-                <tr><td colSpan="7" className="p-6 text-center text-slate-400">Loading bookings...</td></tr>
+                <tr><td colSpan="8" className="p-6 text-center text-slate-400">Loading bookings...</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan="7" className="p-6 text-center text-slate-500 italic">No package bookings found.</td></tr>
+                <tr><td colSpan="8" className="p-6 text-center text-slate-500 italic">No package bookings found.</td></tr>
               ) : (
                 filtered.map((booking) => (
                   <tr key={booking.booking_id} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-4">
+                      <input
+                        type="checkbox"
+                        checked={selectedBookings.includes(booking.booking_id)}
+                        onChange={() => toggleSelectBooking(booking.booking_id)}
+                        className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
+                      />
+                    </td>
                     <td className="p-4">
                       <p
                         onClick={() => navigate(`/app/bookings/${booking.booking_id}`)}
@@ -1046,9 +1147,7 @@ export default function Bookings() {
                     <td className="p-4 font-medium">{booking.venue || 'N/A'}</td>
                     <td className="p-4">{booking.pax_count || 0} pax</td>
                     <td className="p-4 font-medium">{booking.package?.pkg_name || 'N/A'}</td>
-                    <td className="p-4 font-bold text-slate-900">
-                      ₱{booking.total_amount?.toLocaleString() || '0'}
-                    </td>
+                    <td className="p-4 font-bold text-slate-900">₱{booking.total_amount?.toLocaleString() || '0'}</td>
                     <td className="p-4">
                       <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getStatusBadge(booking.booking_status)}`}>
                         {booking.booking_status}
@@ -1137,22 +1236,22 @@ export default function Bookings() {
                     <button
                       type="button"
                       onClick={() => setIsWalkIn(false)}
-                      className={`flex-1 py-2 px-4 rounded-lg border-2 text-sm font-semibold transition-all ${(
+                      className={`flex-1 py-2 px-4 rounded-lg border-2 text-sm font-semibold transition-all ${
                         !isWalkIn
                           ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900'
                           : 'border-slate-200 text-slate-600 hover:border-slate-300'
-                      )}`}
+                      }`}
                     >
                       Existing Customer
                     </button>
                     <button
                       type="button"
                       onClick={() => setIsWalkIn(true)}
-                      className={`flex-1 py-2 px-4 rounded-lg border-2 text-sm font-semibold transition-all flex items-center justify-center gap-2 ${(
+                      className={`flex-1 py-2 px-4 rounded-lg border-2 text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
                         isWalkIn
                           ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900'
                           : 'border-slate-200 text-slate-600 hover:border-slate-300'
-                      )}`}
+                      }`}
                     >
                       <UserPlus size={16} />
                       Walk-in Customer
@@ -1310,19 +1409,20 @@ export default function Bookings() {
 
               {/* Event Date/Time */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Event Date & Time</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Event Date & Time *</label>
                 <input
                   type="datetime-local"
                   name="event_datetime"
                   value={formData.event_datetime}
                   onChange={handleInputChange}
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                  required
                 />
               </div>
 
               {/* Venue */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Venue</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Venue *</label>
                 <input
                   type="text"
                   name="venue"
@@ -1330,13 +1430,14 @@ export default function Bookings() {
                   onChange={handleInputChange}
                   placeholder="e.g. Grand Pavilion"
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                  required
                 />
               </div>
 
               {/* Pax, Color, Delivery Fee, Total Amount */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Pax Count</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Pax Count *</label>
                   <input
                     type="number"
                     name="pax_count"
@@ -1344,10 +1445,11 @@ export default function Bookings() {
                     onChange={handleInputChange}
                     placeholder="e.g. 80"
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                    required
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Motif Color</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Motif Color *</label>
                   <input
                     type="text"
                     name="motif_color"
@@ -1355,6 +1457,7 @@ export default function Bookings() {
                     onChange={handleInputChange}
                     placeholder="e.g. Burgundy"
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                    required
                   />
                 </div>
                 <div>
@@ -1549,6 +1652,7 @@ export default function Bookings() {
                     value={filters.dateTo}
                     onChange={handleFilterChange}
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+
                   />
                 </div>
               </div>
@@ -1596,6 +1700,7 @@ export default function Bookings() {
                   onChange={handleFilterChange}
                   placeholder="e.g. Grand Pavilion"
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                  required
                 />
               </div>
 

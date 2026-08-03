@@ -55,7 +55,6 @@ export default function BookingDetails() {
   const [uploading, setUploading] = useState(false);
   const [paymentFormData, setPaymentFormData] = useState({
     amount: '',
-    pay_installment: 1,
     pay_method: 'Cash',
     pay_status: 'Downpayment',
     pay_proof: 'placeholder.png',
@@ -232,77 +231,60 @@ export default function BookingDetails() {
   }, [id]);
 
   // --- Approve (with 50% check and payment status sync) ---
-  const handleApprove = async () => {
-    const confirmed = await showConfirm({
-      title: 'Approve Booking?',
-      message: 'Are you sure you want to approve this booking? Payment statuses will be set to Downpayment.',
-      confirmLabel: 'Approve',
-      confirmVariant: 'success',
-    });
-    if (!confirmed) return;
+const handleApprove = async () => {
+  const confirmed = await showConfirm({
+    title: 'Approve Booking?',
+    message: 'Are you sure you want to approve this booking? Payment statuses will be set to Downpayment.',
+    confirmLabel: 'Approve',
+    confirmVariant: 'success',
+  });
+  if (!confirmed) return;
 
-    try {
-      // --- Check 50% payment condition ---
-      const { data: paymentsData, error: paymentsError } = await supabase
-        .from('payment')
-        .select('amount_paid')
-        .eq('booking_id', id);
+  try {
+    // --- Check 50% payment condition ---
+    const { data: paymentsData, error: paymentsError } = await supabase
+      .from('payment')
+      .select('amount_paid')
+      .eq('booking_id', id);
 
-      if (paymentsError) throw paymentsError;
+    if (paymentsError) throw paymentsError;
 
-      const totalPaid = paymentsData.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-      const totalAmount = booking.total_amount || 0;
-      const required = totalAmount * 0.5;
+    const totalPaid = paymentsData.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+    const totalAmount = booking.total_amount || 0;
+    const required = totalAmount * 0.5;
 
-      if (totalPaid < required) {
-        toast.error(
-          `Cannot approve. Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}). Please record more payments.`,
-          { duration: 6000 }
-        );
-        return;
-      }
-
-      // 1. Update booking status
-      const { error } = await supabase
-        .from('booking')
-        .update({ booking_status: 'Approved' })
-        .eq('booking_id', id);
-      if (error) throw error;
-
-      // 2. Update all payments to 'Downpayment' (sync with Approved)
-      const { error: updatePaymentsError } = await supabase
-        .from('payment')
-        .update({ pay_status: 'Downpayment' })
-        .eq('booking_id', id);
-      if (updatePaymentsError) throw updatePaymentsError;
-
-      // 3. Create an initial payment record if none exists (shouldn't happen, but safe)
-      const { data: existingPayments, error: countError } = await supabase
-        .from('payment')
-        .select('payment_id', { count: 'exact', head: true })
-        .eq('booking_id', id);
-      if (countError) throw countError;
-      if (existingPayments.length === 0) {
-        const { error: insertError } = await supabase
-          .from('payment')
-          .insert([{
-            booking_id: id,
-            amount_paid: 0,
-            pay_installment: 1,
-            pay_method: 'Pending',
-            pay_status: 'Downpayment',
-            pay_datetime: new Date().toISOString(),
-            pay_proof: 'placeholder.png',
-          }]);
-        if (insertError) throw insertError;
-      }
-
-      toast.success('Booking approved and payments set to Downpayment.');
-      fetchBooking();
-    } catch (error) {
-      handleError(error, 'Failed to approve booking.');
+    // Warn but allow approval
+    if (totalPaid < required) {
+      const proceed = await showConfirm({
+        title: 'Insufficient Downpayment',
+        message: `Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}). Approving this booking may leave an unpaid balance. Do you still want to approve?`,
+        confirmLabel: 'Yes, Approve',
+        cancelLabel: 'Cancel',
+        confirmVariant: 'warning',
+      });
+      if (!proceed) return;
     }
-  };
+
+    // 1. Update booking status
+    const { error } = await supabase
+      .from('booking')
+      .update({ booking_status: 'Approved' })
+      .eq('booking_id', id);
+    if (error) throw error;
+
+    // 2. Update all payments to 'Downpayment' (sync with Approved)
+    const { error: updatePaymentsError } = await supabase
+      .from('payment')
+      .update({ pay_status: 'Downpayment' })
+      .eq('booking_id', id);
+    if (updatePaymentsError) throw updatePaymentsError;
+
+    toast.success('Booking approved and payments set to Downpayment.');
+    fetchBooking();
+  } catch (error) {
+    handleError(error, 'Failed to approve booking.');
+  }
+};
 
   const handleReject = async () => {
     const confirmed = await showConfirm({
@@ -395,7 +377,6 @@ export default function BookingDetails() {
           .insert([{
             booking_id: id,
             amount_paid: -totalDownpayment,
-            pay_installment: 1,
             pay_method: 'Refund',
             pay_status: 'Refunded',
             pay_datetime: new Date().toISOString(),
@@ -670,7 +651,6 @@ export default function BookingDetails() {
   const openPaymentModal = () => {
     setPaymentFormData({
       amount: '',
-      pay_installment: 1,
       pay_method: 'Cash',
       pay_status: 'Downpayment',
       pay_proof: 'placeholder.png',
@@ -724,7 +704,6 @@ export default function BookingDetails() {
       const payload = {
         booking_id: id,
         amount_paid: parseFloat(paymentFormData.amount) || 0,
-        pay_installment: parseInt(paymentFormData.pay_installment) || 1,
         pay_method: paymentFormData.pay_method,
         pay_status: paymentFormData.pay_status,
         pay_datetime: new Date().toISOString(),
@@ -775,7 +754,6 @@ export default function BookingDetails() {
       return <span className="text-xs text-slate-400 italic">None</span>;
     }
 
-    // Get the full public URL
     const fullUrl = getProofUrl(proofUrl);
     if (!fullUrl) {
       return <span className="text-xs text-slate-400 italic">Invalid</span>;
@@ -1383,7 +1361,7 @@ export default function BookingDetails() {
               </div>
 
               {/* Payment Details */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Amount (₱)</label>
                   <input
@@ -1394,17 +1372,6 @@ export default function BookingDetails() {
                     placeholder="0.00"
                     step="0.01"
                     required
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Installment #</label>
-                  <input
-                    type="number"
-                    name="pay_installment"
-                    value={paymentFormData.pay_installment}
-                    onChange={handlePaymentInputChange}
-                    min="1"
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
                   />
                 </div>

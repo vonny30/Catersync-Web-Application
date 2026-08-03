@@ -41,7 +41,6 @@ export default function ShortOrderDetails() {
   const [uploading, setUploading] = useState(false);
   const [paymentFormData, setPaymentFormData] = useState({
     amount: '',
-    pay_installment: 1,
     pay_method: 'Cash',
     pay_status: 'Downpayment',
     pay_proof: 'placeholder.png',
@@ -182,77 +181,56 @@ export default function ShortOrderDetails() {
   }, [id]);
 
   // --- Approve (with 50% check and payment status sync) ---
-  const handleApprove = async () => {
-    const confirmed = await showConfirm({
-      title: 'Approve Order?',
-      message: 'Are you sure you want to approve this order? Payment statuses will be set to Downpayment.',
-      confirmLabel: 'Approve',
-      confirmVariant: 'success',
-    });
-    if (!confirmed) return;
+const handleApprove = async () => {
+  const confirmed = await showConfirm({
+    title: 'Approve Order?',
+    message: 'Are you sure you want to approve this order? Payment statuses will be set to Downpayment.',
+    confirmLabel: 'Approve',
+    confirmVariant: 'success',
+  });
+  if (!confirmed) return;
 
-    try {
-      // --- Check 50% payment condition ---
-      const { data: paymentsData, error: paymentsError } = await supabase
-        .from('payment')
-        .select('amount_paid')
-        .eq('booking_id', id);
+  try {
+    // --- Check 50% payment condition ---
+    const { data: paymentsData, error: paymentsError } = await supabase
+      .from('payment')
+      .select('amount_paid')
+      .eq('booking_id', id);
 
-      if (paymentsError) throw paymentsError;
+    if (paymentsError) throw paymentsError;
 
-      const totalPaid = paymentsData.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-      const totalAmount = order.total_amount || 0;
-      const required = totalAmount * 0.5;
+    const totalPaid = paymentsData.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+    const totalAmount = order.total_amount || 0;
+    const required = totalAmount * 0.5;
 
-      if (totalPaid < required) {
-        toast.error(
-          `Cannot approve. Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}). Please record more payments.`,
-          { duration: 6000 }
-        );
-        return;
-      }
-
-      // 1. Update order status
-      const { error } = await supabase
-        .from('booking')
-        .update({ booking_status: 'Approved' })
-        .eq('booking_id', id);
-      if (error) throw error;
-
-      // 2. Update all payments to 'Downpayment' (sync with Approved)
-      const { error: updatePaymentsError } = await supabase
-        .from('payment')
-        .update({ pay_status: 'Downpayment' })
-        .eq('booking_id', id);
-      if (updatePaymentsError) throw updatePaymentsError;
-
-      // 3. If no payments exist yet (shouldn't happen, but safe), create one
-      const { data: existingPayments, error: countError } = await supabase
-        .from('payment')
-        .select('payment_id', { count: 'exact', head: true })
-        .eq('booking_id', id);
-      if (countError) throw countError;
-      if (existingPayments.length === 0) {
-        const { error: insertError } = await supabase
-          .from('payment')
-          .insert([{
-            booking_id: id,
-            amount_paid: 0,
-            pay_installment: 1,
-            pay_method: 'Pending',
-            pay_status: 'Downpayment',
-            pay_datetime: new Date().toISOString(),
-            pay_proof: 'placeholder.png',
-          }]);
-        if (insertError) throw insertError;
-      }
-
-      toast.success('Order approved and payments set to Downpayment.');
-      fetchOrder();
-    } catch (error) {
-      handleError(error, 'Failed to approve order.');
+    if (totalPaid < required) {
+      toast.error(
+        `Cannot approve. Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}). Please record more payments.`,
+        { duration: 6000 }
+      );
+      return;
     }
-  };
+
+    // 1. Update order status
+    const { error } = await supabase
+      .from('booking')
+      .update({ booking_status: 'Approved' })
+      .eq('booking_id', id);
+    if (error) throw error;
+
+    // 2. Update all payments to 'Downpayment' (sync with Approved)
+    const { error: updatePaymentsError } = await supabase
+      .from('payment')
+      .update({ pay_status: 'Downpayment' })
+      .eq('booking_id', id);
+    if (updatePaymentsError) throw updatePaymentsError;
+
+    toast.success('Order approved and payments set to Downpayment.');
+    fetchOrder();
+  } catch (error) {
+    handleError(error, 'Failed to approve order.');
+  }
+};
 
   const handleReject = async () => {
     const confirmed = await showConfirm({
@@ -430,7 +408,6 @@ export default function ShortOrderDetails() {
   const openPaymentModal = () => {
     setPaymentFormData({
       amount: '',
-      pay_installment: 1,
       pay_method: 'Cash',
       pay_status: 'Downpayment',
       pay_proof: 'placeholder.png',
@@ -484,7 +461,6 @@ export default function ShortOrderDetails() {
       const payload = {
         booking_id: id,
         amount_paid: parseFloat(paymentFormData.amount) || 0,
-        pay_installment: parseInt(paymentFormData.pay_installment) || 1,
         pay_method: paymentFormData.pay_method,
         pay_status: paymentFormData.pay_status,
         pay_datetime: new Date().toISOString(),
@@ -574,7 +550,6 @@ export default function ShortOrderDetails() {
           .insert([{
             booking_id: id,
             amount_paid: -totalDownpayment,
-            pay_installment: 1,
             pay_method: 'Refund',
             pay_status: 'Refunded',
             pay_datetime: new Date().toISOString(),
@@ -1111,17 +1086,7 @@ export default function ShortOrderDetails() {
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Installment #</label>
-                  <input
-                    type="number"
-                    name="pay_installment"
-                    value={paymentFormData.pay_installment}
-                    onChange={handlePaymentInputChange}
-                    min="1"
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                  />
-                </div>
+              
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Payment Status</label>
                   <select
