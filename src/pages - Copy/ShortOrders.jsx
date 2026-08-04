@@ -18,12 +18,6 @@ export default function ShortOrders() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedOrders, setSelectedOrders] = useState([]); // 👈 added
 
-    // --- Pagination state ---
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
-  const [pageSize] = useState(10); // Items per page
-  const [totalPages, setTotalPages] = useState(1);
-
   // --- Modal states ---
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -68,73 +62,47 @@ export default function ShortOrders() {
     toast.error(userMessage);
   };
 
-// --- Fetch data with pagination ---
-const fetchData = async () => {
-  setLoading(true);
-  try {
-    const from = (currentPage - 1) * pageSize;
-    const to = from + pageSize - 1;
+  // --- Fetch data ---
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const { data: ordersData, error: ordersError } = await supabase
+        .from('booking')
+        .select(`
+          *,
+          customer:customer_id (first_name, last_name, contact_no)
+        `)
+        .eq('booking_type', 'Short Order')
+        .order('event_datetime', { ascending: false });
+      if (ordersError) throw ordersError;
+      setOrders(ordersData || []);
 
-    const { data: ordersData, count, error: ordersError } = await supabase
-      .from('booking')
-      .select(`
-        *,
-        customer:customer_id (first_name, last_name, contact_no)
-      `, { count: 'exact' })
-      .eq('booking_type', 'Short Order')
-      .order('event_datetime', { ascending: false })
-      .range(from, to);
+      const { data: customersData, error: customersError } = await supabase
+        .from('customer')
+        .select('customer_id, first_name, last_name')
+        .eq('account_status', 'Active')
+        .order('first_name');
+      if (customersError) throw customersError;
+      setCustomers(customersData || []);
 
-    if (ordersError) throw ordersError;
+      const { data: menuData, error: menuError } = await supabase
+        .from('menu_item')
+        .select('menu_item_id, menu_name, menu_price')
+        .eq('menu_availability', 'Available')
+        .order('menu_name');
+      if (menuError) throw menuError;
+      setMenuItems(menuData || []);
+    } catch (error) {
+      handleError(error, 'Unable to load short orders. Please refresh the page.');
+      setOrders([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    setTotalCount(count || 0);
-    setTotalPages(Math.ceil((count || 0) / pageSize));
-    setOrders(ordersData || []);
-
-    const { data: customersData, error: customersError } = await supabase
-      .from('customer')
-      .select('customer_id, first_name, last_name')
-      .eq('account_status', 'Active')
-      .order('first_name');
-    if (customersError) throw customersError;
-    setCustomers(customersData || []);
-
-    const { data: menuData, error: menuError } = await supabase
-      .from('menu_item')
-      .select('menu_item_id, menu_name, menu_price')
-      .eq('menu_availability', 'Available')
-      .order('menu_name');
-    if (menuError) throw menuError;
-    setMenuItems(menuData || []);
-  } catch (error) {
-    handleError(error, 'Unable to load short orders. Please refresh the page.');
-    setOrders([]);
-  } finally {
-    setLoading(false);
-  }
-};
-
- useEffect(() => {
-  fetchData();
-}, [currentPage]);
-
-// --- Pagination handlers ---
-const goToPage = (page) => {
-  if (page < 1 || page > totalPages) return;
-  setCurrentPage(page);
-};
-
-const goToPrevPage = () => {
-  if (currentPage > 1) {
-    setCurrentPage(currentPage - 1);
-  }
-};
-
-const goToNextPage = () => {
-  if (currentPage < totalPages) {
-    setCurrentPage(currentPage + 1);
-  }
-};
+  useEffect(() => {
+    fetchData();
+  }, []);
 
   // --- Auto-calculate total when selections change ---
   useEffect(() => {
@@ -514,37 +482,6 @@ const goToNextPage = () => {
         }
       }
 
-      // src/pages/ShortOrders.jsx
-// ... (all imports and state remain the same)
-
-// Inside handleSubmit, after validating required fields and menu selections, add:
-
-  // Minimum pax validation (short orders must have at least 1 pax)
-  const paxValue = parseInt(formData.pax_count);
-  if (isNaN(paxValue) || paxValue < 1) {
-    toast.error('Please enter a valid pax count (must be at least 1).');
-    setIsSubmitting(false);
-    return;
-  }
-
-  // Duplicate check: same customer, same event_datetime (excluding current if editing)
-  const eventDateTimeISO = formData.event_datetime ? new Date(formData.event_datetime).toISOString() : null;
-  let dupQuery = supabase
-    .from('booking')
-    .select('booking_id')
-    .eq('customer_id', customerId)
-    .eq('event_datetime', eventDateTimeISO);
-  if (editingId) {
-    dupQuery = dupQuery.neq('booking_id', editingId);
-  }
-  const { data: existingDup, error: dupError } = await dupQuery.maybeSingle();
-  if (dupError) throw dupError;
-  if (existingDup) {
-    toast.error('A short order for this customer already exists on the selected date and time.');
-    setIsSubmitting(false);
-    return;
-  }
-
       const payload = {
         customer_id: customerId,
         booking_type: 'Short Order',
@@ -646,50 +583,6 @@ const goToNextPage = () => {
         return;
       }
 
-      // --- Conflict check: find other approved events on the same day ---
-const eventDate = approvalOrder.event_datetime ? new Date(approvalOrder.event_datetime) : null;
-if (eventDate) {
-  const startOfDay = new Date(eventDate);
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(eventDate);
-  endOfDay.setHours(23, 59, 59, 999);
-  const startISO = startOfDay.toISOString();
-  const endISO = endOfDay.toISOString();
-
-  const { data: otherEvents, error: conflictError } = await supabase
-    .from('booking')
-    .select(`
-      booking_id,
-      booking_type,
-      venue,
-      event_datetime,
-      customer:customer_id (first_name, last_name)
-    `)
-    .eq('booking_status', 'Approved')
-    .neq('booking_id', approvalOrder.booking_id)
-    .gte('event_datetime', startISO)
-    .lte('event_datetime', endISO);
-
-  if (conflictError) throw conflictError;
-
-  if (otherEvents && otherEvents.length > 0) {
-    const list = otherEvents.map(e => {
-      const cust = e.customer ? `${e.customer.first_name} ${e.customer.last_name}` : 'Unknown';
-      const time = e.event_datetime ? new Date(e.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-      const type = e.booking_type === 'Short Order' ? 'Short Order' : 'Package';
-      return `• ${cust} (${type}) at ${e.venue || 'N/A'} – ${time}`;
-    }).join('\n');
-
-    const proceed = await showConfirm({
-      title: '⚠️ Existing Events on This Date',
-      message: `The following events are already approved on ${eventDate.toLocaleDateString()}:\n\n${list}\n\nDo you still want to approve this order?`,
-      confirmLabel: 'Approve Anyway',
-      cancelLabel: 'Cancel',
-      confirmVariant: 'warning',
-    });
-    if (!proceed) return;
-  }
-}
       const newTotal = approvalData.newTotal;
       const newDeliveryFee = parseFloat(approvalOrder.delivery_fee || 0) + approvalData.extraDeliveryFee;
 
@@ -923,146 +816,107 @@ if (eventDate) {
         </div>
       </div>
 
-{/* Table */}
-<div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-  <div className="overflow-x-auto">
-    <table className="w-full text-left border-collapse">
-      <thead>
-        <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
-          <th className="p-4 w-10">
-            <input
-              type="checkbox"
-              checked={filtered.length > 0 && filtered.every(o => selectedOrders.includes(o.booking_id))}
-              onChange={toggleSelectAll}
-              className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
-              disabled={filtered.length === 0}
-            />
-          </th>
-          <th className="p-4 font-bold min-w-[130px]">Client</th>
-          <th className="p-4 font-bold min-w-[120px]">Created</th>
-          <th className="p-4 font-bold min-w-[120px]">Event Date</th>
-          <th className="p-4 font-bold min-w-[100px]">Venue</th>
-          <th className="p-4 font-bold w-16 text-center">Pax</th>
-          <th className="p-4 font-bold w-28 text-right">Amount</th>
-          <th className="p-4 font-bold w-24">Status</th>
-          <th className="p-4 font-bold min-w-[280px] text-center">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {loading ? (
-          <tr><td colSpan="9" className="p-6 text-center text-slate-400">Loading short orders...</td></tr>
-        ) : filtered.length === 0 ? (
-          <tr><td colSpan="9" className="p-6 text-center text-slate-500 italic">No short orders found.</td></tr>
-        ) : (
-          filtered.map((order) => (
-            <tr key={order.booking_id} className="hover:bg-slate-50 transition-colors">
-              <td className="p-4">
-                <input
-                  type="checkbox"
-                  checked={selectedOrders.includes(order.booking_id)}
-                  onChange={() => toggleSelectOrder(order.booking_id)}
-                  className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
-                />
-              </td>
-              <td className="p-4">
-                <p
-                  onClick={() => navigate(`/app/orders/${order.booking_id}`)}
-                  className="font-bold text-slate-900 underline decoration-slate-300 underline-offset-4 cursor-pointer hover:text-[#008A45]"
-                >
-                  {order.customer?.first_name} {order.customer?.last_name}
-                </p>
-              </td>
-              <td className="p-4 text-slate-600 text-xs">
-                {order.book_datetime ? new Date(order.book_datetime).toLocaleDateString() : 'N/A'}
-              </td>
-              <td className="p-4 text-slate-600 text-xs">
-                {order.event_datetime ? new Date(order.event_datetime).toLocaleDateString() : 'N/A'}
-              </td>
-              <td className="p-4">{order.venue || 'N/A'}</td>
-              <td className="p-4 text-center">{order.pax_count || 0}</td>
-              <td className="p-4 font-bold text-slate-900 text-right">₱{order.total_amount?.toLocaleString() || '0'}</td>
-              <td className="p-4">
-                <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getStatusBadge(order.booking_status)}`}>
-                  {order.booking_status}
-                </span>
-              </td>
-              <td className="p-4">
-                <div className="flex items-center justify-center gap-1.5 flex-nowrap whitespace-nowrap">
-                  {order.booking_status === 'Pending' && (
-                    <>
-                      <button
-                        onClick={() => openApprovalModal(order)}
-                        className="bg-[#C1DEDC] border border-[#a8cfcc] text-slate-800 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-[#b8dad7] transition-colors"
-                      >
-                        <Check size={14} /> Approve
-                      </button>
-                      <button
-                        onClick={() => handleReject(order.booking_id)}
-                        className="bg-red-100 border border-red-200 text-red-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-red-200 transition-colors"
-                      >
-                        <X size={14} /> Reject
-                      </button>
-                    </>
-                  )}
-                  {order.booking_status === 'Approved' && (
-                    <button
-                      onClick={() => handleMarkCompleted(order.booking_id)}
-                      className="bg-blue-100 border border-blue-200 text-blue-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-blue-200 transition-colors"
-                    >
-                      <Check size={14} /> Complete
-                    </button>
-                  )}
-                  <button
-                    onClick={() => navigate(`/app/orders/${order.booking_id}`)}
-                    className="bg-white border border-slate-300 text-slate-700 font-semibold text-[11px] px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors"
-                  >
-                    Details
-                  </button>
-                  <button
-                    onClick={() => openEditModal(order)}
-                    className="text-slate-400 hover:text-slate-700 transition-colors p-1"
-                    title="Edit"
-                  >
-                    <Edit size={16} />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(order.booking_id)}
-                    className="text-red-400 hover:text-red-600 transition-colors p-1"
-                    title="Delete"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))
-        )}
-      </tbody>
-    </table>
-  </div>
- <div className="p-4 border-t border-slate-200 flex justify-between items-center bg-white text-sm text-slate-600">
-  <span>Showing {orders.length} of {totalCount} orders</span>
-  <div className="flex items-center gap-1">
-    <button
-      onClick={goToPrevPage}
-      disabled={currentPage === 1}
-      className={`p-1 transition-colors ${currentPage === 1 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:text-slate-800'}`}
-    >
-      <ChevronLeft size={16} />
-    </button>
-    <span className="px-3 py-1 text-xs font-medium text-slate-600">
-      Page {currentPage} of {totalPages}
-    </span>
-    <button
-      onClick={goToNextPage}
-      disabled={currentPage === totalPages}
-      className={`p-1 transition-colors ${currentPage === totalPages ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:text-slate-800'}`}
-    >
-      <ChevronRight size={16} />
-    </button>
-  </div>
-</div>
-</div>
+      {/* Table */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
+                <th className="p-4 w-10">
+                  <input
+                    type="checkbox"
+                    checked={filtered.length > 0 && filtered.every(o => selectedOrders.includes(o.booking_id))}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
+                    disabled={filtered.length === 0}
+                  />
+                </th>
+                <th className="p-4 font-bold">Client</th>
+                <th className="p-4 font-bold">Venue</th>
+                <th className="p-4 font-bold">Pax</th>
+                <th className="p-4 font-bold">Amount</th>
+                <th className="p-4 font-bold">Status</th>
+                <th className="p-4 font-bold text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan="7" className="p-6 text-center text-slate-400">Loading short orders...</td></tr>
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan="7" className="p-6 text-center text-slate-500 italic">No short orders found.</td></tr>
+              ) : (
+                filtered.map(order => (
+                  <tr key={order.booking_id} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-4">
+                      <input
+                        type="checkbox"
+                        checked={selectedOrders.includes(order.booking_id)}
+                        onChange={() => toggleSelectOrder(order.booking_id)}
+                        className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
+                      />
+                    </td>
+                    <td className="p-4">
+                      <p onClick={() => navigate(`/app/orders/${order.booking_id}`)} className="font-bold text-slate-900 underline decoration-slate-300 underline-offset-4 cursor-pointer hover:text-[#008A45]">
+                        {order.customer?.first_name} {order.customer?.last_name}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-0.5">{order.event_datetime ? new Date(order.event_datetime).toLocaleDateString() : 'No date'}</p>
+                    </td>
+                    <td className="p-4">{order.venue || 'N/A'}</td>
+                    <td className="p-4">{order.pax_count || 0}</td>
+                    <td className="p-4 font-bold text-slate-900">₱{order.total_amount?.toLocaleString() || '0'}</td>
+                    <td className="p-4">
+                      <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getStatusBadge(order.booking_status)}`}>
+                        {order.booking_status}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center justify-center gap-2 flex-wrap">
+                        {order.booking_status === 'Pending' && (
+                          <>
+                            <button
+                              onClick={() => openApprovalModal(order)}
+                              className="bg-[#C1DEDC] border border-[#a8cfcc] text-slate-800 font-semibold text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-[#b8dad7]"
+                            >
+                              <Check size={14} /> Approve
+                            </button>
+                            <button
+                              onClick={() => handleReject(order.booking_id)}
+                              className="bg-red-100 border border-red-200 text-red-700 font-semibold text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-red-200"
+                            >
+                              <X size={14} /> Reject
+                            </button>
+                          </>
+                        )}
+                        {order.booking_status === 'Approved' && (
+                          <button
+                            onClick={() => handleMarkCompleted(order.booking_id)}
+                            className="bg-blue-100 border border-blue-200 text-blue-700 font-semibold text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-blue-200"
+                          >
+                            <Check size={14} /> Mark Completed
+                          </button>
+                        )}
+                        <button onClick={() => navigate(`/app/orders/${order.booking_id}`)} className="bg-white border border-slate-300 text-slate-700 font-semibold text-xs px-3 py-1.5 rounded-lg hover:bg-slate-50">
+                          Details
+                        </button>
+                        <button onClick={() => openEditModal(order)} className="text-slate-400 hover:text-slate-700 p-1"><Edit size={16} /></button>
+                        <button onClick={() => handleDelete(order.booking_id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-4 border-t border-slate-200 flex justify-between items-center bg-white text-sm text-slate-600">
+          <span>Showing {filtered.length} of {orders.length} orders</span>
+          <div className="flex items-center gap-1">
+            <button className="p-1 text-slate-400 hover:text-slate-800"><ChevronLeft size={16} /></button>
+            <button className="w-7 h-7 flex items-center justify-center rounded bg-[#008A45] text-white font-bold">1</button>
+            <button className="p-1 text-slate-400 hover:text-slate-800"><ChevronRight size={16} /></button>
+          </div>
+        </div>
+      </div>
 
       {/* ========== NEW/EDIT SHORT ORDER MODAL ========== */}
       {isModalOpen && createPortal(

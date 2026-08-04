@@ -84,13 +84,13 @@ export default function ShortOrderDetails() {
     setLoading(true);
     try {
       const { data: orderData, error: orderError } = await supabase
-      .from('booking')
-      .select(`
-        *,
-        customer:customer_id (first_name, last_name, contact_no, cus_address, email_address, customer_id)
-      `)
-      .eq('booking_id', id)
-      .single();
+        .from('booking')
+        .select(`
+          *,
+          customer:customer_id (first_name, last_name, contact_no, cus_address)
+        `)
+        .eq('booking_id', id)
+        .single();
 
       if (orderError) throw orderError;
       setOrder(orderData);
@@ -181,8 +181,6 @@ export default function ShortOrderDetails() {
   }, [id]);
 
   // --- Approve (with 50% check and payment status sync) ---
-// src/pages/ShortOrderDetails.jsx – inside the component
-
 const handleApprove = async () => {
   const confirmed = await showConfirm({
     title: 'Approve Order?',
@@ -193,60 +191,18 @@ const handleApprove = async () => {
   if (!confirmed) return;
 
   try {
-    // --- Conflict check: find other approved events on the same day ---
-    const eventDate = order.event_datetime ? new Date(order.event_datetime) : null;
-    if (eventDate) {
-      const startOfDay = new Date(eventDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(eventDate);
-      endOfDay.setHours(23, 59, 59, 999);
-      const startISO = startOfDay.toISOString();
-      const endISO = endOfDay.toISOString();
-
-      const { data: otherEvents, error: conflictError } = await supabase
-        .from('booking')
-        .select(`
-          booking_id,
-          booking_type,
-          venue,
-          event_datetime,
-          customer:customer_id (first_name, last_name)
-        `)
-        .eq('booking_status', 'Approved')
-        .neq('booking_id', id)
-        .gte('event_datetime', startISO)
-        .lte('event_datetime', endISO);
-
-      if (conflictError) throw conflictError;
-
-      if (otherEvents && otherEvents.length > 0) {
-        const list = otherEvents.map(e => {
-          const cust = e.customer ? `${e.customer.first_name} ${e.customer.last_name}` : 'Unknown';
-          const time = e.event_datetime ? new Date(e.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-          const type = e.booking_type === 'Short Order' ? 'Short Order' : 'Package';
-          return `• ${cust} (${type}) at ${e.venue || 'N/A'} – ${time}`;
-        }).join('\n');
-
-        const proceed = await showConfirm({
-          title: '⚠️ Existing Events on This Date',
-          message: `The following events are already approved on ${eventDate.toLocaleDateString()}:\n\n${list}\n\nDo you still want to approve this order?`,
-          confirmLabel: 'Approve Anyway',
-          cancelLabel: 'Cancel',
-          confirmVariant: 'warning',
-        });
-        if (!proceed) return;
-      }
-    }
-
     // --- Check 50% payment condition ---
     const { data: paymentsData, error: paymentsError } = await supabase
       .from('payment')
       .select('amount_paid')
       .eq('booking_id', id);
+
     if (paymentsError) throw paymentsError;
+
     const totalPaid = paymentsData.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
     const totalAmount = order.total_amount || 0;
     const required = totalAmount * 0.5;
+
     if (totalPaid < required) {
       toast.error(
         `Cannot approve. Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}). Please record more payments.`,
@@ -262,7 +218,7 @@ const handleApprove = async () => {
       .eq('booking_id', id);
     if (error) throw error;
 
-    // 2. Update payments to Downpayment
+    // 2. Update all payments to 'Downpayment' (sync with Approved)
     const { error: updatePaymentsError } = await supabase
       .from('payment')
       .update({ pay_status: 'Downpayment' })
@@ -471,125 +427,61 @@ const handleApprove = async () => {
     }
   };
 
-// src/pages/ShortOrderDetails.jsx – inside the component
+  const handlePaymentSubmit = async (e) => {
+    e.preventDefault();
+    setIsPaymentSubmitting(true);
 
-const handlePaymentSubmit = async (e) => {
-  e.preventDefault();
-  setIsPaymentSubmitting(true);
+    try {
+      let proofUrl = 'placeholder.png';
 
-  const amount = parseFloat(paymentFormData.amount) || 0;
-  if (amount <= 0) {
-    toast.error('Amount must be greater than zero.');
-    setIsPaymentSubmitting(false);
-    return;
-  }
-  if (!paymentFormData.pay_method) {
-    toast.error('Please select a payment method.');
-    setIsPaymentSubmitting(false);
-    return;
-  }
-  if (!paymentFormData.pay_status) {
-    toast.error('Please select a payment status.');
-    setIsPaymentSubmitting(false);
-    return;
-  }
-
-  const paid = payments.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-  const totalAmount = order.total_amount || 0;
-  const remainingBalance = Math.max(0, totalAmount - paid);
-
-  if (remainingBalance <= 0) {
-    toast.error('This order is already fully paid. No additional payments are allowed.');
-    setIsPaymentSubmitting(false);
-    return;
-  }
-  if (amount > remainingBalance) {
-    toast.error(`Amount exceeds remaining balance of ₱${remainingBalance.toLocaleString()}.`);
-    setIsPaymentSubmitting(false);
-    return;
-  }
-
-  let finalPayStatus = paymentFormData.pay_status;
-  const status = order.booking_status || 'Pending';
-
-  if (status === 'Pending') {
-    const hasDownpayment = payments.some(p => p.pay_status === 'Downpayment');
-    if (hasDownpayment) {
-      toast.error('This order already has a downpayment. Wait for approval before recording more payments.');
-      setIsPaymentSubmitting(false);
-      return;
-    }
-    if (paymentFormData.pay_status !== 'Downpayment') {
-      toast.error('Pending orders can only receive downpayments. Please approve the order first.');
-      setIsPaymentSubmitting(false);
-      return;
-    }
-  }
-
-  if (status === 'Approved' || status === 'Completed') {
-    if (paymentFormData.pay_status === 'Fully Paid' && amount < remainingBalance) {
-      toast.error(`To mark as fully paid, the amount must equal the remaining balance of ₱${remainingBalance.toLocaleString()}.`);
-      setIsPaymentSubmitting(false);
-      return;
-    }
-
-    const isAmountEqualRemaining = Math.abs(amount - remainingBalance) < 0.01;
-    if (paymentFormData.pay_status === 'Downpayment' && isAmountEqualRemaining) {
-      const confirm = await showConfirm({
-        title: 'Full Payment?',
-        message: `This payment amount (₱${amount.toLocaleString()}) equals the remaining balance. Would you like to mark it as Fully Paid instead?`,
-        confirmLabel: 'Yes, Mark Fully Paid',
-        cancelLabel: 'No, Keep as Downpayment',
-        confirmVariant: 'success',
-      });
-      if (confirm) {
-        finalPayStatus = 'Fully Paid';
-        setPaymentFormData(prev => ({ ...prev, pay_status: 'Fully Paid' }));
+      if (selectedFile) {
+        setUploading(true);
+        try {
+          const fileExt = selectedFile.name.split('.').pop();
+          const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+          const filePath = `payments/${fileName}`;
+          const { error: uploadError } = await supabase.storage
+            .from('images')
+            .upload(filePath, selectedFile);
+          if (uploadError) throw uploadError;
+          const { data: publicUrlData } = supabase.storage
+            .from('images')
+            .getPublicUrl(filePath);
+          proofUrl = publicUrlData.publicUrl;
+        } catch (err) {
+          console.error('Upload error:', err);
+          toast.error('Failed to upload proof image. Please try again.');
+          setUploading(false);
+          setIsPaymentSubmitting(false);
+          return;
+        }
+        setUploading(false);
       }
-    }
-  }
 
-  try {
-    let proofUrl = 'placeholder.png';
-    if (selectedFile) {
-      setUploading(true);
-      const fileExt = selectedFile.name.split('.').pop();
-      const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-      const filePath = `payments/${fileName}`;
-      const { error: uploadError } = await supabase.storage
-        .from('images')
-        .upload(filePath, selectedFile);
-      if (uploadError) throw uploadError;
-      const { data: publicUrlData } = supabase.storage
-        .from('images')
-        .getPublicUrl(filePath);
-      proofUrl = publicUrlData.publicUrl;
+      const payload = {
+        booking_id: id,
+        amount_paid: parseFloat(paymentFormData.amount) || 0,
+        pay_method: paymentFormData.pay_method,
+        pay_status: paymentFormData.pay_status,
+        pay_datetime: new Date().toISOString(),
+        pay_proof: proofUrl,
+      };
+
+      const { error } = await supabase
+        .from('payment')
+        .insert([payload]);
+      if (error) throw error;
+
+      setIsPaymentModalOpen(false);
+      fetchOrder();
+      toast.success('Payment recorded successfully!');
+    } catch (error) {
+      handleError(error, 'Failed to record payment.');
+    } finally {
+      setIsPaymentSubmitting(false);
       setUploading(false);
     }
-
-    const payload = {
-      booking_id: id,
-      amount_paid: amount,
-      pay_method: paymentFormData.pay_method,
-      pay_status: finalPayStatus,
-      pay_datetime: new Date().toISOString(),
-      pay_proof: proofUrl,
-      customer_id: order.customer_id || null,
-    };
-
-    const { error } = await supabase.from('payment').insert([payload]);
-    if (error) throw error;
-
-    setIsPaymentModalOpen(false);
-    fetchOrder();
-    toast.success('Payment recorded successfully!');
-  } catch (error) {
-    handleError(error, 'Failed to record payment.');
-  } finally {
-    setIsPaymentSubmitting(false);
-    setUploading(false);
-  }
-};
+  };
 
   // --- Cancel Order Handlers ---
   const openCancelModal = () => {
@@ -798,76 +690,37 @@ const handlePaymentSubmit = async (e) => {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-5 space-y-6">
-<div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
-  <h3 className="text-sm font-bold text-slate-900 mb-4">Order Details</h3>
-  <div className="space-y-2.5 text-sm">
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Created</span>
-      <span className="col-span-2">
-        {order.book_datetime ? new Date(order.book_datetime).toLocaleString() : 'N/A'}
-      </span>
-    </div>
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Event Date</span>
-      <span className="col-span-2">
-        {order.event_datetime ? new Date(order.event_datetime).toLocaleString() : 'N/A'}
-      </span>
-    </div>
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Venue</span>
-      <span className="col-span-2">{order.venue || 'N/A'}</span>
-    </div>
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Pax</span>
-      <span className="col-span-2">{order.pax_count}</span>
-    </div>
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Order Type</span>
-      <span className="col-span-2">Short Order</span>
-    </div>
-    {/* Pricing Breakdown */}
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Subtotal</span>
-      <span className="col-span-2">₱{itemsSubtotal.toFixed(2)}</span>
-    </div>
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Delivery Fee</span>
-      <span className="col-span-2">₱{deliveryFee.toLocaleString()}</span>
-    </div>
-    <div className="grid grid-cols-3 border-t border-slate-200 pt-2 mt-1">
-      <span className="text-slate-700 font-bold">Total</span>
-      <span className="col-span-2 font-bold text-[#008A45]">₱{order.total_amount?.toLocaleString() || '0'}</span>
-    </div>
-  </div>
-  {order.notes && (
-    <div className="pt-4 mt-4 border-t border-slate-100">
-      <span className="text-xs font-bold text-slate-900 block mb-1">Notes</span>
-      <p className="text-xs text-slate-500 whitespace-pre-wrap">{order.notes}</p>
-    </div>
-  )}
-</div>
+          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
+            <h3 className="text-sm font-bold text-slate-900 mb-4">Order Details</h3>
+            <div className="space-y-2.5 text-sm">
+              <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Date</span><span className="col-span-2">{order.event_datetime ? new Date(order.event_datetime).toLocaleString() : 'N/A'}</span></div>
+              <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Venue</span><span className="col-span-2">{order.venue || 'N/A'}</span></div>
+              <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Pax</span><span className="col-span-2">{order.pax_count}</span></div>
+              
+              {/* Pricing Breakdown */}
+              <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Subtotal</span><span className="col-span-2">₱{itemsSubtotal.toFixed(2)}</span></div>
+              <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Delivery Fee</span><span className="col-span-2">₱{deliveryFee.toLocaleString()}</span></div>
+              <div className="grid grid-cols-3 border-t border-slate-200 pt-2 mt-1">
+                <span className="text-slate-700 font-bold">Total</span>
+                <span className="col-span-2 font-bold text-[#008A45]">₱{order.total_amount?.toLocaleString() || '0'}</span>
+              </div>
+            </div>
+            {order.notes && (
+              <div className="pt-4 mt-4 border-t border-slate-100">
+                <span className="text-xs font-bold text-slate-900 block mb-1">Notes</span>
+                <p className="text-xs text-slate-500 whitespace-pre-wrap">{order.notes}</p>
+              </div>
+            )}
+          </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
-  <h3 className="text-sm font-bold text-slate-900 mb-4">Client Details</h3>
-  <div className="space-y-2 text-sm">
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Name</span>
-      <span className="col-span-2">{order.customer?.first_name} {order.customer?.last_name}</span>
-    </div>
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Contact</span>
-      <span className="col-span-2">{order.customer?.contact_no || 'N/A'}</span>
-    </div>
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Email</span>
-      <span className="col-span-2">{order.customer?.email_address || 'N/A'}</span>
-    </div>
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Address</span>
-      <span className="col-span-2">{order.customer?.cus_address || 'N/A'}</span>
-    </div>
-  </div>
-</div>
+          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
+            <h3 className="text-sm font-bold text-slate-900 mb-4">Client</h3>
+            <div className="space-y-2 text-sm">
+              <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Name</span><span className="col-span-2">{order.customer?.first_name} {order.customer?.last_name}</span></div>
+              <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Contact</span><span className="col-span-2">{order.customer?.contact_no || 'N/A'}</span></div>
+              <div className="grid grid-cols-3"><span className="text-slate-700 font-bold">Address</span><span className="col-span-2">{order.customer?.cus_address || 'N/A'}</span></div>
+            </div>
+          </div>
         </div>
 
         <div className="lg:col-span-7 space-y-6">
