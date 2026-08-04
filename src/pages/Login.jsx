@@ -96,8 +96,12 @@ export default function Login() {
       {/* HEADER */}
       <header className="bg-[#008A45] text-white h-[72px] flex items-center px-6 w-full shrink-0 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="bg-white rounded-full w-12 h-12 flex items-center justify-center text-slate-800 font-bold text-[10px] text-center leading-tight shadow-sm border-2 border-slate-100">
-            <span className="opacity-80">Cater<br />Sync</span>
+         <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-sm flex-shrink-0">
+            <img 
+              src="/logo.svg" 
+              alt="Catersync" 
+              className="w-full h-full object-cover" 
+            />
           </div>
           <h1 className="text-2xl font-bold tracking-wide">Catersync</h1>
         </div>

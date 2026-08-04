@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
-import { checkEquipmentCapacityForDate } from '../utils/equipment';
+import { checkEquipmentCapacityForDate, allocateEquipmentForBooking } from '../utils/equipment';
 
 export default function BookingDetails() {
   const { id } = useParams();
@@ -232,133 +232,144 @@ export default function BookingDetails() {
   }, [id]);
 
   // --- Approve (with 50% check and payment status sync) ---
-// src/pages/BookingDetails.jsx – inside the component
+  const handleApprove = async () => {
+    const confirmed = await showConfirm({
+      title: 'Approve Booking?',
+      message: 'Are you sure you want to approve this booking? Payment statuses will be set to Downpayment.',
+      confirmLabel: 'Approve',
+      confirmVariant: 'success',
+    });
+    if (!confirmed) return;
 
-const handleApprove = async () => {
-  const confirmed = await showConfirm({
-    title: 'Approve Booking?',
-    message: 'Are you sure you want to approve this booking? Payment statuses will be set to Downpayment.',
-    confirmLabel: 'Approve',
-    confirmVariant: 'success',
-  });
-  if (!confirmed) return;
+    try {
+      // --- Conflict check: find other approved events on the same day ---
+      const eventDate = booking.event_datetime ? new Date(booking.event_datetime) : null;
+      if (eventDate) {
+        const startOfDay = new Date(eventDate);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(eventDate);
+        endOfDay.setHours(23, 59, 59, 999);
+        const startISO = startOfDay.toISOString();
+        const endISO = endOfDay.toISOString();
 
-  try {
-    // --- Conflict check: find other approved events on the same day ---
-    const eventDate = booking.event_datetime ? new Date(booking.event_datetime) : null;
-    if (eventDate) {
-      const startOfDay = new Date(eventDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(eventDate);
-      endOfDay.setHours(23, 59, 59, 999);
-      const startISO = startOfDay.toISOString();
-      const endISO = endOfDay.toISOString();
+        const { data: otherEvents, error: conflictError } = await supabase
+          .from('booking')
+          .select(`
+            booking_id,
+            booking_type,
+            venue,
+            event_datetime,
+            customer:customer_id (first_name, last_name)
+          `)
+          .eq('booking_status', 'Approved')
+          .neq('booking_id', id)
+          .gte('event_datetime', startISO)
+          .lte('event_datetime', endISO);
 
-      const { data: otherEvents, error: conflictError } = await supabase
-        .from('booking')
-        .select(`
-          booking_id,
-          booking_type,
-          venue,
-          event_datetime,
-          customer:customer_id (first_name, last_name)
-        `)
-        .eq('booking_status', 'Approved')
-        .neq('booking_id', id)
-        .gte('event_datetime', startISO)
-        .lte('event_datetime', endISO);
+        if (conflictError) throw conflictError;
 
-      if (conflictError) throw conflictError;
+        if (otherEvents && otherEvents.length > 0) {
+          // Build a readable list
+          const list = otherEvents.map(e => {
+            const cust = e.customer ? `${e.customer.first_name} ${e.customer.last_name}` : 'Unknown';
+            const time = e.event_datetime ? new Date(e.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+            const type = e.booking_type === 'Short Order' ? 'Short Order' : 'Package';
+            return `• ${cust} (${type}) at ${e.venue || 'N/A'} – ${time}`;
+          }).join('\n');
 
-      if (otherEvents && otherEvents.length > 0) {
-        // Build a readable list
-        const list = otherEvents.map(e => {
-          const cust = e.customer ? `${e.customer.first_name} ${e.customer.last_name}` : 'Unknown';
-          const time = e.event_datetime ? new Date(e.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-          const type = e.booking_type === 'Short Order' ? 'Short Order' : 'Package';
-          return `• ${cust} (${type}) at ${e.venue || 'N/A'} – ${time}`;
-        }).join('\n');
+          const proceed = await showConfirm({
+            title: '⚠️ Existing Events on This Date',
+            message: `The following events are already approved on ${eventDate.toLocaleDateString()}:\n\n${list}\n\nDo you still want to approve this booking?`,
+            confirmLabel: 'Approve Anyway',
+            cancelLabel: 'Cancel',
+            confirmVariant: 'warning',
+          });
+          if (!proceed) return;
+        }
+      }
 
+      // --- Check 50% payment condition ---
+      const { data: paymentsData, error: paymentsError } = await supabase
+        .from('payment')
+        .select('amount_paid')
+        .eq('booking_id', id);
+      if (paymentsError) throw paymentsError;
+      const totalPaid = paymentsData.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+      const totalAmount = booking.total_amount || 0;
+      const required = totalAmount * 0.5;
+      if (totalPaid < required) {
         const proceed = await showConfirm({
-          title: '⚠️ Existing Events on This Date',
-          message: `The following events are already approved on ${eventDate.toLocaleDateString()}:\n\n${list}\n\nDo you still want to approve this booking?`,
-          confirmLabel: 'Approve Anyway',
+          title: 'Insufficient Downpayment',
+          message: `Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}). Approving this booking may leave an unpaid balance. Do you still want to approve?`,
+          confirmLabel: 'Yes, Approve',
           cancelLabel: 'Cancel',
           confirmVariant: 'warning',
         });
         if (!proceed) return;
       }
-    }
 
-    // --- Check 50% payment condition ---
-    const { data: paymentsData, error: paymentsError } = await supabase
-      .from('payment')
-      .select('amount_paid')
-      .eq('booking_id', id);
-    if (paymentsError) throw paymentsError;
-    const totalPaid = paymentsData.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-    const totalAmount = booking.total_amount || 0;
-    const required = totalAmount * 0.5;
-    if (totalPaid < required) {
-      const proceed = await showConfirm({
-        title: 'Insufficient Downpayment',
-        message: `Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}). Approving this booking may leave an unpaid balance. Do you still want to approve?`,
-        confirmLabel: 'Yes, Approve',
-        cancelLabel: 'Cancel',
-        confirmVariant: 'warning',
-      });
-      if (!proceed) return;
-    }
+      // 1. Update booking status
+      const { error } = await supabase
+        .from('booking')
+        .update({ booking_status: 'Approved' })
+        .eq('booking_id', id);
+      if (error) throw error;
 
-    // 1. Update booking status
-    const { error } = await supabase
-      .from('booking')
-      .update({ booking_status: 'Approved' })
-      .eq('booking_id', id);
-    if (error) throw error;
+      // 2. Update payments to Downpayment
+      const { error: updatePaymentsError } = await supabase
+        .from('payment')
+        .update({ pay_status: 'Downpayment' })
+        .eq('booking_id', id);
+      if (updatePaymentsError) throw updatePaymentsError;
 
-    // 2. Update payments to Downpayment
-    const { error: updatePaymentsError } = await supabase
-      .from('payment')
-      .update({ pay_status: 'Downpayment' })
-      .eq('booking_id', id);
-    if (updatePaymentsError) throw updatePaymentsError;
-
-    // 3. Equipment capacity check (unchanged – we keep it as a warning)
-    if (booking.package_id) {
-      try {
-        const eventDate = booking.event_datetime;
-        const shortages = await checkEquipmentCapacityForDate(eventDate, id);
-        if (shortages.length > 0) {
-          const details = shortages
-            .map(s => `${s.eqm_name}: needed ${s.needed}, available ${s.available}`)
-            .join('\n');
-          const proceed = await showConfirm({
-            title: '⚠️ Equipment Capacity Warning',
-            message: `The following equipment items are overbooked for this event date:\n\n${details}\n\nYou may still approve, but please adjust equipment inventory manually afterwards.`,
-            confirmLabel: 'Approve Anyway',
-            cancelLabel: 'Cancel Approval',
-            confirmVariant: 'warning',
-          });
-          if (!proceed) {
-            await supabase
-              .from('booking')
-              .update({ booking_status: 'Pending' })
-              .eq('booking_id', id);
-            return;
-          }
+      // 3. Allocate equipment (reservation only, no stock deduction)
+      if (booking.package_id) {
+        try {
+          await allocateEquipmentForBooking(id, booking.package_id, booking.pax_count);
+        } catch (allocError) {
+          console.warn('Equipment allocation warning:', allocError);
+          // Don't block approval, just warn
+          toast.warning('Equipment allocation had issues: ' + allocError.message);
         }
-      } catch (capError) {
-        console.warn('Equipment capacity check failed:', capError);
       }
-    }
 
-    toast.success('Booking approved and payments set to Downpayment.');
-    fetchBooking();
-  } catch (error) {
-    handleError(error, 'Failed to approve booking.');
-  }
-};
+      // 4. Equipment capacity check – warn if conflicts exist
+      if (booking.package_id) {
+        try {
+          const eventDate = booking.event_datetime;
+          const shortages = await checkEquipmentCapacityForDate(eventDate, id);
+          if (shortages.length > 0) {
+            const details = shortages
+              .map(s => `${s.eqm_name}: needed ${s.needed}, available ${s.available}`)
+              .join('\n');
+            const proceed = await showConfirm({
+              title: '⚠️ Equipment Capacity Warning',
+              message: `The following equipment items are overbooked for this event date:\n\n${details}\n\nYou may still approve, but please adjust equipment inventory manually afterwards.`,
+              confirmLabel: 'Approve Anyway',
+              cancelLabel: 'Cancel Approval',
+              confirmVariant: 'warning',
+            });
+            if (!proceed) {
+              await supabase
+                .from('booking')
+                .update({ booking_status: 'Pending' })
+                .eq('booking_id', id);
+              // Also delete the equipment allocations we just made
+              await supabase.from('booking_equipment').delete().eq('booking_id', id);
+              return;
+            }
+          }
+        } catch (capError) {
+          console.warn('Equipment capacity check failed:', capError);
+        }
+      }
+
+      toast.success('Booking approved and payments set to Downpayment.');
+      fetchBooking();
+    } catch (error) {
+      handleError(error, 'Failed to approve booking.');
+    }
+  };
 
   const handleReject = async () => {
     const confirmed = await showConfirm({
@@ -375,6 +386,10 @@ const handleApprove = async () => {
         .update({ booking_status: 'Rejected' })
         .eq('booking_id', id);
       if (error) throw error;
+      
+      // Delete any equipment reservations
+      await supabase.from('booking_equipment').delete().eq('booking_id', id);
+      
       toast.success('Booking rejected.');
       fetchBooking();
     } catch (error) {
@@ -444,6 +459,9 @@ const handleApprove = async () => {
 
       if (updateError) throw updateError;
 
+      // Delete any equipment reservations
+      await supabase.from('booking_equipment').delete().eq('booking_id', id);
+
       // Record refund as a negative payment if applicable
       if (shouldRefund && totalDownpayment > 0) {
         const { error: refundError } = await supabase
@@ -486,6 +504,9 @@ const handleApprove = async () => {
         .delete()
         .eq('booking_id', id);
       if (paymentsError) throw paymentsError;
+
+      // SECOND: Delete equipment reservations
+      await supabase.from('booking_equipment').delete().eq('booking_id', id);
 
       // THEN: Delete the booking
       const { error } = await supabase
@@ -649,11 +670,6 @@ const handleApprove = async () => {
     try {
       const selectedEquip = equipmentList.find(eq => eq.equipment_id === assignEquipData.equipment_id);
       if (!selectedEquip) throw new Error('Equipment not found');
-      if (assignEquipData.quantity > selectedEquip.quantity_available) {
-        toast.error(`Not enough stock! Only ${selectedEquip.quantity_available} available.`);
-        setIsAssignSubmitting(false);
-        return;
-      }
 
       const { error: insertError } = await supabase
         .from('booking_equipment')
@@ -665,13 +681,6 @@ const handleApprove = async () => {
           returned: false,
         }]);
       if (insertError) throw insertError;
-
-      const newQuantity = selectedEquip.quantity_available - assignEquipData.quantity;
-      const { error: updateError } = await supabase
-        .from('equipment')
-        .update({ quantity_available: newQuantity })
-        .eq('equipment_id', assignEquipData.equipment_id);
-      if (updateError) throw updateError;
 
       setIsAssignEquipModalOpen(false);
       fetchBooking();
@@ -687,7 +696,7 @@ const handleApprove = async () => {
   const handleRemoveEquipment = async (assignmentId, equipmentId, quantity) => {
     const confirmed = await showConfirm({
       title: 'Remove Equipment?',
-      message: 'Are you sure you want to remove this equipment assignment? Stock will be restored.',
+      message: 'Are you sure you want to remove this equipment assignment?',
       confirmLabel: 'Remove',
       confirmVariant: 'warning',
     });
@@ -700,22 +709,8 @@ const handleApprove = async () => {
         .eq('assignment_id', assignmentId);
       if (deleteError) throw deleteError;
 
-      const { data: equipData, error: fetchError } = await supabase
-        .from('equipment')
-        .select('quantity_available')
-        .eq('equipment_id', equipmentId)
-        .single();
-      if (fetchError) throw fetchError;
-
-      const newQuantity = equipData.quantity_available + quantity;
-      const { error: updateError } = await supabase
-        .from('equipment')
-        .update({ quantity_available: newQuantity })
-        .eq('equipment_id', equipmentId);
-      if (updateError) throw updateError;
-
       fetchBooking();
-      toast.success('Equipment removed and stock restored.');
+      toast.success('Equipment removed.');
     } catch (error) {
       handleError(error, 'Failed to remove equipment.');
     }
@@ -744,132 +739,130 @@ const handleApprove = async () => {
     }
   };
 
-// src/pages/BookingDetails.jsx – inside the component
+  const handlePaymentSubmit = async (e) => {
+    e.preventDefault();
+    setIsPaymentSubmitting(true);
 
-const handlePaymentSubmit = async (e) => {
-  e.preventDefault();
-  setIsPaymentSubmitting(true);
-
-  // --- 1. Validate required fields ---
-  const amount = parseFloat(paymentFormData.amount) || 0;
-  if (amount <= 0) {
-    toast.error('Amount must be greater than zero.');
-    setIsPaymentSubmitting(false);
-    return;
-  }
-  if (!paymentFormData.pay_method) {
-    toast.error('Please select a payment method.');
-    setIsPaymentSubmitting(false);
-    return;
-  }
-  if (!paymentFormData.pay_status) {
-    toast.error('Please select a payment status.');
-    setIsPaymentSubmitting(false);
-    return;
-  }
-
-  // --- 2. Calculate remaining balance ---
-  const paid = payments.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-  const totalAmount = booking.total_amount || 0;
-  const remainingBalance = Math.max(0, totalAmount - paid);
-
-  // --- 3. Check if already fully paid ---
-  if (remainingBalance <= 0) {
-    toast.error('This booking is already fully paid. No additional payments are allowed.');
-    setIsPaymentSubmitting(false);
-    return;
-  }
-
-  // --- 4. Amount validation ---
-  if (amount > remainingBalance) {
-    toast.error(`Amount exceeds remaining balance of ₱${remainingBalance.toLocaleString()}.`);
-    setIsPaymentSubmitting(false);
-    return;
-  }
-
-  // --- 5. Determine final status (with conversion) ---
-  let finalPayStatus = paymentFormData.pay_status;
-  const status = booking.booking_status || 'Pending';
-
-  if (status === 'Pending') {
-    const hasDownpayment = payments.some(p => p.pay_status === 'Downpayment');
-    if (hasDownpayment) {
-      toast.error('This booking already has a downpayment. Wait for approval before recording more payments.');
+    // --- 1. Validate required fields ---
+    const amount = parseFloat(paymentFormData.amount) || 0;
+    if (amount <= 0) {
+      toast.error('Amount must be greater than zero.');
       setIsPaymentSubmitting(false);
       return;
     }
-    if (paymentFormData.pay_status !== 'Downpayment') {
-      toast.error('Pending bookings can only receive downpayments. Please approve the booking first.');
+    if (!paymentFormData.pay_method) {
+      toast.error('Please select a payment method.');
       setIsPaymentSubmitting(false);
       return;
     }
-  }
-
-  if (status === 'Approved' || status === 'Completed') {
-    if (paymentFormData.pay_status === 'Fully Paid' && amount < remainingBalance) {
-      toast.error(`To mark as fully paid, the amount must equal the remaining balance of ₱${remainingBalance.toLocaleString()}.`);
+    if (!paymentFormData.pay_status) {
+      toast.error('Please select a payment status.');
       setIsPaymentSubmitting(false);
       return;
     }
 
-    const isAmountEqualRemaining = Math.abs(amount - remainingBalance) < 0.01;
-    if (paymentFormData.pay_status === 'Downpayment' && isAmountEqualRemaining) {
-      const confirm = await showConfirm({
-        title: 'Full Payment?',
-        message: `This payment amount (₱${amount.toLocaleString()}) equals the remaining balance. Would you like to mark it as Fully Paid instead?`,
-        confirmLabel: 'Yes, Mark Fully Paid',
-        cancelLabel: 'No, Keep as Downpayment',
-        confirmVariant: 'success',
-      });
-      if (confirm) {
-        finalPayStatus = 'Fully Paid';
-        setPaymentFormData(prev => ({ ...prev, pay_status: 'Fully Paid' }));
+    // --- 2. Calculate remaining balance ---
+    const paid = payments.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+    const totalAmount = booking.total_amount || 0;
+    const remainingBalance = Math.max(0, totalAmount - paid);
+
+    // --- 3. Check if already fully paid ---
+    if (remainingBalance <= 0) {
+      toast.error('This booking is already fully paid. No additional payments are allowed.');
+      setIsPaymentSubmitting(false);
+      return;
+    }
+
+    // --- 4. Amount validation ---
+    if (amount > remainingBalance) {
+      toast.error(`Amount exceeds remaining balance of ₱${remainingBalance.toLocaleString()}.`);
+      setIsPaymentSubmitting(false);
+      return;
+    }
+
+    // --- 5. Determine final status (with conversion) ---
+    let finalPayStatus = paymentFormData.pay_status;
+    const status = booking.booking_status || 'Pending';
+
+    if (status === 'Pending') {
+      const hasDownpayment = payments.some(p => p.pay_status === 'Downpayment');
+      if (hasDownpayment) {
+        toast.error('This booking already has a downpayment. Wait for approval before recording more payments.');
+        setIsPaymentSubmitting(false);
+        return;
+      }
+      if (paymentFormData.pay_status !== 'Downpayment') {
+        toast.error('Pending bookings can only receive downpayments. Please approve the booking first.');
+        setIsPaymentSubmitting(false);
+        return;
       }
     }
-  }
 
-  // --- 6. Upload proof (if any) ---
-  try {
-    let proofUrl = 'placeholder.png';
-    if (selectedFile) {
-      setUploading(true);
-      const fileExt = selectedFile.name.split('.').pop();
-      const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-      const filePath = `payments/${fileName}`;
-      const { error: uploadError } = await supabase.storage
-        .from('images')
-        .upload(filePath, selectedFile);
-      if (uploadError) throw uploadError;
-      const { data: publicUrlData } = supabase.storage
-        .from('images')
-        .getPublicUrl(filePath);
-      proofUrl = publicUrlData.publicUrl;
-      setUploading(false);
+    if (status === 'Approved' || status === 'Completed') {
+      if (paymentFormData.pay_status === 'Fully Paid' && amount < remainingBalance) {
+        toast.error(`To mark as fully paid, the amount must equal the remaining balance of ₱${remainingBalance.toLocaleString()}.`);
+        setIsPaymentSubmitting(false);
+        return;
+      }
+
+      const isAmountEqualRemaining = Math.abs(amount - remainingBalance) < 0.01;
+      if (paymentFormData.pay_status === 'Downpayment' && isAmountEqualRemaining) {
+        const confirm = await showConfirm({
+          title: 'Full Payment?',
+          message: `This payment amount (₱${amount.toLocaleString()}) equals the remaining balance. Would you like to mark it as Fully Paid instead?`,
+          confirmLabel: 'Yes, Mark Fully Paid',
+          cancelLabel: 'No, Keep as Downpayment',
+          confirmVariant: 'success',
+        });
+        if (confirm) {
+          finalPayStatus = 'Fully Paid';
+          setPaymentFormData(prev => ({ ...prev, pay_status: 'Fully Paid' }));
+        }
+      }
     }
 
-    const payload = {
-      booking_id: id,
-      amount_paid: amount,
-      pay_method: paymentFormData.pay_method,
-      pay_status: finalPayStatus,
-      pay_datetime: new Date().toISOString(),
-      pay_proof: proofUrl,
-      customer_id: booking.customer_id || null,
-    };
+    // --- 6. Upload proof (if any) ---
+    try {
+      let proofUrl = 'placeholder.png';
+      if (selectedFile) {
+        setUploading(true);
+        const fileExt = selectedFile.name.split('.').pop();
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const filePath = `payments/${fileName}`;
+        const { error: uploadError } = await supabase.storage
+          .from('images')
+          .upload(filePath, selectedFile);
+        if (uploadError) throw uploadError;
+        const { data: publicUrlData } = supabase.storage
+          .from('images')
+          .getPublicUrl(filePath);
+        proofUrl = publicUrlData.publicUrl;
+        setUploading(false);
+      }
 
-    const { error } = await supabase.from('payment').insert([payload]);
-    if (error) throw error;
+      const payload = {
+        booking_id: id,
+        amount_paid: amount,
+        pay_method: paymentFormData.pay_method,
+        pay_status: finalPayStatus,
+        pay_datetime: new Date().toISOString(),
+        pay_proof: proofUrl,
+        customer_id: booking.customer_id || null,
+      };
 
-    setIsPaymentModalOpen(false);
-    fetchBooking();
-    toast.success('Payment recorded successfully!');
-  } catch (error) {
-    handleError(error, 'Failed to record payment.');
-  } finally {
-    setIsPaymentSubmitting(false);
-    setUploading(false);
-  }
-};
+      const { error } = await supabase.from('payment').insert([payload]);
+      if (error) throw error;
+
+      setIsPaymentModalOpen(false);
+      fetchBooking();
+      toast.success('Payment recorded successfully!');
+    } catch (error) {
+      handleError(error, 'Failed to record payment.');
+    } finally {
+      setIsPaymentSubmitting(false);
+      setUploading(false);
+    }
+  };
 
   // --- Render ---
   if (loading) return <div className="p-12 text-center text-slate-500 font-medium">Loading...</div>;
@@ -997,97 +990,97 @@ const handlePaymentSubmit = async (e) => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* LEFT COLUMN */}
         <div className="lg:col-span-5 space-y-6">
-<div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
-  <h3 className="text-sm font-bold text-slate-900 mb-4">Event Details</h3>
-  <div className="space-y-2.5 text-sm">
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Created</span>
-      <span className="col-span-2">
-        {booking.book_datetime ? new Date(booking.book_datetime).toLocaleString() : 'N/A'}
-      </span>
-    </div>
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Event Date</span>
-      <span className="col-span-2">
-        {booking.event_datetime ? new Date(booking.event_datetime).toLocaleString() : 'N/A'}
-      </span>
-    </div>
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Venue</span>
-      <span className="col-span-2">{booking.venue || 'N/A'}</span>
-    </div>
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Pax</span>
-      <span className="col-span-2">{booking.pax_count}</span>
-    </div>
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Package</span>
-      <span className="col-span-2">{booking.package?.pkg_name || 'None'}</span>
-    </div>
-    {/* Pricing Model Section */}
-    {booking.package && (
-      <div className="grid grid-cols-3">
-        <span className="text-slate-700 font-bold">Pricing</span>
-        <span className="col-span-2">
-          {booking.package.pricing_type === 'fixed' ? (
-            <span className="inline-flex items-center gap-1">
-              <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full border border-purple-200">Fixed</span>
-              <span className="font-semibold">₱{booking.package.pkg_price?.toLocaleString()}</span>
-              {booking.package.max_pax && (
-                <span className="text-xs text-slate-500">(up to {booking.package.max_pax} pax)</span>
+          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
+            <h3 className="text-sm font-bold text-slate-900 mb-4">Event Details</h3>
+            <div className="space-y-2.5 text-sm">
+              <div className="grid grid-cols-3">
+                <span className="text-slate-700 font-bold">Created</span>
+                <span className="col-span-2">
+                  {booking.book_datetime ? new Date(booking.book_datetime).toLocaleString() : 'N/A'}
+                </span>
+              </div>
+              <div className="grid grid-cols-3">
+                <span className="text-slate-700 font-bold">Event Date</span>
+                <span className="col-span-2">
+                  {booking.event_datetime ? new Date(booking.event_datetime).toLocaleString() : 'N/A'}
+                </span>
+              </div>
+              <div className="grid grid-cols-3">
+                <span className="text-slate-700 font-bold">Venue</span>
+                <span className="col-span-2">{booking.venue || 'N/A'}</span>
+              </div>
+              <div className="grid grid-cols-3">
+                <span className="text-slate-700 font-bold">Pax</span>
+                <span className="col-span-2">{booking.pax_count}</span>
+              </div>
+              <div className="grid grid-cols-3">
+                <span className="text-slate-700 font-bold">Package</span>
+                <span className="col-span-2">{booking.package?.pkg_name || 'None'}</span>
+              </div>
+              {/* Pricing Model Section */}
+              {booking.package && (
+                <div className="grid grid-cols-3">
+                  <span className="text-slate-700 font-bold">Pricing</span>
+                  <span className="col-span-2">
+                    {booking.package.pricing_type === 'fixed' ? (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full border border-purple-200">Fixed</span>
+                        <span className="font-semibold">₱{booking.package.pkg_price?.toLocaleString()}</span>
+                        {booking.package.max_pax && (
+                          <span className="text-xs text-slate-500">(up to {booking.package.max_pax} pax)</span>
+                        )}
+                        {booking.package.extra_pax_price > 0 && (
+                          <span className="text-xs text-slate-500">· ₱{booking.package.extra_pax_price}/extra pax</span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full border border-blue-200">Per Pax</span>
+                        <span className="font-semibold">₱{booking.package.pkg_price?.toLocaleString()}</span>
+                        <span className="text-xs text-slate-500">/pax</span>
+                      </span>
+                    )}
+                  </span>
+                </div>
               )}
-              {booking.package.extra_pax_price > 0 && (
-                <span className="text-xs text-slate-500">· ₱{booking.package.extra_pax_price}/extra pax</span>
-              )}
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1">
-              <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full border border-blue-200">Per Pax</span>
-              <span className="font-semibold">₱{booking.package.pkg_price?.toLocaleString()}</span>
-              <span className="text-xs text-slate-500">/pax</span>
-            </span>
-          )}
-        </span>
-      </div>
-    )}
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Motif Color</span>
-      <span className="col-span-2">{booking.motif_color || 'N/A'}</span>
-    </div>
-    <div className="grid grid-cols-3 border-t border-slate-200 pt-2 mt-1">
-      <span className="text-slate-700 font-bold">Total Amount</span>
-      <span className="col-span-2 font-bold text-[#008A45]">₱{booking.total_amount?.toLocaleString() || '0'}</span>
-    </div>
-  </div>
-  {booking.notes && (
-    <div className="pt-4 mt-4 border-t border-slate-100">
-      <span className="text-xs font-bold text-slate-900 block mb-1">Notes</span>
-      <p className="text-xs text-slate-500 whitespace-pre-wrap">{booking.notes}</p>
-    </div>
-  )}
-</div>
+              <div className="grid grid-cols-3">
+                <span className="text-slate-700 font-bold">Motif Color</span>
+                <span className="col-span-2">{booking.motif_color || 'N/A'}</span>
+              </div>
+              <div className="grid grid-cols-3 border-t border-slate-200 pt-2 mt-1">
+                <span className="text-slate-700 font-bold">Total Amount</span>
+                <span className="col-span-2 font-bold text-[#008A45]">₱{booking.total_amount?.toLocaleString() || '0'}</span>
+              </div>
+            </div>
+            {booking.notes && (
+              <div className="pt-4 mt-4 border-t border-slate-100">
+                <span className="text-xs font-bold text-slate-900 block mb-1">Notes</span>
+                <p className="text-xs text-slate-500 whitespace-pre-wrap">{booking.notes}</p>
+              </div>
+            )}
+          </div>
 
-<div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
-  <h3 className="text-sm font-bold text-slate-900 mb-4">Client Details</h3>
-  <div className="space-y-2 text-sm">
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Name</span>
-      <span className="col-span-2">{booking.customer?.first_name} {booking.customer?.last_name}</span>
-    </div>
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Contact</span>
-      <span className="col-span-2">{booking.customer?.contact_no || 'N/A'}</span>
-    </div>
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Email</span>
-      <span className="col-span-2">{booking.customer?.email_address || 'N/A'}</span>
-    </div>
-    <div className="grid grid-cols-3">
-      <span className="text-slate-700 font-bold">Address</span>
-      <span className="col-span-2">{booking.customer?.cus_address || 'N/A'}</span>
-    </div>
-  </div>
-</div>
+          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
+            <h3 className="text-sm font-bold text-slate-900 mb-4">Client Details</h3>
+            <div className="space-y-2 text-sm">
+              <div className="grid grid-cols-3">
+                <span className="text-slate-700 font-bold">Name</span>
+                <span className="col-span-2">{booking.customer?.first_name} {booking.customer?.last_name}</span>
+              </div>
+              <div className="grid grid-cols-3">
+                <span className="text-slate-700 font-bold">Contact</span>
+                <span className="col-span-2">{booking.customer?.contact_no || 'N/A'}</span>
+              </div>
+              <div className="grid grid-cols-3">
+                <span className="text-slate-700 font-bold">Email</span>
+                <span className="col-span-2">{booking.customer?.email_address || 'N/A'}</span>
+              </div>
+              <div className="grid grid-cols-3">
+                <span className="text-slate-700 font-bold">Address</span>
+                <span className="col-span-2">{booking.customer?.cus_address || 'N/A'}</span>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* RIGHT COLUMN */}
@@ -1442,8 +1435,8 @@ const handlePaymentSubmit = async (e) => {
                   >
                     <option value="">Choose equipment...</option>
                     {equipmentList.map((eq) => (
-                      <option key={eq.equipment_id} value={eq.equipment_id} disabled={eq.quantity_available === 0}>
-                        {eq.eqm_name} ({eq.quantity_available} available)
+                      <option key={eq.equipment_id} value={eq.equipment_id}>
+                        {eq.eqm_name} ({eq.quantity_available} total)
                       </option>
                     ))}
                   </select>

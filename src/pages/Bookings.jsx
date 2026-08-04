@@ -6,7 +6,7 @@ import { Search, Check, Edit, Trash2, ChevronLeft, ChevronRight, Filter, X, Refr
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
-import { computeEquipmentDemand, checkEquipmentCapacityForDate } from '../utils/equipment'; // 👈 new import
+import { computeEquipmentDemand, checkEquipmentCapacityForDate, allocateEquipmentForBooking } from '../utils/equipment';
 
 export default function Bookings() {
   const navigate = useNavigate();
@@ -17,11 +17,11 @@ export default function Bookings() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedBookings, setSelectedBookings] = useState([]); // 👈 added
-    // --- Pagination state ---
+  const [selectedBookings, setSelectedBookings] = useState([]);
+  // --- Pagination state ---
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
-  const [pageSize] = useState(10); // Items per page
+  const [pageSize] = useState(10);
   const [totalPages, setTotalPages] = useState(1);
 
   // --- Filter state ---
@@ -270,181 +270,109 @@ export default function Bookings() {
     }
   }, [formData.package_id, formData.pax_count, formData.delivery_fee, packages]);
 
-  // --- Allocate equipment (helper) ---
-  const allocateEquipmentForBooking = async (bookingId, packageId, paxCount) => {
+  // --- Fetch data with pagination ---
+  const fetchData = async () => {
+    setLoading(true);
     try {
-      const { data: equipTemplate, error: templateError } = await supabase
-        .from('package_equipment')
-        .select(`
-          equipment_id,
-          included_quantity,
-          per_pax,
-          equipment:equipment_id (eqm_name, quantity_available)
-        `)
-        .eq('package_id', packageId);
+      // Calculate range
+      const from = (currentPage - 1) * pageSize;
+      const to = from + pageSize - 1;
 
-      if (templateError) throw templateError;
-      if (!equipTemplate || equipTemplate.length === 0) {
-        console.log('No equipment template found for this package.');
-        return;
-      }
+      // Fetch with pagination and count
+      const { data: bookingsData, count, error: bookingsError } = await supabase
+        .from('booking')
+        .select('*', { count: 'exact' })
+        .eq('booking_type', 'Package')
+        .order('event_datetime', { ascending: false })
+        .range(from, to);
 
-      const allocations = [];
-      for (const item of equipTemplate) {
-        let quantity;
-        if (item.per_pax) {
-          const raw = item.included_quantity * (paxCount || 0);
-          quantity = Math.max(1, Math.ceil(raw));
-        } else {
-          quantity = item.included_quantity || 1;
+      if (bookingsError) throw bookingsError;
+
+      // Update total count and pages
+      setTotalCount(count || 0);
+      setTotalPages(Math.ceil((count || 0) / pageSize));
+
+      if (bookingsData && bookingsData.length > 0) {
+        const customerIds = bookingsData.map(b => b.customer_id).filter(id => id);
+        const packageIds = bookingsData.map(b => b.package_id).filter(id => id);
+
+        let customersMap = {};
+        let packagesMap = {};
+
+        if (customerIds.length > 0) {
+          const { data: customersData, error: customersError } = await supabase
+            .from('customer')
+            .select('customer_id, first_name, last_name, contact_no')
+            .in('customer_id', customerIds);
+          if (customersError) throw customersError;
+          customersMap = Object.fromEntries(customersData.map(c => [c.customer_id, c]));
         }
-        const available = item.equipment?.quantity_available || 0;
-        if (quantity > available) {
-          throw new Error(
-            `Not enough ${item.equipment?.eqm_name || 'equipment'}. Needed ${quantity}, only ${available} available.`
-          );
+
+        if (packageIds.length > 0) {
+          const { data: packagesData, error: packagesError } = await supabase
+            .from('package')
+            .select('package_id, pkg_name, pkg_price, pricing_type, max_pax, extra_pax_price, minimum_pax')
+            .in('package_id', packageIds);
+          if (packagesError) throw packagesError;
+          packagesMap = Object.fromEntries(packagesData.map(p => [p.package_id, p]));
         }
-        allocations.push({
-          booking_id: bookingId,
-          equipment_id: item.equipment_id,
-          quantity: quantity,
-          notes: `Auto-allocated from package (${paxCount} pax)`,
-          returned: false,
-          assigned_at: new Date().toISOString(),
-        });
+
+        const enriched = bookingsData.map(booking => ({
+          ...booking,
+          customer: customersMap[booking.customer_id] || null,
+          package: packagesMap[booking.package_id] || null,
+        }));
+        setBookings(enriched);
+      } else {
+        setBookings([]);
       }
 
-      const { error: insertError } = await supabase
-        .from('booking_equipment')
-        .insert(allocations);
-      if (insertError) throw insertError;
+      // Fetch customers and packages for dropdowns (unchanged – these don't need pagination)
+      const { data: customersList, error: customersListError } = await supabase
+        .from('customer')
+        .select('customer_id, first_name, last_name')
+        .eq('account_status', 'Active')
+        .order('first_name');
+      if (customersListError) throw customersListError;
+      setCustomers(customersList || []);
 
-      for (const alloc of allocations) {
-        const { data: equipData, error: fetchError } = await supabase
-          .from('equipment')
-          .select('quantity_available')
-          .eq('equipment_id', alloc.equipment_id)
-          .single();
-        if (fetchError) throw fetchError;
+      const { data: packagesList, error: packagesListError } = await supabase
+        .from('package')
+        .select('package_id, pkg_name, pkg_price, pricing_type, max_pax, extra_pax_price, minimum_pax')
+        .eq('pkg_availability', 'Available')
+        .order('pkg_name');
+      if (packagesListError) throw packagesListError;
+      setPackages(packagesList || []);
 
-        const newQuantity = equipData.quantity_available - alloc.quantity;
-        const { error: updateError } = await supabase
-          .from('equipment')
-          .update({ quantity_available: newQuantity })
-          .eq('equipment_id', alloc.equipment_id);
-        if (updateError) throw updateError;
-      }
-
-      console.log(`✅ Allocated ${allocations.length} equipment items for booking ${bookingId}`);
     } catch (error) {
-      console.error('Error allocating equipment:', error);
-      throw error;
+      handleError(error, 'Unable to load bookings. Please refresh the page.');
+      setBookings([]);
+    } finally {
+      setLoading(false);
     }
   };
 
-// --- Fetch data with pagination ---
-const fetchData = async () => {
-  setLoading(true);
-  try {
-    // Calculate range
-    const from = (currentPage - 1) * pageSize;
-    const to = from + pageSize - 1;
+  useEffect(() => {
+    fetchData();
+  }, [currentPage]);
 
-    // Fetch with pagination and count
-    const { data: bookingsData, count, error: bookingsError } = await supabase
-      .from('booking')
-      .select('*', { count: 'exact' })
-      .eq('booking_type', 'Package')
-      .order('event_datetime', { ascending: false })
-      .range(from, to);
+  // --- Pagination handlers ---
+  const goToPage = (page) => {
+    if (page < 1 || page > totalPages) return;
+    setCurrentPage(page);
+  };
 
-    if (bookingsError) throw bookingsError;
-
-    // Update total count and pages
-    setTotalCount(count || 0);
-    setTotalPages(Math.ceil((count || 0) / pageSize));
-
-    if (bookingsData && bookingsData.length > 0) {
-      const customerIds = bookingsData.map(b => b.customer_id).filter(id => id);
-      const packageIds = bookingsData.map(b => b.package_id).filter(id => id);
-
-      let customersMap = {};
-      let packagesMap = {};
-
-      if (customerIds.length > 0) {
-        const { data: customersData, error: customersError } = await supabase
-          .from('customer')
-          .select('customer_id, first_name, last_name, contact_no')
-          .in('customer_id', customerIds);
-        if (customersError) throw customersError;
-        customersMap = Object.fromEntries(customersData.map(c => [c.customer_id, c]));
-      }
-
-      if (packageIds.length > 0) {
-        const { data: packagesData, error: packagesError } = await supabase
-          .from('package')
-          .select('package_id, pkg_name, pkg_price, pricing_type, max_pax, extra_pax_price, minimum_pax')
-          .in('package_id', packageIds);
-        if (packagesError) throw packagesError;
-        packagesMap = Object.fromEntries(packagesData.map(p => [p.package_id, p]));
-      }
-
-      const enriched = bookingsData.map(booking => ({
-        ...booking,
-        customer: customersMap[booking.customer_id] || null,
-        package: packagesMap[booking.package_id] || null,
-      }));
-      setBookings(enriched);
-    } else {
-      setBookings([]);
+  const goToPrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
     }
+  };
 
-    // Fetch customers and packages for dropdowns (unchanged – these don't need pagination)
-    const { data: customersList, error: customersListError } = await supabase
-      .from('customer')
-      .select('customer_id, first_name, last_name')
-      .eq('account_status', 'Active')
-      .order('first_name');
-    if (customersListError) throw customersListError;
-    setCustomers(customersList || []);
-
-    const { data: packagesList, error: packagesListError } = await supabase
-      .from('package')
-      .select('package_id, pkg_name, pkg_price, pricing_type, max_pax, extra_pax_price, minimum_pax')
-      .eq('pkg_availability', 'Available')
-      .order('pkg_name');
-    if (packagesListError) throw packagesListError;
-    setPackages(packagesList || []);
-
-  } catch (error) {
-    handleError(error, 'Unable to load bookings. Please refresh the page.');
-    setBookings([]);
-  } finally {
-    setLoading(false);
-  }
-};
-
-useEffect(() => {
-  fetchData();
-}, [currentPage]);
-
-// --- Pagination handlers ---
-const goToPage = (page) => {
-  if (page < 1 || page > totalPages) return;
-  setCurrentPage(page);
-};
-
-const goToPrevPage = () => {
-  if (currentPage > 1) {
-    setCurrentPage(currentPage - 1);
-  }
-};
-
-const goToNextPage = () => {
-  if (currentPage < totalPages) {
-    setCurrentPage(currentPage + 1);
-  }
-};
+  const goToNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
 
   // --- Fetch package categories and menu items when package changes ---
   useEffect(() => {
@@ -626,7 +554,6 @@ const goToNextPage = () => {
   };
 
   // --- CRUD Operations ---
-// --- CRUD Operations ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -697,9 +624,30 @@ const goToNextPage = () => {
     try {
       let customerId = formData.customer_id;
 
-      // If walk-in, create customer account first (unchanged)
+      // If walk-in, create customer account first
       if (isWalkIn) {
-        // ... validation and createWalkInCustomer ...
+        if (!walkInData.first_name || !walkInData.last_name || !walkInData.contact_no || !walkInData.email_address) {
+          toast.error('Please fill in all customer details for walk-in customer.');
+          setIsSubmitting(false);
+          return;
+        }
+        if (!walkInData.email_address.includes('@')) {
+          toast.error('Please enter a valid email address.');
+          setIsSubmitting(false);
+          return;
+        }
+        try {
+          customerId = await createWalkInCustomer();
+          if (!customerId) {
+            toast.error('Failed to create customer account.');
+            setIsSubmitting(false);
+            return;
+          }
+        } catch (err) {
+          toast.error(err.message);
+          setIsSubmitting(false);
+          return;
+        }
       }
 
       // 6. Duplicate check: same customer, same event_datetime (excluding current if editing)
@@ -720,7 +668,7 @@ const goToNextPage = () => {
         return;
       }
 
-      // Build payload (unchanged)
+      // Build payload
       const payload = {
         customer_id: customerId,
         package_id: formData.package_id,
@@ -737,9 +685,8 @@ const goToNextPage = () => {
         book_datetime: new Date().toISOString(),
       };
 
-      // Save or update (unchanged)
+      // Save or update
       if (editingId) {
-        // update
         const { error } = await supabase
           .from('booking')
           .update(payload)
@@ -751,13 +698,27 @@ const goToNextPage = () => {
         setIsSubmitting(false);
         return;
       } else {
-        // insert
         const { data: newBooking, error } = await supabase
           .from('booking')
           .insert([payload])
           .select();
         if (error) throw error;
-        // (no auto-payment creation)
+        
+        // Create a pending payment record
+        const { error: paymentError } = await supabase
+          .from('payment')
+          .insert([{
+            booking_id: newBooking[0].booking_id,
+            amount_paid: 0,
+            pay_installment: 1,
+            pay_method: 'Pending',
+            pay_status: 'Pending',
+            pay_datetime: new Date().toISOString(),
+            pay_proof: 'placeholder.png',
+            customer_id: customerId,
+          }]);
+        if (paymentError) throw paymentError;
+
         if (isWalkIn) await new Promise(resolve => setTimeout(resolve, 500));
         toast.success('Booking created successfully!');
         closeModal();
@@ -796,12 +757,12 @@ const goToNextPage = () => {
     });
   };
 
- // --- ✅ UPDATED Approval finalization with equipment capacity warning ---
+  // --- ✅ UPDATED Approval finalization with equipment capacity warning ---
   const handleFinalizeApproval = async () => {
     if (!approvalBooking) return;
     setIsSubmitting(true);
     try {
-      // 1. Check 50% payment condition (unchanged)
+      // 1. Check 50% payment condition
       const { data: payments, error: paymentsError } = await supabase
         .from('payment')
         .select('amount_paid')
@@ -824,49 +785,49 @@ const goToNextPage = () => {
       }
 
       // --- Conflict check: find other approved events on the same day ---
-const eventDate = approvalBooking.event_datetime ? new Date(approvalBooking.event_datetime) : null;
-if (eventDate) {
-  const startOfDay = new Date(eventDate);
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(eventDate);
-  endOfDay.setHours(23, 59, 59, 999);
-  const startISO = startOfDay.toISOString();
-  const endISO = endOfDay.toISOString();
+      const eventDate = approvalBooking.event_datetime ? new Date(approvalBooking.event_datetime) : null;
+      if (eventDate) {
+        const startOfDay = new Date(eventDate);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(eventDate);
+        endOfDay.setHours(23, 59, 59, 999);
+        const startISO = startOfDay.toISOString();
+        const endISO = endOfDay.toISOString();
 
-  const { data: otherEvents, error: conflictError } = await supabase
-    .from('booking')
-    .select(`
-      booking_id,
-      booking_type,
-      venue,
-      event_datetime,
-      customer:customer_id (first_name, last_name)
-    `)
-    .eq('booking_status', 'Approved')
-    .neq('booking_id', approvalBooking.booking_id)
-    .gte('event_datetime', startISO)
-    .lte('event_datetime', endISO);
+        const { data: otherEvents, error: conflictError } = await supabase
+          .from('booking')
+          .select(`
+            booking_id,
+            booking_type,
+            venue,
+            event_datetime,
+            customer:customer_id (first_name, last_name)
+          `)
+          .eq('booking_status', 'Approved')
+          .neq('booking_id', approvalBooking.booking_id)
+          .gte('event_datetime', startISO)
+          .lte('event_datetime', endISO);
 
-  if (conflictError) throw conflictError;
+        if (conflictError) throw conflictError;
 
-  if (otherEvents && otherEvents.length > 0) {
-    const list = otherEvents.map(e => {
-      const cust = e.customer ? `${e.customer.first_name} ${e.customer.last_name}` : 'Unknown';
-      const time = e.event_datetime ? new Date(e.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-      const type = e.booking_type === 'Short Order' ? 'Short Order' : 'Package';
-      return `• ${cust} (${type}) at ${e.venue || 'N/A'} – ${time}`;
-    }).join('\n');
+        if (otherEvents && otherEvents.length > 0) {
+          const list = otherEvents.map(e => {
+            const cust = e.customer ? `${e.customer.first_name} ${e.customer.last_name}` : 'Unknown';
+            const time = e.event_datetime ? new Date(e.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+            const type = e.booking_type === 'Short Order' ? 'Short Order' : 'Package';
+            return `• ${cust} (${type}) at ${e.venue || 'N/A'} – ${time}`;
+          }).join('\n');
 
-    const proceed = await showConfirm({
-      title: '⚠️ Existing Events on This Date',
-      message: `The following events are already approved on ${eventDate.toLocaleDateString()}:\n\n${list}\n\nDo you still want to approve this booking?`,
-      confirmLabel: 'Approve Anyway',
-      cancelLabel: 'Cancel',
-      confirmVariant: 'warning',
-    });
-    if (!proceed) return; // stop approval
-  }
-}
+          const proceed = await showConfirm({
+            title: '⚠️ Existing Events on This Date',
+            message: `The following events are already approved on ${eventDate.toLocaleDateString()}:\n\n${list}\n\nDo you still want to approve this booking?`,
+            confirmLabel: 'Approve Anyway',
+            cancelLabel: 'Cancel',
+            confirmVariant: 'warning',
+          });
+          if (!proceed) return;
+        }
+      }
 
       const newPax = approvalBooking.pax_count + approvalData.extraPax;
       const newTotal = approvalData.newTotal;
@@ -884,20 +845,29 @@ if (eventDate) {
         .eq('booking_id', approvalBooking.booking_id);
       if (updateError) throw updateError;
 
-      // 3. Update payments to Downpayment
+      // 3. Allocate equipment (reservation only, no stock deduction)
+      if (approvalBooking.package_id) {
+        try {
+          await allocateEquipmentForBooking(approvalBooking.booking_id, approvalBooking.package_id, newPax);
+        } catch (allocError) {
+          console.warn('Equipment allocation warning:', allocError);
+          toast.warning('Equipment allocation had issues: ' + allocError.message);
+        }
+      }
+
+      // 4. Update payments to Downpayment
       const { error: updatePaymentsError } = await supabase
         .from('payment')
         .update({ pay_status: 'Downpayment' })
         .eq('booking_id', approvalBooking.booking_id);
       if (updatePaymentsError) throw updatePaymentsError;
 
-      // 4. 🆕 Equipment capacity check – warn if conflicts exist
+      // 5. Equipment capacity check – warn if conflicts exist
       if (approvalBooking.package_id) {
         try {
           const eventDate = approvalBooking.event_datetime;
           const shortages = await checkEquipmentCapacityForDate(eventDate, approvalBooking.booking_id);
           if (shortages.length > 0) {
-            // Build a readable message
             const details = shortages
               .map(s => `${s.eqm_name}: needed ${s.needed}, available ${s.available}`)
               .join('\n');
@@ -909,24 +879,23 @@ if (eventDate) {
               confirmVariant: 'warning',
             });
             if (!proceed) {
-              // Revert the status? For simplicity, we'll just cancel the approval.
-              // Actually we already updated status; we could revert or let the user decide.
-              // We'll revert status to Pending.
+              // Revert status to Pending
               await supabase
                 .from('booking')
                 .update({ booking_status: 'Pending' })
                 .eq('booking_id', approvalBooking.booking_id);
+              // Also delete the equipment allocations we just made
+              await supabase.from('booking_equipment').delete().eq('booking_id', approvalBooking.booking_id);
               setIsSubmitting(false);
               return;
             }
           }
         } catch (capError) {
-          // If capacity check fails, just log and continue (don't block approval)
           console.warn('Equipment capacity check failed:', capError);
         }
       }
 
-      // 5. Finalize UI
+      // 6. Finalize UI
       setIsApprovalModalOpen(false);
       fetchData();
       toast.success('Booking approved and payments set to Downpayment.');
@@ -937,7 +906,6 @@ if (eventDate) {
       setIsSubmitting(false);
     }
   };
-
 
   // --- Mark as Completed ---
   const handleMarkCompleted = async (id) => {
@@ -969,7 +937,6 @@ if (eventDate) {
     }
   };
 
-  // --- Reject ---
   const handleReject = async (id) => {
     const confirmed = await showConfirm({
       title: 'Reject Booking?',
@@ -985,6 +952,10 @@ if (eventDate) {
         .update({ booking_status: 'Rejected' })
         .eq('booking_id', id);
       if (error) throw error;
+      
+      // Delete any equipment reservations
+      await supabase.from('booking_equipment').delete().eq('booking_id', id);
+      
       toast.success('Booking rejected.');
       fetchData();
     } catch (error) {
@@ -1003,12 +974,17 @@ if (eventDate) {
     if (!confirmed) return;
 
     try {
+      // Delete payments first
       const { error: paymentsError } = await supabase
         .from('payment')
         .delete()
         .eq('booking_id', id);
       if (paymentsError) throw paymentsError;
 
+      // Delete equipment reservations
+      await supabase.from('booking_equipment').delete().eq('booking_id', id);
+
+      // Delete the booking
       const { error } = await supabase
         .from('booking')
         .delete()
@@ -1210,148 +1186,149 @@ if (eventDate) {
         </div>
       </div>
 
- {/* Table */}
-<div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-  <div className="overflow-x-auto">
-    <table className="w-full text-left border-collapse">
-      <thead>
-        <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
-          <th className="p-4 w-10">
-            <input
-              type="checkbox"
-              checked={filtered.length > 0 && filtered.every(b => selectedBookings.includes(b.booking_id))}
-              onChange={toggleSelectAll}
-              className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
-              disabled={filtered.length === 0}
-            />
-          </th>
-          <th className="p-4 font-bold min-w-[130px]">Client</th>
-          <th className="p-4 font-bold min-w-[120px]">Created</th>
-          <th className="p-4 font-bold min-w-[120px]">Event Date</th>
-          <th className="p-4 font-bold min-w-[100px]">Venue</th>
-          <th className="p-4 font-bold w-16 text-center">Pax</th>
-          <th className="p-4 font-bold min-w-[110px]">Package</th>
-          <th className="p-4 font-bold w-28 text-right">Amount</th>
-          <th className="p-4 font-bold w-24">Status</th>
-          <th className="p-4 font-bold min-w-[280px] text-center">Actions</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
-        {loading ? (
-          <tr><td colSpan="10" className="p-6 text-center text-slate-400">Loading bookings...</td></tr>
-        ) : filtered.length === 0 ? (
-          <tr><td colSpan="10" className="p-6 text-center text-slate-500 italic">No package bookings found.</td></tr>
-        ) : (
-          filtered.map((booking) => (
-            <tr key={booking.booking_id} className="hover:bg-slate-50 transition-colors">
-              <td className="p-4">
-                <input
-                  type="checkbox"
-                  checked={selectedBookings.includes(booking.booking_id)}
-                  onChange={() => toggleSelectBooking(booking.booking_id)}
-                  className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
-                />
-              </td>
-              <td className="p-4">
-                <p
-                  onClick={() => navigate(`/app/bookings/${booking.booking_id}`)}
-                  className="font-bold text-slate-900 underline decoration-slate-300 underline-offset-4 cursor-pointer hover:text-[#008A45]"
-                >
-                  {booking.customer?.first_name} {booking.customer?.last_name}
-                </p>
-              </td>
-              <td className="p-4 text-slate-600 text-xs">
-                {booking.book_datetime ? new Date(booking.book_datetime).toLocaleDateString() : 'N/A'}
-              </td>
-              <td className="p-4 text-slate-600 text-xs">
-                {booking.event_datetime ? new Date(booking.event_datetime).toLocaleDateString() : 'N/A'}
-              </td>
-              <td className="p-4 font-medium">{booking.venue || 'N/A'}</td>
-              <td className="p-4 text-center">{booking.pax_count || 0}</td>
-              <td className="p-4 font-medium">{booking.package?.pkg_name || 'N/A'}</td>
-              <td className="p-4 font-bold text-slate-900 text-right">₱{booking.total_amount?.toLocaleString() || '0'}</td>
-              <td className="p-4">
-                <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getStatusBadge(booking.booking_status)}`}>
-                  {booking.booking_status}
-                </span>
-              </td>
-              <td className="p-4">
-                <div className="flex items-center justify-center gap-1.5 flex-nowrap whitespace-nowrap">
-                  {booking.booking_status === 'Pending' && (
-                    <>
-                      <button
-                        onClick={() => openApprovalModal(booking)}
-                        className="bg-[#C1DEDC] border border-[#a8cfcc] text-slate-800 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-[#b8dad7] transition-colors"
+      {/* Table */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
+                <th className="p-4 w-10">
+                  <input
+                    type="checkbox"
+                    checked={filtered.length > 0 && filtered.every(b => selectedBookings.includes(b.booking_id))}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
+                    disabled={filtered.length === 0}
+                  />
+                </th>
+                <th className="p-4 font-bold min-w-[130px]">Client</th>
+                <th className="p-4 font-bold min-w-[120px]">Created</th>
+                <th className="p-4 font-bold min-w-[120px]">Event Date</th>
+                <th className="p-4 font-bold min-w-[100px]">Venue</th>
+                <th className="p-4 font-bold w-16 text-center">Pax</th>
+                <th className="p-4 font-bold min-w-[110px]">Package</th>
+                <th className="p-4 font-bold w-28 text-right">Amount</th>
+                <th className="p-4 font-bold w-24">Status</th>
+                <th className="p-4 font-bold min-w-[280px] text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
+              {loading ? (
+                <tr><td colSpan="10" className="p-6 text-center text-slate-400">Loading bookings...</td></tr>
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan="10" className="p-6 text-center text-slate-500 italic">No package bookings found.</td></tr>
+              ) : (
+                filtered.map((booking) => (
+                  <tr key={booking.booking_id} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-4">
+                      <input
+                        type="checkbox"
+                        checked={selectedBookings.includes(booking.booking_id)}
+                        onChange={() => toggleSelectBooking(booking.booking_id)}
+                        className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
+                      />
+                    </td>
+                    <td className="p-4">
+                      <p
+                        onClick={() => navigate(`/app/bookings/${booking.booking_id}`)}
+                        className="font-bold text-slate-900 underline decoration-slate-300 underline-offset-4 cursor-pointer hover:text-[#008A45]"
                       >
-                        <Check size={14} /> Approve
-                      </button>
-                      <button
-                        onClick={() => handleReject(booking.booking_id)}
-                        className="bg-red-100 border border-red-200 text-red-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-red-200 transition-colors"
-                      >
-                        <X size={14} /> Reject
-                      </button>
-                    </>
-                  )}
-                  {booking.booking_status === 'Approved' && (
-                    <button
-                      onClick={() => handleMarkCompleted(booking.booking_id)}
-                      className="bg-blue-100 border border-blue-200 text-blue-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-blue-200 transition-colors"
-                    >
-                      <Check size={14} /> Complete
-                    </button>
-                  )}
-                  <button
-                    onClick={() => navigate(`/app/bookings/${booking.booking_id}`)}
-                    className="bg-white border border-slate-300 text-slate-700 font-semibold text-[11px] px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors"
-                  >
-                    Details
-                  </button>
-                  <button
-                    onClick={() => openEditModal(booking)}
-                    className="text-slate-400 hover:text-slate-700 transition-colors p-1"
-                    title="Edit"
-                  >
-                    <Edit size={16} />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(booking.booking_id)}
-                    className="text-red-400 hover:text-red-600 transition-colors p-1"
-                    title="Delete"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))
-        )}
-      </tbody>
-    </table>
-  </div>
- <div className="p-4 border-t border-slate-200 flex justify-between items-center bg-white text-sm text-slate-600">
-  <span>Showing {bookings.length} of {totalCount} bookings</span>
-  <div className="flex items-center gap-1">
-    <button
-      onClick={goToPrevPage}
-      disabled={currentPage === 1}
-      className={`p-1 transition-colors ${currentPage === 1 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:text-slate-800'}`}
-    >
-      <ChevronLeft size={16} />
-    </button>
-    <span className="px-3 py-1 text-xs font-medium text-slate-600">
-      Page {currentPage} of {totalPages}
-    </span>
-    <button
-      onClick={goToNextPage}
-      disabled={currentPage === totalPages}
-      className={`p-1 transition-colors ${currentPage === totalPages ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:text-slate-800'}`}
-    >
-      <ChevronRight size={16} />
-    </button>
-  </div>
-</div>
-</div>
+                        {booking.customer?.first_name} {booking.customer?.last_name}
+                      </p>
+                    </td>
+                    <td className="p-4 text-slate-600 text-xs">
+                      {booking.book_datetime ? new Date(booking.book_datetime).toLocaleDateString() : 'N/A'}
+                    </td>
+                    <td className="p-4 text-slate-600 text-xs">
+                      {booking.event_datetime ? new Date(booking.event_datetime).toLocaleDateString() : 'N/A'}
+                    </td>
+                    <td className="p-4 font-medium">{booking.venue || 'N/A'}</td>
+                    <td className="p-4 text-center">{booking.pax_count || 0}</td>
+                    <td className="p-4 font-medium">{booking.package?.pkg_name || 'N/A'}</td>
+                    <td className="p-4 font-bold text-slate-900 text-right">₱{booking.total_amount?.toLocaleString() || '0'}</td>
+                    <td className="p-4">
+                      <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getStatusBadge(booking.booking_status)}`}>
+                        {booking.booking_status}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center justify-center gap-1.5 flex-nowrap whitespace-nowrap">
+                        {booking.booking_status === 'Pending' && (
+                          <>
+                            <button
+                              onClick={() => openApprovalModal(booking)}
+                              className="bg-[#C1DEDC] border border-[#a8cfcc] text-slate-800 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-[#b8dad7] transition-colors"
+                            >
+                              <Check size={14} /> Approve
+                            </button>
+                            <button
+                              onClick={() => handleReject(booking.booking_id)}
+                              className="bg-red-100 border border-red-200 text-red-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-red-200 transition-colors"
+                            >
+                              <X size={14} /> Reject
+                            </button>
+                          </>
+                        )}
+                        {booking.booking_status === 'Approved' && (
+                          <button
+                            onClick={() => handleMarkCompleted(booking.booking_id)}
+                            className="bg-blue-100 border border-blue-200 text-blue-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-blue-200 transition-colors"
+                          >
+                            <Check size={14} /> Complete
+                          </button>
+                        )}
+                        <button
+                          onClick={() => navigate(`/app/bookings/${booking.booking_id}`)}
+                          className="bg-white border border-slate-300 text-slate-700 font-semibold text-[11px] px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors"
+                        >
+                          Details
+                        </button>
+                        <button
+                          onClick={() => openEditModal(booking)}
+                          className="text-slate-400 hover:text-slate-700 transition-colors p-1"
+                          title="Edit"
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(booking.booking_id)}
+                          className="text-red-400 hover:text-red-600 transition-colors p-1"
+                          title="Delete"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-4 border-t border-slate-200 flex justify-between items-center bg-white text-sm text-slate-600">
+          <span>Showing {bookings.length} of {totalCount} bookings</span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={goToPrevPage}
+              disabled={currentPage === 1}
+              className={`p-1 transition-colors ${currentPage === 1 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:text-slate-800'}`}
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span className="px-3 py-1 text-xs font-medium text-slate-600">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              onClick={goToNextPage}
+              disabled={currentPage === totalPages}
+              className={`p-1 transition-colors ${currentPage === totalPages ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:text-slate-800'}`}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* NEW/EDIT BOOKING MODAL */}
       {isModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
@@ -1787,7 +1764,6 @@ if (eventDate) {
                     value={filters.dateTo}
                     onChange={handleFilterChange}
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-
                   />
                 </div>
               </div>
@@ -1835,7 +1811,6 @@ if (eventDate) {
                   onChange={handleFilterChange}
                   placeholder="e.g. Grand Pavilion"
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                  required
                 />
               </div>
 

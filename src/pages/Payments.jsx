@@ -72,7 +72,7 @@ export default function Payments() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch payments with booking details
+      // 1. Fetch ONLY REAL payments (exclude Pending with zero amount)
       const { data: paymentsData, error: paymentsError } = await supabase
         .from('payment')
         .select(`
@@ -82,9 +82,11 @@ export default function Payments() {
             booking_type,
             customer:customer_id (first_name, last_name),
             venue,
-            event_datetime
+            event_datetime,
+            total_amount
           )
         `)
+        .neq('pay_status', 'Pending')  // Exclude pending placeholder payments
         .order('pay_datetime', { ascending: false });
 
       if (paymentsError) throw paymentsError;
@@ -108,7 +110,7 @@ export default function Payments() {
       if (bookingsError) throw bookingsError;
       setBookings(bookingsData || []);
 
-      // 3. Compute summary statistics
+      // 3. Compute summary statistics (only from real payments)
       const collected = paymentsData
         .filter(p => p.pay_status === 'Fully Paid' || p.pay_status === 'Downpayment')
         .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
@@ -124,7 +126,7 @@ export default function Payments() {
       let fullyPaid = 0;
       bookingsData.forEach(b => {
         const paid = bookingTotals[b.booking_id] || 0;
-        if (paid >= (b.total_amount || 0)) fullyPaid++;
+        if (paid >= (b.total_amount || 0) && paid > 0) fullyPaid++;
       });
       setFullyPaidCount(fullyPaid);
 
@@ -219,213 +221,210 @@ export default function Payments() {
   const remainingBalanceForSelected = getRemainingBalance(formData.booking_id);
 
   // --- Filter bookings for dropdown based on search term ---
- const filteredBookings = bookings.filter(b => {
-  // Always include the currently selected booking (needed for editing)
-  if (formData.booking_id && b.booking_id === formData.booking_id) return true;
+  const filteredBookings = bookings.filter(b => {
+    // Always include the currently selected booking (needed for editing)
+    if (formData.booking_id && b.booking_id === formData.booking_id) return true;
 
-  // 1. Compute remaining balance
-  const paid = payments
-    .filter(p => p.booking_id === b.booking_id)
-    .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-  const remaining = Math.max(0, (b.total_amount || 0) - paid);
+    // 1. Compute remaining balance
+    const paid = payments
+      .filter(p => p.booking_id === b.booking_id)
+      .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+    const remaining = Math.max(0, (b.total_amount || 0) - paid);
 
-  // 2. Hide fully paid bookings
-  if (remaining <= 0) return false;
+    // 2. Hide fully paid bookings
+    if (remaining <= 0) return false;
 
-  // 3. For pending bookings, hide if they already have a downpayment
-  if (b.booking_status === 'Pending') {
-    const hasDownpayment = payments.some(
-      p => p.booking_id === b.booking_id && p.pay_status === 'Downpayment'
-    );
-    if (hasDownpayment) return false;
-  }
+    // 3. For pending bookings, hide if they already have a downpayment
+    if (b.booking_status === 'Pending') {
+      const hasDownpayment = payments.some(
+        p => p.booking_id === b.booking_id && p.pay_status === 'Downpayment'
+      );
+      if (hasDownpayment) return false;
+    }
 
-  // 4. Apply search filter (if any)
-  if (bookingSearchTerm) {
-    const search = bookingSearchTerm.toLowerCase();
-    const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}`.toLowerCase() : '';
-    const id = b.booking_id.toLowerCase();
-    return customerName.includes(search) || id.includes(search);
-  }
+    // 4. Apply search filter (if any)
+    if (bookingSearchTerm) {
+      const search = bookingSearchTerm.toLowerCase();
+      const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}`.toLowerCase() : '';
+      const id = b.booking_id.toLowerCase();
+      return customerName.includes(search) || id.includes(search);
+    }
 
-  return true;
-});
+    return true;
+  });
 
   // --- CRUD (with file upload) ---
- // src/pages/Payments.jsx
-// ... (all imports and state remain the same)
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
 
-const handleSubmit = async (e) => {
-  e.preventDefault();
-  setIsSubmitting(true);
-
-  // --- 1. Validate required fields ---
-  if (!formData.booking_id) {
-    toast.error('Please select a booking.');
-    setIsSubmitting(false);
-    return;
-  }
-
-  const amount = parseFloat(formData.amount) || 0;
-  if (amount <= 0) {
-    toast.error('Amount must be greater than zero.');
-    setIsSubmitting(false);
-    return;
-  }
-
-  if (!formData.pay_method) {
-    toast.error('Please select a payment method.');
-    setIsSubmitting(false);
-    return;
-  }
-
-  if (!formData.pay_status) {
-    toast.error('Please select a payment status.');
-    setIsSubmitting(false);
-    return;
-  }
-
-  // --- 2. Get the selected booking details ---
-  const selectedBooking = bookings.find(b => b.booking_id === formData.booking_id);
-  if (!selectedBooking) {
-    toast.error('Selected booking not found.');
-    setIsSubmitting(false);
-    return;
-  }
-
-  // --- 3. Calculate current paid amount and remaining balance ---
-  const paid = payments
-    .filter(p => p.booking_id === formData.booking_id)
-    .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-  const totalAmount = selectedBooking.total_amount || 0;
-  const remainingBalance = Math.max(0, totalAmount - paid);
-
-  // --- 4. Check if booking is already fully paid ---
-  if (remainingBalance <= 0) {
-    toast.error('This booking is already fully paid. No additional payments are allowed.');
-    setIsSubmitting(false);
-    return;
-  }
-
-  // --- 5. Validate amount does not exceed remaining balance ---
-  if (amount > remainingBalance) {
-    toast.error(`Amount exceeds remaining balance of ₱${remainingBalance.toLocaleString()}.`);
-    setIsSubmitting(false);
-    return;
-  }
-
-  // --- 6. Determine the final payment status (may be changed by user confirmation) ---
-  let finalPayStatus = formData.pay_status;
-  const status = selectedBooking.booking_status || 'Pending';
-
-  // --- 7. Check booking status and payment rules ---
-  if (status === 'Pending') {
-    const hasDownpayment = payments.some(
-      p => p.booking_id === formData.booking_id && p.pay_status === 'Downpayment'
-    );
-    if (hasDownpayment) {
-      toast.error('This booking already has a downpayment. Wait for approval before recording more payments.');
-      setIsSubmitting(false);
-      return;
-    }
-    if (formData.pay_status !== 'Downpayment') {
-      toast.error('Pending bookings can only receive downpayments. Please approve the booking first for full payment.');
-      setIsSubmitting(false);
-      return;
-    }
-  }
-
-  // --- 8. For approved bookings: handle "Fully Paid" conversion ---
-  if (status === 'Approved' || status === 'Completed') {
-    // If user selected "Fully Paid", amount must equal remaining balance
-    if (formData.pay_status === 'Fully Paid' && amount < remainingBalance) {
-      toast.error(`To mark as fully paid, the amount must equal the remaining balance of ₱${remainingBalance.toLocaleString()}.`);
+    // --- 1. Validate required fields ---
+    if (!formData.booking_id) {
+      toast.error('Please select a booking.');
       setIsSubmitting(false);
       return;
     }
 
-    // Use tolerance to avoid floating-point issues
-    const isAmountEqualRemaining = Math.abs(amount - remainingBalance) < 0.01;
-
-    // If amount equals remaining balance and user selected "Downpayment", ask if they want to convert to Fully Paid
-    if (formData.pay_status === 'Downpayment' && isAmountEqualRemaining) {
-      const confirm = await showConfirm({
-        title: 'Full Payment?',
-        message: `This payment amount (₱${amount.toLocaleString()}) equals the remaining balance. Would you like to mark it as Fully Paid instead?`,
-        confirmLabel: 'Yes, Mark Fully Paid',
-        cancelLabel: 'No, Keep as Downpayment',
-        confirmVariant: 'success',
-      });
-      if (confirm) {
-        finalPayStatus = 'Fully Paid';
-        setFormData(prev => ({ ...prev, pay_status: 'Fully Paid' }));
-        // Continue to submit (no return)
-      }
+    const amount = parseFloat(formData.amount) || 0;
+    if (amount <= 0) {
+      toast.error('Amount must be greater than zero.');
+      setIsSubmitting(false);
+      return;
     }
-  }
 
-  // --- 9. Proceed with payment recording ---
-  try {
-    let proofUrl = formData.pay_proof;
+    if (!formData.pay_method) {
+      toast.error('Please select a payment method.');
+      setIsSubmitting(false);
+      return;
+    }
 
-    if (selectedFile) {
-      setUploading(true);
-      try {
-        const fileExt = selectedFile.name.split('.').pop();
-        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-        const filePath = `payments/${fileName}`;
-        const { error: uploadError } = await supabase.storage
-          .from('images')
-          .upload(filePath, selectedFile);
-        if (uploadError) throw uploadError;
-        const { data: publicUrlData } = supabase.storage
-          .from('images')
-          .getPublicUrl(filePath);
-        proofUrl = publicUrlData.publicUrl;
-      } catch (err) {
-        console.error('Upload error:', err);
-        toast.error('Failed to upload proof image. Please try again.');
-        setUploading(false);
+    if (!formData.pay_status) {
+      toast.error('Please select a payment status.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    // --- 2. Get the selected booking details ---
+    const selectedBooking = bookings.find(b => b.booking_id === formData.booking_id);
+    if (!selectedBooking) {
+      toast.error('Selected booking not found.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    // --- 3. Calculate current paid amount and remaining balance ---
+    const paid = payments
+      .filter(p => p.booking_id === formData.booking_id)
+      .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+    const totalAmount = selectedBooking.total_amount || 0;
+    const remainingBalance = Math.max(0, totalAmount - paid);
+
+    // --- 4. Check if booking is already fully paid ---
+    if (remainingBalance <= 0) {
+      toast.error('This booking is already fully paid. No additional payments are allowed.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    // --- 5. Validate amount does not exceed remaining balance ---
+    if (amount > remainingBalance) {
+      toast.error(`Amount exceeds remaining balance of ₱${remainingBalance.toLocaleString()}.`);
+      setIsSubmitting(false);
+      return;
+    }
+
+    // --- 6. Determine the final payment status (may be changed by user confirmation) ---
+    let finalPayStatus = formData.pay_status;
+    const status = selectedBooking.booking_status || 'Pending';
+
+    // --- 7. Check booking status and payment rules ---
+    if (status === 'Pending') {
+      const hasDownpayment = payments.some(
+        p => p.booking_id === formData.booking_id && p.pay_status === 'Downpayment'
+      );
+      if (hasDownpayment) {
+        toast.error('This booking already has a downpayment. Wait for approval before recording more payments.');
         setIsSubmitting(false);
         return;
       }
+      if (formData.pay_status !== 'Downpayment') {
+        toast.error('Pending bookings can only receive downpayments. Please approve the booking first for full payment.');
+        setIsSubmitting(false);
+        return;
+      }
+    }
+
+    // --- 8. For approved bookings: handle "Fully Paid" conversion ---
+    if (status === 'Approved' || status === 'Completed') {
+      // If user selected "Fully Paid", amount must equal remaining balance
+      if (formData.pay_status === 'Fully Paid' && amount < remainingBalance) {
+        toast.error(`To mark as fully paid, the amount must equal the remaining balance of ₱${remainingBalance.toLocaleString()}.`);
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Use tolerance to avoid floating-point issues
+      const isAmountEqualRemaining = Math.abs(amount - remainingBalance) < 0.01;
+
+      // If amount equals remaining balance and user selected "Downpayment", ask if they want to convert to Fully Paid
+      if (formData.pay_status === 'Downpayment' && isAmountEqualRemaining) {
+        const confirm = await showConfirm({
+          title: 'Full Payment?',
+          message: `This payment amount (₱${amount.toLocaleString()}) equals the remaining balance. Would you like to mark it as Fully Paid instead?`,
+          confirmLabel: 'Yes, Mark Fully Paid',
+          cancelLabel: 'No, Keep as Downpayment',
+          confirmVariant: 'success',
+        });
+        if (confirm) {
+          finalPayStatus = 'Fully Paid';
+          setFormData(prev => ({ ...prev, pay_status: 'Fully Paid' }));
+          // Continue to submit (no return)
+        }
+      }
+    }
+
+    // --- 9. Proceed with payment recording ---
+    try {
+      let proofUrl = formData.pay_proof;
+
+      if (selectedFile) {
+        setUploading(true);
+        try {
+          const fileExt = selectedFile.name.split('.').pop();
+          const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+          const filePath = `payments/${fileName}`;
+          const { error: uploadError } = await supabase.storage
+            .from('images')
+            .upload(filePath, selectedFile);
+          if (uploadError) throw uploadError;
+          const { data: publicUrlData } = supabase.storage
+            .from('images')
+            .getPublicUrl(filePath);
+          proofUrl = publicUrlData.publicUrl;
+        } catch (err) {
+          console.error('Upload error:', err);
+          toast.error('Failed to upload proof image. Please try again.');
+          setUploading(false);
+          setIsSubmitting(false);
+          return;
+        }
+        setUploading(false);
+      }
+
+      const payload = {
+        booking_id: formData.booking_id,
+        amount_paid: amount,
+        pay_method: formData.pay_method,
+        pay_status: finalPayStatus,
+        pay_datetime: new Date().toISOString(),
+        pay_proof: proofUrl || 'placeholder.png',
+        customer_id: selectedBooking?.customer?.customer_id || null,
+      };
+
+      if (editingId) {
+        const { error } = await supabase
+          .from('payment')
+          .update(payload)
+          .eq('payment_id', editingId);
+        if (error) throw error;
+        toast.success('Payment updated successfully!');
+      } else {
+        const { error } = await supabase
+          .from('payment')
+          .insert([payload]);
+        if (error) throw error;
+        toast.success('Payment recorded successfully!');
+      }
+
+      closeModal();
+      fetchData();
+    } catch (error) {
+      handleError(error, 'Failed to save payment.');
+    } finally {
+      setIsSubmitting(false);
       setUploading(false);
     }
-
-    const payload = {
-      booking_id: formData.booking_id,
-      amount_paid: amount,
-      pay_method: formData.pay_method,
-      pay_status: finalPayStatus,
-      pay_datetime: new Date().toISOString(),
-      pay_proof: proofUrl || 'placeholder.png',
-      customer_id: selectedBooking?.customer?.customer_id || null,
-    };
-
-    if (editingId) {
-      const { error } = await supabase
-        .from('payment')
-        .update(payload)
-        .eq('payment_id', editingId);
-      if (error) throw error;
-      toast.success('Payment updated successfully!');
-    } else {
-      const { error } = await supabase
-        .from('payment')
-        .insert([payload]);
-      if (error) throw error;
-      toast.success('Payment recorded successfully!');
-    }
-
-    closeModal();
-    fetchData();
-  } catch (error) {
-    handleError(error, 'Failed to save payment.');
-  } finally {
-    setIsSubmitting(false);
-    setUploading(false);
-  }
-};
+  };
 
   const handleDelete = async (id) => {
     const confirmed = await showConfirm({
@@ -469,6 +468,7 @@ const handleSubmit = async (e) => {
       'Downpayment': 'bg-amber-50 border-amber-200 text-amber-700',
       'Fully Paid': 'bg-[#EAF3F2] border-[#C1DEDC] text-slate-800',
       'Unpaid': 'bg-red-50 border-red-200 text-red-700',
+      'Pending': 'bg-slate-100 border-slate-200 text-slate-500', // Fallback
     };
     return map[status] || 'bg-slate-100 text-slate-600';
   };

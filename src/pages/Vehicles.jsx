@@ -1,7 +1,7 @@
 // pages/Vehicles.jsx
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Edit, Trash2, X, Truck, Car, Settings, Calendar, MapPin, Users, Clock } from 'lucide-react';
+import { Plus, Edit, Trash2, X, Truck, Car, Settings, Calendar, MapPin, Users, Clock, RefreshCw, Undo2 } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -73,31 +73,48 @@ export default function Vehicles() {
       today.setHours(0, 0, 0, 0);
 
       const enrichedVehicles = vehiclesData.map(vehicle => {
-        const vehicleAssigns = assignmentsData.filter(a => a.vehicle_id === vehicle.vehicle_id);
-        const todayAssign = vehicleAssigns.find(a => {
-          if (!a.booking?.event_datetime) return false;
-          const eventDate = new Date(a.booking.event_datetime);
-          eventDate.setHours(0, 0, 0, 0);
-          return eventDate.getTime() === today.getTime() && a.booking.booking_status !== 'Rejected';
+        // Only consider active assignments (not completed, cancelled, or rejected)
+        const activeAssigns = assignmentsData.filter(a => {
+          if (a.vehicle_id !== vehicle.vehicle_id) return false;
+          if (!a.booking) return false;
+          // Exclude completed, cancelled, rejected bookings/assignments
+          if (a.assignment_status === 'Completed') return false;
+          if (a.booking.booking_status === 'Rejected' || a.booking.booking_status === 'Cancelled') return false;
+          return true;
         });
-        const futureAssign = vehicleAssigns.find(a => {
+
+        const todayAssign = activeAssigns.find(a => {
           if (!a.booking?.event_datetime) return false;
           const eventDate = new Date(a.booking.event_datetime);
           eventDate.setHours(0, 0, 0, 0);
-          return eventDate.getTime() > today.getTime() && a.booking.booking_status !== 'Rejected';
+          return eventDate.getTime() === today.getTime();
+        });
+
+        const futureAssign = activeAssigns.find(a => {
+          if (!a.booking?.event_datetime) return false;
+          const eventDate = new Date(a.booking.event_datetime);
+          eventDate.setHours(0, 0, 0, 0);
+          return eventDate.getTime() > today.getTime();
         });
 
         let displayStatus = vehicle.vehicle_status;
         let statusNote = '';
 
-        if (vehicle.vehicle_status === 'Available') {
+        if (vehicle.vehicle_status === 'Maintenance') {
+          displayStatus = 'Maintenance';
+          statusNote = 'Under maintenance';
+        } else if (vehicle.vehicle_status === 'Unavailable') {
+          displayStatus = 'Unavailable';
+          statusNote = 'Not available for dispatch';
+        } else if (vehicle.vehicle_status === 'Available') {
           if (todayAssign) {
             displayStatus = 'Deployed Today';
-            statusNote = `Event: ${todayAssign.booking?.event_datetime ? new Date(todayAssign.booking.event_datetime).toLocaleDateString() : ''}`;
+            const eventDate = todayAssign.booking?.event_datetime ? new Date(todayAssign.booking.event_datetime) : null;
+            statusNote = eventDate ? `Event: ${eventDate.toLocaleString()}` : '';
           } else if (futureAssign) {
             displayStatus = 'Upcoming';
             const eventDate = futureAssign.booking?.event_datetime ? new Date(futureAssign.booking.event_datetime) : null;
-            statusNote = eventDate ? `Scheduled: ${eventDate.toLocaleDateString()}` : '';
+            statusNote = eventDate ? `Scheduled: ${eventDate.toLocaleString()}` : '';
           } else {
             displayStatus = 'Available';
           }
@@ -107,7 +124,8 @@ export default function Vehicles() {
           ...vehicle,
           displayStatus,
           statusNote,
-          assignments: vehicleAssigns,
+          activeAssigns: activeAssigns,
+          totalAssigns: activeAssigns.length,
         };
       });
 
@@ -172,13 +190,15 @@ export default function Vehicles() {
       if (selectedBooking && selectedBooking.event_datetime) {
         const eventDate = new Date(selectedBooking.event_datetime);
         const dispatchDate = new Date(eventDate.getTime() - 2 * 60 * 60 * 1000);
+        if (dispatchDate < new Date()) {
+          dispatchDate.setTime(Date.now());
+        }
         const formatted = dispatchDate.toISOString().slice(0, 16);
         setAssignForm(prev => ({ ...prev, dispatch_datetime: formatted }));
       }
     } else {
       setAssignForm(prev => ({ ...prev, dispatch_datetime: '' }));
     }
-    // Reset selected vehicles when booking changes
     setSelectedVehicleIds([]);
   };
 
@@ -265,27 +285,59 @@ export default function Vehicles() {
     }
   };
 
-  // --- DELETE VEHICLE ---
+  // --- DELETE VEHICLE (with cleanup) ---
   const handleDeleteVehicle = async (vehicleId) => {
     const confirmed = await showConfirm({
       title: 'Delete Vehicle?',
-      message: 'Are you sure you want to delete this vehicle from the fleet? This action cannot be undone.',
+      message: 'This will delete the vehicle and all its assignments. Are you sure?',
       confirmLabel: 'Delete',
       confirmVariant: 'danger',
     });
     if (!confirmed) return;
 
     try {
+      // Delete all assignments for this vehicle
+      const { error: deleteAssignError } = await supabase
+        .from('vehicle_assign')
+        .delete()
+        .eq('vehicle_id', vehicleId);
+      if (deleteAssignError) throw deleteAssignError;
+
       const { error } = await supabase
         .from('vehicle')
         .delete()
         .eq('vehicle_id', vehicleId);
-
       if (error) throw error;
+
       toast.success('Vehicle removed successfully.');
       await fetchVehicles();
     } catch (error) {
-      handleError(error, 'Failed to delete vehicle. Make sure it is not assigned to any event.');
+      handleError(error, 'Failed to delete vehicle.');
+    }
+  };
+
+  // --- RETURN VEHICLE (mark assignment as Completed) ---
+  const handleReturnVehicle = async (assignmentId) => {
+    const confirmed = await showConfirm({
+      title: 'Return Vehicle?',
+      message: 'Mark this assignment as completed. The vehicle will be available for future events.',
+      confirmLabel: 'Return',
+      confirmVariant: 'success',
+    });
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase
+        .from('vehicle_assign')
+        .update({ assignment_status: 'Completed' })
+        .eq('assignment_id', assignmentId);
+
+      if (error) throw error;
+
+      toast.success('Vehicle returned successfully.');
+      await fetchVehicles();
+    } catch (error) {
+      handleError(error, 'Failed to return vehicle.');
     }
   };
 
@@ -318,14 +370,16 @@ export default function Vehicles() {
         return;
       }
 
-      // Check conflicts for all selected vehicles
+      // Check conflicts for all selected vehicles (same date, active assignments)
       const conflicts = [];
       for (const vehicleId of selectedVehicleIds) {
         const existingAssign = assignments.find(a => {
           if (a.vehicle_id !== vehicleId) return false;
           if (!a.booking?.event_datetime) return false;
+          if (a.assignment_status === 'Completed') return false;
+          if (a.booking.booking_status === 'Rejected' || a.booking.booking_status === 'Cancelled') return false;
           const assignEventDate = new Date(a.booking.event_datetime);
-          return assignEventDate.toDateString() === eventDate.toDateString() && a.booking.booking_status !== 'Rejected';
+          return assignEventDate.toDateString() === eventDate.toDateString();
         });
         if (existingAssign) {
           const vehicle = vehicles.find(v => v.vehicle_id === vehicleId);
@@ -371,6 +425,7 @@ export default function Vehicles() {
   const availableCount = vehicles.filter((v) => v.displayStatus === 'Available').length;
   const deployedTodayCount = vehicles.filter((v) => v.displayStatus === 'Deployed Today').length;
   const upcomingCount = vehicles.filter((v) => v.displayStatus === 'Upcoming').length;
+  const activeAssignmentsCount = assignments.filter(a => a.assignment_status !== 'Completed' && a.booking?.booking_status !== 'Rejected' && a.booking?.booking_status !== 'Cancelled').length;
 
   // --- RENDER ---
   return (
@@ -379,7 +434,7 @@ export default function Vehicles() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Vehicles</h1>
-          <p className="text-sm text-slate-500">Monitor and manage your fleet with dynamic availability.</p>
+          <p className="text-sm text-slate-500">Monitor and manage your fleet – assign to multiple events, return when done.</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -394,11 +449,18 @@ export default function Vehicles() {
           >
             <Plus size={16} /> Assign Vehicle
           </button>
+          <button
+            onClick={() => { fetchVehicles(); fetchBookings(); }}
+            className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 px-3 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-xs cursor-pointer"
+            title="Refresh data"
+          >
+            <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
+          </button>
         </div>
       </div>
 
       {/* SUMMARY STAT CARDS */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5">
           <p className="text-xs font-semibold text-slate-600 mb-1">Total Fleet</p>
           <h3 className="text-3xl font-extrabold text-slate-900">{vehicles.length}</h3>
@@ -410,22 +472,24 @@ export default function Vehicles() {
         <div className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5">
           <p className="text-xs font-semibold text-slate-600 mb-1">Available Now</p>
           <h3 className="text-3xl font-extrabold text-slate-900">{availableCount}</h3>
-          <p className="text-xs text-slate-600 mt-2 font-medium">
-            {deployedTodayCount} deployed today
-          </p>
         </div>
 
         <div className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5">
-          <p className="text-xs font-semibold text-slate-600 mb-1">Upcoming Deployments</p>
-          <h3 className="text-3xl font-extrabold text-slate-900">{upcomingCount}</h3>
-          <p className="text-xs text-slate-600 mt-2 font-medium">Scheduled for future events</p>
+          <p className="text-xs font-semibold text-slate-600 mb-1">Deployed Today</p>
+          <h3 className="text-3xl font-extrabold text-[#008A45]">{deployedTodayCount}</h3>
+        </div>
+
+        <div className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5">
+          <p className="text-xs font-semibold text-slate-600 mb-1">Active Assignments</p>
+          <h3 className="text-3xl font-extrabold text-slate-900">{activeAssignmentsCount}</h3>
         </div>
       </div>
 
       {/* VEHICLE TABLE */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800">
-          Fleet Inventory (dynamic status)
+        <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800 flex justify-between items-center">
+          <span>Fleet Inventory</span>
+          <span className="text-xs font-normal text-slate-500">Status is based on active assignments (completed assignments are ignored)</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -435,17 +499,18 @@ export default function Vehicles() {
                 <th className="p-4 font-bold">Type</th>
                 <th className="p-4 font-bold">Status</th>
                 <th className="p-4 font-bold">Details</th>
+                <th className="p-4 font-bold text-center">Assignments</th>
                 <th className="p-4 font-bold text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
               {isLoading ? (
                 <tr>
-                  <td colSpan="5" className="p-6 text-center text-slate-400">Loading fleet...</td>
+                  <td colSpan="6" className="p-6 text-center text-slate-400">Loading fleet...</td>
                 </tr>
               ) : vehicles.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="p-6 text-center text-slate-400 italic">
+                  <td colSpan="6" className="p-6 text-center text-slate-400 italic">
                     No vehicles in fleet.
                   </td>
                 </tr>
@@ -464,31 +529,35 @@ export default function Vehicles() {
                         ${vehicle.displayStatus === 'Available' ? 'bg-green-50 border border-green-200 text-green-700' :
                           vehicle.displayStatus === 'Deployed Today' ? 'bg-yellow-50 border border-yellow-200 text-yellow-700' :
                           vehicle.displayStatus === 'Upcoming' ? 'bg-blue-50 border border-blue-200 text-blue-700' :
+                          vehicle.displayStatus === 'Maintenance' ? 'bg-orange-50 border border-orange-200 text-orange-700' :
                           'bg-slate-100 border border-slate-300 text-slate-600'}`}
                       >
                         {vehicle.displayStatus === 'Available' ? '✅' :
                          vehicle.displayStatus === 'Deployed Today' ? '🚗' :
-                         vehicle.displayStatus === 'Upcoming' ? '📅' : '🔧'}
+                         vehicle.displayStatus === 'Upcoming' ? '📅' :
+                         vehicle.displayStatus === 'Maintenance' ? '🔧' : '❌'}
                         {vehicle.displayStatus}
                       </span>
                     </td>
                     <td className="p-4 text-slate-600 text-xs">
                       {vehicle.statusNote || '–'}
                     </td>
+                    <td className="p-4 text-center font-semibold">
+                      {vehicle.totalAssigns || 0}
+                    </td>
                     <td className="p-4 text-right">
                       <div className="flex items-center justify-end gap-3">
                         <button
                           onClick={() => handleEditClick(vehicle)}
-                          className="text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                          title="Edit Vehicle"
+                          className="text-slate-400 hover:text-[#008A45] transition-colors cursor-pointer"
+                          title="Edit vehicle"
                         >
                           <Edit size={16} />
                         </button>
                         <button
                           onClick={() => handleDeleteVehicle(vehicle.vehicle_id)}
                           className="text-red-400 hover:text-red-600 transition-colors cursor-pointer"
-                          title="Delete Vehicle"
-                          disabled={vehicle.displayStatus === 'Deployed Today' || vehicle.displayStatus === 'Upcoming'}
+                          title="Delete vehicle (all assignments removed)"
                         >
                           <Trash2 size={16} />
                         </button>
@@ -496,6 +565,75 @@ export default function Vehicles() {
                     </td>
                   </tr>
                 ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ACTIVE ASSIGNMENTS TABLE – like Equipment's active assignments */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800 flex justify-between items-center">
+          <span>Active Vehicle Assignments</span>
+          <span className="text-xs font-normal text-slate-500">{activeAssignmentsCount} active</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
+                <th className="p-4 font-bold">Vehicle</th>
+                <th className="p-4 font-bold">Booking</th>
+                <th className="p-4 font-bold">Client</th>
+                <th className="p-4 font-bold">Event Date</th>
+                <th className="p-4 font-bold">Dispatch</th>
+                <th className="p-4 font-bold text-center">Status</th>
+                <th className="p-4 font-bold text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
+              {isLoading ? (
+                <tr><td colSpan="7" className="p-6 text-center text-slate-400">Loading assignments...</td></tr>
+              ) : assignments.filter(a => a.assignment_status !== 'Completed' && a.booking?.booking_status !== 'Rejected' && a.booking?.booking_status !== 'Cancelled').length === 0 ? (
+                <tr><td colSpan="7" className="p-6 text-center text-slate-400 italic">No active assignments.</td></tr>
+              ) : (
+                assignments
+                  .filter(a => a.assignment_status !== 'Completed' && a.booking?.booking_status !== 'Rejected' && a.booking?.booking_status !== 'Cancelled')
+                  .map((assign) => {
+                    const vehicle = vehicles.find(v => v.vehicle_id === assign.vehicle_id);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const eventDate = assign.booking?.event_datetime ? new Date(assign.booking.event_datetime) : null;
+                    const isToday = eventDate && eventDate.toDateString() === today.toDateString();
+                    return (
+                      <tr key={assign.assignment_id} className="hover:bg-slate-50 transition-colors">
+                        <td className="p-4 font-bold text-slate-900">{vehicle?.plate_number || 'Unknown'}</td>
+                        <td className="p-4 text-slate-600">{assign.booking_id?.slice(0, 8) || 'N/A'}</td>
+                        <td className="p-4">
+                          {assign.booking?.customer?.first_name} {assign.booking?.customer?.last_name}
+                        </td>
+                        <td className="p-4">
+                          {eventDate ? eventDate.toLocaleString() : 'N/A'}
+                          {isToday && <span className="ml-2 text-xs bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded-full">Today</span>}
+                        </td>
+                        <td className="p-4">
+                          {assign.dispatch_datetime ? new Date(assign.dispatch_datetime).toLocaleString() : 'N/A'}
+                        </td>
+                        <td className="p-4 text-center">
+                          <span className="px-2 py-1 bg-amber-50 border border-amber-200 text-amber-700 rounded-full text-xs font-medium">
+                            {assign.assignment_status || 'Scheduled'}
+                          </span>
+                        </td>
+                        <td className="p-4 text-right">
+                          <button
+                            onClick={() => handleReturnVehicle(assign.assignment_id)}
+                            className="text-blue-500 hover:text-blue-700 transition-colors cursor-pointer flex items-center gap-1 text-sm font-medium"
+                          >
+                            <Undo2 size={16} /> Return
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
               )}
             </tbody>
           </table>
@@ -628,7 +766,7 @@ export default function Vehicles() {
                   <option value="Maintenance">Maintenance</option>
                   <option value="Unavailable">Unavailable</option>
                 </select>
-                <p className="text-xs text-slate-400 mt-1">Base status used for maintenance; deployment status is auto-calculated from assignments.</p>
+                <p className="text-xs text-slate-400 mt-1">Base status overrides auto-status when set to Maintenance or Unavailable.</p>
               </div>
 
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
@@ -743,25 +881,38 @@ export default function Vehicles() {
                 </div>
               )}
 
-              {/* Vehicle Selection (Checkboxes) */}
+              {/* Vehicle Selection (Checkboxes) – show only vehicles not already assigned to this date */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Select Vehicles</label>
                 <div className="border border-slate-200 rounded-lg max-h-48 overflow-y-auto p-2 bg-slate-50">
-                  {vehicles.filter(v => v.vehicle_status === 'Available' && v.displayStatus !== 'Deployed Today' && v.displayStatus !== 'Upcoming').length === 0 ? (
+                  {vehicles.filter(v => v.vehicle_status === 'Available').length === 0 ? (
                     <p className="text-sm text-slate-500 italic p-2">No available vehicles.</p>
                   ) : (
-                    vehicles.filter(v => v.vehicle_status === 'Available' && v.displayStatus !== 'Deployed Today' && v.displayStatus !== 'Upcoming').map((v) => (
-                      <label key={v.vehicle_id} className="flex items-center gap-2 p-2 hover:bg-slate-100 rounded cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedVehicleIds.includes(v.vehicle_id)}
-                          onChange={() => toggleVehicleSelection(v.vehicle_id)}
-                          className="w-4 h-4 text-[#008A45] focus:ring-[#008A45]"
-                        />
-                        <span className="text-sm font-medium text-slate-700">{v.plate_number}</span>
-                        <span className="text-xs text-slate-500">({v.vehicle_type}) – {v.displayStatus}</span>
-                      </label>
-                    ))
+                    vehicles.filter(v => v.vehicle_status === 'Available').map((v) => {
+                      // Check if this vehicle is already assigned to the selected booking's date
+                      const eventDate = selectedBooking?.event_datetime ? new Date(selectedBooking.event_datetime) : null;
+                      const alreadyAssigned = eventDate && assignments.some(a => {
+                        if (a.vehicle_id !== v.vehicle_id) return false;
+                        if (a.assignment_status === 'Completed') return false;
+                        if (a.booking?.booking_status === 'Rejected' || a.booking?.booking_status === 'Cancelled') return false;
+                        const aDate = a.booking?.event_datetime ? new Date(a.booking.event_datetime) : null;
+                        return aDate && aDate.toDateString() === eventDate.toDateString();
+                      });
+                      return (
+                        <label key={v.vehicle_id} className={`flex items-center gap-2 p-2 hover:bg-slate-100 rounded cursor-pointer ${alreadyAssigned ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                          <input
+                            type="checkbox"
+                            checked={selectedVehicleIds.includes(v.vehicle_id)}
+                            onChange={() => toggleVehicleSelection(v.vehicle_id)}
+                            disabled={alreadyAssigned}
+                            className="w-4 h-4 text-[#008A45] focus:ring-[#008A45]"
+                          />
+                          <span className="text-sm font-medium text-slate-700">{v.plate_number}</span>
+                          <span className="text-xs text-slate-500">({v.vehicle_type}) – {v.displayStatus}</span>
+                          {alreadyAssigned && <span className="text-xs text-red-500 ml-2">(already assigned to this date)</span>}
+                        </label>
+                      );
+                    })
                   )}
                 </div>
                 <p className="text-xs text-slate-400 mt-1">
@@ -788,7 +939,7 @@ export default function Vehicles() {
                     <span className="text-[#008A45] font-medium">Auto-suggested: 2 hours before event</span>
                   </div>
                 )}
-                <p className="text-xs text-slate-400 mt-1">Adjust the dispatch time as needed. All selected vehicles will have the same dispatch time.</p>
+                <p className="text-xs text-slate-400 mt-1">All selected vehicles will have the same dispatch time.</p>
               </div>
 
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">

@@ -274,9 +274,9 @@ export default function Equipment() {
       toast.error('Equipment not found.');
       return;
     }
+    // Just warn if not enough stock – but we do not block assignment (soft check)
     if (tempQuantity > equip.quantity_available) {
-      toast.error(`Not enough stock! Only ${equip.quantity_available} available.`);
-      return;
+      toast.warning(`Only ${equip.quantity_available} total stock available. You may still proceed, but please verify capacity.`);
     }
     setAssignmentQueue([...assignmentQueue, { equipment_id: tempEquipId, quantity: tempQuantity }]);
     setTempEquipId('');
@@ -302,17 +302,17 @@ export default function Equipment() {
     setIsSubmitting(true);
 
     try {
-      // Validate all items have enough stock
+      // Validate all items have enough total stock (soft validation – we just warn)
       const itemsToAssign = assignmentQueue.map(item => {
         const equip = equipmentList.find(e => e.equipment_id === item.equipment_id);
         if (!equip) throw new Error(`Equipment ${item.equipment_id} not found.`);
         if (item.quantity > equip.quantity_available) {
-          throw new Error(`Not enough stock for ${equip.eqm_name}. Needed ${item.quantity}, only ${equip.quantity_available} available.`);
+          toast.warning(`Not enough total stock for ${equip.eqm_name}. Needed ${item.quantity}, only ${equip.quantity_available} available. You may still proceed, but please verify capacity.`);
         }
         return { ...item, equip };
       });
 
-      // Insert all assignments and update stock
+      // Insert all assignments without touching stock
       for (const item of itemsToAssign) {
         // Check if this equipment is already assigned to this booking
         const existingAssign = assignments.find(
@@ -333,14 +333,6 @@ export default function Equipment() {
             returned: false
           }]);
         if (insertError) throw insertError;
-
-        // Update stock
-        const newQuantity = item.equip.quantity_available - item.quantity;
-        const { error: updateError } = await supabase
-          .from('equipment')
-          .update({ quantity_available: newQuantity })
-          .eq('equipment_id', item.equipment_id);
-        if (updateError) throw updateError;
       }
 
       setAssignmentQueue([]);
@@ -359,7 +351,7 @@ export default function Equipment() {
   const handleReturnEquipment = async (assignmentId, equipmentId, quantity) => {
     const confirmed = await showConfirm({
       title: 'Return Equipment?',
-      message: 'Are you sure you want to mark this equipment as returned? This will restore the quantity to inventory.',
+      message: 'Are you sure you want to mark this equipment as returned?',
       confirmLabel: 'Return',
       confirmVariant: 'success',
     });
@@ -371,20 +363,6 @@ export default function Equipment() {
         .update({ returned: true, returned_at: new Date().toISOString() })
         .eq('assignment_id', assignmentId);
       if (updateAssignError) throw updateAssignError;
-
-      const { data: equipData, error: fetchError } = await supabase
-        .from('equipment')
-        .select('quantity_available')
-        .eq('equipment_id', equipmentId)
-        .single();
-      if (fetchError) throw fetchError;
-
-      const newQuantity = equipData.quantity_available + quantity;
-      const { error: updateEquipError } = await supabase
-        .from('equipment')
-        .update({ quantity_available: newQuantity })
-        .eq('equipment_id', equipmentId);
-      if (updateEquipError) throw updateEquipError;
 
       toast.success('Equipment returned successfully!');
       await fetchData();
@@ -825,8 +803,8 @@ export default function Equipment() {
                   >
                     <option value="">Select equipment...</option>
                     {equipmentList.map((eq) => (
-                      <option key={eq.equipment_id} value={eq.equipment_id} disabled={eq.quantity_available === 0}>
-                        {eq.eqm_name} ({eq.quantity_available} available)
+                      <option key={eq.equipment_id} value={eq.equipment_id}>
+                        {eq.eqm_name} ({eq.quantity_available} total)
                       </option>
                     ))}
                   </select>

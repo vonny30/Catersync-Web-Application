@@ -32,9 +32,9 @@ export default function PackagesAndMenus() {
     selectedCategories: [],
     selectedEquipment: [],
     equipmentQuantities: {},
-    pricing_type: 'per_pax',      // NEW
-    max_pax: '',                  // NEW
-    extra_pax_price: '',          // NEW
+    pricing_type: 'per_pax',
+    max_pax: '',
+    extra_pax_price: '',
   });
 
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
@@ -401,6 +401,7 @@ export default function PackagesAndMenus() {
         await fetchData();
 
       } else {
+        // Menu Item – price is per tray
         const menuData = {
           menu_name: formData.title,
           menu_price: cleanPrice,
@@ -661,7 +662,12 @@ export default function PackagesAndMenus() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Packages & Menu</h1>
-          <p className="text-sm text-slate-500">Manage packages, menu items, categories, and equipment templates</p>
+          <p className="text-sm text-slate-500">
+            Manage catering packages and short‑order menu items. 
+            <span className="block text-xs text-slate-400 mt-1">
+              Menu items for short orders are priced <strong>per tray</strong> – each tray serves 35‑50 pax.
+            </span>
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -838,7 +844,7 @@ export default function PackagesAndMenus() {
             <div className={`${activeTab === 'Archived' && displayedPackages.length > 0 ? 'border-t pt-8' : ''}`}>
               {(activeTab === 'All' || activeTab === 'Archived') && (
                 <h3 className="text-lg font-bold text-slate-900 mb-4 border-b pb-2">
-                  {activeTab === 'Archived' ? 'Archived Menu Items' : 'Individual Menu Items'}
+                  {activeTab === 'Archived' ? 'Archived Menu Items' : 'Individual Menu Items (Short Orders)'}
                 </h3>
               )}
               <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -852,7 +858,11 @@ export default function PackagesAndMenus() {
                         </div>
                         <p className="text-xs font-bold text-[#008A45] mb-1">{category?.category_name || 'Uncategorized'}</p>
                         <h4 className="font-bold text-slate-900">{item.menu_name}</h4>
-                        <p className="font-semibold text-slate-700 mt-2">₱{Number(item.menu_price).toLocaleString()}</p>
+                        {/* Updated price display */}
+                        <p className="font-semibold text-slate-700 mt-2">
+                          ₱{Number(item.menu_price).toLocaleString()} <span className="text-sm font-normal text-slate-500">/ tray</span>
+                        </p>
+                        <p className="text-xs text-slate-400 mt-1">Each tray serves 35‑50 pax</p>
                       </div>
                       <div className="flex justify-between items-center mt-4 pt-3 border-t border-slate-100">
                         <button
@@ -1134,11 +1144,14 @@ export default function PackagesAndMenus() {
                           required disabled={isSubmitting} />
                       </div>
                       <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1">Price</label>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Price <span className="font-normal text-slate-500">(per tray)</span>
+                        </label>
                         <input type="number" name="price" value={formData.price} onChange={handleInputChange}
                           placeholder="e.g. 150"
                           className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45] outline-none"
                           required disabled={isSubmitting} />
+                        <p className="text-xs text-slate-400 mt-1">Each tray serves 35‑50 pax.</p>
                       </div>
                     </div>
                     <div>

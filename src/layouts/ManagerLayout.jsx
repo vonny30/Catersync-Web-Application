@@ -33,7 +33,7 @@ const styles = {
   sidebarDesktop:
     'w-64 bg-white border-r border-slate-200 flex flex-col justify-between shrink-0 hidden md:flex relative z-10',
   sidebarMobile:
-    'fixed inset-y-0 left-0 w-64 bg-white border-r border-slate-200 flex flex-col justify-between z-50 transform transition-transform duration-300 ease-in-out md:hidden shadow-2xl',
+    'fixed inset-y-0 left-0 w-64 bg-white border-r border-slate-200 flex flex-col z-50 transform transition-transform duration-300 ease-in-out md:hidden shadow-2xl',
   sidebarOpen: 'translate-x-0',
   sidebarClosed: '-translate-x-full',
   navItem: 'flex items-center gap-3 px-4 py-3 rounded-lg text-sm transition-all duration-200',
@@ -50,7 +50,6 @@ export default function ManagerLayout() {
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
   const closeSidebar = () => setIsSidebarOpen(false);
 
-  // Close profile dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (profileRef.current && !profileRef.current.contains(event.target)) {
@@ -83,7 +82,6 @@ export default function ManagerLayout() {
     }
   };
 
-  // Helper to render nav items (used in both desktop and mobile sidebars)
   const renderNavItems = (isMobile = false) => {
     const navItems = navLinks.map((link) => {
       const Icon = link.icon;
@@ -141,8 +139,8 @@ export default function ManagerLayout() {
 
     return (
       <>
-        <nav className="p-3 space-y-1 mt-2">{navItems}</nav>
-        <div className="p-3 space-y-1 mb-2 border-t border-slate-100 pt-4">
+        <nav className="p-3 space-y-1">{navItems}</nav>
+        <div className="p-3 space-y-1 mt-auto border-t border-slate-100 pt-4">
           {settingsLink}
           {logoutButton}
         </div>
@@ -155,7 +153,6 @@ export default function ManagerLayout() {
       {/* TOP NAVIGATION BAR */}
       <header className={styles.header}>
         <div className="flex items-center gap-3">
-          {/* Hamburger button (visible on mobile) */}
           <button
             onClick={toggleSidebar}
             className="md:hidden p-1 rounded-lg hover:bg-white/10 transition-colors"
@@ -163,13 +160,18 @@ export default function ManagerLayout() {
           >
             <MenuIcon size={24} />
           </button>
-          <div className={styles.logoContainer}>
-            <div className={styles.logoBadge}>CS</div>
+          <Link to="/app" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+            <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-white/30 flex-shrink-0">
+              <img 
+                src="/logo.svg" 
+                alt="Catersync" 
+                className="w-full h-full object-cover" 
+              />
+            </div>
             <h1 className="text-xl font-bold tracking-wide">Catersync</h1>
-          </div>
+          </Link>
         </div>
 
-        {/* Profile dropdown – shows only icon and "Manager" label */}
         <div className="relative" ref={profileRef}>
           <div
             className={styles.profileMenu}
@@ -190,7 +192,6 @@ export default function ManagerLayout() {
             </span>
           </div>
 
-          {/* Dropdown – shows email and role */}
           {isProfileOpen && (
             <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50">
               <div className="px-4 py-2 border-b border-slate-100">
@@ -222,19 +223,18 @@ export default function ManagerLayout() {
         </div>
       </header>
 
-      {/* MAIN CONTAINER */}
       <div className={styles.mainContainer}>
         {/* DESKTOP SIDEBAR */}
         <aside className={styles.sidebarDesktop}>{renderNavItems(false)}</aside>
 
-        {/* MOBILE SIDEBAR (slide-out) */}
+        {/* MOBILE SIDEBAR – Proper spacing */}
         <aside
           className={`${styles.sidebarMobile} ${
             isSidebarOpen ? styles.sidebarOpen : styles.sidebarClosed
           }`}
         >
-          {/* Mobile sidebar header with close button */}
-          <div className="flex items-center justify-between p-4 border-b border-slate-200">
+          {/* Header – compact */}
+          <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 shrink-0">
             <div className="flex items-center gap-3">
               <div className={styles.logoBadge}>CS</div>
               <span className="font-bold text-slate-900">Catersync</span>
@@ -247,10 +247,16 @@ export default function ManagerLayout() {
               <X size={20} className="text-slate-500" />
             </button>
           </div>
-          {renderNavItems(true)}
+
+          {/* Navigation – fills space, Settings pushed to bottom with mt-auto */}
+          <div className="flex-1 flex flex-col overflow-y-auto">
+            {/* Small gap at top (pt-2) so it's not flush against the header */}
+            <div className="pt-2 flex-1 flex flex-col">
+              {renderNavItems(true)}
+            </div>
+          </div>
         </aside>
 
-        {/* PAGE CONTENT WINDOW */}
         <main className={styles.contentWindow}>
           <div key={location.pathname} className="page-transition h-full">
             <Outlet />

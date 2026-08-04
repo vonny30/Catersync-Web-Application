@@ -178,7 +178,7 @@ export default function ShortOrderDetails() {
   }, [id]);
 
   // --- Approve (with 50% check and payment status sync) ---
-  const handleApprove = async () => {
+   const handleApprove = async () => {
     const confirmed = await showConfirm({
       title: 'Approve Order?',
       message: 'Are you sure you want to approve this order? Payment statuses will be set to Downpayment.',
@@ -188,8 +188,26 @@ export default function ShortOrderDetails() {
     if (!confirmed) return;
 
     try {
-      // Conflict check: find other approved events on the same day
+      // --- NEW: Days‑until‑event warning ---
       const eventDate = order.event_datetime ? new Date(order.event_datetime) : null;
+      let daysUntilEvent = null;
+      if (eventDate) {
+        const now = new Date();
+        const diffTime = eventDate.getTime() - now.getTime();
+        daysUntilEvent = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        if (daysUntilEvent < 3 && daysUntilEvent >= 0) {
+          const proceed = await showConfirm({
+            title: '⚠️ Event is Very Soon',
+            message: `This event is ${daysUntilEvent} day${daysUntilEvent !== 1 ? 's' : ''} away (within 3 days). Downpayment is NON‑REFUNDABLE if cancelled. Do you still want to approve?`,
+            confirmLabel: 'Yes, Approve Anyway',
+            cancelLabel: 'Cancel Approval',
+            confirmVariant: 'warning',
+          });
+          if (!proceed) return;
+        }
+      }
+
+      // --- NEW: Conflict check for other approved events on the same day ---
       if (eventDate) {
         const startOfDay = new Date(eventDate);
         startOfDay.setHours(0, 0, 0, 0);
@@ -237,7 +255,7 @@ export default function ShortOrderDetails() {
         }
       }
 
-      // Check 50% payment condition
+      // --- Check 50% payment condition ---
       const { data: paymentsData, error: paymentsError } = await supabase
         .from('payment')
         .select('amount_paid')
@@ -248,9 +266,7 @@ export default function ShortOrderDetails() {
       const required = totalAmount * 0.5;
       if (totalPaid < required) {
         toast.error(
-          `Cannot approve. Total paid (₱${totalPaid.toFixed(
-            2
-          )}) is less than 50% of the total (₱${required.toFixed(2)}). Please record more payments.`,
+          `Cannot approve. Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}). Please record more payments.`,
           { duration: 6000 }
         );
         return;
