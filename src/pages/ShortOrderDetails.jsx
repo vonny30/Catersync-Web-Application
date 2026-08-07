@@ -760,7 +760,9 @@ export default function ShortOrderDetails() {
     }
   };
 
-  // --- PAYMENT HANDLERS (Record) ---
+  // ============================================================
+  // PAYMENT HANDLERS (Record) - UPDATED with validation rules
+  // ============================================================
   const openPaymentModal = () => {
     setPaymentFormData({
       amount: '',
@@ -787,6 +789,7 @@ export default function ShortOrderDetails() {
     e.preventDefault();
     setIsPaymentSubmitting(true);
 
+    // --- 1. Validate required fields ---
     const amount = parseFloat(paymentFormData.amount) || 0;
     if (amount <= 0) {
       toast.error('Amount must be greater than zero.');
@@ -804,12 +807,15 @@ export default function ShortOrderDetails() {
       return;
     }
 
+    // --- 2. Calculate totals ---
     const positivePayments = payments
       .filter(p => p.amount_paid > 0)
       .reduce((sum, p) => sum + p.amount_paid, 0);
     const totalAmount = order.total_amount || 0;
     const remainingBalance = Math.max(0, totalAmount - positivePayments);
+    const isFirstPayment = positivePayments === 0;
 
+    // --- 3. Basic checks (fully paid, exceeds remaining) ---
     if (remainingBalance <= 0) {
       toast.error('This order is already fully paid. No additional payments are allowed.');
       setIsPaymentSubmitting(false);
@@ -820,51 +826,66 @@ export default function ShortOrderDetails() {
       setIsPaymentSubmitting(false);
       return;
     }
+
+    // --- 4. Proof of payment required ---
     if (!selectedFile && (paymentFormData.pay_proof === 'placeholder.png' || !paymentFormData.pay_proof)) {
       toast.error('Please upload a proof of payment image.');
       setIsPaymentSubmitting(false);
       return;
     }
 
-    let finalPayStatus = paymentFormData.pay_status;
-    const status = order.booking_status || 'Pending';
+    // --- 5. Payment Status Validation Rules ---
+    const status = paymentFormData.pay_status;
 
-    if (status === 'Pending') {
-      const hasDownpayment = payments.some(p => p.pay_status === 'Downpayment' && p.amount_paid > 0);
-      if (hasDownpayment) {
-        toast.error('This order already has a downpayment. Wait for approval before recording more payments.');
-        setIsPaymentSubmitting(false);
-        return;
+    if (status === 'Downpayment') {
+      if (isFirstPayment) {
+        // First payment: Downpayment must be at least 50% of total
+        const requiredMin = totalAmount * 0.5;
+        if (amount < requiredMin) {
+          toast.error(`First payment (Downpayment) must be at least 50% of total (₱${requiredMin.toLocaleString()}).`);
+          setIsPaymentSubmitting(false);
+          return;
+        }
       }
-      if (paymentFormData.pay_status !== 'Downpayment') {
-        toast.error('Pending orders can only receive downpayments. Please approve the order first.');
-        setIsPaymentSubmitting(false);
-        return;
-      }
-    }
-
-    if (status === 'Approved' || status === 'Completed') {
-      if (paymentFormData.pay_status === 'Fully Paid' && amount < remainingBalance) {
-        toast.error(`To mark as fully paid, the amount must equal the remaining balance of ₱${remainingBalance.toLocaleString()}.`);
-        setIsPaymentSubmitting(false);
-        return;
-      }
-      const isAmountEqualRemaining = Math.abs(amount - remainingBalance) < 0.01;
-      if (paymentFormData.pay_status === 'Downpayment' && isAmountEqualRemaining) {
-        const confirm = await showConfirm({
-          title: 'Full Payment?',
-          message: `This payment amount (₱${amount.toLocaleString()}) equals the remaining balance. Would you like to mark it as Fully Paid instead?`,
-          confirmLabel: 'Yes, Mark Fully Paid',
-          cancelLabel: 'No, Keep as Downpayment',
-          confirmVariant: 'success',
-        });
-        if (confirm) {
-          finalPayStatus = 'Fully Paid';
-          setPaymentFormData(prev => ({ ...prev, pay_status: 'Fully Paid' }));
+      // If not first payment, any amount is acceptable (subject to remaining balance).
+    } else if (status === 'Fully Paid') {
+      if (isFirstPayment) {
+        // First payment: Fully Paid must equal the total amount
+        if (amount < totalAmount) {
+          toast.error(`First payment marked as Fully Paid must equal the full total amount (₱${totalAmount.toLocaleString()}).`);
+          setIsPaymentSubmitting(false);
+          return;
+        }
+      } else {
+        // Subsequent: Fully Paid must equal the remaining balance to close
+        if (amount < remainingBalance) {
+          toast.error(`To mark as Fully Paid, the amount must equal the remaining balance of ₱${remainingBalance.toLocaleString()}.`);
+          setIsPaymentSubmitting(false);
+          return;
         }
       }
     }
 
+    // --- 6. Handle status override for convenience (if amount equals remaining) ---
+    let finalPayStatus = status;
+    const isAmountEqualRemaining = Math.abs(amount - remainingBalance) < 0.01;
+
+    // If user selected Downpayment but amount equals remaining, ask if they want Fully Paid
+    if (status === 'Downpayment' && isAmountEqualRemaining && !isFirstPayment) {
+      const confirm = await showConfirm({
+        title: 'Full Payment?',
+        message: `This payment amount (₱${amount.toLocaleString()}) equals the remaining balance. Would you like to mark it as Fully Paid instead?`,
+        confirmLabel: 'Yes, Mark Fully Paid',
+        cancelLabel: 'No, Keep as Downpayment',
+        confirmVariant: 'success',
+      });
+      if (confirm) {
+        finalPayStatus = 'Fully Paid';
+        setPaymentFormData(prev => ({ ...prev, pay_status: 'Fully Paid' }));
+      }
+    }
+
+    // --- 7. Record the payment ---
     try {
       let proofUrl = 'placeholder.png';
       if (selectedFile) {
@@ -1553,7 +1574,7 @@ export default function ShortOrderDetails() {
         document.body
       )}
 
-      {/* ===== RECORD PAYMENT MODAL ===== */}
+      {/* ===== RECORD PAYMENT MODAL (with dynamic hints) ===== */}
       {isPaymentModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
@@ -1565,6 +1586,7 @@ export default function ShortOrderDetails() {
             </div>
 
             <form onSubmit={handlePaymentSubmit} className="p-6 overflow-y-auto space-y-6 text-left">
+              {/* Order Details Preview */}
               <div className="bg-[#F8F9FA] border border-slate-200 rounded-lg p-4 space-y-2 text-sm">
                 <h4 className="font-bold text-slate-900 text-sm mb-2">Order Details</h4>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
@@ -1581,24 +1603,69 @@ export default function ShortOrderDetails() {
                     {order.event_datetime ? new Date(order.event_datetime).toLocaleString() : 'N/A'}
                   </span>
                   <span className="text-slate-600 font-medium">Total Amount:</span>
-                  <span className="text-slate-900 font-bold text-[#008A45]">₱{order.total_amount?.toLocaleString() || '0'}</span>
+                  <span className="text-slate-900 font-bold text-[#008A45]">
+                    ₱{order.total_amount?.toLocaleString() || '0'}
+                  </span>
                   <span className="text-slate-600 font-medium">Paid:</span>
                   <span className="text-slate-900 font-semibold">₱{positivePayments.toLocaleString()}</span>
                   <span className="text-slate-600 font-medium">Remaining:</span>
-                  <span className={`font-semibold ${remainingBalance <= 0 ? 'text-green-700' : 'text-amber-700'}`}>₱{remainingBalance.toLocaleString()}</span>
+                  <span className={`font-semibold ${remainingBalance <= 0 ? 'text-green-700' : 'text-amber-700'}`}>
+                    ₱{remainingBalance.toLocaleString()}
+                  </span>
                   <span className="text-slate-600 font-medium">Status:</span>
                   <span className="text-slate-900 font-semibold capitalize">{order.booking_status || 'N/A'}</span>
+                  <span className="text-slate-600 font-medium">First Payment?</span>
+                  <span className="text-slate-900 font-semibold">{positivePayments === 0 ? '✅ Yes' : 'No'}</span>
                 </div>
               </div>
 
+              {/* Payment Details */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Amount (₱)</label>
-                  <input type="number" name="amount" value={paymentFormData.amount} onChange={handlePaymentInputChange} placeholder="0.00" step="0.01" required className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" />
+                  <input
+                    type="number"
+                    name="amount"
+                    value={paymentFormData.amount}
+                    onChange={handlePaymentInputChange}
+                    placeholder="0.00"
+                    step="0.01"
+                    required
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                  />
+                  {/* --- DYNAMIC HINT --- */}
+                  {(() => {
+                    const isFirst = positivePayments === 0;
+                    const status = paymentFormData.pay_status;
+                    const total = order.total_amount || 0;
+                    let hint = '';
+                    if (isFirst) {
+                      if (status === 'Downpayment') {
+                        const minRequired = total * 0.5;
+                        hint = `First payment: Downpayment must be at least 50% of total (₱${minRequired.toLocaleString()}).`;
+                      } else if (status === 'Fully Paid') {
+                        hint = `First payment: Fully Paid must equal total amount (₱${total.toLocaleString()}).`;
+                      }
+                    } else {
+                      if (status === 'Fully Paid') {
+                        hint = `Remaining balance to close: ₱${remainingBalance.toLocaleString()}.`;
+                      } else {
+                        hint = `You can enter any amount up to the remaining balance.`;
+                      }
+                    }
+                    return hint ? (
+                      <p className="text-xs text-blue-600 mt-1 font-medium">{hint}</p>
+                    ) : null;
+                  })()}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Payment Status</label>
-                  <select name="pay_status" value={paymentFormData.pay_status} onChange={handlePaymentInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white">
+                  <select
+                    name="pay_status"
+                    value={paymentFormData.pay_status}
+                    onChange={handlePaymentInputChange}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
+                  >
                     <option value="Downpayment">Downpayment</option>
                     <option value="Fully Paid">Fully Paid</option>
                     <option value="Unpaid">Unpaid</option>
@@ -1606,6 +1673,7 @@ export default function ShortOrderDetails() {
                 </div>
               </div>
 
+              {/* Payment Method */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-2">Payment Method</label>
                 <div className="grid grid-cols-3 gap-3">
@@ -1624,6 +1692,7 @@ export default function ShortOrderDetails() {
                 </div>
               </div>
 
+              {/* Proof of Payment Upload */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Proof of Payment</label>
                 <label className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center relative overflow-hidden h-24">
@@ -1635,6 +1704,7 @@ export default function ShortOrderDetails() {
                 <p className="text-xs text-slate-400 mt-1">Upload a proof image; will be stored in Supabase Storage.</p>
               </div>
 
+              {/* Footer */}
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
                 <button type="button" onClick={() => setIsPaymentModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">Cancel</button>
                 <button type="submit" disabled={isPaymentSubmitting || uploading} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50">
@@ -1685,6 +1755,7 @@ export default function ShortOrderDetails() {
                 </div>
               </div>
 
+              {/* Payment Method */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-2">Payment Method</label>
                 <div className="grid grid-cols-3 gap-3">
@@ -1699,6 +1770,7 @@ export default function ShortOrderDetails() {
                 </div>
               </div>
 
+              {/* Proof of Payment Upload */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Proof of Payment</label>
                 <label className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center relative overflow-hidden h-24">

@@ -1,12 +1,14 @@
 // src/pages/Payments.jsx
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom'; // ✅ Added for navigation
 import { Search, Upload, X, Image as ImageIcon, Edit, Trash2, Check, DollarSign, RefreshCw, Eye } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 
 export default function Payments() {
+  const navigate = useNavigate(); // ✅ Initialize navigation
   const { showConfirm } = useConfirm();
   // --- STATE ---
   const [payments, setPayments] = useState([]);
@@ -51,16 +53,13 @@ export default function Payments() {
     if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
       return null;
     }
-    // If it's a relative path to storage, get the public URL
     if (proofUrl.startsWith('payments/')) {
       const { data } = supabase.storage.from('images').getPublicUrl(proofUrl);
       return data.publicUrl;
     }
-    // If it's already a full URL, return it as-is
     if (proofUrl.startsWith('http://') || proofUrl.startsWith('https://')) {
       return proofUrl;
     }
-    // If it's just a filename, construct the path
     if (!proofUrl.includes('/')) {
       const { data } = supabase.storage.from('images').getPublicUrl(`payments/${proofUrl}`);
       return data.publicUrl;
@@ -72,7 +71,6 @@ export default function Payments() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch ALL payments (including refunds, excluding Pending placeholder)
       const { data: paymentsData, error: paymentsError } = await supabase
         .from('payment')
         .select(`
@@ -83,22 +81,22 @@ export default function Payments() {
             customer:customer_id (first_name, last_name),
             venue,
             event_datetime,
-            total_amount
+            total_amount,
+            booking_status
           )
         `)
-        .neq('pay_status', 'Pending')  // Exclude pending placeholder payments
+        .neq('pay_status', 'Pending')
         .order('pay_datetime', { ascending: false });
 
       if (paymentsError) throw paymentsError;
       setPayments(paymentsData || []);
 
-      // 2. Fetch bookings (approved/pending, not completed/rejected) for dropdown
       const { data: bookingsData, error: bookingsError } = await supabase
         .from('booking')
         .select(`
           booking_id,
           booking_type,
-          customer:customer_id (first_name, last_name),
+          customer:customer_id (first_name, last_name, customer_id),
           total_amount,
           venue,
           event_datetime,
@@ -110,12 +108,9 @@ export default function Payments() {
       if (bookingsError) throw bookingsError;
       setBookings(bookingsData || []);
 
-      // 3. Compute summary statistics
-      // Total collected = net of all payments (positive + negative) – this includes refunds
       const collected = paymentsData.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
       setTotalCollected(collected);
 
-      // Booking totals: sum positive + negative per booking
       const bookingTotals = {};
       paymentsData.forEach(p => {
         if (p.booking_id) {
@@ -126,7 +121,6 @@ export default function Payments() {
       let fullyPaid = 0;
       bookingsData.forEach(b => {
         const paid = bookingTotals[b.booking_id] || 0;
-        // Fully paid if net paid >= total_amount and paid > 0 (refunds might make it negative)
         if (paid >= (b.total_amount || 0) && paid > 0) fullyPaid++;
       });
       setFullyPaidCount(fullyPaid);
@@ -221,36 +215,31 @@ export default function Payments() {
   };
   const remainingBalanceForSelected = getRemainingBalance(formData.booking_id);
 
-  // --- Filter bookings for dropdown based on search term ---
+  const getTotalPaidForBooking = (bookingId) => {
+    if (!bookingId) return 0;
+    return payments
+      .filter(p => p.booking_id === bookingId && p.amount_paid > 0)
+      .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+  };
+  const totalPaidForSelected = getTotalPaidForBooking(formData.booking_id);
+  const isFirstPaymentForSelected = totalPaidForSelected === 0;
+
+  // --- Filter bookings for dropdown ---
   const filteredBookings = bookings.filter(b => {
-    // Always include the currently selected booking (needed for editing)
     if (formData.booking_id && b.booking_id === formData.booking_id) return true;
 
-    // 1. Compute remaining balance (positive payments minus refunds)
     const paid = payments
       .filter(p => p.booking_id === b.booking_id)
       .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
     const remaining = Math.max(0, (b.total_amount || 0) - paid);
-
-    // 2. Hide fully paid bookings
     if (remaining <= 0) return false;
 
-    // 3. For pending bookings, hide if they already have a downpayment
-    if (b.booking_status === 'Pending') {
-      const hasDownpayment = payments.some(
-        p => p.booking_id === b.booking_id && p.pay_status === 'Downpayment' && p.amount_paid > 0
-      );
-      if (hasDownpayment) return false;
-    }
-
-    // 4. Apply search filter (if any)
     if (bookingSearchTerm) {
       const search = bookingSearchTerm.toLowerCase();
       const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}`.toLowerCase() : '';
       const id = b.booking_id.toLowerCase();
       return customerName.includes(search) || id.includes(search);
     }
-
     return true;
   });
 
@@ -259,7 +248,6 @@ export default function Payments() {
     e.preventDefault();
     setIsSubmitting(true);
 
-    // --- 1. Validate required fields ---
     if (!formData.booking_id) {
       toast.error('Please select a booking.');
       setIsSubmitting(false);
@@ -285,10 +273,8 @@ export default function Payments() {
       return;
     }
 
-    // --- 2. Determine if proof is required
     let isProofRequired = true;
     if (editingId) {
-      // If editing and current pay_proof is not a placeholder, proof is optional
       const currentProof = formData.pay_proof;
       if (currentProof && currentProof !== 'placeholder.png' && currentProof !== 'refund_placeholder.png') {
         isProofRequired = false;
@@ -300,7 +286,6 @@ export default function Payments() {
       return;
     }
 
-    // --- 3. Get the selected booking details ---
     const selectedBooking = bookings.find(b => b.booking_id === formData.booking_id);
     if (!selectedBooking) {
       toast.error('Selected booking not found.');
@@ -308,78 +293,69 @@ export default function Payments() {
       return;
     }
 
-    // --- 4. Calculate current paid amount and remaining balance (including refunds) ---
     const paid = payments
       .filter(p => p.booking_id === formData.booking_id)
       .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
     const totalAmount = selectedBooking.total_amount || 0;
     const remainingBalance = Math.max(0, totalAmount - paid);
+    const isFirstPayment = paid === 0;
 
-    // --- 5. Check if booking is already fully paid ---
     if (remainingBalance <= 0) {
       toast.error('This booking is already fully paid. No additional payments are allowed.');
       setIsSubmitting(false);
       return;
     }
 
-    // --- 6. Validate amount does not exceed remaining balance ---
     if (amount > remainingBalance) {
       toast.error(`Amount exceeds remaining balance of ₱${remainingBalance.toLocaleString()}.`);
       setIsSubmitting(false);
       return;
     }
 
-    // --- 7. Determine the final payment status (may be changed by user confirmation) ---
-    let finalPayStatus = formData.pay_status;
-    const status = selectedBooking.booking_status || 'Pending';
+    const status = formData.pay_status;
 
-    // --- 8. Check booking status and payment rules ---
-    if (status === 'Pending') {
-      const hasDownpayment = payments.some(
-        p => p.booking_id === formData.booking_id && p.pay_status === 'Downpayment' && p.amount_paid > 0
-      );
-      if (hasDownpayment) {
-        toast.error('This booking already has a downpayment. Wait for approval before recording more payments.');
-        setIsSubmitting(false);
-        return;
+    if (status === 'Downpayment') {
+      if (isFirstPayment) {
+        const requiredMin = totalAmount * 0.5;
+        if (amount < requiredMin) {
+          toast.error(`First payment (Downpayment) must be at least 50% of total (₱${requiredMin.toLocaleString()}).`);
+          setIsSubmitting(false);
+          return;
+        }
       }
-      if (formData.pay_status !== 'Downpayment') {
-        toast.error('Pending bookings can only receive downpayments. Please approve the booking first for full payment.');
-        setIsSubmitting(false);
-        return;
-      }
-    }
-
-    // --- 9. For approved bookings: handle "Fully Paid" conversion ---
-    if (status === 'Approved' || status === 'Completed') {
-      // If user selected "Fully Paid", amount must equal remaining balance
-      if (formData.pay_status === 'Fully Paid' && amount < remainingBalance) {
-        toast.error(`To mark as fully paid, the amount must equal the remaining balance of ₱${remainingBalance.toLocaleString()}.`);
-        setIsSubmitting(false);
-        return;
-      }
-
-      // Use tolerance to avoid floating-point issues
-      const isAmountEqualRemaining = Math.abs(amount - remainingBalance) < 0.01;
-
-      // If amount equals remaining balance and user selected "Downpayment", ask if they want to convert to Fully Paid
-      if (formData.pay_status === 'Downpayment' && isAmountEqualRemaining) {
-        const confirm = await showConfirm({
-          title: 'Full Payment?',
-          message: `This payment amount (₱${amount.toLocaleString()}) equals the remaining balance. Would you like to mark it as Fully Paid instead?`,
-          confirmLabel: 'Yes, Mark Fully Paid',
-          cancelLabel: 'No, Keep as Downpayment',
-          confirmVariant: 'success',
-        });
-        if (confirm) {
-          finalPayStatus = 'Fully Paid';
-          setFormData(prev => ({ ...prev, pay_status: 'Fully Paid' }));
-          // Continue to submit (no return)
+    } else if (status === 'Fully Paid') {
+      if (isFirstPayment) {
+        if (amount < totalAmount) {
+          toast.error(`First payment marked as Fully Paid must equal the full total amount (₱${totalAmount.toLocaleString()}).`);
+          setIsSubmitting(false);
+          return;
+        }
+      } else {
+        if (amount < remainingBalance) {
+          toast.error(`To mark as Fully Paid, the amount must equal the remaining balance of ₱${remainingBalance.toLocaleString()}.`);
+          setIsSubmitting(false);
+          return;
         }
       }
     }
 
-    // --- 10. Proceed with payment recording ---
+    let finalPayStatus = status;
+    const isAmountEqualRemaining = Math.abs(amount - remainingBalance) < 0.01;
+
+    if (status === 'Downpayment' && isAmountEqualRemaining && !isFirstPayment) {
+      const confirm = await showConfirm({
+        title: 'Full Payment?',
+        message: `This payment amount (₱${amount.toLocaleString()}) equals the remaining balance. Would you like to mark it as Fully Paid instead?`,
+        confirmLabel: 'Yes, Mark Fully Paid',
+        cancelLabel: 'No, Keep as Downpayment',
+        confirmVariant: 'success',
+      });
+      if (confirm) {
+        finalPayStatus = 'Fully Paid';
+        setFormData(prev => ({ ...prev, pay_status: 'Fully Paid' }));
+      }
+    }
+
     try {
       let proofUrl = formData.pay_proof;
 
@@ -490,13 +466,11 @@ export default function Payments() {
     return map[status] || 'bg-slate-100 text-slate-600';
   };
 
-  // Helper to render proof image with proper Supabase URL
   const renderProof = (proofUrl) => {
     if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
       return <span className="text-xs text-slate-400 italic">None</span>;
     }
 
-    // Get the full public URL
     const fullUrl = getProofUrl(proofUrl);
     if (!fullUrl) {
       return <span className="text-xs text-slate-400 italic">Invalid</span>;
@@ -525,8 +499,19 @@ export default function Payments() {
     );
   };
 
-  // Check if a payment is a refund (negative amount)
   const isRefund = (payment) => payment.amount_paid < 0;
+
+  // --- Row click handler: navigate to booking or short order details ---
+  const handleRowClick = (payment) => {
+    if (!payment.booking) return;
+    const bookingType = payment.booking.booking_type;
+    const bookingId = payment.booking.booking_id;
+    if (bookingType === 'Short Order') {
+      navigate(`/app/orders/${bookingId}`);
+    } else {
+      navigate(`/app/bookings/${bookingId}`);
+    }
+  };
 
   return (
     <div className="space-y-6 relative">
@@ -588,7 +573,7 @@ export default function Payments() {
         ))}
       </div>
 
-      {/* PAYMENTS TABLE */}
+      {/* PAYMENTS TABLE – rows are clickable and navigate to details */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -614,7 +599,11 @@ export default function Payments() {
                 filteredPayments.map((payment) => {
                   const refund = isRefund(payment);
                   return (
-                    <tr key={payment.payment_id} className={`hover:bg-slate-50 transition-colors ${refund ? 'bg-red-50/50' : ''}`}>
+                    <tr
+                      key={payment.payment_id}
+                      className={`hover:bg-slate-50 transition-colors cursor-pointer ${refund ? 'bg-red-50/50' : ''}`}
+                      onClick={() => handleRowClick(payment)}
+                    >
                       <td className="p-4">
                         <p className="font-bold text-slate-900">{getClientName(payment)}</p>
                       </td>
@@ -635,7 +624,7 @@ export default function Payments() {
                       <td className="p-4 text-center">
                         {renderProof(payment.pay_proof)}
                       </td>
-                      <td className="p-4 text-right">
+                      <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-3">
                           <button
                             onClick={() => openEditModal(payment)}
@@ -663,7 +652,7 @@ export default function Payments() {
       </div>
 
       {/* ========================================================= */}
-      {/* RECORD / EDIT PAYMENT MODAL */}
+      {/* RECORD / EDIT PAYMENT MODAL (unchanged) */}
       {/* ========================================================= */}
       {isModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
@@ -685,7 +674,6 @@ export default function Payments() {
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Select Booking</label>
                 
-                {/* Search input for bookings */}
                 <div className="relative mb-2">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                   <input
@@ -707,9 +695,13 @@ export default function Payments() {
                   <option value="">-- Select Booking --</option>
                   {filteredBookings.map((b) => {
                     const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
+                    const paid = payments
+                      .filter(p => p.booking_id === b.booking_id)
+                      .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+                    const remaining = Math.max(0, (b.total_amount || 0) - paid);
                     return (
                       <option key={b.booking_id} value={b.booking_id}>
-                        {b.booking_id.slice(0, 8)} - {customerName} ({b.booking_type})
+                        {b.booking_id.slice(0, 8)} - {customerName} ({b.booking_type}) - Remaining: ₱{remaining.toLocaleString()}
                       </option>
                     );
                   })}
@@ -744,7 +736,6 @@ export default function Payments() {
                     <span className="text-slate-600 font-medium">Status:</span>
                     <span className="text-slate-900 font-semibold capitalize">{selectedBooking.booking_status || 'N/A'}</span>
                   </div>
-                  {/* Show existing payments summary */}
                   {payments.filter(p => p.booking_id === selectedBooking.booking_id).length > 0 && (
                     <div className="mt-2 pt-2 border-t border-slate-200 text-xs text-slate-500">
                       <span className="font-medium">Existing payments: </span>
@@ -756,12 +747,18 @@ export default function Payments() {
                       <br />
                       <span className="font-medium">Remaining balance: </span>
                       <span className="font-bold text-amber-700">₱{remainingBalanceForSelected.toLocaleString()}</span>
+                      <br />
+                      <span className="font-medium">First Payment? </span>
+                      <span className="font-semibold">{isFirstPaymentForSelected ? '✅ Yes' : 'No'}</span>
                     </div>
                   )}
                   {payments.filter(p => p.booking_id === selectedBooking.booking_id).length === 0 && (
                     <div className="mt-2 pt-2 border-t border-slate-200 text-xs text-slate-500">
                       <span className="font-medium">Remaining balance: </span>
                       <span className="font-bold text-amber-700">₱{remainingBalanceForSelected.toLocaleString()}</span>
+                      <br />
+                      <span className="font-medium">First Payment? </span>
+                      <span className="font-semibold">✅ Yes</span>
                     </div>
                   )}
                 </div>
@@ -784,6 +781,29 @@ export default function Payments() {
                   {selectedBooking && (
                     <p className="text-xs text-slate-400 mt-1">Max: ₱{remainingBalanceForSelected.toLocaleString()}</p>
                   )}
+                  {selectedBooking && (() => {
+                    const total = selectedBooking.total_amount || 0;
+                    const isFirst = isFirstPaymentForSelected;
+                    const status = formData.pay_status;
+                    let hint = '';
+                    if (isFirst) {
+                      if (status === 'Downpayment') {
+                        const minRequired = total * 0.5;
+                        hint = `First payment: Downpayment must be at least 50% of total (₱${minRequired.toLocaleString()}).`;
+                      } else if (status === 'Fully Paid') {
+                        hint = `First payment: Fully Paid must equal total amount (₱${total.toLocaleString()}).`;
+                      }
+                    } else {
+                      if (status === 'Fully Paid') {
+                        hint = `Remaining balance to close: ₱${remainingBalanceForSelected.toLocaleString()}.`;
+                      } else {
+                        hint = `You can enter any amount up to the remaining balance.`;
+                      }
+                    }
+                    return hint ? (
+                      <p className="text-xs text-blue-600 mt-1 font-medium">{hint}</p>
+                    ) : null;
+                  })()}
                 </div>
                 
                 <div>
@@ -798,6 +818,7 @@ export default function Payments() {
                     <option value="Downpayment">Downpayment</option>
                     <option value="Fully Paid">Fully Paid</option>
                   </select>
+                  <p className="text-xs text-slate-400 mt-1">Status cannot be edited after recording</p>
                 </div>
               </div>
 
