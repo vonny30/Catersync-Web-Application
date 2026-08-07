@@ -4,12 +4,13 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
   Search, Check, Edit, Trash2, ChevronLeft, ChevronRight,
-  Filter, X, RefreshCw, RotateCcw, UserPlus, Image as ImageIcon
+  Filter, X, RefreshCw, RotateCcw, UserPlus, Image as ImageIcon, User, Users
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { checkEquipmentCapacityForDate, allocateEquipmentForBooking } from '../utils/equipment';
+import { createWalkInCustomer } from '../utils/createWalkInCustomer';
 
 export default function Bookings() {
   const navigate = useNavigate();
@@ -42,7 +43,8 @@ export default function Bookings() {
   // Modal states for booking create/edit
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [isWalkIn, setIsWalkIn] = useState(false);
+  // --- NEW: Customer mode selector: 'existing' or 'new' ---
+  const [customerMode, setCustomerMode] = useState('existing');
   const [formData, setFormData] = useState({
     customer_id: '',
     package_id: '',
@@ -97,146 +99,6 @@ export default function Bookings() {
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
     console.error('Error:', error);
     toast.error(userMessage);
-  };
-
-  // --- Create walk-in customer with duplicate trapping ---
-  const createWalkInCustomer = async () => {
-    window.isCreatingWalkIn = true;
-
-    try {
-      const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) throw sessionError;
-      if (!currentSession) {
-        throw new Error('You must be logged in as a manager to create walk-in customers.');
-      }
-
-      // 1. Check duplicate by email
-      const { data: existingByEmail, error: emailCheckError } = await supabase
-        .from('customer')
-        .select('customer_id, first_name, last_name, contact_no')
-        .eq('email_address', walkInData.email_address)
-        .maybeSingle();
-
-      if (emailCheckError) throw emailCheckError;
-
-      if (existingByEmail) {
-        toast(`Customer already exists: ${existingByEmail.first_name} ${existingByEmail.last_name}. Reusing existing profile.`, { icon: 'ℹ️' });
-        return existingByEmail.customer_id;
-      }
-
-      // 2. Check duplicate by exact name + phone
-      const { data: existingByNamePhone, error: namePhoneError } = await supabase
-        .from('customer')
-        .select('customer_id, email_address')
-        .eq('first_name', walkInData.first_name)
-        .eq('last_name', walkInData.last_name)
-        .eq('contact_no', walkInData.contact_no)
-        .maybeSingle();
-
-      if (namePhoneError) throw namePhoneError;
-
-      if (existingByNamePhone) {
-        toast(`Customer with same name and phone already exists (email: ${existingByNamePhone.email_address}). Reusing existing profile.`, { icon: 'ℹ️' });
-        return existingByNamePhone.customer_id;
-      }
-
-      // 3. No duplicate – create new customer
-      const username = walkInData.email_address.split('@')[0];
-      let finalUsername = username;
-      let counter = 1;
-      while (true) {
-        const { data: existingUsername, error: usernameCheckError } = await supabase
-          .from('customer')
-          .select('customer_id')
-          .eq('username', finalUsername)
-          .maybeSingle();
-        if (usernameCheckError) throw usernameCheckError;
-        if (!existingUsername) break;
-        finalUsername = `${username}${counter}`;
-        counter++;
-      }
-
-      // Create Supabase Auth user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: walkInData.email_address,
-        password: 'password123',
-        options: {
-          emailRedirectTo: window.location.origin,
-        },
-      });
-
-      if (authError) {
-        if (authError.message.includes('already registered')) {
-          const { data: existing } = await supabase
-            .from('customer')
-            .select('customer_id')
-            .eq('email_address', walkInData.email_address)
-            .maybeSingle();
-          if (existing) {
-            toast('Customer already exists. Using existing account.', { icon: 'ℹ️' });
-            return existing.customer_id;
-          }
-          throw new Error('Email already registered but no customer record found. Please use a different email.');
-        }
-        throw authError;
-      }
-
-      // Insert customer record
-      const { data: newCustomer, error: customerError } = await supabase
-        .from('customer')
-        .insert([{
-          first_name: walkInData.first_name,
-          last_name: walkInData.last_name,
-          contact_no: walkInData.contact_no,
-          email_address: walkInData.email_address,
-          cus_address: walkInData.cus_address || 'N/A',
-          username: finalUsername,
-          password: 'password123',
-          account_status: 'Active',
-          user_id: authData.user?.id,
-        }])
-        .select()
-        .single();
-
-      if (customerError) throw customerError;
-
-      // Restore manager session
-      await new Promise(resolve => setTimeout(resolve, 300));
-
-      if (currentSession) {
-        const { error: restoreError } = await supabase.auth.setSession({
-          access_token: currentSession.access_token,
-          refresh_token: currentSession.refresh_token,
-        });
-        if (restoreError) {
-          console.error('Failed to restore manager session:', restoreError);
-          const { error: refreshError } = await supabase.auth.refreshSession();
-          if (refreshError) {
-            console.error('Refresh also failed:', refreshError);
-            const managerSession = localStorage.getItem('supabase.auth.token');
-            if (managerSession) {
-              try {
-                const parsed = JSON.parse(managerSession);
-                await supabase.auth.setSession(parsed);
-              } catch (e) {
-                console.error('Failed to restore from localStorage:', e);
-              }
-            }
-          }
-        }
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 300));
-
-      toast.success('Customer account created! Default password: password123');
-      return newCustomer.customer_id;
-
-    } catch (error) {
-      console.error('Error creating walk-in customer:', error);
-      throw new Error(error.message || 'Failed to create customer account. Please try again.');
-    } finally {
-      window.isCreatingWalkIn = false;
-    }
   };
 
   // --- Auto-calculate total amount based on pricing type ---
@@ -513,7 +375,6 @@ export default function Bookings() {
   const selectCustomer = (customer) => {
     setFormData(prev => ({ ...prev, customer_id: customer.customer_id }));
     setCustomerSearch(`${customer.first_name} ${customer.last_name}`);
-    setIsWalkIn(false);
     setShowCustomerList(false);
   };
 
@@ -533,7 +394,7 @@ export default function Bookings() {
 
   const openNewBookingModal = () => {
     setEditingId(null);
-    setIsWalkIn(false);
+    setCustomerMode('existing');
     setCustomerSearch('');
     setShowCustomerList(false);
     setFormData({
@@ -563,7 +424,7 @@ export default function Bookings() {
 
   const openEditModal = (booking) => {
     setEditingId(booking.booking_id);
-    setIsWalkIn(false);
+    setCustomerMode('existing');
     setCustomerSearch('');
     setShowCustomerList(false);
     setFormData({
@@ -592,7 +453,7 @@ export default function Bookings() {
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingId(null);
-    setIsWalkIn(false);
+    setCustomerMode('existing');
     setCustomerSearch('');
     setShowCustomerList(false);
     setFormData({
@@ -649,13 +510,15 @@ export default function Bookings() {
 
     // --- CUSTOMER VALIDATION ---
     if (!editingId) {
-      if (!formData.customer_id && !isWalkIn) {
-        toast.error('Please select a customer or create a walk-in customer.');
+      // For existing customer mode: customer_id must be selected
+      if (customerMode === 'existing' && !formData.customer_id) {
+        toast.error('Please select an existing customer.');
         setIsSubmitting(false);
         return;
       }
 
-      if (isWalkIn) {
+      // For walk-in/new customer mode: require all fields
+      if (customerMode === 'new') {
         if (!walkInData.first_name || !walkInData.last_name || !walkInData.contact_no || !walkInData.email_address) {
           toast.error('Please fill in all customer details for walk-in customer.');
           setIsSubmitting(false);
@@ -763,10 +626,10 @@ export default function Bookings() {
     try {
       let customerId = formData.customer_id;
 
-      // If walk-in, create customer account first
-      if (isWalkIn) {
+      // If walk-in/new customer, create customer account first
+      if (customerMode === 'new') {
         try {
-          customerId = await createWalkInCustomer();
+          customerId = await createWalkInCustomer(walkInData);
           if (!customerId) {
             toast.error('Failed to create customer account.');
             setIsSubmitting(false);
@@ -901,7 +764,7 @@ export default function Bookings() {
         
         // 🚫 REMOVED: placeholder ₱0 Pending payment insertion – no longer needed
 
-        if (isWalkIn) await new Promise(resolve => setTimeout(resolve, 500));
+        if (customerMode === 'new') await new Promise(resolve => setTimeout(resolve, 500));
         toast.success('Booking created successfully!');
         closeModal();
         fetchData();
@@ -1688,173 +1551,224 @@ export default function Bookings() {
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 text-left">
-              {/* Customer Selection */}
+              {/* --- Customer Selection with Mode Toggle --- */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Customer</label>
                 
                 {editingId ? (
+                  // Edit mode: show customer name (cannot change)
                   <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-700">
                     {customers.find(c => c.customer_id === formData.customer_id)?.first_name}{' '}
                     {customers.find(c => c.customer_id === formData.customer_id)?.last_name}
                     <span className="ml-2 text-xs font-normal text-slate-400">(Cannot change in edit mode)</span>
                   </div>
-                ) : isWalkIn ? (
-                  <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-bold text-slate-700">New Customer Details</p>
+                ) : (
+                  <div className="space-y-4">
+                    {/* --- Mode Selector Buttons --- */}
+                    <div className="flex gap-3">
                       <button
                         type="button"
                         onClick={() => {
-                          setIsWalkIn(false);
-                          setWalkInData({ first_name: '', last_name: '', contact_no: '', email_address: '', cus_address: '' });
+                          setCustomerMode('existing');
+                          setFormData(prev => ({ ...prev, customer_id: '' }));
+                          setCustomerSearch('');
+                          setShowCustomerList(false);
                         }}
-                        className="text-xs text-slate-400 hover:text-slate-600"
+                        className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg border-2 font-semibold text-sm transition-all ${
+                          customerMode === 'existing'
+                            ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900'
+                            : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                        }`}
                       >
-                        Cancel
+                        <Users size={18} />
+                        Existing Customer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomerMode('new');
+                          setFormData(prev => ({ ...prev, customer_id: '' }));
+                          setCustomerSearch('');
+                          setShowCustomerList(false);
+                        }}
+                        className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-lg border-2 font-semibold text-sm transition-all ${
+                          customerMode === 'new'
+                            ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900'
+                            : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                        }`}
+                      >
+                        <UserPlus size={18} />
+                        Walk-in / New Customer
                       </button>
                     </div>
-                    <p className="text-xs text-amber-600 -mt-2">
-                      ⚠️ Account will be created with default password: <strong>password123</strong>
-                    </p>
-                    <div className="grid grid-cols-2 gap-3">
+
+                    {/* --- Existing Customer Search --- */}
+                    {customerMode === 'existing' && (
                       <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-0.5">First Name *</label>
-                        <input
-                          type="text"
-                          name="first_name"
-                          value={walkInData.first_name}
-                          onChange={handleWalkInChange}
-                          placeholder="e.g. Juan"
-                          className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-0.5">Last Name *</label>
-                        <input
-                          type="text"
-                          name="last_name"
-                          value={walkInData.last_name}
-                          onChange={handleWalkInChange}
-                          placeholder="e.g. Dela Cruz"
-                          className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
-                          required
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-0.5">Contact Number *</label>
-                        <input
-                          type="text"
-                          name="contact_no"
-                          value={walkInData.contact_no}
-                          onChange={handleWalkInChange}
-                          placeholder="09123456789"
-                          className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
-                          required
-                        />
-                        <p className="text-[10px] text-slate-400 mt-0.5">Must be exactly 11 digits</p>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-0.5">Email Address *</label>
-                        <input
-                          type="email"
-                          name="email_address"
-                          value={walkInData.email_address}
-                          onChange={handleWalkInChange}
-                          placeholder="e.g. juan@email.com"
-                          className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
-                          required
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Address</label>
-                      <input
-                        type="text"
-                        name="cus_address"
-                        value={walkInData.cus_address}
-                        onChange={handleWalkInChange}
-                        placeholder="e.g. Banga, Bayawan City"
-                        className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="relative">
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                        <input
-                          type="text"
-                          value={customerSearch}
-                          onChange={(e) => {
-                            setCustomerSearch(e.target.value);
-                            setShowCustomerList(true);
-                          }}
-                          onFocus={() => setShowCustomerList(true)}
-                          placeholder="Search existing customer by name, phone, or email..."
-                          className="w-full border border-slate-300 rounded-lg pl-10 pr-3 py-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
-                        />
-                      </div>
-                      
-                      {showCustomerList && (
-                        <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                          {filteredCustomers.length > 0 ? (
-                            filteredCustomers.map(customer => (
-                              <button
-                                key={customer.customer_id}
-                                type="button"
-                                onClick={() => selectCustomer(customer)}
-                                className="w-full text-left px-4 py-2.5 hover:bg-slate-50 border-b border-slate-100 last:border-0 transition-colors"
-                              >
-                                <div className="font-medium text-slate-900">
-                                  {customer.first_name} {customer.last_name}
+                        <div className="relative">
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                            <input
+                              type="text"
+                              value={customerSearch}
+                              onChange={(e) => {
+                                setCustomerSearch(e.target.value);
+                                setShowCustomerList(true);
+                              }}
+                              onFocus={() => setShowCustomerList(true)}
+                              placeholder="Search by name, phone, or email..."
+                              className="w-full border border-slate-300 rounded-lg pl-10 pr-3 py-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
+                            />
+                          </div>
+                          
+                          {showCustomerList && (
+                            <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                              {filteredCustomers.length > 0 ? (
+                                filteredCustomers.map(customer => (
+                                  <button
+                                    key={customer.customer_id}
+                                    type="button"
+                                    onClick={() => selectCustomer(customer)}
+                                    className="w-full text-left px-4 py-2.5 hover:bg-slate-50 border-b border-slate-100 last:border-0 transition-colors"
+                                  >
+                                    <div className="font-medium text-slate-900">
+                                      {customer.first_name} {customer.last_name}
+                                    </div>
+                                    <div className="text-xs text-slate-500 flex gap-3 mt-0.5">
+                                      <span>{customer.contact_no || 'No phone'}</span>
+                                      <span className="text-slate-300">|</span>
+                                      <span>{customer.email_address || 'No email'}</span>
+                                    </div>
+                                  </button>
+                                ))
+                              ) : (
+                                <div className="p-3 text-center">
+                                  <p className="text-sm text-slate-500 mb-2">No existing customers found.</p>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setCustomerMode('new');
+                                      // Auto-fill: if search contains '@', put in email, else split name
+                                      const search = customerSearch.trim();
+                                      if (search.includes('@')) {
+                                        setWalkInData(prev => ({ ...prev, email_address: search }));
+                                      } else {
+                                        const parts = search.split(' ');
+                                        if (parts.length === 1 && search.length > 0) {
+                                          setWalkInData(prev => ({ ...prev, first_name: parts[0] }));
+                                        } else if (parts.length > 1) {
+                                          setWalkInData(prev => ({ ...prev, first_name: parts[0], last_name: parts.slice(1).join(' ') }));
+                                        }
+                                      }
+                                    }}
+                                    className="inline-flex items-center gap-2 px-4 py-2 bg-[#008A45] text-white text-sm font-semibold rounded-lg hover:bg-[#007038] transition-colors"
+                                  >
+                                    <UserPlus size={16} />
+                                    Create New Customer
+                                  </button>
                                 </div>
-                                <div className="text-xs text-slate-500 flex gap-3 mt-0.5">
-                                  <span>{customer.contact_no || 'No phone'}</span>
-                                  <span className="text-slate-300">|</span>
-                                  <span>{customer.email_address || 'No email'}</span>
-                                </div>
-                              </button>
-                            ))
-                          ) : (
-                            <div className="p-3 text-center">
-                              <p className="text-sm text-slate-500 mb-2">No existing customers found.</p>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setIsWalkIn(true);
-                                  setShowCustomerList(false);
-                                  // Better auto-fill: if search contains '@', put in email, else split name
-                                  const search = customerSearch.trim();
-                                  if (search.includes('@')) {
-                                    setWalkInData(prev => ({ ...prev, email_address: search }));
-                                  } else {
-                                    const parts = search.split(' ');
-                                    if (parts.length === 1 && search.length > 0) {
-                                      setWalkInData(prev => ({ ...prev, first_name: parts[0] }));
-                                    } else if (parts.length > 1) {
-                                      setWalkInData(prev => ({ ...prev, first_name: parts[0], last_name: parts.slice(1).join(' ') }));
-                                    }
-                                  }
-                                }}
-                                className="inline-flex items-center gap-2 px-4 py-2 bg-[#008A45] text-white text-sm font-semibold rounded-lg hover:bg-[#007038] transition-colors"
-                              >
-                                <UserPlus size={16} />
-                                Create New Customer
-                              </button>
+                              )}
                             </div>
                           )}
                         </div>
-                      )}
-                    </div>
-                    
-                    {!formData.customer_id && customerSearch === '' && (
-                      <p className="text-xs text-slate-400 mt-1">
-                        Type to search for an existing customer, or click "Create New Customer" if not found.
-                      </p>
+                        
+                        {!formData.customer_id && customerSearch === '' && (
+                          <p className="text-xs text-slate-400 mt-1">
+                            Type to search for an existing customer, or switch to "Walk-in / New Customer" above.
+                          </p>
+                        )}
+                        {formData.customer_id && (
+                          <p className="text-xs text-green-600 mt-1 font-medium">
+                            ✅ Selected: {customers.find(c => c.customer_id === formData.customer_id)?.first_name} {customers.find(c => c.customer_id === formData.customer_id)?.last_name}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* --- Walk-in / New Customer Form --- */}
+                    {customerMode === 'new' && (
+                      <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-bold text-slate-700">New Customer Details</p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCustomerMode('existing');
+                              setWalkInData({ first_name: '', last_name: '', contact_no: '', email_address: '', cus_address: '' });
+                            }}
+                            className="text-xs text-slate-400 hover:text-slate-600"
+                          >
+                            Switch to Existing
+                          </button>
+                        </div>
+                        <p className="text-xs text-amber-600 -mt-2">
+                          ⚠️ Account will be created with a temporary password. The customer can reset it via email.
+                        </p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-0.5">First Name *</label>
+                            <input
+                              type="text"
+                              name="first_name"
+                              value={walkInData.first_name}
+                              onChange={handleWalkInChange}
+                              placeholder="e.g. Juan"
+                              className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                              required
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-0.5">Last Name *</label>
+                            <input
+                              type="text"
+                              name="last_name"
+                              value={walkInData.last_name}
+                              onChange={handleWalkInChange}
+                              placeholder="e.g. Dela Cruz"
+                              className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                              required
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-0.5">Contact Number *</label>
+                            <input
+                              type="text"
+                              name="contact_no"
+                              value={walkInData.contact_no}
+                              onChange={handleWalkInChange}
+                              placeholder="09123456789"
+                              className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                              required
+                            />
+                            <p className="text-[10px] text-slate-400 mt-0.5">Must be exactly 11 digits</p>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-0.5">Email Address *</label>
+                            <input
+                              type="email"
+                              name="email_address"
+                              value={walkInData.email_address}
+                              onChange={handleWalkInChange}
+                              placeholder="e.g. juan@email.com"
+                              className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                              required
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-0.5">Address</label>
+                          <input
+                            type="text"
+                            name="cus_address"
+                            value={walkInData.cus_address}
+                            onChange={handleWalkInChange}
+                            placeholder="e.g. Banga, Bayawan City"
+                            className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                          />
+                        </div>
+                      </div>
                     )}
                   </div>
                 )}
@@ -1957,7 +1871,6 @@ export default function Bookings() {
                   {(() => {
                     const selectedPackage = packages.find(p => p.package_id === formData.package_id);
                     const packageColors = selectedPackage?.colors || [];
-                    // Build options: include package colors + the current selection if it's not in the list (for editing custom values)
                     let colorOptions = [...packageColors];
                     if (formData.motif_color && !colorOptions.includes(formData.motif_color)) {
                       colorOptions.push(formData.motif_color);

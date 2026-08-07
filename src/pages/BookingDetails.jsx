@@ -987,6 +987,9 @@ export default function BookingDetails() {
     }
   };
 
+  // ============================================================
+  // UPDATED: handlePaymentSubmit with payment validation rules
+  // ============================================================
   const handlePaymentSubmit = async (e) => {
     e.preventDefault();
     setIsPaymentSubmitting(true);
@@ -1009,13 +1012,15 @@ export default function BookingDetails() {
       return;
     }
 
-    // --- 2. Calculate remaining balance using positive payments ---
+    // --- 2. Calculate totals ---
     const positivePayments = payments
       .filter(p => p.amount_paid > 0)
       .reduce((sum, p) => sum + p.amount_paid, 0);
     const totalAmount = booking.total_amount || 0;
     const remainingBalance = Math.max(0, totalAmount - positivePayments);
+    const isFirstPayment = positivePayments === 0;
 
+    // --- 3. Basic checks (fully paid, exceeds remaining) ---
     if (remainingBalance <= 0) {
       toast.error('This booking is already fully paid. No additional payments are allowed.');
       setIsPaymentSubmitting(false);
@@ -1027,52 +1032,66 @@ export default function BookingDetails() {
       return;
     }
 
+    // --- 4. Proof of payment required ---
     if (!selectedFile && (paymentFormData.pay_proof === 'placeholder.png' || !paymentFormData.pay_proof)) {
       toast.error('Please upload a proof of payment image.');
       setIsPaymentSubmitting(false);
       return;
     }
 
-    let finalPayStatus = paymentFormData.pay_status;
-    const status = booking.booking_status || 'Pending';
+    // --- 5. NEW: Payment Status Validation Rules ---
+    const status = paymentFormData.pay_status;
 
-    if (status === 'Pending') {
-      const hasDownpayment = payments.some(p => p.pay_status === 'Downpayment' && p.amount_paid > 0);
-      if (hasDownpayment) {
-        toast.error('This booking already has a downpayment. Wait for approval before recording more payments.');
-        setIsPaymentSubmitting(false);
-        return;
+    if (status === 'Downpayment') {
+      if (isFirstPayment) {
+        // First payment: Downpayment must be at least 50% of total
+        const requiredMin = totalAmount * 0.5;
+        if (amount < requiredMin) {
+          toast.error(`First payment (Downpayment) must be at least 50% of total (₱${requiredMin.toLocaleString()}).`);
+          setIsPaymentSubmitting(false);
+          return;
+        }
+        // If amount equals remaining (which is total), we might allow marking as Fully Paid, but we'll ask below.
       }
-      if (paymentFormData.pay_status !== 'Downpayment') {
-        toast.error('Pending bookings can only receive downpayments. Please approve the booking first.');
-        setIsPaymentSubmitting(false);
-        return;
-      }
-    }
-
-    if (status === 'Approved' || status === 'Completed') {
-      if (paymentFormData.pay_status === 'Fully Paid' && amount < remainingBalance) {
-        toast.error(`To mark as fully paid, the amount must equal the remaining balance of ₱${remainingBalance.toLocaleString()}.`);
-        setIsPaymentSubmitting(false);
-        return;
-      }
-
-      const isAmountEqualRemaining = Math.abs(amount - remainingBalance) < 0.01;
-      if (paymentFormData.pay_status === 'Downpayment' && isAmountEqualRemaining) {
-        const confirm = await showConfirm({
-          title: 'Full Payment?',
-          message: `This payment amount (₱${amount.toLocaleString()}) equals the remaining balance. Would you like to mark it as Fully Paid instead?`,
-          confirmLabel: 'Yes, Mark Fully Paid',
-          cancelLabel: 'No, Keep as Downpayment',
-          confirmVariant: 'success',
-        });
-        if (confirm) {
-          finalPayStatus = 'Fully Paid';
-          setPaymentFormData(prev => ({ ...prev, pay_status: 'Fully Paid' }));
+      // If not first payment, any amount is acceptable (subject to remaining balance).
+    } else if (status === 'Fully Paid') {
+      if (isFirstPayment) {
+        // First payment: Fully Paid must equal the total amount
+        if (amount < totalAmount) {
+          toast.error(`First payment marked as Fully Paid must equal the full total amount (₱${totalAmount.toLocaleString()}).`);
+          setIsPaymentSubmitting(false);
+          return;
+        }
+      } else {
+        // Subsequent: Fully Paid must equal the remaining balance to close
+        if (amount < remainingBalance) {
+          toast.error(`To mark as Fully Paid, the amount must equal the remaining balance of ₱${remainingBalance.toLocaleString()}.`);
+          setIsPaymentSubmitting(false);
+          return;
         }
       }
     }
 
+    // --- 6. Handle status override for convenience (if amount equals remaining) ---
+    let finalPayStatus = status;
+    const isAmountEqualRemaining = Math.abs(amount - remainingBalance) < 0.01;
+
+    // If user selected Downpayment but amount equals remaining, ask if they want Fully Paid
+    if (status === 'Downpayment' && isAmountEqualRemaining && !isFirstPayment) {
+      const confirm = await showConfirm({
+        title: 'Full Payment?',
+        message: `This payment amount (₱${amount.toLocaleString()}) equals the remaining balance. Would you like to mark it as Fully Paid instead?`,
+        confirmLabel: 'Yes, Mark Fully Paid',
+        cancelLabel: 'No, Keep as Downpayment',
+        confirmVariant: 'success',
+      });
+      if (confirm) {
+        finalPayStatus = 'Fully Paid';
+        setPaymentFormData(prev => ({ ...prev, pay_status: 'Fully Paid' }));
+      }
+    }
+
+    // --- 7. Record the payment ---
     try {
       let proofUrl = 'placeholder.png';
       if (selectedFile) {
@@ -2049,7 +2068,7 @@ export default function BookingDetails() {
         document.body
       )}
 
-      {/* ===== RECORD PAYMENT MODAL ===== */}
+      {/* ===== RECORD PAYMENT MODAL (with dynamic hints) ===== */}
       {isPaymentModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
@@ -2092,6 +2111,8 @@ export default function BookingDetails() {
                   </span>
                   <span className="text-slate-600 font-medium">Status:</span>
                   <span className="text-slate-900 font-semibold capitalize">{booking.booking_status || 'N/A'}</span>
+                  <span className="text-slate-600 font-medium">First Payment?</span>
+                  <span className="text-slate-900 font-semibold">{positivePayments === 0 ? '✅ Yes' : 'No'}</span>
                 </div>
               </div>
 
@@ -2109,6 +2130,30 @@ export default function BookingDetails() {
                     required
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
                   />
+                  {/* --- DYNAMIC HINT --- */}
+                  {(() => {
+                    const isFirst = positivePayments === 0;
+                    const status = paymentFormData.pay_status;
+                    const total = booking.total_amount || 0;
+                    let hint = '';
+                    if (isFirst) {
+                      if (status === 'Downpayment') {
+                        const minRequired = total * 0.5;
+                        hint = `First payment: Downpayment must be at least 50% of total (₱${minRequired.toLocaleString()}).`;
+                      } else if (status === 'Fully Paid') {
+                        hint = `First payment: Fully Paid must equal total amount (₱${total.toLocaleString()}).`;
+                      }
+                    } else {
+                      if (status === 'Fully Paid') {
+                        hint = `Remaining balance to close: ₱${remainingBalance.toLocaleString()}.`;
+                      } else {
+                        hint = `You can enter any amount up to the remaining balance.`;
+                      }
+                    }
+                    return hint ? (
+                      <p className="text-xs text-blue-600 mt-1 font-medium">{hint}</p>
+                    ) : null;
+                  })()}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Payment Status</label>

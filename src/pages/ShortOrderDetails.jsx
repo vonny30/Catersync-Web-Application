@@ -72,6 +72,7 @@ export default function ShortOrderDetails() {
   const [rejectionRefundRemarks, setRejectionRefundRemarks] = useState('');
   const [rejectionRefundFile, setRejectionRefundFile] = useState(null);
   const [showRejectionRefund, setShowRejectionRefund] = useState(false);
+  const [rejectionMaxRefundable, setRejectionMaxRefundable] = useState(0);
 
   // --- Refund after rejection modal ---
   const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
@@ -79,6 +80,17 @@ export default function ShortOrderDetails() {
   const [refundModalRemarks, setRefundModalRemarks] = useState('');
   const [refundModalFile, setRefundModalFile] = useState(null);
   const [isRefundSubmitting, setIsRefundSubmitting] = useState(false);
+
+  // --- Approval Modal State ---
+  const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
+  const [approvalOrder, setApprovalOrder] = useState(null);
+  const [approvalData, setApprovalData] = useState({
+    extraQuantity: 0,
+    additionalFee: 0,
+    extraDeliveryFee: 0,
+    newTotal: 0,
+    baseTotal: 0,
+  });
 
   // --- HELPERS ---
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
@@ -213,38 +225,76 @@ export default function ShortOrderDetails() {
     fetchDropdownData();
   }, [id]);
 
-  // --- APPROVE ---
-  const handleApprove = async () => {
-    const confirmed = await showConfirm({
-      title: 'Approve Order?',
-      message: 'Are you sure you want to approve this order? Payment statuses will be set to Downpayment.',
-      confirmLabel: 'Approve',
-      confirmVariant: 'success',
+  // --- Approval Modal Handlers ---
+  const openApprovalModal = () => {
+    if (!order) return;
+    const baseTotal = order.total_amount || 0;
+    setApprovalOrder(order);
+    setApprovalData({
+      extraQuantity: 0,
+      additionalFee: 0,
+      extraDeliveryFee: 0,
+      newTotal: baseTotal,
+      baseTotal: baseTotal,
     });
-    if (!confirmed) return;
+    setIsApprovalModalOpen(true);
+  };
 
+  const handleApprovalInputChange = (e) => {
+    const { name, value } = e.target;
+    const numValue = parseFloat(value) || 0;
+    setApprovalData(prev => {
+      const updated = { ...prev, [name]: numValue };
+      const newTotal = updated.baseTotal + updated.extraQuantity + updated.additionalFee + updated.extraDeliveryFee;
+      return { ...updated, newTotal };
+    });
+  };
+
+  const handleFinalizeApproval = async () => {
+    if (!approvalOrder) return;
+    setIsSubmitting(true);
     try {
-      const eventDate = order.event_datetime ? new Date(order.event_datetime) : null;
+      // Check 50% payment – warning only
+      const { data: paymentsData, error: paymentsError } = await supabase
+        .from('payment')
+        .select('amount_paid')
+        .eq('booking_id', approvalOrder.booking_id);
+      if (paymentsError) throw paymentsError;
+      const totalPaid = paymentsData.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+      const required = approvalData.newTotal * 0.5;
+      if (totalPaid < required) {
+        const proceed = await showConfirm({
+          title: '⚠️ Insufficient Downpayment',
+          message: `Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}).\n\nApproving this order may leave an unpaid balance.\nDo you still want to approve?`,
+          confirmLabel: 'Yes, Approve',
+          cancelLabel: 'Cancel',
+          confirmVariant: 'warning',
+        });
+        if (!proceed) {
+          setIsSubmitting(false);
+          return;
+        }
+      }
 
-      // Days‑until‑event warning
+      // --- Conflict check for other approved events on the same day ---
+      const eventDate = approvalOrder.event_datetime ? new Date(approvalOrder.event_datetime) : null;
       if (eventDate) {
         const now = new Date();
-        const diffTime = eventDate.getTime() - now.getTime();
-        const daysUntilEvent = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        if (daysUntilEvent < 3 && daysUntilEvent >= 0) {
+        const diffDays = Math.ceil((eventDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays < 0) {
           const proceed = await showConfirm({
-            title: '⚠️ Event is Very Soon',
-            message: `This event is ${daysUntilEvent} day${daysUntilEvent !== 1 ? 's' : ''} away (within 3 days). Downpayment is NON‑REFUNDABLE if cancelled. Do you still want to approve?`,
+            title: '⚠️ Event Date is in the Past',
+            message: `This event is ${Math.abs(diffDays)} days ago. Approving a past event may affect reports. Do you still want to approve?`,
             confirmLabel: 'Yes, Approve Anyway',
             cancelLabel: 'Cancel Approval',
             confirmVariant: 'warning',
           });
-          if (!proceed) return;
+          if (!proceed) {
+            setIsSubmitting(false);
+            return;
+          }
         }
-      }
 
-      // Conflict check for other approved events on same day
-      if (eventDate) {
         const startOfDay = new Date(eventDate);
         startOfDay.setHours(0, 0, 0, 0);
         const endOfDay = new Date(eventDate);
@@ -262,7 +312,7 @@ export default function ShortOrderDetails() {
             customer:customer_id (first_name, last_name)
           `)
           .eq('booking_status', 'Approved')
-          .neq('booking_id', id)
+          .neq('booking_id', approvalOrder.booking_id)
           .gte('event_datetime', startISO)
           .lte('event_datetime', endISO);
 
@@ -275,6 +325,7 @@ export default function ShortOrderDetails() {
             const type = e.booking_type === 'Short Order' ? 'Short Order' : 'Package';
             return `• ${cust} (${type}) at ${e.venue || 'N/A'} – ${time}`;
           }).join('\n');
+
           const proceed = await showConfirm({
             title: '⚠️ Existing Events on This Date',
             message: `The following events are already approved on ${eventDate.toLocaleDateString()}:\n\n${list}\n\nDo you still want to approve this order?`,
@@ -286,49 +337,45 @@ export default function ShortOrderDetails() {
         }
       }
 
-      // Check 50% payment – warning only
-      const positivePayments = payments
-        .filter(p => p.amount_paid > 0)
-        .reduce((sum, p) => sum + p.amount_paid, 0);
-      const totalAmount = order.total_amount || 0;
-      const required = totalAmount * 0.5;
-      if (positivePayments < required) {
-        const proceed = await showConfirm({
-          title: 'Insufficient Downpayment',
-          message: `Total paid (₱${positivePayments.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}). Approving this order may leave an unpaid balance. Do you still want to approve?`,
-          confirmLabel: 'Yes, Approve',
-          cancelLabel: 'Cancel',
-          confirmVariant: 'warning',
-        });
-        if (!proceed) return;
-      }
+      const newTotal = approvalData.newTotal;
+      const newDeliveryFee = parseFloat(approvalOrder.delivery_fee || 0) + approvalData.extraDeliveryFee;
 
       // Update order status
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from('booking')
-        .update({ booking_status: 'Approved' })
-        .eq('booking_id', id);
-      if (error) throw error;
+        .update({
+          booking_status: 'Approved',
+          total_amount: newTotal,
+          delivery_fee: newDeliveryFee,
+          notes: approvalOrder.notes ? `${approvalOrder.notes}\n[APPROVAL] Adjusted total: ₱${newTotal}` : `[APPROVAL] Adjusted total: ₱${newTotal}`,
+        })
+        .eq('booking_id', approvalOrder.booking_id);
+      if (updateError) throw updateError;
 
       // Update payments to Downpayment
       const { error: updatePaymentsError } = await supabase
         .from('payment')
         .update({ pay_status: 'Downpayment' })
-        .eq('booking_id', id);
+        .eq('booking_id', approvalOrder.booking_id);
       if (updatePaymentsError) throw updatePaymentsError;
 
-      toast.success('Order approved and payments set to Downpayment.');
+      setIsApprovalModalOpen(false);
       fetchOrder();
+      toast.success('Order approved and payments set to Downpayment.');
     } catch (error) {
       handleError(error, 'Failed to approve order.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  // --- REJECT ---
+  // --- REJECTION (with maxRefundable) ---
   const openRejectionModal = async () => {
     const positivePayments = payments
       .filter(p => p.amount_paid > 0)
       .reduce((sum, p) => sum + p.amount_paid, 0);
+    const downpaymentPayments = payments.filter(p => p.pay_status === 'Downpayment' && p.amount_paid > 0);
+    const totalDownpayment = downpaymentPayments.reduce((sum, p) => sum + p.amount_paid, 0);
 
     let warningMessage = 'Are you sure you want to reject this order? This will cancel it and cannot be undone.';
     if (positivePayments > 0) {
@@ -353,9 +400,19 @@ export default function ShortOrderDetails() {
       const daysUntilEvent = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
       isRefundable = daysUntilEvent >= 3;
     }
-    setShowRejectionRefund(positivePayments > 0 && isRefundable);
+
+    // Max refundable = all paid if >=3 days, otherwise only the excess above downpayment
+    let maxRefundable = 0;
+    if (isRefundable) {
+      maxRefundable = positivePayments;
+    } else {
+      maxRefundable = Math.max(0, positivePayments - totalDownpayment);
+    }
+
+    setRejectionMaxRefundable(maxRefundable);
+    setShowRejectionRefund(maxRefundable > 0);
     setRejectionReason('');
-    setRejectionRefundAmount(showRejectionRefund ? positivePayments.toFixed(2) : '');
+    setRejectionRefundAmount('');
     setRejectionRefundRemarks('');
     setRejectionRefundFile(null);
     setIsRejectionModalOpen(true);
@@ -382,10 +439,11 @@ export default function ShortOrderDetails() {
       if (showRejectionRefund) {
         const enteredAmount = parseFloat(rejectionRefundAmount) || 0;
         if (enteredAmount > 0) {
-          const positivePayments = payments
-            .filter(p => p.amount_paid > 0)
-            .reduce((sum, p) => sum + p.amount_paid, 0);
-          const refundAmountValue = Math.min(enteredAmount, positivePayments);
+          if (enteredAmount > rejectionMaxRefundable) {
+            toast.error(`Refund amount cannot exceed ₱${rejectionMaxRefundable.toLocaleString()}.`);
+            setIsRejectionModalOpen(true);
+            return;
+          }
           if (!rejectionRefundFile) {
             toast.error('Please upload a proof of refund receipt.');
             setIsRejectionModalOpen(true);
@@ -412,7 +470,7 @@ export default function ShortOrderDetails() {
             .from('payment')
             .insert([{
               booking_id: id,
-              amount_paid: -refundAmountValue,
+              amount_paid: -enteredAmount,
               pay_method: 'Refund',
               pay_status: 'Refunded',
               pay_datetime: new Date().toISOString(),
@@ -422,7 +480,7 @@ export default function ShortOrderDetails() {
             }]);
           if (refundError) throw refundError;
 
-          const refundNote = `[REFUND] Amount: ₱${refundAmountValue.toFixed(2)}. ${rejectionRefundRemarks || ''}`;
+          const refundNote = `[REFUND] Amount: ₱${enteredAmount.toFixed(2)}. ${rejectionRefundRemarks || ''}`;
           updatedNotes = updatedNotes + `\n${refundNote}`;
           await supabase
             .from('booking')
@@ -728,6 +786,7 @@ export default function ShortOrderDetails() {
   const handlePaymentSubmit = async (e) => {
     e.preventDefault();
     setIsPaymentSubmitting(true);
+
     const amount = parseFloat(paymentFormData.amount) || 0;
     if (amount <= 0) {
       toast.error('Amount must be greater than zero.');
@@ -836,9 +895,14 @@ export default function ShortOrderDetails() {
 
       const { error } = await supabase.from('payment').insert([payload]);
       if (error) throw error;
+
       setIsPaymentModalOpen(false);
       fetchOrder();
-      toast.success('Payment recorded successfully!');
+
+      const statusMessage = finalPayStatus === 'Fully Paid'
+        ? 'Payment recorded successfully and marked as Fully Paid!'
+        : 'Payment recorded successfully!';
+      toast.success(statusMessage);
     } catch (error) {
       handleError(error, 'Failed to record payment.');
     } finally {
@@ -1131,7 +1195,7 @@ export default function ShortOrderDetails() {
         <div className="flex items-center gap-3 flex-wrap">
           {order.booking_status === 'Pending' && (
             <>
-              <button onClick={handleApprove} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm">
+              <button onClick={openApprovalModal} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm">
                 <Check size={18} /> Approve
               </button>
               <button onClick={openRejectionModal} className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm">
@@ -1754,6 +1818,7 @@ export default function ShortOrderDetails() {
               {showRejectionRefund && (
                 <div className="border-t border-slate-200 pt-3 mt-3">
                   <p className="text-xs font-bold text-slate-700 mb-2">Process Refund <span className="font-normal text-slate-400">(optional – leave blank to skip)</span></p>
+                  <p className="text-xs text-slate-500 mb-2">Max refundable: ₱{rejectionMaxRefundable.toLocaleString()}</p>
                   <p className="text-xs text-red-500 mb-2">* Proof of refund is required if you enter an amount.</p>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -1830,6 +1895,120 @@ export default function ShortOrderDetails() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ===== APPROVAL MODAL ===== */}
+      {isApprovalModalOpen && approvalOrder && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
+              <h2 className="text-lg font-bold text-slate-900">Approve Short Order – Adjust Fees</h2>
+              <button
+                onClick={() => setIsApprovalModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto space-y-6 text-left">
+              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-sm">
+                <div className="grid grid-cols-2 gap-2">
+                  <span className="font-medium text-slate-600">Customer:</span>
+                  <span className="font-bold text-slate-900">
+                    {approvalOrder.customer?.first_name} {approvalOrder.customer?.last_name}
+                  </span>
+                  <span className="font-medium text-slate-600">Venue:</span>
+                  <span className="font-bold text-slate-900">{approvalOrder.venue || 'N/A'}</span>
+                  <span className="font-medium text-slate-600">Current Total:</span>
+                  <span className="font-bold text-slate-900">₱{approvalOrder.total_amount?.toLocaleString() || '0'}</span>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">Short order pricing is per tray. You can add extra fees below.</p>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Extra Quantity Fee (additional trays / items)</label>
+                  <input
+                    type="number"
+                    name="extraQuantity"
+                    min="0"
+                    step="0.01"
+                    value={approvalData.extraQuantity}
+                    onChange={handleApprovalInputChange}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                    placeholder="e.g. 1000"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Additional Delivery Fee</label>
+                  <input
+                    type="number"
+                    name="extraDeliveryFee"
+                    min="0"
+                    step="0.01"
+                    value={approvalData.extraDeliveryFee}
+                    onChange={handleApprovalInputChange}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                    placeholder="e.g. 500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons)</label>
+                  <input
+                    type="number"
+                    name="additionalFee"
+                    min="0"
+                    step="0.01"
+                    value={approvalData.additionalFee}
+                    onChange={handleApprovalInputChange}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                    placeholder="e.g. 2000"
+                  />
+                </div>
+              </div>
+
+              <div className="bg-[#EAF3F2] border border-[#d2e8e5] rounded-lg p-4 flex justify-between items-center">
+                <span className="font-bold text-slate-800">New Total:</span>
+                <span className="text-xl font-extrabold text-[#008A45]">
+                  ₱{approvalData.newTotal.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </span>
+              </div>
+              <div className="text-sm text-slate-500">
+                <p>
+                  Down payment (50%):{' '}
+                  <span className="font-bold">
+                    ₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                </p>
+                <p className="text-xs mt-1">* Down payment may be required for large orders (subject to business policy).</p>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setIsApprovalModalOpen(false)}
+                  className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleFinalizeApproval}
+                  disabled={isSubmitting}
+                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>,
         document.body
