@@ -2,14 +2,11 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import {
-  Search, Check, Edit, Trash2, ChevronLeft, ChevronRight,
-  Filter, X, RefreshCw, RotateCcw, UserPlus, Image as ImageIcon
-} from 'lucide-react';
+import { Search, Check, Edit, Trash2, ChevronLeft, ChevronRight, Filter, X, RefreshCw, RotateCcw, UserPlus } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
-import { checkEquipmentCapacityForDate, allocateEquipmentForBooking } from '../utils/equipment';
+import { computeEquipmentDemand, checkEquipmentCapacityForDate, allocateEquipmentForBooking } from '../utils/equipment';
 
 export default function Bookings() {
   const navigate = useNavigate();
@@ -21,7 +18,6 @@ export default function Bookings() {
   const [activeTab, setActiveTab] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBookings, setSelectedBookings] = useState([]);
-
   // --- Pagination state ---
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
@@ -65,11 +61,6 @@ export default function Bookings() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // --- Customer search state ---
-  const [customerSearch, setCustomerSearch] = useState('');
-  const [filteredCustomers, setFilteredCustomers] = useState([]);
-  const [showCustomerList, setShowCustomerList] = useState(false);
-
   const [packageCategories, setPackageCategories] = useState([]);
   const [categoryMenuItems, setCategoryMenuItems] = useState({});
 
@@ -79,19 +70,10 @@ export default function Bookings() {
   const [approvalData, setApprovalData] = useState({
     extraPax: 0,
     additionalFee: 0,
+    extraDeliveryFee: 0,
     newTotal: 0,
     baseTotal: 0,
   });
-
-  // --- Rejection Modal State ---
-  const [isRejectionModalOpen, setIsRejectionModalOpen] = useState(false);
-  const [rejectionBookingId, setRejectionBookingId] = useState(null);
-  const [rejectionReason, setRejectionReason] = useState('');
-  const [rejectionRefundAmount, setRejectionRefundAmount] = useState('');
-  const [rejectionRefundRemarks, setRejectionRefundRemarks] = useState('');
-  const [rejectionRefundFile, setRejectionRefundFile] = useState(null);
-  const [showRejectionRefund, setShowRejectionRefund] = useState(false);
-  const [rejectionMaxRefundable, setRejectionMaxRefundable] = useState(0);
 
   // Helper: log technical error and show user-friendly toast
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
@@ -99,48 +81,34 @@ export default function Bookings() {
     toast.error(userMessage);
   };
 
-  // --- Create walk-in customer with duplicate trapping ---
+  // --- Create walk-in customer with session restore and global flag ---
   const createWalkInCustomer = async () => {
+    // 🔥 Set the global flag to prevent auto‑logout
     window.isCreatingWalkIn = true;
 
     try {
+      // 1. Save current session (manager)
       const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
       if (sessionError) throw sessionError;
+
       if (!currentSession) {
         throw new Error('You must be logged in as a manager to create walk-in customers.');
       }
 
-      // 1. Check duplicate by email
-      const { data: existingByEmail, error: emailCheckError } = await supabase
+      // 2. Check email existence
+      const { data: existingCustomer, error: checkError } = await supabase
         .from('customer')
-        .select('customer_id, first_name, last_name, contact_no')
+        .select('customer_id')
         .eq('email_address', walkInData.email_address)
         .maybeSingle();
+      if (checkError) throw checkError;
 
-      if (emailCheckError) throw emailCheckError;
-
-      if (existingByEmail) {
-        toast(`Customer already exists: ${existingByEmail.first_name} ${existingByEmail.last_name}. Reusing existing profile.`, { icon: 'ℹ️' });
-        return existingByEmail.customer_id;
+      if (existingCustomer) {
+        toast.info('Customer with this email already exists. Using existing account.');
+        return existingCustomer.customer_id;
       }
 
-      // 2. Check duplicate by exact name + phone
-      const { data: existingByNamePhone, error: namePhoneError } = await supabase
-        .from('customer')
-        .select('customer_id, email_address')
-        .eq('first_name', walkInData.first_name)
-        .eq('last_name', walkInData.last_name)
-        .eq('contact_no', walkInData.contact_no)
-        .maybeSingle();
-
-      if (namePhoneError) throw namePhoneError;
-
-      if (existingByNamePhone) {
-        toast(`Customer with same name and phone already exists (email: ${existingByNamePhone.email_address}). Reusing existing profile.`, { icon: 'ℹ️' });
-        return existingByNamePhone.customer_id;
-      }
-
-      // 3. No duplicate – create new customer
+      // 3. Generate unique username
       const username = walkInData.email_address.split('@')[0];
       let finalUsername = username;
       let counter = 1;
@@ -156,7 +124,7 @@ export default function Bookings() {
         counter++;
       }
 
-      // Create Supabase Auth user
+      // 4. Create Supabase Auth user
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: walkInData.email_address,
         password: 'password123',
@@ -173,7 +141,7 @@ export default function Bookings() {
             .eq('email_address', walkInData.email_address)
             .maybeSingle();
           if (existing) {
-            toast('Customer already exists. Using existing account.', { icon: 'ℹ️' });
+            toast.info('Customer already exists. Using existing account.');
             return existing.customer_id;
           }
           throw new Error('Email already registered but no customer record found. Please use a different email.');
@@ -181,7 +149,7 @@ export default function Bookings() {
         throw authError;
       }
 
-      // Insert customer record
+      // 5. Insert customer record
       const { data: newCustomer, error: customerError } = await supabase
         .from('customer')
         .insert([{
@@ -200,7 +168,7 @@ export default function Bookings() {
 
       if (customerError) throw customerError;
 
-      // Restore manager session
+      // 6. ✅ CRITICAL: Restore manager session
       await new Promise(resolve => setTimeout(resolve, 300));
 
       if (currentSession) {
@@ -223,10 +191,42 @@ export default function Bookings() {
               }
             }
           }
+        } else {
+          console.log('✅ Manager session restored');
         }
       }
 
+      // 7. Wait a bit more to let the auth state propagate
       await new Promise(resolve => setTimeout(resolve, 300));
+
+      // 8. Verify session is restored
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: manager } = await supabase
+          .from('manager')
+          .select('manager_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (!manager) {
+          if (currentSession) {
+            await supabase.auth.setSession({
+              access_token: currentSession.access_token,
+              refresh_token: currentSession.refresh_token,
+            });
+          }
+          const { data: { user: finalUser } } = await supabase.auth.getUser();
+          if (finalUser) {
+            const { data: finalManager } = await supabase
+              .from('manager')
+              .select('manager_id')
+              .eq('user_id', finalUser.id)
+              .maybeSingle();
+            if (!finalManager) {
+              throw new Error('Failed to restore manager session. Please refresh the page.');
+            }
+          }
+        }
+      }
 
       toast.success('Customer account created! Default password: password123');
       return newCustomer.customer_id;
@@ -235,6 +235,7 @@ export default function Bookings() {
       console.error('Error creating walk-in customer:', error);
       throw new Error(error.message || 'Failed to create customer account. Please try again.');
     } finally {
+      // 🔥 Clear the global flag
       window.isCreatingWalkIn = false;
     }
   };
@@ -273,28 +274,31 @@ export default function Bookings() {
   const fetchData = async () => {
     setLoading(true);
     try {
+      // Calculate range
       const from = (currentPage - 1) * pageSize;
       const to = from + pageSize - 1;
 
+      // Fetch with pagination and count
       const { data: bookingsData, count, error: bookingsError } = await supabase
         .from('booking')
         .select('*', { count: 'exact' })
         .eq('booking_type', 'Package')
-        .order('is_read', { ascending: true })
-        .order('book_datetime', { ascending: false })
+        .order('event_datetime', { ascending: false })
         .range(from, to);
 
       if (bookingsError) throw bookingsError;
 
+      // Update total count and pages
       setTotalCount(count || 0);
       setTotalPages(Math.ceil((count || 0) / pageSize));
 
       if (bookingsData && bookingsData.length > 0) {
         const customerIds = bookingsData.map(b => b.customer_id).filter(id => id);
         const packageIds = bookingsData.map(b => b.package_id).filter(id => id);
-        const bookingIds = bookingsData.map(b => b.booking_id);
 
         let customersMap = {};
+        let packagesMap = {};
+
         if (customerIds.length > 0) {
           const { data: customersData, error: customersError } = await supabase
             .from('customer')
@@ -304,96 +308,29 @@ export default function Bookings() {
           customersMap = Object.fromEntries(customersData.map(c => [c.customer_id, c]));
         }
 
-        let packagesMap = {};
         if (packageIds.length > 0) {
           const { data: packagesData, error: packagesError } = await supabase
             .from('package')
-            .select('package_id, pkg_name, pkg_price, pricing_type, max_pax, extra_pax_price, minimum_pax, colors')
+            .select('package_id, pkg_name, pkg_price, pricing_type, max_pax, extra_pax_price, minimum_pax')
             .in('package_id', packageIds);
           if (packagesError) throw packagesError;
           packagesMap = Object.fromEntries(packagesData.map(p => [p.package_id, p]));
         }
 
-        // Fetch payments for these bookings
-        let paymentsMap = {};
-        if (bookingIds.length > 0) {
-          const { data: paymentsData, error: paymentsError } = await supabase
-            .from('payment')
-            .select('booking_id, amount_paid, pay_status')
-            .in('booking_id', bookingIds)
-            .not('amount_paid', 'eq', 0)
-            .not('pay_status', 'eq', 'Pending');
-
-          if (paymentsError) throw paymentsError;
-
-          paymentsMap = {};
-          for (const p of paymentsData) {
-            if (!paymentsMap[p.booking_id]) {
-              paymentsMap[p.booking_id] = { positive: 0, refunded: 0, downpayment: 0 };
-            }
-            const amount = parseFloat(p.amount_paid) || 0;
-            if (amount > 0) {
-              paymentsMap[p.booking_id].positive += amount;
-              if (p.pay_status === 'Downpayment') {
-                paymentsMap[p.booking_id].downpayment += amount;
-              }
-            } else if (amount < 0) {
-              paymentsMap[p.booking_id].refunded += Math.abs(amount);
-            }
-          }
-        }
-
-        // Enrich bookings with payment summary and refund status
-        const now = new Date();
-        const enriched = bookingsData.map(booking => {
-          const p = paymentsMap[booking.booking_id] || { positive: 0, refunded: 0, downpayment: 0 };
-          const positivePayments = p.positive;
-          const totalRefunded = p.refunded;
-          const downpaymentPaid = p.downpayment;
-
-          let refundStatus = null;
-          let isRefundable = false;
-          if (booking.booking_status === 'Rejected') {
-            const eventDate = booking.event_datetime ? new Date(booking.event_datetime) : null;
-            let daysUntilEvent = null;
-            if (eventDate) {
-              const diffTime = eventDate.getTime() - now.getTime();
-              daysUntilEvent = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-              isRefundable = daysUntilEvent >= 3;
-            }
-
-            if (positivePayments > 0) {
-              if (totalRefunded >= positivePayments) {
-                refundStatus = 'Fully Refunded';
-              } else if (isRefundable) {
-                refundStatus = 'Refundable';
-              } else {
-                refundStatus = 'Non-Refundable';
-              }
-            } else {
-              refundStatus = 'No Payments';
-            }
-          }
-
-          return {
-            ...booking,
-            customer: customersMap[booking.customer_id] || null,
-            package: packagesMap[booking.package_id] || null,
-            positivePayments,
-            totalRefunded,
-            downpaymentPaid,
-            refundStatus,
-          };
-        });
+        const enriched = bookingsData.map(booking => ({
+          ...booking,
+          customer: customersMap[booking.customer_id] || null,
+          package: packagesMap[booking.package_id] || null,
+        }));
         setBookings(enriched);
       } else {
         setBookings([]);
       }
 
-      // Fetch customers and packages for dropdowns (including colors)
+      // Fetch customers and packages for dropdowns (unchanged – these don't need pagination)
       const { data: customersList, error: customersListError } = await supabase
         .from('customer')
-        .select('customer_id, first_name, last_name, contact_no, email_address')
+        .select('customer_id, first_name, last_name')
         .eq('account_status', 'Active')
         .order('first_name');
       if (customersListError) throw customersListError;
@@ -401,7 +338,7 @@ export default function Bookings() {
 
       const { data: packagesList, error: packagesListError } = await supabase
         .from('package')
-        .select('package_id, pkg_name, pkg_price, pricing_type, max_pax, extra_pax_price, minimum_pax, colors')
+        .select('package_id, pkg_name, pkg_price, pricing_type, max_pax, extra_pax_price, minimum_pax')
         .eq('pkg_availability', 'Available')
         .order('pkg_name');
       if (packagesListError) throw packagesListError;
@@ -415,31 +352,26 @@ export default function Bookings() {
     }
   };
 
-  // --- Filter customers based on search ---
-  useEffect(() => {
-    if (customerSearch.trim() === '') {
-      setFilteredCustomers(customers.slice(0, 10));
-      return;
-    }
-    const search = customerSearch.toLowerCase();
-    const filtered = customers.filter(c =>
-      `${c.first_name} ${c.last_name}`.toLowerCase().includes(search) ||
-      c.contact_no?.includes(search) ||
-      c.email_address?.toLowerCase().includes(search)
-    );
-    setFilteredCustomers(filtered.slice(0, 15));
-  }, [customerSearch, customers]);
-
   useEffect(() => {
     fetchData();
   }, [currentPage]);
 
   // --- Pagination handlers ---
-  const goToPrevPage = () => {
-    if (currentPage > 1) setCurrentPage(currentPage - 1);
+  const goToPage = (page) => {
+    if (page < 1 || page > totalPages) return;
+    setCurrentPage(page);
   };
+
+  const goToPrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
+
   const goToNextPage = () => {
-    if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+    }
   };
 
   // --- Fetch package categories and menu items when package changes ---
@@ -509,33 +441,9 @@ export default function Bookings() {
     }));
   };
 
-  // --- Customer selection ---
-  const selectCustomer = (customer) => {
-    setFormData(prev => ({ ...prev, customer_id: customer.customer_id }));
-    setCustomerSearch(`${customer.first_name} ${customer.last_name}`);
-    setIsWalkIn(false);
-    setShowCustomerList(false);
-  };
-
-  // --- Mark booking as read and refresh the list ---
-  const markAsRead = async (bookingId) => {
-    try {
-      await supabase
-        .from('booking')
-        .update({ is_read: true })
-        .eq('booking_id', bookingId);
-      
-      await fetchData();
-    } catch (error) {
-      console.warn('Failed to mark as read:', error);
-    }
-  };
-
   const openNewBookingModal = () => {
     setEditingId(null);
     setIsWalkIn(false);
-    setCustomerSearch('');
-    setShowCustomerList(false);
     setFormData({
       customer_id: '',
       package_id: '',
@@ -564,8 +472,6 @@ export default function Bookings() {
   const openEditModal = (booking) => {
     setEditingId(booking.booking_id);
     setIsWalkIn(false);
-    setCustomerSearch('');
-    setShowCustomerList(false);
     setFormData({
       customer_id: booking.customer_id,
       package_id: booking.package_id || '',
@@ -593,8 +499,6 @@ export default function Bookings() {
     setIsModalOpen(false);
     setEditingId(null);
     setIsWalkIn(false);
-    setCustomerSearch('');
-    setShowCustomerList(false);
     setFormData({
       customer_id: '',
       package_id: '',
@@ -621,13 +525,23 @@ export default function Bookings() {
   };
 
   // --- Filter Modal handlers ---
-  const openFilterModal = () => setIsFilterModalOpen(true);
-  const closeFilterModal = () => setIsFilterModalOpen(false);
+  const openFilterModal = () => {
+    setIsFilterModalOpen(true);
+  };
+
+  const closeFilterModal = () => {
+    setIsFilterModalOpen(false);
+  };
+
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
     setFilters(prev => ({ ...prev, [name]: value }));
   };
-  const applyFilters = () => setIsFilterModalOpen(false);
+
+  const applyFilters = () => {
+    setIsFilterModalOpen(false);
+  };
+
   const clearFilters = () => {
     setFilters({
       dateFrom: '',
@@ -643,44 +557,6 @@ export default function Bookings() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
-
-    // ✅ Define eventDateTimeISO early
-    const eventDateTimeISO = formData.event_datetime ? new Date(formData.event_datetime).toISOString() : null;
-
-    // --- CUSTOMER VALIDATION ---
-    if (!editingId) {
-      if (!formData.customer_id && !isWalkIn) {
-        toast.error('Please select a customer or create a walk-in customer.');
-        setIsSubmitting(false);
-        return;
-      }
-
-      if (isWalkIn) {
-        if (!walkInData.first_name || !walkInData.last_name || !walkInData.contact_no || !walkInData.email_address) {
-          toast.error('Please fill in all customer details for walk-in customer.');
-          setIsSubmitting(false);
-          return;
-        }
-        if (!walkInData.email_address.includes('@')) {
-          toast.error('Please enter a valid email address.');
-          setIsSubmitting(false);
-          return;
-        }
-        // Validate contact number: 11 digits, numeric only
-        const phoneRegex = /^[0-9]{11}$/;
-        if (!phoneRegex.test(walkInData.contact_no)) {
-          toast.error('Contact number must be exactly 11 digits (numbers only).');
-          setIsSubmitting(false);
-          return;
-        }
-      }
-    } else {
-      if (!formData.customer_id) {
-        toast.error('Customer is required for this booking.');
-        setIsSubmitting(false);
-        return;
-      }
-    }
 
     // 1. Package validation
     if (!formData.package_id) {
@@ -724,28 +600,13 @@ export default function Bookings() {
       return;
     }
 
-    // ✅ TRAPPING: Check event date proximity (reminder only)
+    // 5. Check event date proximity (reminder only)
     if (formData.event_datetime) {
       const eventDate = new Date(formData.event_datetime);
       const now = new Date();
       const diffTime = eventDate.getTime() - now.getTime();
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
-      if (diffDays < 0) {
-        const proceed = await showConfirm({
-          title: '⚠️ Event Date is in the Past',
-          message: `This event date is ${Math.abs(diffDays)} days ago. Creating a booking for a past date may affect reports and operations. Do you still want to proceed?`,
-          confirmLabel: 'Yes, Proceed Anyway',
-          cancelLabel: 'Cancel',
-          confirmVariant: 'warning',
-        });
-        if (!proceed) {
-          setIsSubmitting(false);
-          return;
-        }
-      }
-      
-      if (diffDays >= 0 && diffDays < 3) {
+      if (diffDays < 3 && diffDays >= 0) {
         const proceed = await showConfirm({
           title: '⚠️ Booking is Very Soon',
           message: `This event is ${diffDays} day${diffDays !== 1 ? 's' : ''} away (within 2 days). Please confirm if you still want to proceed with this booking.`,
@@ -765,6 +626,16 @@ export default function Bookings() {
 
       // If walk-in, create customer account first
       if (isWalkIn) {
+        if (!walkInData.first_name || !walkInData.last_name || !walkInData.contact_no || !walkInData.email_address) {
+          toast.error('Please fill in all customer details for walk-in customer.');
+          setIsSubmitting(false);
+          return;
+        }
+        if (!walkInData.email_address.includes('@')) {
+          toast.error('Please enter a valid email address.');
+          setIsSubmitting(false);
+          return;
+        }
         try {
           customerId = await createWalkInCustomer();
           if (!customerId) {
@@ -779,88 +650,22 @@ export default function Bookings() {
         }
       }
 
-      // 5. Duplicate check: same customer, same DATE (ignoring time) – with warning
-      const eventDate = new Date(formData.event_datetime);
-      const startOfDay = new Date(eventDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(eventDate);
-      endOfDay.setHours(23, 59, 59, 999);
-
-      const startISO = startOfDay.toISOString();
-      const endISO = endOfDay.toISOString();
-
+      // 6. Duplicate check: same customer, same event_datetime (excluding current if editing)
+      const eventDateTimeISO = formData.event_datetime ? new Date(formData.event_datetime).toISOString() : null;
       let dupQuery = supabase
         .from('booking')
-        .select('booking_id, venue, pax_count, booking_status, event_datetime, package_id')
+        .select('booking_id')
         .eq('customer_id', customerId)
-        .gte('event_datetime', startISO)
-        .lte('event_datetime', endISO);
-
+        .eq('event_datetime', eventDateTimeISO);
       if (editingId) {
         dupQuery = dupQuery.neq('booking_id', editingId);
       }
-
-      const { data: duplicates, error: dupError } = await dupQuery;
-
-      if (dupError) {
-        console.error('Duplicate check error:', dupError);
-      } else if (duplicates && duplicates.length > 0) {
-        const existing = duplicates[0];
-
-        const { data: customerData } = await supabase
-          .from('customer')
-          .select('first_name, last_name')
-          .eq('customer_id', customerId)
-          .maybeSingle();
-
-        let packageName = 'No Package';
-        if (existing.package_id) {
-          const { data: pkgData } = await supabase
-            .from('package')
-            .select('pkg_name')
-            .eq('package_id', existing.package_id)
-            .maybeSingle();
-          if (pkgData) packageName = pkgData.pkg_name;
-        }
-
-        const customerName = customerData 
-          ? `${customerData.first_name} ${customerData.last_name}`
-          : 'Unknown Customer';
-
-        const eventDateStr = existing.event_datetime 
-          ? new Date(existing.event_datetime).toLocaleString() 
-          : 'Unknown Date';
-        const venue = existing.venue || 'N/A';
-        const pax = existing.pax_count || 0;
-        const status = existing.booking_status || 'Unknown';
-        const count = duplicates.length;
-
-        let message = `⚠️ Duplicate Booking Found\n\n`;
-        if (count > 1) {
-          message += `Found ${count} bookings on this date. Showing the first one:\n\n`;
-        }
-        message +=
-          `Customer  : ${customerName}\n` +
-          `Date      : ${new Date(eventDate).toLocaleDateString()}\n` +
-          `Time      : ${new Date(existing.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}\n` +
-          `Package   : ${packageName}\n` +
-          `Venue     : ${venue}\n` +
-          `Pax       : ${pax}\n` +
-          `Status    : ${status}\n\n` +
-          `Do you still want to proceed with this new booking?`;
-
-        const proceed = await showConfirm({
-          title: '⚠️ Duplicate Booking Detected',
-          message: message,
-          confirmLabel: 'Yes, Proceed Anyway',
-          cancelLabel: 'Cancel',
-          confirmVariant: 'warning',
-        });
-
-        if (!proceed) {
-          setIsSubmitting(false);
-          return;
-        }
+      const { data: existingDup, error: dupError } = await dupQuery.maybeSingle();
+      if (dupError) throw dupError;
+      if (existingDup) {
+        toast.error('A booking for this customer already exists on the selected date and time.');
+        setIsSubmitting(false);
+        return;
       }
 
       // Build payload
@@ -878,9 +683,9 @@ export default function Bookings() {
         booking_status: editingId ? undefined : 'Pending',
         menu_selections: formData.menu_selections,
         book_datetime: new Date().toISOString(),
-        is_read: false,
       };
 
+      // Save or update
       if (editingId) {
         const { error } = await supabase
           .from('booking')
@@ -899,7 +704,20 @@ export default function Bookings() {
           .select();
         if (error) throw error;
         
-        // 🚫 REMOVED: placeholder ₱0 Pending payment insertion – no longer needed
+        // Create a pending payment record
+        const { error: paymentError } = await supabase
+          .from('payment')
+          .insert([{
+            booking_id: newBooking[0].booking_id,
+            amount_paid: 0,
+            pay_installment: 1,
+            pay_method: 'Pending',
+            pay_status: 'Pending',
+            pay_datetime: new Date().toISOString(),
+            pay_proof: 'placeholder.png',
+            customer_id: customerId,
+          }]);
+        if (paymentError) throw paymentError;
 
         if (isWalkIn) await new Promise(resolve => setTimeout(resolve, 500));
         toast.success('Booking created successfully!');
@@ -907,17 +725,7 @@ export default function Bookings() {
         fetchData();
       }
     } catch (error) {
-      let userMessage = 'Failed to save booking. Please try again.';
-      if (error.message) {
-        if (error.message.includes('violates foreign key constraint')) {
-          userMessage = 'Invalid customer or package selected. Please try again.';
-        } else if (error.message.includes('duplicate key')) {
-          userMessage = 'A duplicate booking already exists.';
-        } else {
-          userMessage = error.message;
-        }
-      }
-      handleError(error, userMessage);
+      handleError(error, 'Failed to save booking. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -930,6 +738,7 @@ export default function Bookings() {
     setApprovalData({
       extraPax: 0,
       additionalFee: 0,
+      extraDeliveryFee: 0,
       newTotal: baseTotal,
       baseTotal: baseTotal,
     });
@@ -943,16 +752,17 @@ export default function Bookings() {
       const updated = { ...prev, [name]: numValue };
       const pkgPrice = approvalBooking?.package?.pkg_price || 0;
       const extraPaxCost = updated.extraPax * pkgPrice;
-      const newTotal = updated.baseTotal + extraPaxCost + updated.additionalFee;
+      const newTotal = updated.baseTotal + extraPaxCost + updated.additionalFee + updated.extraDeliveryFee;
       return { ...updated, newTotal };
     });
   };
 
+  // --- ✅ UPDATED Approval finalization with equipment capacity warning ---
   const handleFinalizeApproval = async () => {
     if (!approvalBooking) return;
     setIsSubmitting(true);
     try {
-      // 1. Check 50% payment condition – WARNING only
+      // 1. Check 50% payment condition
       const { data: payments, error: paymentsError } = await supabase
         .from('payment')
         .select('amount_paid')
@@ -962,8 +772,8 @@ export default function Bookings() {
       const required = approvalData.newTotal * 0.5;
       if (totalPaid < required) {
         const proceed = await showConfirm({
-          title: '⚠️ Insufficient Downpayment',
-          message: `Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}).\n\nApproving this booking may leave an unpaid balance.\nDo you still want to approve?`,
+          title: 'Insufficient Downpayment',
+          message: `Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}). Approving this booking may leave an unpaid balance. Do you still want to approve?`,
           confirmLabel: 'Yes, Approve',
           cancelLabel: 'Cancel',
           confirmVariant: 'warning',
@@ -977,22 +787,6 @@ export default function Bookings() {
       // --- Conflict check: find other approved events on the same day ---
       const eventDate = approvalBooking.event_datetime ? new Date(approvalBooking.event_datetime) : null;
       if (eventDate) {
-        const now = new Date();
-        const diffDays = Math.ceil((eventDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        if (diffDays < 0) {
-          const proceed = await showConfirm({
-            title: '⚠️ Event Date is in the Past',
-            message: `This event is ${Math.abs(diffDays)} days ago. Approving a past event may affect reports. Do you still want to approve?`,
-            confirmLabel: 'Yes, Approve Anyway',
-            cancelLabel: 'Cancel Approval',
-            confirmVariant: 'warning',
-          });
-          if (!proceed) {
-            setIsSubmitting(false);
-            return;
-          }
-        }
-
         const startOfDay = new Date(eventDate);
         startOfDay.setHours(0, 0, 0, 0);
         const endOfDay = new Date(eventDate);
@@ -1037,8 +831,7 @@ export default function Bookings() {
 
       const newPax = approvalBooking.pax_count + approvalData.extraPax;
       const newTotal = approvalData.newTotal;
-      // Keep existing delivery fee – do not change it
-      const existingDeliveryFee = approvalBooking.delivery_fee || 0;
+      const newDeliveryFee = parseFloat(approvalBooking.delivery_fee || 0) + approvalData.extraDeliveryFee;
 
       // 2. Update booking status
       const { error: updateError } = await supabase
@@ -1047,7 +840,7 @@ export default function Bookings() {
           booking_status: 'Approved',
           pax_count: newPax,
           total_amount: newTotal,
-          // delivery_fee remains unchanged – we don't add extra delivery fee here
+          delivery_fee: newDeliveryFee,
         })
         .eq('booking_id', approvalBooking.booking_id);
       if (updateError) throw updateError;
@@ -1069,7 +862,7 @@ export default function Bookings() {
         .eq('booking_id', approvalBooking.booking_id);
       if (updatePaymentsError) throw updatePaymentsError;
 
-      // 5. Equipment capacity check – WARNING with override
+      // 5. Equipment capacity check – warn if conflicts exist
       if (approvalBooking.package_id) {
         try {
           const eventDate = approvalBooking.event_datetime;
@@ -1078,26 +871,23 @@ export default function Bookings() {
             const details = shortages
               .map(s => `${s.eqm_name}: needed ${s.needed}, available ${s.available}`)
               .join('\n');
-            const override = await showConfirm({
-              title: '⚠️ Equipment Shortage',
-              message: `The following items are insufficient for this date:\n\n${details}\n\nOverride may cause issues on event day.\nDo you still want to approve?`,
-              confirmLabel: 'Override & Approve',
+            const proceed = await showConfirm({
+              title: '⚠️ Equipment Capacity Warning',
+              message: `The following equipment items are overbooked for this event date:\n\n${details}\n\nYou may still approve, but please adjust equipment inventory manually afterwards.`,
+              confirmLabel: 'Approve Anyway',
               cancelLabel: 'Cancel Approval',
-              confirmVariant: 'danger',
+              confirmVariant: 'warning',
             });
-            if (!override) {
+            if (!proceed) {
+              // Revert status to Pending
               await supabase
                 .from('booking')
                 .update({ booking_status: 'Pending' })
                 .eq('booking_id', approvalBooking.booking_id);
+              // Also delete the equipment allocations we just made
               await supabase.from('booking_equipment').delete().eq('booking_id', approvalBooking.booking_id);
               setIsSubmitting(false);
               return;
-            } else {
-              await supabase
-                .from('booking')
-                .update({ notes: `${approvalBooking.notes || ''}\n[WARNING] Equipment overbooked for this date.` })
-                .eq('booking_id', approvalBooking.booking_id);
             }
           }
         } catch (capError) {
@@ -1105,6 +895,7 @@ export default function Bookings() {
         }
       }
 
+      // 6. Finalize UI
       setIsApprovalModalOpen(false);
       fetchData();
       toast.success('Booking approved and payments set to Downpayment.');
@@ -1146,136 +937,25 @@ export default function Bookings() {
     }
   };
 
-  // --- NEW: Rejection flow with reason and refund modal ---
-  const openRejectionModal = async (id) => {
-    const booking = bookings.find(b => b.booking_id === id);
-    if (!booking) return;
-
-    const positivePayments = booking.positivePayments || 0;
-    const downpaymentPaid = booking.downpaymentPaid || 0;
-
-    let warningMessage = 'Are you sure you want to reject this booking? This will cancel it and cannot be undone.';
-    if (positivePayments > 0) {
-      const totalAmount = booking.total_amount || 0;
-      const percentage = totalAmount > 0 ? (positivePayments / totalAmount) * 100 : 0;
-      warningMessage = `This booking has payments totaling ₱${positivePayments.toLocaleString()} (${percentage.toFixed(1)}% of total). Rejecting this booking will keep the payments recorded. You may need to process refunds separately. Do you still want to reject?`;
-    }
+  const handleReject = async (id) => {
     const confirmed = await showConfirm({
       title: 'Reject Booking?',
-      message: warningMessage,
-      confirmLabel: 'Yes, Continue',
-      cancelLabel: 'Cancel',
+      message: 'Are you sure you want to reject this booking? This will cancel it and cannot be undone.',
+      confirmLabel: 'Reject',
       confirmVariant: 'danger',
     });
     if (!confirmed) return;
 
-    const eventDate = booking.event_datetime ? new Date(booking.event_datetime) : null;
-    let isRefundable = false;
-    if (eventDate) {
-      const now = new Date();
-      const diffTime = eventDate.getTime() - now.getTime();
-      const daysUntilEvent = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      isRefundable = daysUntilEvent >= 3;
-    }
-
-    // Max refundable = all paid if >=3 days, otherwise only the excess above downpayment
-    let maxRefundable = 0;
-    if (isRefundable) {
-      maxRefundable = positivePayments;
-    } else {
-      maxRefundable = Math.max(0, positivePayments - downpaymentPaid);
-    }
-
-    setRejectionBookingId(id);
-    setRejectionMaxRefundable(maxRefundable);
-    setShowRejectionRefund(maxRefundable > 0);
-    setRejectionReason('');
-    setRejectionRefundAmount('');
-    setRejectionRefundRemarks('');
-    setRejectionRefundFile(null);
-    setIsRejectionModalOpen(true);
-  };
-
-  const handleRejectConfirm = async () => {
-    const id = rejectionBookingId;
-    if (!id) return;
-    const booking = bookings.find(b => b.booking_id === id);
-    if (!booking) return;
-
-    setIsRejectionModalOpen(false);
     try {
-      const reasonText = rejectionReason.trim() || 'No reason provided';
-      let updatedNotes = booking.notes
-        ? `${booking.notes}\n[REJECTION] ${reasonText}`
-        : `[REJECTION] ${reasonText}`;
-
       const { error } = await supabase
         .from('booking')
-        .update({
-          booking_status: 'Rejected',
-          notes: updatedNotes,
-        })
+        .update({ booking_status: 'Rejected' })
         .eq('booking_id', id);
       if (error) throw error;
-
-      // Delete equipment and vehicle assignments
+      
+      // Delete any equipment reservations
       await supabase.from('booking_equipment').delete().eq('booking_id', id);
-      await supabase.from('vehicle_assign').delete().eq('booking_id', id);
-
-      // Process refund if requested and amount > 0
-      if (showRejectionRefund) {
-        const enteredAmount = parseFloat(rejectionRefundAmount) || 0;
-        if (enteredAmount > 0) {
-          if (enteredAmount > rejectionMaxRefundable) {
-            toast.error(`Refund amount cannot exceed ₱${rejectionMaxRefundable.toLocaleString()}.`);
-            setIsRejectionModalOpen(true);
-            return;
-          }
-          if (!rejectionRefundFile) {
-            toast.error('Please upload a proof of refund receipt.');
-            setIsRejectionModalOpen(true);
-            return;
-          }
-          let proofUrl = 'refund_placeholder.png';
-          const fileExt = rejectionRefundFile.name.split('.').pop();
-          const fileName = `refunds/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-          const { error: uploadError } = await supabase.storage
-            .from('images')
-            .upload(fileName, rejectionRefundFile);
-          if (!uploadError) {
-            const { data: publicUrlData } = supabase.storage
-              .from('images')
-              .getPublicUrl(fileName);
-            proofUrl = publicUrlData.publicUrl;
-          } else {
-            toast.error('Failed to upload refund proof. Please try again.');
-            setIsRejectionModalOpen(true);
-            return;
-          }
-
-          const { error: refundError } = await supabase
-            .from('payment')
-            .insert([{
-              booking_id: id,
-              amount_paid: -enteredAmount,
-              pay_method: 'Refund',
-              pay_status: 'Refunded',
-              pay_datetime: new Date().toISOString(),
-              pay_proof: proofUrl,
-              customer_id: booking.customer_id,
-              remarks: rejectionRefundRemarks || 'Refund processed during rejection',
-            }]);
-          if (refundError) throw refundError;
-
-          const refundNote = `[REFUND] Amount: ₱${enteredAmount.toFixed(2)}. ${rejectionRefundRemarks || ''}`;
-          updatedNotes = updatedNotes + `\n${refundNote}`;
-          await supabase
-            .from('booking')
-            .update({ notes: updatedNotes })
-            .eq('booking_id', id);
-        }
-      }
-
+      
       toast.success('Booking rejected.');
       fetchData();
     } catch (error) {
@@ -1287,22 +967,24 @@ export default function Bookings() {
   const handleDelete = async (id) => {
     const confirmed = await showConfirm({
       title: 'Delete Booking?',
-      message: 'Are you sure you want to permanently delete this booking? This action cannot be undone. All associated payments, equipment, and vehicle assignments will also be deleted.',
+      message: 'Are you sure you want to permanently delete this booking? This action cannot be undone. All associated payments will also be deleted.',
       confirmLabel: 'Delete',
       confirmVariant: 'danger',
     });
     if (!confirmed) return;
 
     try {
+      // Delete payments first
       const { error: paymentsError } = await supabase
         .from('payment')
         .delete()
         .eq('booking_id', id);
       if (paymentsError) throw paymentsError;
 
+      // Delete equipment reservations
       await supabase.from('booking_equipment').delete().eq('booking_id', id);
-      await supabase.from('vehicle_assign').delete().eq('booking_id', id);
 
+      // Delete the booking
       const { error } = await supabase
         .from('booking')
         .delete()
@@ -1338,16 +1020,21 @@ export default function Bookings() {
 
     const confirmed = await showConfirm({
       title: 'Delete Selected Bookings?',
-      message: `You are about to delete ${selectedBookings.length} booking(s). This action cannot be undone and will also delete all associated payments, equipment, and vehicle assignments.`,
+      message: `You are about to delete ${selectedBookings.length} booking(s). This action cannot be undone and will also delete all associated payments.`,
       confirmLabel: 'Delete All',
       confirmVariant: 'danger',
     });
     if (!confirmed) return;
 
     try {
-      await supabase.from('payment').delete().in('booking_id', selectedBookings);
-      await supabase.from('booking_equipment').delete().in('booking_id', selectedBookings);
-      await supabase.from('vehicle_assign').delete().in('booking_id', selectedBookings);
+      // Delete payments first
+      const { error: paymentsError } = await supabase
+        .from('payment')
+        .delete()
+        .in('booking_id', selectedBookings);
+      if (paymentsError) throw paymentsError;
+
+      // Delete bookings
       const { error: bookingsError } = await supabase
         .from('booking')
         .delete()
@@ -1356,6 +1043,7 @@ export default function Bookings() {
 
       toast.success(`Successfully deleted ${selectedBookings.length} booking(s).`);
       clearSelection();
+      // If current page has no items after delete, go to previous page
       if (bookings.length === selectedBookings.length && currentPage > 1) {
         setCurrentPage(currentPage - 1);
       } else {
@@ -1416,18 +1104,6 @@ export default function Bookings() {
     return map[status] || 'bg-slate-100 text-slate-600';
   };
 
-  // Helper to get refund status label and styling
-  const getRefundStatusBadge = (status) => {
-    if (!status) return null;
-    const map = {
-      'Refundable': 'bg-green-50 border-green-200 text-green-700',
-      'Non-Refundable': 'bg-red-50 border-red-200 text-red-700',
-      'Fully Refunded': 'bg-blue-50 border-blue-200 text-blue-700',
-      'No Payments': 'bg-slate-50 border-slate-200 text-slate-500',
-    };
-    return map[status] || 'bg-slate-100 text-slate-600';
-  };
-
   return (
     <div className="space-y-6 relative">
       {/* Header */}
@@ -1461,7 +1137,7 @@ export default function Bookings() {
         ))}
       </div>
 
-      {/* Search & Filter */}
+      {/* Search & Filter + Bulk Delete Button */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <input
@@ -1497,7 +1173,8 @@ export default function Bookings() {
               onClick={clearFilters}
               className="flex items-center gap-2 px-4 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 bg-white shadow-xs"
             >
-              <RotateCcw size={16} /> Clear
+              <RotateCcw size={16} />
+              Clear
             </button>
           )}
           <button
@@ -1531,7 +1208,7 @@ export default function Bookings() {
                 <th className="p-4 font-bold w-16 text-center">Pax</th>
                 <th className="p-4 font-bold min-w-[110px]">Package</th>
                 <th className="p-4 font-bold w-28 text-right">Amount</th>
-                <th className="p-4 font-bold min-w-[120px]">Status</th>
+                <th className="p-4 font-bold w-24">Status</th>
                 <th className="p-4 font-bold min-w-[280px] text-center">Actions</th>
               </tr>
             </thead>
@@ -1542,16 +1219,8 @@ export default function Bookings() {
                 <tr><td colSpan="10" className="p-6 text-center text-slate-500 italic">No package bookings found.</td></tr>
               ) : (
                 filtered.map((booking) => (
-                  <tr 
-                    key={booking.booking_id} 
-                    className={`hover:bg-slate-50 transition-colors ${!booking.is_read ? 'font-bold' : ''}`}
-                    onClick={() => {
-                      if (!booking.is_read) {
-                        markAsRead(booking.booking_id);
-                      }
-                    }}
-                  >
-                    <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                  <tr key={booking.booking_id} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-4">
                       <input
                         type="checkbox"
                         checked={selectedBookings.includes(booking.booking_id)}
@@ -1560,22 +1229,12 @@ export default function Bookings() {
                       />
                     </td>
                     <td className="p-4">
-                      <div className="flex items-center gap-2">
-                        <p
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate(`/app/bookings/${booking.booking_id}`);
-                          }}
-                          className="font-bold text-slate-900 underline decoration-slate-300 underline-offset-4 cursor-pointer hover:text-[#008A45]"
-                        >
-                          {booking.customer?.first_name} {booking.customer?.last_name}
-                        </p>
-                        {!booking.is_read && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200 animate-pulse">
-                            NEW
-                          </span>
-                        )}
-                      </div>
+                      <p
+                        onClick={() => navigate(`/app/bookings/${booking.booking_id}`)}
+                        className="font-bold text-slate-900 underline decoration-slate-300 underline-offset-4 cursor-pointer hover:text-[#008A45]"
+                      >
+                        {booking.customer?.first_name} {booking.customer?.last_name}
+                      </p>
                     </td>
                     <td className="p-4 text-slate-600 text-xs">
                       {booking.book_datetime ? new Date(booking.book_datetime).toLocaleDateString() : 'N/A'}
@@ -1588,18 +1247,11 @@ export default function Bookings() {
                     <td className="p-4 font-medium">{booking.package?.pkg_name || 'N/A'}</td>
                     <td className="p-4 font-bold text-slate-900 text-right">₱{booking.total_amount?.toLocaleString() || '0'}</td>
                     <td className="p-4">
-                      <div className="flex flex-col items-start gap-1">
-                        <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getStatusBadge(booking.booking_status)}`}>
-                          {booking.booking_status}
-                        </span>
-                        {booking.booking_status === 'Rejected' && booking.refundStatus && (
-                          <span className={`px-3 py-0.5 rounded-full text-xs font-medium border ${getRefundStatusBadge(booking.refundStatus)}`}>
-                            {booking.refundStatus}
-                          </span>
-                        )}
-                      </div>
+                      <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getStatusBadge(booking.booking_status)}`}>
+                        {booking.booking_status}
+                      </span>
                     </td>
-                    <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                    <td className="p-4">
                       <div className="flex items-center justify-center gap-1.5 flex-nowrap whitespace-nowrap">
                         {booking.booking_status === 'Pending' && (
                           <>
@@ -1610,7 +1262,7 @@ export default function Bookings() {
                               <Check size={14} /> Approve
                             </button>
                             <button
-                              onClick={() => openRejectionModal(booking.booking_id)}
+                              onClick={() => handleReject(booking.booking_id)}
                               className="bg-red-100 border border-red-200 text-red-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-red-200 transition-colors"
                             >
                               <X size={14} /> Reject
@@ -1688,177 +1340,133 @@ export default function Bookings() {
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 text-left">
-              {/* Customer Selection */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Customer</label>
-                
-                {editingId ? (
-                  <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-700">
-                    {customers.find(c => c.customer_id === formData.customer_id)?.first_name}{' '}
-                    {customers.find(c => c.customer_id === formData.customer_id)?.last_name}
-                    <span className="ml-2 text-xs font-normal text-slate-400">(Cannot change in edit mode)</span>
+              {/* Customer Selection / Walk-in Toggle */}
+              {!editingId && (
+                <div className="mb-4">
+                  <label className="block text-xs font-bold text-slate-700 mb-2">Customer Type</label>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsWalkIn(false)}
+                      className={`flex-1 py-2 px-4 rounded-lg border-2 text-sm font-semibold transition-all ${
+                        !isWalkIn
+                          ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900'
+                          : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      Existing Customer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsWalkIn(true)}
+                      className={`flex-1 py-2 px-4 rounded-lg border-2 text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
+                        isWalkIn
+                          ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900'
+                          : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      <UserPlus size={16} />
+                      Walk-in Customer
+                    </button>
                   </div>
-                ) : isWalkIn ? (
-                  <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-bold text-slate-700">New Customer Details</p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsWalkIn(false);
-                          setWalkInData({ first_name: '', last_name: '', contact_no: '', email_address: '', cus_address: '' });
-                        }}
-                        className="text-xs text-slate-400 hover:text-slate-600"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                    <p className="text-xs text-amber-600 -mt-2">
-                      ⚠️ Account will be created with default password: <strong>password123</strong>
+                  {isWalkIn && (
+                    <p className="text-xs text-amber-600 mt-2">
+                      ⚠️ A customer account will be created with default password: <strong>password123</strong>
                     </p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-0.5">First Name *</label>
-                        <input
-                          type="text"
-                          name="first_name"
-                          value={walkInData.first_name}
-                          onChange={handleWalkInChange}
-                          placeholder="e.g. Juan"
-                          className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-0.5">Last Name *</label>
-                        <input
-                          type="text"
-                          name="last_name"
-                          value={walkInData.last_name}
-                          onChange={handleWalkInChange}
-                          placeholder="e.g. Dela Cruz"
-                          className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
-                          required
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-0.5">Contact Number *</label>
-                        <input
-                          type="text"
-                          name="contact_no"
-                          value={walkInData.contact_no}
-                          onChange={handleWalkInChange}
-                          placeholder="09123456789"
-                          className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
-                          required
-                        />
-                        <p className="text-[10px] text-slate-400 mt-0.5">Must be exactly 11 digits</p>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-0.5">Email Address *</label>
-                        <input
-                          type="email"
-                          name="email_address"
-                          value={walkInData.email_address}
-                          onChange={handleWalkInChange}
-                          placeholder="e.g. juan@email.com"
-                          className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
-                          required
-                        />
-                      </div>
-                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Existing Customer Dropdown */}
+              {!isWalkIn && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Customer *</label>
+                  <select
+                    name="customer_id"
+                    value={formData.customer_id}
+                    onChange={handleInputChange}
+                    required
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                  >
+                    <option value="">Select Customer</option>
+                    {customers.map(c => (
+                      <option key={c.customer_id} value={c.customer_id}>
+                        {c.first_name} {c.last_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Walk-in Customer Fields */}
+              {isWalkIn && (
+                <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                  <p className="text-xs font-bold text-slate-700 mb-1">Walk-in Customer Details</p>
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Address</label>
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">First Name *</label>
                       <input
                         type="text"
-                        name="cus_address"
-                        value={walkInData.cus_address}
+                        name="first_name"
+                        value={walkInData.first_name}
                         onChange={handleWalkInChange}
-                        placeholder="e.g. Banga, Bayawan City"
+                        placeholder="e.g. Juan"
                         className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                        required={isWalkIn}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Last Name *</label>
+                      <input
+                        type="text"
+                        name="last_name"
+                        value={walkInData.last_name}
+                        onChange={handleWalkInChange}
+                        placeholder="e.g. Dela Cruz"
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                        required={isWalkIn}
                       />
                     </div>
                   </div>
-                ) : (
-                  <div>
-                    <div className="relative">
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                        <input
-                          type="text"
-                          value={customerSearch}
-                          onChange={(e) => {
-                            setCustomerSearch(e.target.value);
-                            setShowCustomerList(true);
-                          }}
-                          onFocus={() => setShowCustomerList(true)}
-                          placeholder="Search existing customer by name, phone, or email..."
-                          className="w-full border border-slate-300 rounded-lg pl-10 pr-3 py-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
-                        />
-                      </div>
-                      
-                      {showCustomerList && (
-                        <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                          {filteredCustomers.length > 0 ? (
-                            filteredCustomers.map(customer => (
-                              <button
-                                key={customer.customer_id}
-                                type="button"
-                                onClick={() => selectCustomer(customer)}
-                                className="w-full text-left px-4 py-2.5 hover:bg-slate-50 border-b border-slate-100 last:border-0 transition-colors"
-                              >
-                                <div className="font-medium text-slate-900">
-                                  {customer.first_name} {customer.last_name}
-                                </div>
-                                <div className="text-xs text-slate-500 flex gap-3 mt-0.5">
-                                  <span>{customer.contact_no || 'No phone'}</span>
-                                  <span className="text-slate-300">|</span>
-                                  <span>{customer.email_address || 'No email'}</span>
-                                </div>
-                              </button>
-                            ))
-                          ) : (
-                            <div className="p-3 text-center">
-                              <p className="text-sm text-slate-500 mb-2">No existing customers found.</p>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setIsWalkIn(true);
-                                  setShowCustomerList(false);
-                                  // Better auto-fill: if search contains '@', put in email, else split name
-                                  const search = customerSearch.trim();
-                                  if (search.includes('@')) {
-                                    setWalkInData(prev => ({ ...prev, email_address: search }));
-                                  } else {
-                                    const parts = search.split(' ');
-                                    if (parts.length === 1 && search.length > 0) {
-                                      setWalkInData(prev => ({ ...prev, first_name: parts[0] }));
-                                    } else if (parts.length > 1) {
-                                      setWalkInData(prev => ({ ...prev, first_name: parts[0], last_name: parts.slice(1).join(' ') }));
-                                    }
-                                  }
-                                }}
-                                className="inline-flex items-center gap-2 px-4 py-2 bg-[#008A45] text-white text-sm font-semibold rounded-lg hover:bg-[#007038] transition-colors"
-                              >
-                                <UserPlus size={16} />
-                                Create New Customer
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Contact Number *</label>
+                      <input
+                        type="text"
+                        name="contact_no"
+                        value={walkInData.contact_no}
+                        onChange={handleWalkInChange}
+                        placeholder="e.g. 09123456789"
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                        required={isWalkIn}
+                      />
                     </div>
-                    
-                    {!formData.customer_id && customerSearch === '' && (
-                      <p className="text-xs text-slate-400 mt-1">
-                        Type to search for an existing customer, or click "Create New Customer" if not found.
-                      </p>
-                    )}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Email Address *</label>
+                      <input
+                        type="email"
+                        name="email_address"
+                        value={walkInData.email_address}
+                        onChange={handleWalkInChange}
+                        placeholder="e.g. juan@email.com"
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                        required={isWalkIn}
+                      />
+                    </div>
                   </div>
-                )}
-              </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-0.5">Address</label>
+                    <input
+                      type="text"
+                      name="cus_address"
+                      value={walkInData.cus_address}
+                      onChange={handleWalkInChange}
+                      placeholder="e.g. Banga, Bayawan City"
+                      className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Package */}
               <div>
@@ -1938,7 +1546,7 @@ export default function Bookings() {
                 />
               </div>
 
-              {/* Pax, Motif Color, Delivery Fee, Total Amount */}
+              {/* Pax, Color, Delivery Fee, Total Amount */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Pax Count *</label>
@@ -1953,57 +1561,16 @@ export default function Bookings() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Motif Color</label>
-                  {(() => {
-                    const selectedPackage = packages.find(p => p.package_id === formData.package_id);
-                    const packageColors = selectedPackage?.colors || [];
-                    // Build options: include package colors + the current selection if it's not in the list (for editing custom values)
-                    let colorOptions = [...packageColors];
-                    if (formData.motif_color && !colorOptions.includes(formData.motif_color)) {
-                      colorOptions.push(formData.motif_color);
-                    }
-                    return (
-                      <>
-                        {formData.package_id ? (
-                          colorOptions.length > 0 ? (
-                            <select
-                              name="motif_color"
-                              value={formData.motif_color}
-                              onChange={handleInputChange}
-                              className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45] bg-white"
-                            >
-                              <option value="">Select a color</option>
-                              {colorOptions.map(color => (
-                                <option key={color} value={color}>{color}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <input
-                              type="text"
-                              name="motif_color"
-                              value={formData.motif_color}
-                              onChange={handleInputChange}
-                              placeholder="No colors defined for this package. Type a color..."
-                              className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45] bg-white"
-                            />
-                          )
-                        ) : (
-                          <input
-                            type="text"
-                            name="motif_color"
-                            value={formData.motif_color}
-                            onChange={handleInputChange}
-                            placeholder="Select a package first to see available colors"
-                            className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45] bg-slate-50"
-                            disabled
-                          />
-                        )}
-                        {formData.package_id && colorOptions.length > 0 && formData.motif_color && !packageColors.includes(formData.motif_color) && (
-                          <p className="text-[10px] text-amber-600 mt-0.5">⚠️ Custom color – consider adding it to the package.</p>
-                        )}
-                      </>
-                    );
-                  })()}
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Motif Color *</label>
+                  <input
+                    type="text"
+                    name="motif_color"
+                    value={formData.motif_color}
+                    onChange={handleInputChange}
+                    placeholder="e.g. Burgundy"
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                    required
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Delivery Fee</label>
@@ -2104,6 +1671,19 @@ export default function Bookings() {
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
                   />
                   <p className="text-xs text-slate-400 mt-1">Each extra pax costs ₱{approvalBooking.package?.pkg_price || 0} (package price per pax).</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Additional Delivery Fee</label>
+                  <input
+                    type="number"
+                    name="extraDeliveryFee"
+                    min="0"
+                    step="0.01"
+                    value={approvalData.extraDeliveryFee}
+                    onChange={handleApprovalInputChange}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                    placeholder="e.g. 500"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons, extra services)</label>
@@ -2251,95 +1831,6 @@ export default function Bookings() {
                   className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors"
                 >
                   Apply Filters
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* ===== REJECTION REASON MODAL (with refund fields) ===== */}
-      {isRejectionModalOpen && createPortal(
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
-            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
-              <h2 className="text-lg font-bold text-slate-900">Rejection Reason</h2>
-              <button onClick={() => setIsRejectionModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Reason for Rejection</label>
-                <textarea
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  rows="3"
-                  placeholder="e.g., Incomplete details, client requested cancellation, etc."
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
-                />
-                <p className="text-xs text-slate-400 mt-1">Optional, but recommended.</p>
-              </div>
-
-              {/* Refund fields if applicable */}
-              {showRejectionRefund && (
-                <div className="border-t border-slate-200 pt-3 mt-3">
-                  <p className="text-xs font-bold text-slate-700 mb-2">
-                    Process Refund <span className="font-normal text-slate-400">(optional – leave blank to skip)</span>
-                  </p>
-                  <p className="text-xs text-slate-500 mb-2">Max refundable: ₱{rejectionMaxRefundable.toLocaleString()}</p>
-                  <p className="text-xs text-red-500 mb-2">* Proof of refund is required if you enter an amount.</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Refund Amount (₱)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={rejectionRefundAmount}
-                        onChange={(e) => setRejectionRefundAmount(e.target.value)}
-                        placeholder="Enter amount (optional)"
-                        className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Remarks</label>
-                      <input
-                        type="text"
-                        value={rejectionRefundRemarks}
-                        onChange={(e) => setRejectionRefundRemarks(e.target.value)}
-                        placeholder="Reason for refund"
-                        className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-2">
-                    <label className="block text-xs font-semibold text-slate-600 mb-0.5">
-                      Receipt / Proof of Refund <span className="text-red-500">*</span>
-                      <span className="font-normal text-slate-400 ml-1">(required if amount entered)</span>
-                    </label>
-                    <label className="border-2 border-dashed border-slate-300 rounded-lg p-2 flex items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center">
-                      <input type="file" onChange={(e) => setRejectionRefundFile(e.target.files[0])} accept="image/*" className="hidden" />
-                      <span className="text-xs text-slate-600">{rejectionRefundFile ? rejectionRefundFile.name : 'Upload Image (required for refund)'}</span>
-                    </label>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setIsRejectionModalOpen(false)}
-                  className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleRejectConfirm}
-                  className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm"
-                >
-                  Confirm Rejection
                 </button>
               </div>
             </div>

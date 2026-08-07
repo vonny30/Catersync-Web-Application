@@ -5,12 +5,6 @@ import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 
-// Default colors for new packages
-const DEFAULT_COLORS = [
-  'Burgundy', 'Navy Blue', 'Emerald Green', 'Gold', 'Silver', 'White',
-  'Cream', 'Blush Pink', 'Lavender', 'Champagne', 'Mint Green', 'Peach',
-];
-
 export default function PackagesAndMenus() {
   const { showConfirm } = useConfirm();
   // --- STATE ---
@@ -41,9 +35,7 @@ export default function PackagesAndMenus() {
     pricing_type: 'per_pax',
     max_pax: '',
     extra_pax_price: '',
-    colors: [], // array of color names
   });
-  const [newColorInput, setNewColorInput] = useState('');
 
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [categoryForm, setCategoryForm] = useState({
@@ -229,38 +221,11 @@ export default function PackagesAndMenus() {
     }));
   };
 
-  // --- Color management ---
-  const handleAddColor = () => {
-    const color = newColorInput.trim();
-    if (!color) {
-      toast.error('Please enter a color name.');
-      return;
-    }
-    if (formData.colors && formData.colors.includes(color)) {
-      toast.error('Color already exists.');
-      return;
-    }
-    setFormData(prev => ({
-      ...prev,
-      colors: [...(prev.colors || []), color],
-    }));
-    setNewColorInput('');
-  };
-
-  const handleRemoveColor = (colorToRemove) => {
-    setFormData(prev => ({
-      ...prev,
-      colors: (prev.colors || []).filter(c => c !== colorToRemove),
-    }));
-  };
-
-  // --- Open modal ---
   const handleOpenModal = async (type, item = null) => {
     setModalType(type);
     setEditingId(item ? (type === 'Package' ? item.package_id : item.menu_item_id) : null);
 
     if (item && type === 'Package') {
-      // Editing existing package
       const { selectedCategories, selectedEquipment, equipmentQuantities } =
         await fetchPackageAssociationsForEdit(item.package_id);
       setFormData({
@@ -276,7 +241,6 @@ export default function PackagesAndMenus() {
         pricing_type: item.pricing_type || 'per_pax',
         max_pax: item.max_pax?.toString() || '',
         extra_pax_price: item.extra_pax_price?.toString() || '',
-        colors: item.colors || [], // keep stored colors (or empty if none)
       });
     } else if (item && type === 'Menu Item') {
       setFormData({
@@ -292,47 +256,23 @@ export default function PackagesAndMenus() {
         pricing_type: 'per_pax',
         max_pax: '',
         extra_pax_price: '',
-        colors: [],
       });
     } else {
-      // New package or new menu item
-      if (type === 'Package') {
-        // New package: pre‑fill with default colors
-        setFormData({
-          title: '',
-          price: '',
-          minPax: '',
-          categoryId: '',
-          description: '',
-          imageFile: null,
-          selectedCategories: [],
-          selectedEquipment: [],
-          equipmentQuantities: {},
-          pricing_type: 'per_pax',
-          max_pax: '',
-          extra_pax_price: '',
-          colors: [...DEFAULT_COLORS],
-        });
-      } else {
-        // New menu item: no colors
-        setFormData({
-          title: '',
-          price: '',
-          minPax: '',
-          categoryId: '',
-          description: '',
-          imageFile: null,
-          selectedCategories: [],
-          selectedEquipment: [],
-          equipmentQuantities: {},
-          pricing_type: 'per_pax',
-          max_pax: '',
-          extra_pax_price: '',
-          colors: [],
-        });
-      }
+      setFormData({
+        title: '',
+        price: '',
+        minPax: '',
+        categoryId: '',
+        description: '',
+        imageFile: null,
+        selectedCategories: [],
+        selectedEquipment: [],
+        equipmentQuantities: {},
+        pricing_type: 'per_pax',
+        max_pax: '',
+        extra_pax_price: '',
+      });
     }
-    setNewColorInput('');
     setIsModalOpen(true);
   };
 
@@ -352,9 +292,7 @@ export default function PackagesAndMenus() {
       pricing_type: 'per_pax',
       max_pax: '',
       extra_pax_price: '',
-      colors: [],
     });
-    setNewColorInput('');
     setIsSubmitting(false);
   };
 
@@ -400,7 +338,6 @@ export default function PackagesAndMenus() {
           pricing_type: formData.pricing_type || 'per_pax',
           max_pax: formData.pricing_type === 'fixed' ? (parseInt(formData.max_pax) || null) : null,
           extra_pax_price: formData.pricing_type === 'fixed' ? (parseFloat(formData.extra_pax_price) || 0) : 0,
-          colors: formData.colors || [],
         };
         if (uploadedImageUrl) packageData.pkg_image = uploadedImageUrl;
 
@@ -921,6 +858,7 @@ export default function PackagesAndMenus() {
                         </div>
                         <p className="text-xs font-bold text-[#008A45] mb-1">{category?.category_name || 'Uncategorized'}</p>
                         <h4 className="font-bold text-slate-900">{item.menu_name}</h4>
+                        {/* Updated price display */}
                         <p className="font-semibold text-slate-700 mt-2">
                           ₱{Number(item.menu_price).toLocaleString()} <span className="text-sm font-normal text-slate-500">/ tray</span>
                         </p>
@@ -986,24 +924,7 @@ export default function PackagesAndMenus() {
                     `}>
                       <input type="radio" name="itemType" value="Package" checked={modalType === 'Package'}
                         disabled={!!editingId || isSubmitting}
-                        onChange={() => {
-                          setModalType('Package');
-                          setFormData({
-                            title: '',
-                            price: '',
-                            minPax: '',
-                            categoryId: '',
-                            description: '',
-                            imageFile: null,
-                            selectedCategories: [],
-                            selectedEquipment: [],
-                            equipmentQuantities: {},
-                            pricing_type: 'per_pax',
-                            max_pax: '',
-                            extra_pax_price: '',
-                            colors: [...DEFAULT_COLORS],
-                          });
-                        }}
+                        onChange={() => { setModalType('Package'); setFormData({ title: '', price: '', minPax: '', categoryId: '', description: '', imageFile: null, selectedCategories: [], selectedEquipment: [], equipmentQuantities: {}, pricing_type: 'per_pax', max_pax: '', extra_pax_price: '' }); }}
                         className="w-4 h-4 text-[#008A45] focus:ring-[#008A45]" />
                       <span className="font-medium text-sm">Package</span>
                     </label>
@@ -1013,24 +934,7 @@ export default function PackagesAndMenus() {
                     `}>
                       <input type="radio" name="itemType" value="Menu Item" checked={modalType === 'Menu Item'}
                         disabled={!!editingId || isSubmitting}
-                        onChange={() => {
-                          setModalType('Menu Item');
-                          setFormData({
-                            title: '',
-                            price: '',
-                            minPax: '',
-                            categoryId: '',
-                            description: '',
-                            imageFile: null,
-                            selectedCategories: [],
-                            selectedEquipment: [],
-                            equipmentQuantities: {},
-                            pricing_type: 'per_pax',
-                            max_pax: '',
-                            extra_pax_price: '',
-                            colors: [],
-                          });
-                        }}
+                        onChange={() => { setModalType('Menu Item'); setFormData({ title: '', price: '', minPax: '', categoryId: '', description: '', imageFile: null, selectedCategories: [], selectedEquipment: [], equipmentQuantities: {}, pricing_type: 'per_pax', max_pax: '', extra_pax_price: '' }); }}
                         className="w-4 h-4 text-[#008A45] focus:ring-[#008A45]" />
                       <span className="font-medium text-sm">Menu Item</span>
                     </label>
@@ -1148,58 +1052,6 @@ export default function PackagesAndMenus() {
                         </div>
                       </div>
                     )}
-
-                    {/* Color Management Section */}
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Available Colors</label>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={newColorInput}
-                          onChange={(e) => setNewColorInput(e.target.value)}
-                          placeholder="Add a color (e.g. Burgundy)"
-                          className="flex-1 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-[#008A45] outline-none"
-                          disabled={isSubmitting}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleAddColor();
-                            }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={handleAddColor}
-                          disabled={isSubmitting}
-                          className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
-                        >
-                          Add
-                        </button>
-                      </div>
-                      {formData.colors && formData.colors.length > 0 ? (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {formData.colors.map(color => (
-                            <span
-                              key={color}
-                              className="inline-flex items-center gap-1 bg-slate-100 border border-slate-300 rounded-full px-3 py-1 text-sm"
-                            >
-                              {color}
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveColor(color)}
-                                className="text-slate-400 hover:text-red-500 transition-colors"
-                                disabled={isSubmitting}
-                              >
-                                ×
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-slate-400 mt-2">No colors added yet.</p>
-                      )}
-                      <p className="text-xs text-slate-400 mt-1">These colors will appear in the booking form when this package is selected.</p>
-                    </div>
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">Description</label>

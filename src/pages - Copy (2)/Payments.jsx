@@ -72,7 +72,7 @@ export default function Payments() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch ALL payments (including refunds, excluding Pending placeholder)
+      // 1. Fetch ONLY REAL payments (exclude Pending with zero amount)
       const { data: paymentsData, error: paymentsError } = await supabase
         .from('payment')
         .select(`
@@ -110,12 +110,12 @@ export default function Payments() {
       if (bookingsError) throw bookingsError;
       setBookings(bookingsData || []);
 
-      // 3. Compute summary statistics
-      // Total collected = net of all payments (positive + negative) – this includes refunds
-      const collected = paymentsData.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+      // 3. Compute summary statistics (only from real payments)
+      const collected = paymentsData
+        .filter(p => p.pay_status === 'Fully Paid' || p.pay_status === 'Downpayment')
+        .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
       setTotalCollected(collected);
 
-      // Booking totals: sum positive + negative per booking
       const bookingTotals = {};
       paymentsData.forEach(p => {
         if (p.booking_id) {
@@ -126,7 +126,6 @@ export default function Payments() {
       let fullyPaid = 0;
       bookingsData.forEach(b => {
         const paid = bookingTotals[b.booking_id] || 0;
-        // Fully paid if net paid >= total_amount and paid > 0 (refunds might make it negative)
         if (paid >= (b.total_amount || 0) && paid > 0) fullyPaid++;
       });
       setFullyPaidCount(fullyPaid);
@@ -226,7 +225,7 @@ export default function Payments() {
     // Always include the currently selected booking (needed for editing)
     if (formData.booking_id && b.booking_id === formData.booking_id) return true;
 
-    // 1. Compute remaining balance (positive payments minus refunds)
+    // 1. Compute remaining balance
     const paid = payments
       .filter(p => p.booking_id === b.booking_id)
       .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
@@ -238,7 +237,7 @@ export default function Payments() {
     // 3. For pending bookings, hide if they already have a downpayment
     if (b.booking_status === 'Pending') {
       const hasDownpayment = payments.some(
-        p => p.booking_id === b.booking_id && p.pay_status === 'Downpayment' && p.amount_paid > 0
+        p => p.booking_id === b.booking_id && p.pay_status === 'Downpayment'
       );
       if (hasDownpayment) return false;
     }
@@ -285,22 +284,7 @@ export default function Payments() {
       return;
     }
 
-    // --- 2. Determine if proof is required
-    let isProofRequired = true;
-    if (editingId) {
-      // If editing and current pay_proof is not a placeholder, proof is optional
-      const currentProof = formData.pay_proof;
-      if (currentProof && currentProof !== 'placeholder.png' && currentProof !== 'refund_placeholder.png') {
-        isProofRequired = false;
-      }
-    }
-    if (isProofRequired && !selectedFile) {
-      toast.error('Please upload a proof of payment image.');
-      setIsSubmitting(false);
-      return;
-    }
-
-    // --- 3. Get the selected booking details ---
+    // --- 2. Get the selected booking details ---
     const selectedBooking = bookings.find(b => b.booking_id === formData.booking_id);
     if (!selectedBooking) {
       toast.error('Selected booking not found.');
@@ -308,35 +292,35 @@ export default function Payments() {
       return;
     }
 
-    // --- 4. Calculate current paid amount and remaining balance (including refunds) ---
+    // --- 3. Calculate current paid amount and remaining balance ---
     const paid = payments
       .filter(p => p.booking_id === formData.booking_id)
       .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
     const totalAmount = selectedBooking.total_amount || 0;
     const remainingBalance = Math.max(0, totalAmount - paid);
 
-    // --- 5. Check if booking is already fully paid ---
+    // --- 4. Check if booking is already fully paid ---
     if (remainingBalance <= 0) {
       toast.error('This booking is already fully paid. No additional payments are allowed.');
       setIsSubmitting(false);
       return;
     }
 
-    // --- 6. Validate amount does not exceed remaining balance ---
+    // --- 5. Validate amount does not exceed remaining balance ---
     if (amount > remainingBalance) {
       toast.error(`Amount exceeds remaining balance of ₱${remainingBalance.toLocaleString()}.`);
       setIsSubmitting(false);
       return;
     }
 
-    // --- 7. Determine the final payment status (may be changed by user confirmation) ---
+    // --- 6. Determine the final payment status (may be changed by user confirmation) ---
     let finalPayStatus = formData.pay_status;
     const status = selectedBooking.booking_status || 'Pending';
 
-    // --- 8. Check booking status and payment rules ---
+    // --- 7. Check booking status and payment rules ---
     if (status === 'Pending') {
       const hasDownpayment = payments.some(
-        p => p.booking_id === formData.booking_id && p.pay_status === 'Downpayment' && p.amount_paid > 0
+        p => p.booking_id === formData.booking_id && p.pay_status === 'Downpayment'
       );
       if (hasDownpayment) {
         toast.error('This booking already has a downpayment. Wait for approval before recording more payments.');
@@ -350,7 +334,7 @@ export default function Payments() {
       }
     }
 
-    // --- 9. For approved bookings: handle "Fully Paid" conversion ---
+    // --- 8. For approved bookings: handle "Fully Paid" conversion ---
     if (status === 'Approved' || status === 'Completed') {
       // If user selected "Fully Paid", amount must equal remaining balance
       if (formData.pay_status === 'Fully Paid' && amount < remainingBalance) {
@@ -379,7 +363,7 @@ export default function Payments() {
       }
     }
 
-    // --- 10. Proceed with payment recording ---
+    // --- 9. Proceed with payment recording ---
     try {
       let proofUrl = formData.pay_proof;
 
@@ -484,8 +468,7 @@ export default function Payments() {
       'Downpayment': 'bg-amber-50 border-amber-200 text-amber-700',
       'Fully Paid': 'bg-[#EAF3F2] border-[#C1DEDC] text-slate-800',
       'Unpaid': 'bg-red-50 border-red-200 text-red-700',
-      'Refunded': 'bg-red-100 border-red-200 text-red-700',
-      'Pending': 'bg-slate-100 border-slate-200 text-slate-500',
+      'Pending': 'bg-slate-100 border-slate-200 text-slate-500', // Fallback
     };
     return map[status] || 'bg-slate-100 text-slate-600';
   };
@@ -525,9 +508,6 @@ export default function Payments() {
     );
   };
 
-  // Check if a payment is a refund (negative amount)
-  const isRefund = (payment) => payment.amount_paid < 0;
-
   return (
     <div className="space-y-6 relative">
       {/* PAGE HEADER */}
@@ -555,9 +535,9 @@ export default function Payments() {
       {/* SUMMARY CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5">
-          <p className="text-xs font-semibold text-slate-600 mb-1">Net Collected</p>
+          <p className="text-xs font-semibold text-slate-600 mb-1">Total Collected</p>
           <h3 className="text-3xl font-extrabold text-slate-900">₱{totalCollected.toLocaleString()}</h3>
-          <p className="text-xs text-slate-500 mt-2">After refunds</p>
+          <p className="text-xs text-slate-500 mt-2">From all payments</p>
         </div>
         <div className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5">
           <p className="text-xs font-semibold text-slate-600 mb-1">Pending Balance</p>
@@ -611,51 +591,46 @@ export default function Payments() {
               ) : filteredPayments.length === 0 ? (
                 <tr><td colSpan="9" className="p-6 text-center text-slate-500 italic">No payments found.</td></tr>
               ) : (
-                filteredPayments.map((payment) => {
-                  const refund = isRefund(payment);
-                  return (
-                    <tr key={payment.payment_id} className={`hover:bg-slate-50 transition-colors ${refund ? 'bg-red-50/50' : ''}`}>
-                      <td className="p-4">
-                        <p className="font-bold text-slate-900">{getClientName(payment)}</p>
-                      </td>
-                      <td className="p-4 text-slate-600">{getBookingRef(payment)}</td>
-                      <td className="p-4 text-slate-600">{refund ? 'Refund' : (payment.pay_status === 'Fully Paid' ? 'Full Payment' : payment.pay_status)}</td>
-                      <td className="p-4 font-medium text-slate-700">{payment.pay_method || 'N/A'}</td>
-                      <td className={`p-4 font-bold ${refund ? 'text-red-600' : 'text-slate-900'}`}>
-                        {refund ? '-' : ''}₱{Math.abs(payment.amount_paid || 0).toLocaleString()}
-                      </td>
-                      <td className="p-4">
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadge(payment.pay_status)}`}>
-                          {payment.pay_status === 'Refunded' ? 'Refunded' : payment.pay_status}
-                        </span>
-                      </td>
-                      <td className="p-4 text-slate-600">
-                        {payment.pay_datetime ? new Date(payment.pay_datetime).toLocaleDateString() : 'N/A'}
-                      </td>
-                      <td className="p-4 text-center">
-                        {renderProof(payment.pay_proof)}
-                      </td>
-                      <td className="p-4 text-right">
-                        <div className="flex items-center justify-end gap-3">
-                          <button
-                            onClick={() => openEditModal(payment)}
-                            className="text-slate-400 hover:text-[#008A45] transition-colors"
-                            title="Edit"
-                          >
-                            <Edit size={16} />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(payment.payment_id)}
-                            className="text-slate-400 hover:text-red-600 transition-colors"
-                            title="Delete"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
+                filteredPayments.map((payment) => (
+                  <tr key={payment.payment_id} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-4">
+                      <p className="font-bold text-slate-900">{getClientName(payment)}</p>
+                    </td>
+                    <td className="p-4 text-slate-600">{getBookingRef(payment)}</td>
+                    <td className="p-4 text-slate-600">{payment.pay_status === 'Fully Paid' ? 'Full Payment' : payment.pay_status}</td>
+                    <td className="p-4 font-medium text-slate-700">{payment.pay_method || 'N/A'}</td>
+                    <td className="p-4 font-bold text-slate-900">₱{payment.amount_paid?.toLocaleString() || '0'}</td>
+                    <td className="p-4">
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadge(payment.pay_status)}`}>
+                        {payment.pay_status}
+                      </span>
+                    </td>
+                    <td className="p-4 text-slate-600">
+                      {payment.pay_datetime ? new Date(payment.pay_datetime).toLocaleDateString() : 'N/A'}
+                    </td>
+                    <td className="p-4 text-center">
+                      {renderProof(payment.pay_proof)}
+                    </td>
+                    <td className="p-4 text-right">
+                      <div className="flex items-center justify-end gap-3">
+                        <button
+                          onClick={() => openEditModal(payment)}
+                          className="text-slate-400 hover:text-[#008A45] transition-colors"
+                          title="Edit"
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(payment.payment_id)}
+                          className="text-slate-400 hover:text-red-600 transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
@@ -750,7 +725,7 @@ export default function Payments() {
                       <span className="font-medium">Existing payments: </span>
                       {payments.filter(p => p.booking_id === selectedBooking.booking_id).map((p, idx) => (
                         <span key={idx} className="ml-1">
-                          {p.amount_paid < 0 ? '-' : ''}₱{Math.abs(p.amount_paid).toLocaleString()} ({p.pay_status}) {idx < payments.filter(p2 => p2.booking_id === selectedBooking.booking_id).length - 1 ? '•' : ''}
+                          ₱{p.amount_paid.toLocaleString()} ({p.pay_status}) {idx < payments.filter(p2 => p2.booking_id === selectedBooking.booking_id).length - 1 ? '•' : ''}
                         </span>
                       ))}
                       <br />
@@ -827,16 +802,7 @@ export default function Payments() {
 
               {/* Proof of Payment Upload */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Proof of Payment
-                  {!editingId && <span className="text-red-500 ml-1">*</span>}
-                  {editingId && formData.pay_proof && formData.pay_proof !== 'placeholder.png' && formData.pay_proof !== 'refund_placeholder.png' && (
-                    <span className="text-xs text-slate-400 ml-2">(optional – replace existing)</span>
-                  )}
-                  {editingId && (!formData.pay_proof || formData.pay_proof === 'placeholder.png' || formData.pay_proof === 'refund_placeholder.png') && (
-                    <span className="text-red-500 ml-1">*</span>
-                  )}
-                </label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Proof of Payment</label>
                 <label className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center relative overflow-hidden h-24">
                   <input type="file" onChange={handleFileChange} accept="image/*" className="hidden" />
                   <ImageIcon size={20} className="text-slate-400 mb-1" />
@@ -845,11 +811,7 @@ export default function Payments() {
                   </span>
                   <span className="text-[10px] text-slate-400 mt-0.5">PNG, JPG up to 5MB</span>
                 </label>
-                <p className="text-xs text-slate-400 mt-1">
-                  {editingId && formData.pay_proof && formData.pay_proof !== 'placeholder.png' && formData.pay_proof !== 'refund_placeholder.png'
-                    ? 'Leave blank to keep existing proof.'
-                    : 'Upload a proof image; will be stored in Supabase Storage.'}
-                </p>
+                <p className="text-xs text-slate-400 mt-1">Upload a proof image; will be stored in Supabase Storage.</p>
               </div>
 
               {/* Footer */}
