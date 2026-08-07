@@ -1,7 +1,7 @@
 // src/pages/BookingDetails.jsx
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, ClipboardList, Image as ImageIcon, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, ClipboardList, Image as ImageIcon, ExternalLink} from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -66,6 +66,53 @@ export default function BookingDetails() {
   const [cancelReason, setCancelReason] = useState('');
   const [isCancelling, setIsCancelling] = useState(false);
 
+  // --- Refund fields inside cancellation modal ---
+  const [refundAmount, setRefundAmount] = useState('');
+  const [refundRemarks, setRefundRemarks] = useState('');
+  const [refundFile, setRefundFile] = useState(null);
+
+  // --- Edit Payment Modal State ---
+  const [isEditPaymentModalOpen, setIsEditPaymentModalOpen] = useState(false);
+  const [editingPayment, setEditingPayment] = useState(null);
+  const [editPaymentFormData, setEditPaymentFormData] = useState({
+    amount: '',
+    pay_method: 'Cash',
+    pay_status: 'Downpayment',
+    pay_proof: 'placeholder.png',
+  });
+  const [editSelectedFile, setEditSelectedFile] = useState(null);
+
+  // --- Edit Equipment Assignment Modal State ---
+  const [isEditEquipModalOpen, setIsEditEquipModalOpen] = useState(false);
+  const [editingAssignment, setEditingAssignment] = useState(null);
+  const [editEquipData, setEditEquipData] = useState({ quantity: 1 });
+
+  // --- Rejection Modal State ---
+  const [isRejectionModalOpen, setIsRejectionModalOpen] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [rejectionRefundAmount, setRejectionRefundAmount] = useState('');
+  const [rejectionRefundRemarks, setRejectionRefundRemarks] = useState('');
+  const [rejectionRefundFile, setRejectionRefundFile] = useState(null);
+  const [showRejectionRefund, setShowRejectionRefund] = useState(false);
+  const [rejectionMaxRefundable, setRejectionMaxRefundable] = useState(0);
+
+  // --- Refund after rejection modal ---
+  const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
+  const [refundModalAmount, setRefundModalAmount] = useState('');
+  const [refundModalRemarks, setRefundModalRemarks] = useState('');
+  const [refundModalFile, setRefundModalFile] = useState(null);
+  const [isRefundSubmitting, setIsRefundSubmitting] = useState(false);
+
+  // --- Approval Modal State ---
+  const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
+  const [approvalBooking, setApprovalBooking] = useState(null);
+  const [approvalData, setApprovalData] = useState({
+    extraPax: 0,
+    additionalFee: 0,
+    newTotal: 0,
+    baseTotal: 0,
+  });
+
   // --- Helper: Log technical error and show user-friendly toast ---
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
     console.error('Error:', error);
@@ -77,16 +124,13 @@ export default function BookingDetails() {
     if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
       return null;
     }
-    // If it's a relative path to storage, get the public URL
     if (proofUrl.startsWith('payments/')) {
       const { data } = supabase.storage.from('images').getPublicUrl(proofUrl);
       return data.publicUrl;
     }
-    // If it's already a full URL, return it as-is
     if (proofUrl.startsWith('http://') || proofUrl.startsWith('https://')) {
       return proofUrl;
     }
-    // If it's just a filename, construct the path
     if (!proofUrl.includes('/')) {
       const { data } = supabase.storage.from('images').getPublicUrl(`payments/${proofUrl}`);
       return data.publicUrl;
@@ -111,7 +155,15 @@ export default function BookingDetails() {
       if (bookingError) throw bookingError;
       setBooking(bookingData);
 
-      // fetch payments (non‑critical)
+      if (bookingData && !bookingData.is_read) {
+        await supabase
+          .from('booking')
+          .update({ is_read: true })
+          .eq('booking_id', id);
+        setBooking(prev => ({ ...prev, is_read: true }));
+      }
+
+      // Fetch payments and filter out placeholder Pending payments (amount = 0, status = 'Pending')
       try {
         const { data: paymentsData, error: paymentsError } = await supabase
           .from('payment')
@@ -119,13 +171,15 @@ export default function BookingDetails() {
           .eq('booking_id', id)
           .order('pay_datetime', { ascending: false });
         if (paymentsError) throw paymentsError;
-        setPayments(paymentsData || []);
+        // Exclude zero-amount pending placeholder payments
+        const filteredPayments = (paymentsData || []).filter(p => !(p.amount_paid === 0 && p.pay_status === 'Pending'));
+        setPayments(filteredPayments);
       } catch (e) {
         console.warn('Payments fetch error:', e);
         setPayments([]);
       }
 
-      // fetch menu selections
+      // fetch menu selections (unchanged)
       try {
         if (
           bookingData.menu_selections &&
@@ -170,7 +224,7 @@ export default function BookingDetails() {
         setMenuSelections([]);
       }
 
-      // fetch equipment assignments
+      // fetch equipment assignments (unchanged)
       try {
         const { data: equipData, error: equipError } = await supabase
           .from('booking_equipment')
@@ -205,7 +259,6 @@ export default function BookingDetails() {
 
   useEffect(() => {
     fetchBooking();
-    // fetch customers and packages for edit modal
     const fetchDropdownData = async () => {
       try {
         const { data: cust, error: custError } = await supabase
@@ -225,26 +278,82 @@ export default function BookingDetails() {
         setPackages(pkgs || []);
       } catch (error) {
         console.error('Error fetching dropdown data:', error);
-        // Non-critical; don't show toast here
       }
     };
     fetchDropdownData();
   }, [id]);
 
-  // --- Approve (with 50% check and payment status sync) ---
-  const handleApprove = async () => {
-    const confirmed = await showConfirm({
-      title: 'Approve Booking?',
-      message: 'Are you sure you want to approve this booking? Payment statuses will be set to Downpayment.',
-      confirmLabel: 'Approve',
-      confirmVariant: 'success',
+  // --- Approval Modal Handlers ---
+  const openApprovalModal = () => {
+    if (!booking) return;
+    const baseTotal = booking.total_amount || 0;
+    setApprovalBooking(booking);
+    setApprovalData({
+      extraPax: 0,
+      additionalFee: 0,
+      newTotal: baseTotal,
+      baseTotal: baseTotal,
     });
-    if (!confirmed) return;
+    setIsApprovalModalOpen(true);
+  };
 
+  const handleApprovalInputChange = (e) => {
+    const { name, value } = e.target;
+    const numValue = parseFloat(value) || 0;
+    setApprovalData(prev => {
+      const updated = { ...prev, [name]: numValue };
+      const pkgPrice = booking?.package?.pkg_price || 0;
+      const extraPaxCost = updated.extraPax * pkgPrice;
+      const newTotal = updated.baseTotal + extraPaxCost + updated.additionalFee;
+      return { ...updated, newTotal };
+    });
+  };
+
+  const handleFinalizeApproval = async () => {
+    if (!approvalBooking) return;
+    setIsSubmitting(true);
     try {
+      // Check 50% payment condition – warning only
+      const { data: paymentsData, error: paymentsError } = await supabase
+        .from('payment')
+        .select('amount_paid')
+        .eq('booking_id', approvalBooking.booking_id);
+      if (paymentsError) throw paymentsError;
+      const totalPaid = paymentsData.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+      const required = approvalData.newTotal * 0.5;
+      if (totalPaid < required) {
+        const proceed = await showConfirm({
+          title: '⚠️ Insufficient Downpayment',
+          message: `Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}).\n\nApproving this booking may leave an unpaid balance.\nDo you still want to approve?`,
+          confirmLabel: 'Yes, Approve',
+          cancelLabel: 'Cancel',
+          confirmVariant: 'warning',
+        });
+        if (!proceed) {
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       // --- Conflict check: find other approved events on the same day ---
-      const eventDate = booking.event_datetime ? new Date(booking.event_datetime) : null;
+      const eventDate = approvalBooking.event_datetime ? new Date(approvalBooking.event_datetime) : null;
       if (eventDate) {
+        const now = new Date();
+        const diffDays = Math.ceil((eventDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays < 0) {
+          const proceed = await showConfirm({
+            title: '⚠️ Event Date is in the Past',
+            message: `This event is ${Math.abs(diffDays)} days ago. Approving a past event may affect reports. Do you still want to approve?`,
+            confirmLabel: 'Yes, Approve Anyway',
+            cancelLabel: 'Cancel Approval',
+            confirmVariant: 'warning',
+          });
+          if (!proceed) {
+            setIsSubmitting(false);
+            return;
+          }
+        }
+
         const startOfDay = new Date(eventDate);
         startOfDay.setHours(0, 0, 0, 0);
         const endOfDay = new Date(eventDate);
@@ -262,14 +371,13 @@ export default function BookingDetails() {
             customer:customer_id (first_name, last_name)
           `)
           .eq('booking_status', 'Approved')
-          .neq('booking_id', id)
+          .neq('booking_id', approvalBooking.booking_id)
           .gte('event_datetime', startISO)
           .lte('event_datetime', endISO);
 
         if (conflictError) throw conflictError;
 
         if (otherEvents && otherEvents.length > 0) {
-          // Build a readable list
           const list = otherEvents.map(e => {
             const cust = e.customer ? `${e.customer.first_name} ${e.customer.last_name}` : 'Unknown';
             const time = e.event_datetime ? new Date(e.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
@@ -288,75 +396,68 @@ export default function BookingDetails() {
         }
       }
 
-      // --- Check 50% payment condition ---
-      const { data: paymentsData, error: paymentsError } = await supabase
-        .from('payment')
-        .select('amount_paid')
-        .eq('booking_id', id);
-      if (paymentsError) throw paymentsError;
-      const totalPaid = paymentsData.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-      const totalAmount = booking.total_amount || 0;
-      const required = totalAmount * 0.5;
-      if (totalPaid < required) {
-        const proceed = await showConfirm({
-          title: 'Insufficient Downpayment',
-          message: `Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}). Approving this booking may leave an unpaid balance. Do you still want to approve?`,
-          confirmLabel: 'Yes, Approve',
-          cancelLabel: 'Cancel',
-          confirmVariant: 'warning',
-        });
-        if (!proceed) return;
-      }
+      const newPax = approvalBooking.pax_count + approvalData.extraPax;
+      const newTotal = approvalData.newTotal;
+      // Keep existing delivery fee – do not change it
 
-      // 1. Update booking status
-      const { error } = await supabase
+      // Update booking status
+      const { error: updateError } = await supabase
         .from('booking')
-        .update({ booking_status: 'Approved' })
-        .eq('booking_id', id);
-      if (error) throw error;
+        .update({
+          booking_status: 'Approved',
+          pax_count: newPax,
+          total_amount: newTotal,
+          // delivery_fee remains unchanged
+        })
+        .eq('booking_id', approvalBooking.booking_id);
+      if (updateError) throw updateError;
 
-      // 2. Update payments to Downpayment
-      const { error: updatePaymentsError } = await supabase
-        .from('payment')
-        .update({ pay_status: 'Downpayment' })
-        .eq('booking_id', id);
-      if (updatePaymentsError) throw updatePaymentsError;
-
-      // 3. Allocate equipment (reservation only, no stock deduction)
-      if (booking.package_id) {
+      // Allocate equipment
+      if (approvalBooking.package_id) {
         try {
-          await allocateEquipmentForBooking(id, booking.package_id, booking.pax_count);
+          await allocateEquipmentForBooking(approvalBooking.booking_id, approvalBooking.package_id, newPax);
         } catch (allocError) {
           console.warn('Equipment allocation warning:', allocError);
-          // Don't block approval, just warn
           toast.warning('Equipment allocation had issues: ' + allocError.message);
         }
       }
 
-      // 4. Equipment capacity check – warn if conflicts exist
-      if (booking.package_id) {
+      // Update payments to Downpayment
+      const { error: updatePaymentsError } = await supabase
+        .from('payment')
+        .update({ pay_status: 'Downpayment' })
+        .eq('booking_id', approvalBooking.booking_id);
+      if (updatePaymentsError) throw updatePaymentsError;
+
+      // Equipment capacity check – warning only
+      if (approvalBooking.package_id) {
         try {
-          const eventDate = booking.event_datetime;
-          const shortages = await checkEquipmentCapacityForDate(eventDate, id);
+          const eventDate = approvalBooking.event_datetime;
+          const shortages = await checkEquipmentCapacityForDate(eventDate, approvalBooking.booking_id);
           if (shortages.length > 0) {
             const details = shortages
               .map(s => `${s.eqm_name}: needed ${s.needed}, available ${s.available}`)
               .join('\n');
-            const proceed = await showConfirm({
-              title: '⚠️ Equipment Capacity Warning',
-              message: `The following equipment items are overbooked for this event date:\n\n${details}\n\nYou may still approve, but please adjust equipment inventory manually afterwards.`,
-              confirmLabel: 'Approve Anyway',
+            const override = await showConfirm({
+              title: '⚠️ Equipment Shortage',
+              message: `The following items are insufficient for this date:\n\n${details}\n\nOverride may cause issues on event day.\nDo you still want to approve?`,
+              confirmLabel: 'Override & Approve',
               cancelLabel: 'Cancel Approval',
-              confirmVariant: 'warning',
+              confirmVariant: 'danger',
             });
-            if (!proceed) {
+            if (!override) {
               await supabase
                 .from('booking')
                 .update({ booking_status: 'Pending' })
-                .eq('booking_id', id);
-              // Also delete the equipment allocations we just made
-              await supabase.from('booking_equipment').delete().eq('booking_id', id);
+                .eq('booking_id', approvalBooking.booking_id);
+              await supabase.from('booking_equipment').delete().eq('booking_id', approvalBooking.booking_id);
+              setIsSubmitting(false);
               return;
+            } else {
+              await supabase
+                .from('booking')
+                .update({ notes: `${approvalBooking.notes || ''}\n[WARNING] Equipment overbooked for this date.` })
+                .eq('booking_id', approvalBooking.booking_id);
             }
           }
         } catch (capError) {
@@ -364,32 +465,141 @@ export default function BookingDetails() {
         }
       }
 
-      toast.success('Booking approved and payments set to Downpayment.');
+      setIsApprovalModalOpen(false);
       fetchBooking();
+      toast.success('Booking approved and payments set to Downpayment.');
     } catch (error) {
       handleError(error, 'Failed to approve booking.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleReject = async () => {
+  // --- Rejection flow with refund option (updated to respect 50% downpayment) ---
+  const openRejectionModal = async () => {
+    // Use positive payments only
+    const positivePayments = payments
+      .filter(p => p.amount_paid > 0)
+      .reduce((sum, p) => sum + p.amount_paid, 0);
+    const downpaymentPayments = payments.filter(p => p.pay_status === 'Downpayment' && p.amount_paid > 0);
+    const totalDownpayment = downpaymentPayments.reduce((sum, p) => sum + p.amount_paid, 0);
+
+    let warningMessage = 'Are you sure you want to reject this booking? This will cancel it and cannot be undone.';
+    if (positivePayments > 0) {
+      const totalAmount = booking.total_amount || 0;
+      const percentage = totalAmount > 0 ? (positivePayments / totalAmount) * 100 : 0;
+      warningMessage = `This booking has payments totaling ₱${positivePayments.toLocaleString()} (${percentage.toFixed(1)}% of total). Rejecting this booking will keep the payments recorded. You may need to process refunds separately. Do you still want to reject?`;
+    }
     const confirmed = await showConfirm({
       title: 'Reject Booking?',
-      message: 'Are you sure you want to reject this booking? This will cancel it and cannot be undone.',
-      confirmLabel: 'Reject',
+      message: warningMessage,
+      confirmLabel: 'Yes, Continue',
+      cancelLabel: 'Cancel',
       confirmVariant: 'danger',
     });
     if (!confirmed) return;
 
+    const eventDate = booking.event_datetime ? new Date(booking.event_datetime) : null;
+    let isRefundable = false;
+    if (eventDate) {
+      const now = new Date();
+      const diffTime = eventDate.getTime() - now.getTime();
+      const daysUntilEvent = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      isRefundable = daysUntilEvent >= 3;
+    }
+
+    // Max refundable = all paid if >=3 days, otherwise only the excess above downpayment
+    let maxRefundable = 0;
+    if (isRefundable) {
+      maxRefundable = positivePayments;
+    } else {
+      maxRefundable = Math.max(0, positivePayments - totalDownpayment);
+    }
+
+    setRejectionMaxRefundable(maxRefundable);
+    setShowRejectionRefund(maxRefundable > 0);
+    setRejectionReason('');
+    setRejectionRefundAmount('');
+    setRejectionRefundRemarks('');
+    setRejectionRefundFile(null);
+    setIsRejectionModalOpen(true);
+  };
+
+  const handleRejectConfirm = async () => {
+    setIsRejectionModalOpen(false);
     try {
+      const reasonText = rejectionReason.trim() || 'No reason provided';
+      let updatedNotes = booking.notes
+        ? `${booking.notes}\n[REJECTION] ${reasonText}`
+        : `[REJECTION] ${reasonText}`;
+
       const { error } = await supabase
         .from('booking')
-        .update({ booking_status: 'Rejected' })
+        .update({
+          booking_status: 'Rejected',
+          notes: updatedNotes,
+        })
         .eq('booking_id', id);
       if (error) throw error;
-      
-      // Delete any equipment reservations
+
       await supabase.from('booking_equipment').delete().eq('booking_id', id);
-      
+
+      // Process refund if requested and amount > 0
+      if (showRejectionRefund) {
+        const enteredAmount = parseFloat(rejectionRefundAmount) || 0;
+        if (enteredAmount > 0) {
+          if (enteredAmount > rejectionMaxRefundable) {
+            toast.error(`Refund amount cannot exceed ₱${rejectionMaxRefundable.toLocaleString()}.`);
+            setIsRejectionModalOpen(true);
+            return;
+          }
+          // Require proof of refund
+          if (!rejectionRefundFile) {
+            toast.error('Please upload a proof of refund receipt.');
+            setIsRejectionModalOpen(true);
+            return;
+          }
+          let proofUrl = 'refund_placeholder.png';
+          // Upload proof
+          const fileExt = rejectionRefundFile.name.split('.').pop();
+          const fileName = `refunds/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+          const { error: uploadError } = await supabase.storage
+            .from('images')
+            .upload(fileName, rejectionRefundFile);
+          if (!uploadError) {
+            const { data: publicUrlData } = supabase.storage
+              .from('images')
+              .getPublicUrl(fileName);
+            proofUrl = publicUrlData.publicUrl;
+          } else {
+            toast.error('Failed to upload refund proof. Please try again.');
+            setIsRejectionModalOpen(true);
+            return;
+          }
+
+          const { error: refundError } = await supabase
+            .from('payment')
+            .insert([{
+              booking_id: id,
+              amount_paid: -enteredAmount,
+              pay_method: 'Refund',
+              pay_status: 'Refunded',
+              pay_datetime: new Date().toISOString(),
+              pay_proof: proofUrl,
+              customer_id: booking.customer_id,
+              remarks: rejectionRefundRemarks || 'Refund processed during rejection',
+            }]);
+          if (refundError) throw refundError;
+
+          const refundNote = `[REFUND] Amount: ₱${enteredAmount.toFixed(2)}. ${rejectionRefundRemarks || ''}`;
+          updatedNotes = updatedNotes + `\n${refundNote}`;
+          await supabase
+            .from('booking')
+            .update({ notes: updatedNotes })
+            .eq('booking_id', id);
+        }
+      }
+
       toast.success('Booking rejected.');
       fetchBooking();
     } catch (error) {
@@ -400,6 +610,9 @@ export default function BookingDetails() {
   // --- Cancel Booking (client-initiated) ---
   const openCancelModal = () => {
     setCancelReason('');
+    setRefundAmount('');
+    setRefundRemarks('');
+    setRefundFile(null);
     setIsCancelModalOpen(true);
   };
 
@@ -413,8 +626,15 @@ export default function BookingDetails() {
     try {
       const eventDate = booking.event_datetime ? new Date(booking.event_datetime) : null;
       const now = new Date();
-      let isRefundable = true;
+      let isRefundable = false;
       let daysUntilEvent = 999;
+
+      // Use positive payments only
+      const positivePayments = payments
+        .filter(p => p.amount_paid > 0)
+        .reduce((sum, p) => sum + p.amount_paid, 0);
+      const downpaymentPayments = payments.filter(p => p.pay_status === 'Downpayment' && p.amount_paid > 0);
+      const totalDownpayment = downpaymentPayments.reduce((sum, p) => sum + p.amount_paid, 0);
 
       if (eventDate) {
         const diffTime = eventDate.getTime() - now.getTime();
@@ -422,57 +642,90 @@ export default function BookingDetails() {
         isRefundable = daysUntilEvent >= 3;
       }
 
-      const downpaymentPayments = payments.filter(p => p.pay_status === 'Downpayment');
-      const totalDownpayment = downpaymentPayments.reduce((sum, p) => sum + p.amount_paid, 0);
+      let maxRefundable = 0;
+      if (isRefundable) {
+        maxRefundable = positivePayments;
+      } else {
+        maxRefundable = Math.max(0, positivePayments - totalDownpayment);
+      }
 
       let refundNote = '';
       let shouldRefund = false;
+      let refundAmountValue = 0;
+      let proofUrl = 'refund_placeholder.png';
 
-      if (totalDownpayment > 0 && isRefundable) {
-        const refundConfirm = await showConfirm({
-          title: 'Refund Downpayment?',
-          message: `This booking has a downpayment of ₱${totalDownpayment.toLocaleString()}. Since the event is ${daysUntilEvent} days away (>= 3 days), the downpayment is refundable. Do you want to record a refund?`,
-          confirmLabel: 'Yes, Refund',
-          cancelLabel: 'No, Keep',
-          confirmVariant: 'warning',
-        });
-        shouldRefund = refundConfirm;
-        if (shouldRefund) {
-          refundNote = 'Downpayment refunded due to client cancellation.';
-        } else {
-          refundNote = 'Client cancellation – downpayment kept (client declined refund).';
+      // --- UPDATED: Refund is optional ---
+      const enteredAmount = parseFloat(refundAmount) || 0;
+      if (enteredAmount > 0 && maxRefundable > 0) {
+        // User wants to refund; cap to maxRefundable
+        refundAmountValue = Math.min(enteredAmount, maxRefundable);
+        // Require proof
+        if (!refundFile) {
+          toast.error('Please upload a proof of refund receipt.');
+          setIsCancelling(false);
+          return;
         }
-      } else if (totalDownpayment > 0 && !isRefundable) {
-        refundNote = `Client cancelled within ${daysUntilEvent} days (< 3 days). Downpayment of ₱${totalDownpayment.toLocaleString()} is non-refundable per policy.`;
+        shouldRefund = true;
+        // Upload proof
+        const fileExt = refundFile.name.split('.').pop();
+        const fileName = `refunds/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const { error: uploadError } = await supabase.storage
+          .from('images')
+          .upload(fileName, refundFile);
+        if (!uploadError) {
+          const { data: publicUrlData } = supabase.storage
+            .from('images')
+            .getPublicUrl(fileName);
+          proofUrl = publicUrlData.publicUrl;
+        } else {
+          toast.error('Failed to upload refund proof.');
+          setIsCancelling(false);
+          return;
+        }
+
+        if (isRefundable) {
+          refundNote = `Refund of ₱${refundAmountValue.toFixed(2)} processed. ${refundRemarks || ''}`;
+        } else {
+          refundNote = `Refund of excess (₱${refundAmountValue.toFixed(2)}) processed. Downpayment of ₱${totalDownpayment.toFixed(2)} forfeited (less than 3 days). ${refundRemarks || ''}`;
+        }
       } else {
-        refundNote = 'Client cancelled – no downpayment recorded.';
+        // No refund
+        if (positivePayments > 0 && !isRefundable) {
+          refundNote = `Client cancelled within ${daysUntilEvent} days (< 3 days). Downpayment of ₱${totalDownpayment.toLocaleString()} is non-refundable per policy.`;
+        } else {
+          refundNote = 'Client cancelled – no refund processed.';
+        }
       }
 
-      // Update booking status
+      let updatedNotes = `[CANCELLATION] ${cancelReason}. ${refundNote}`;
+      if (booking.notes) {
+        updatedNotes = `${booking.notes}\n\n${updatedNotes}`;
+      }
+
       const { error: updateError } = await supabase
         .from('booking')
         .update({
           booking_status: 'Rejected',
-          notes: booking.notes ? `${booking.notes}\n\n[CANCELLATION] ${cancelReason}. ${refundNote}` : `[CANCELLATION] ${cancelReason}. ${refundNote}`,
+          notes: updatedNotes,
         })
         .eq('booking_id', id);
 
       if (updateError) throw updateError;
 
-      // Delete any equipment reservations
       await supabase.from('booking_equipment').delete().eq('booking_id', id);
 
-      // Record refund as a negative payment if applicable
-      if (shouldRefund && totalDownpayment > 0) {
+      if (shouldRefund && refundAmountValue > 0) {
         const { error: refundError } = await supabase
           .from('payment')
           .insert([{
             booking_id: id,
-            amount_paid: -totalDownpayment,
+            amount_paid: -refundAmountValue,
             pay_method: 'Refund',
             pay_status: 'Refunded',
             pay_datetime: new Date().toISOString(),
-            pay_proof: 'refund_placeholder.png',
+            pay_proof: proofUrl,
+            customer_id: booking.customer_id,
+            remarks: refundRemarks || 'Refund processed',
           }]);
         if (refundError) throw refundError;
       }
@@ -487,7 +740,7 @@ export default function BookingDetails() {
     }
   };
 
-  // --- Delete (with payment deletion first) ---
+  // --- Delete ---
   const handleDelete = async () => {
     const confirmed = await showConfirm({
       title: 'Delete Booking?',
@@ -498,17 +751,14 @@ export default function BookingDetails() {
     if (!confirmed) return;
 
     try {
-      // FIRST: Delete all associated payments
       const { error: paymentsError } = await supabase
         .from('payment')
         .delete()
         .eq('booking_id', id);
       if (paymentsError) throw paymentsError;
 
-      // SECOND: Delete equipment reservations
       await supabase.from('booking_equipment').delete().eq('booking_id', id);
 
-      // THEN: Delete the booking
       const { error } = await supabase
         .from('booking')
         .delete()
@@ -594,7 +844,6 @@ export default function BookingDetails() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      // Warn if package changed and equipment may need reallocation
       if (editFormData.package_id !== booking.package_id) {
         const shouldContinue = await showConfirm({
           title: 'Package Changed',
@@ -692,7 +941,6 @@ export default function BookingDetails() {
     }
   };
 
-  // --- Remove Equipment Assignment ---
   const handleRemoveEquipment = async (assignmentId, equipmentId, quantity) => {
     const confirmed = await showConfirm({
       title: 'Remove Equipment?',
@@ -761,31 +1009,35 @@ export default function BookingDetails() {
       return;
     }
 
-    // --- 2. Calculate remaining balance ---
-    const paid = payments.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+    // --- 2. Calculate remaining balance using positive payments ---
+    const positivePayments = payments
+      .filter(p => p.amount_paid > 0)
+      .reduce((sum, p) => sum + p.amount_paid, 0);
     const totalAmount = booking.total_amount || 0;
-    const remainingBalance = Math.max(0, totalAmount - paid);
+    const remainingBalance = Math.max(0, totalAmount - positivePayments);
 
-    // --- 3. Check if already fully paid ---
     if (remainingBalance <= 0) {
       toast.error('This booking is already fully paid. No additional payments are allowed.');
       setIsPaymentSubmitting(false);
       return;
     }
-
-    // --- 4. Amount validation ---
     if (amount > remainingBalance) {
       toast.error(`Amount exceeds remaining balance of ₱${remainingBalance.toLocaleString()}.`);
       setIsPaymentSubmitting(false);
       return;
     }
 
-    // --- 5. Determine final status (with conversion) ---
+    if (!selectedFile && (paymentFormData.pay_proof === 'placeholder.png' || !paymentFormData.pay_proof)) {
+      toast.error('Please upload a proof of payment image.');
+      setIsPaymentSubmitting(false);
+      return;
+    }
+
     let finalPayStatus = paymentFormData.pay_status;
     const status = booking.booking_status || 'Pending';
 
     if (status === 'Pending') {
-      const hasDownpayment = payments.some(p => p.pay_status === 'Downpayment');
+      const hasDownpayment = payments.some(p => p.pay_status === 'Downpayment' && p.amount_paid > 0);
       if (hasDownpayment) {
         toast.error('This booking already has a downpayment. Wait for approval before recording more payments.');
         setIsPaymentSubmitting(false);
@@ -821,7 +1073,6 @@ export default function BookingDetails() {
       }
     }
 
-    // --- 6. Upload proof (if any) ---
     try {
       let proofUrl = 'placeholder.png';
       if (selectedFile) {
@@ -855,7 +1106,12 @@ export default function BookingDetails() {
 
       setIsPaymentModalOpen(false);
       fetchBooking();
-      toast.success('Payment recorded successfully!');
+
+      const statusMessage = finalPayStatus === 'Fully Paid' 
+        ? 'Payment recorded successfully and marked as Fully Paid!' 
+        : 'Payment recorded successfully!';
+      toast.success(statusMessage);
+      
     } catch (error) {
       handleError(error, 'Failed to record payment.');
     } finally {
@@ -864,39 +1120,287 @@ export default function BookingDetails() {
     }
   };
 
+  // --- Edit Payment Handlers ---
+  const openEditPaymentModal = (payment) => {
+    setEditingPayment(payment);
+    setEditPaymentFormData({
+      amount: payment.amount_paid?.toString() || '',
+      pay_method: payment.pay_method || 'Cash',
+      pay_status: payment.pay_status || 'Downpayment',
+      pay_proof: payment.pay_proof || 'placeholder.png',
+    });
+    setEditSelectedFile(null);
+    setIsEditPaymentModalOpen(true);
+  };
+
+  const handleEditPaymentSubmit = async (e) => {
+    e.preventDefault();
+    setIsPaymentSubmitting(true);
+
+    const amount = parseFloat(editPaymentFormData.amount) || 0;
+    if (amount <= 0) {
+      toast.error('Amount must be greater than zero.');
+      setIsPaymentSubmitting(false);
+      return;
+    }
+    if (!editPaymentFormData.pay_method) {
+      toast.error('Please select a payment method.');
+      setIsPaymentSubmitting(false);
+      return;
+    }
+    if (!editPaymentFormData.pay_status) {
+      toast.error('Please select a payment status.');
+      setIsPaymentSubmitting(false);
+      return;
+    }
+    if (!editSelectedFile && (editPaymentFormData.pay_proof === 'placeholder.png' || !editPaymentFormData.pay_proof)) {
+      toast.error('Please upload a proof of payment image.');
+      setIsPaymentSubmitting(false);
+      return;
+    }
+
+    try {
+      let proofUrl = editPaymentFormData.pay_proof;
+      if (editSelectedFile) {
+        setUploading(true);
+        const fileExt = editSelectedFile.name.split('.').pop();
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const filePath = `payments/${fileName}`;
+        const { error: uploadError } = await supabase.storage
+          .from('images')
+          .upload(filePath, editSelectedFile);
+        if (uploadError) throw uploadError;
+        const { data: publicUrlData } = supabase.storage
+          .from('images')
+          .getPublicUrl(filePath);
+        proofUrl = publicUrlData.publicUrl;
+        setUploading(false);
+      }
+
+      const { error } = await supabase
+        .from('payment')
+        .update({
+          amount_paid: amount,
+          pay_method: editPaymentFormData.pay_method,
+          pay_status: editPaymentFormData.pay_status,
+          pay_proof: proofUrl,
+        })
+        .eq('payment_id', editingPayment.payment_id);
+
+      if (error) throw error;
+
+      setIsEditPaymentModalOpen(false);
+      fetchBooking();
+      toast.success('Payment updated successfully.');
+    } catch (error) {
+      handleError(error, 'Failed to update payment.');
+    } finally {
+      setIsPaymentSubmitting(false);
+      setUploading(false);
+    }
+  };
+
+  const handleDeletePayment = async (paymentId) => {
+    const confirmed = await showConfirm({
+      title: 'Delete Payment?',
+      message: 'This will permanently delete this payment record. This action cannot be undone.',
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase
+        .from('payment')
+        .delete()
+        .eq('payment_id', paymentId);
+      if (error) throw error;
+      toast.success('Payment deleted.');
+      fetchBooking();
+    } catch (error) {
+      handleError(error, 'Failed to delete payment.');
+    }
+  };
+
+  // --- Edit Equipment Assignment Handlers ---
+  const openEditEquipModal = (assignment) => {
+    setEditingAssignment(assignment);
+    setEditEquipData({ quantity: assignment.quantity });
+    setIsEditEquipModalOpen(true);
+  };
+
+  const handleEditEquipSubmit = async (e) => {
+    e.preventDefault();
+    setIsAssignSubmitting(true);
+    try {
+      const { error } = await supabase
+        .from('booking_equipment')
+        .update({ quantity: editEquipData.quantity })
+        .eq('assignment_id', editingAssignment.assignment_id);
+      if (error) throw error;
+      setIsEditEquipModalOpen(false);
+      fetchBooking();
+      toast.success('Equipment quantity updated.');
+    } catch (error) {
+      handleError(error, 'Failed to update equipment.');
+    } finally {
+      setIsAssignSubmitting(false);
+    }
+  };
+
+  // --- Refund after rejection handlers (separate modal) ---
+  const openRefundModal = () => {
+    // Compute remaining refundable using positive payments
+    const positivePayments = payments
+      .filter(p => p.amount_paid > 0)
+      .reduce((sum, p) => sum + p.amount_paid, 0);
+    const totalRefunded = payments
+      .filter(p => p.amount_paid < 0)
+      .reduce((sum, p) => sum + Math.abs(p.amount_paid), 0);
+    const remainingRefundable = Math.max(0, positivePayments - totalRefunded);
+    setRefundModalAmount(remainingRefundable > 0 ? remainingRefundable.toFixed(2) : '');
+    setRefundModalRemarks('');
+    setRefundModalFile(null);
+    setIsRefundModalOpen(true);
+  };
+
+  const handleRefundSubmit = async (e) => {
+    e.preventDefault();
+    const positivePayments = payments
+      .filter(p => p.amount_paid > 0)
+      .reduce((sum, p) => sum + p.amount_paid, 0);
+    const totalRefunded = payments
+      .filter(p => p.amount_paid < 0)
+      .reduce((sum, p) => sum + Math.abs(p.amount_paid), 0);
+    const remainingRefundable = Math.max(0, positivePayments - totalRefunded);
+
+    const amount = parseFloat(refundModalAmount) || 0;
+    if (amount <= 0) {
+      toast.error('Please enter a valid refund amount.');
+      return;
+    }
+    if (amount > remainingRefundable) {
+      toast.error(`Amount exceeds remaining refundable (₱${remainingRefundable.toFixed(2)}).`);
+      return;
+    }
+    if (!refundModalFile) {
+      toast.error('Please upload a proof of refund receipt.');
+      return;
+    }
+
+    setIsRefundSubmitting(true);
+    try {
+      let proofUrl = 'refund_placeholder.png';
+      const fileExt = refundModalFile.name.split('.').pop();
+      const fileName = `refunds/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage
+        .from('images')
+        .upload(fileName, refundModalFile);
+      if (uploadError) throw uploadError;
+      const { data: publicUrlData } = supabase.storage
+        .from('images')
+        .getPublicUrl(fileName);
+      proofUrl = publicUrlData.publicUrl;
+
+      const { error: refundError } = await supabase
+        .from('payment')
+        .insert([{
+          booking_id: id,
+          amount_paid: -amount,
+          pay_method: 'Refund',
+          pay_status: 'Refunded',
+          pay_datetime: new Date().toISOString(),
+          pay_proof: proofUrl,
+          customer_id: booking.customer_id,
+          remarks: refundModalRemarks || 'Refund processed after rejection',
+        }]);
+      if (refundError) throw refundError;
+
+      const refundNote = `[REFUND] Amount: ₱${amount.toFixed(2)}. ${refundModalRemarks || ''}`;
+      const updatedNotes = booking.notes ? `${booking.notes}\n${refundNote}` : refundNote;
+      await supabase
+        .from('booking')
+        .update({ notes: updatedNotes })
+        .eq('booking_id', id);
+
+      setIsRefundModalOpen(false);
+      fetchBooking();
+      toast.success('Refund recorded successfully.');
+    } catch (error) {
+      handleError(error, 'Failed to record refund.');
+    } finally {
+      setIsRefundSubmitting(false);
+    }
+  };
+
   // --- Render ---
   if (loading) return <div className="p-12 text-center text-slate-500 font-medium">Loading...</div>;
   if (!booking) return <div className="p-12 text-center text-slate-500">Booking not found.</div>;
 
-  const totalPaid = payments.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-  const remainingBalance = Math.max(0, (booking.total_amount || 0) - totalPaid);
-  const downpaymentPaid = payments
-    .filter(p => p.pay_status === 'Downpayment')
+  // --- PAYMENT CALCULATIONS (positive/refunded) ---
+  const positivePayments = payments
+    .filter(p => p.amount_paid > 0)
     .reduce((sum, p) => sum + p.amount_paid, 0);
 
+  const totalRefunded = payments
+    .filter(p => p.amount_paid < 0)
+    .reduce((sum, p) => sum + Math.abs(p.amount_paid), 0);
+
+  const totalPaid = positivePayments; // for display
+
+  // --- Remaining balance: for rejected bookings, it's 0 (no longer owed) ---
+  let remainingBalance = Math.max(0, (booking.total_amount || 0) - positivePayments);
+  if (booking.booking_status === 'Rejected') {
+    remainingBalance = 0;
+  }
+
+  const downpaymentPaid = payments
+    .filter(p => p.pay_status === 'Downpayment' && p.amount_paid > 0)
+    .reduce((sum, p) => sum + p.amount_paid, 0);
+
+  // --- Refundable amount for rejected bookings: apply policy based on event date ---
   const eventDate = booking.event_datetime ? new Date(booking.event_datetime) : null;
   const now = new Date();
   let daysUntilEvent = null;
-  let isRefundable = true;
+  let isRefundable = false;
   if (eventDate) {
     const diffTime = eventDate.getTime() - now.getTime();
     daysUntilEvent = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     isRefundable = daysUntilEvent >= 3;
   }
 
+  let remainingRefundableAmount = 0;
+  if (booking.booking_status === 'Rejected') {
+    // If event is within 3 days (or in the past), only the excess over downpayment is refundable
+    if (eventDate && daysUntilEvent !== null && daysUntilEvent < 3) {
+      const refundableBase = Math.max(0, positivePayments - downpaymentPaid);
+      remainingRefundableAmount = Math.max(0, refundableBase - totalRefunded);
+    } else {
+      // Otherwise, the full paid amount is refundable (minus already refunded)
+      remainingRefundableAmount = Math.max(0, positivePayments - totalRefunded);
+    }
+  } else {
+    // For active bookings, we don't show Add Refund, but we keep a default (not used)
+    remainingRefundableAmount = Math.max(0, positivePayments - totalRefunded);
+  }
+
   const canCancel = booking.booking_status === 'Approved';
 
-  // Helper to render proof image with proper Supabase URL
+  const showAddRefund = booking.booking_status === 'Rejected' && remainingRefundableAmount > 0;
+
+  // Determine refund status for rejected bookings (visual indicator)
+  const isRejectedAndRefundable = booking.booking_status === 'Rejected' && isRefundable && positivePayments > 0;
+  const isRejectedAndNonRefundable = booking.booking_status === 'Rejected' && !isRefundable && positivePayments > 0;
+
+  // Helper to render proof image
   const renderProof = (proofUrl) => {
     if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
       return <span className="text-xs text-slate-400 italic">None</span>;
     }
-
     const fullUrl = getProofUrl(proofUrl);
     if (!fullUrl) {
       return <span className="text-xs text-slate-400 italic">Invalid</span>;
     }
-
     return (
       <button
         onClick={() => window.open(fullUrl, '_blank')}
@@ -941,10 +1445,10 @@ export default function BookingDetails() {
         <div className="flex items-center gap-3 flex-wrap">
           {booking.booking_status === 'Pending' && (
             <>
-              <button onClick={handleApprove} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm">
+              <button onClick={openApprovalModal} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm">
                 <Check size={18} /> Approve
               </button>
-              <button onClick={handleReject} className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm">
+              <button onClick={openRejectionModal} className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm">
                 <X size={18} /> Reject
               </button>
             </>
@@ -955,6 +1459,14 @@ export default function BookingDetails() {
               className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
             >
               <X size={18} /> Cancel Booking
+            </button>
+          )}
+          {showAddRefund && (
+            <button
+              onClick={openRefundModal}
+              className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
+            >
+              Add Refund
             </button>
           )}
           <button
@@ -975,8 +1487,8 @@ export default function BookingDetails() {
         </div>
       </div>
 
-      {/* Status Badge */}
-      <div>
+      {/* Status Badge + Refund Indicator */}
+      <div className="flex items-center gap-3">
         <span className={`px-4 py-1.5 rounded-full text-xs font-bold border ${(
           booking.booking_status === 'Pending' ? 'bg-amber-50 border-amber-200 text-amber-700' :
           booking.booking_status === 'Approved' ? 'bg-[#EAF3F2] border-[#C1DEDC] text-slate-800' :
@@ -985,6 +1497,18 @@ export default function BookingDetails() {
         )}`}>
           {booking.booking_status}
         </span>
+
+        {/* Refund status indicator for rejected bookings with payments */}
+        {isRejectedAndRefundable && (
+          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-green-50 border-green-200 text-green-700">
+            ✅ Refundable
+          </span>
+        )}
+        {isRejectedAndNonRefundable && (
+          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
+            ❌ Non-Refundable
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -1017,7 +1541,6 @@ export default function BookingDetails() {
                 <span className="text-slate-700 font-bold">Package</span>
                 <span className="col-span-2">{booking.package?.pkg_name || 'None'}</span>
               </div>
-              {/* Pricing Model Section */}
               {booking.package && (
                 <div className="grid grid-cols-3">
                   <span className="text-slate-700 font-bold">Pricing</span>
@@ -1089,12 +1612,17 @@ export default function BookingDetails() {
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-sm font-bold text-slate-900">Payment Tracking</h3>
-              <button
-                onClick={openPaymentModal}
-                className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
-              >
-                <Plus size={14} /> Record Payment
-              </button>
+              {booking.booking_status !== 'Rejected' && (
+                <button
+                  onClick={openPaymentModal}
+                  className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
+                >
+                  <Plus size={14} /> Record Payment
+                </button>
+              )}
+              {booking.booking_status === 'Rejected' && (
+                <span className="text-xs text-slate-400 italic">Payments closed</span>
+              )}
             </div>
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-2 flex justify-between items-center text-sm">
               <span className="font-medium text-slate-700">Total Amount:</span>
@@ -1106,11 +1634,11 @@ export default function BookingDetails() {
             </div>
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-2 flex justify-between items-center text-sm">
               <span className="font-medium text-slate-700">Total Paid:</span>
-              <span className="font-bold text-[#008A45]">₱{totalPaid.toLocaleString()}</span>
+              <span className="font-bold text-[#008A45]">₱{positivePayments.toLocaleString()}</span>
             </div>
-            <div className={`rounded-lg p-3 flex justify-between items-center text-sm border ${(
+            <div className={`rounded-lg p-3 flex justify-between items-center text-sm border ${
               remainingBalance <= 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'
-            )}`}>
+            }`}>
               <span className="font-medium text-slate-700">Remaining Balance:</span>
               <span className={`font-bold ${remainingBalance <= 0 ? 'text-green-700' : 'text-amber-700'}`}>
                 ₱{remainingBalance.toLocaleString()}
@@ -1126,6 +1654,7 @@ export default function BookingDetails() {
                       <th className="p-3">Status</th>
                       <th className="p-3">Proof</th>
                       <th className="p-3">Date</th>
+                      <th className="p-3 text-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 text-slate-700">
@@ -1136,20 +1665,48 @@ export default function BookingDetails() {
                         </td>
                         <td className="p-3">{p.pay_method || 'N/A'}</td>
                         <td className="p-3">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${(
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                             p.pay_status === 'Refunded' ? 'bg-red-100 text-red-700 border border-red-200' :
                             p.pay_status === 'Fully Paid' ? 'bg-green-100 text-green-700 border border-green-200' :
                             'bg-amber-100 text-amber-700 border border-amber-200'
-                          )}`}>
+                          }`}>
                             {p.pay_status || 'N/A'}
                           </span>
                         </td>
                         <td className="p-3">{renderProof(p.pay_proof)}</td>
                         <td className="p-3">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleString() : 'N/A'}</td>
+                        <td className="p-3 text-center">
+                          <div className="flex justify-center gap-2">
+                            <button onClick={() => openEditPaymentModal(p)} className="text-blue-500 hover:text-blue-700" title="Edit Payment">
+                              <Edit size={14} />
+                            </button>
+                            <button onClick={() => handleDeletePayment(p.payment_id)} className="text-red-500 hover:text-red-700" title="Delete Payment">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+            {/* Show refund status summary for rejected bookings */}
+            {booking.booking_status === 'Rejected' && positivePayments > 0 && (
+              <div className="mt-4 p-3 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-600">
+                <p>
+                  <span className="font-bold">Refund Status:</span>{' '}
+                  {remainingRefundableAmount > 0 ? (
+                    <span className="text-green-600 font-medium">Partial refund available (₱{remainingRefundableAmount.toFixed(2)})</span>
+                  ) : totalRefunded > 0 ? (
+                    <span className="text-slate-600">Fully refunded</span>
+                  ) : (
+                    <span className="text-red-600 font-medium">Non-refundable per policy</span>
+                  )}
+                </p>
+                {isRejectedAndNonRefundable && (
+                  <p className="mt-1 text-red-500">Downpayment forfeited (event within 3 days)</p>
+                )}
               </div>
             )}
           </div>
@@ -1181,12 +1738,14 @@ export default function BookingDetails() {
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-sm font-bold text-slate-900">Equipment Allocation</h3>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={openAssignEquipModal}
-                  className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm"
-                >
-                  <ClipboardList size={14} /> Assign Equipment
-                </button>
+                {booking.booking_status !== 'Rejected' && (
+                  <button
+                    onClick={openAssignEquipModal}
+                    className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm"
+                  >
+                    <ClipboardList size={14} /> Assign Equipment
+                  </button>
+                )}
                 <span className="text-xs font-medium text-slate-500">{equipment.length} item{equipment.length !== 1 ? 's' : ''}</span>
               </div>
             </div>
@@ -1201,19 +1760,20 @@ export default function BookingDetails() {
                       <span className="text-xs text-slate-500 ml-2">× {item.quantity}</span>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${(
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
                         item.returned ? 'bg-green-100 border border-green-200 text-green-700' : 'bg-amber-100 border border-amber-200 text-amber-700'
-                      )}`}>
+                      }`}>
                         {item.returned ? '✅ Returned' : '📌 Assigned'}
                       </span>
-                      {!item.returned && (
-                        <button
-                          onClick={() => handleRemoveEquipment(item.assignment_id, item.equipment_id, item.quantity)}
-                          className="text-red-400 hover:text-red-600 transition-colors"
-                          title="Remove this equipment assignment"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                      {!item.returned && booking.booking_status !== 'Rejected' && (
+                        <div className="flex gap-2">
+                          <button onClick={() => openEditEquipModal(item)} className="text-blue-500 hover:text-blue-700" title="Edit quantity">
+                            <Edit size={14} />
+                          </button>
+                          <button onClick={() => handleRemoveEquipment(item.assignment_id, item.equipment_id, item.quantity)} className="text-red-400 hover:text-red-600" title="Remove">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -1525,7 +2085,7 @@ export default function BookingDetails() {
                     ₱{booking.total_amount?.toLocaleString() || '0'}
                   </span>
                   <span className="text-slate-600 font-medium">Paid:</span>
-                  <span className="text-slate-900 font-semibold">₱{totalPaid.toLocaleString()}</span>
+                  <span className="text-slate-900 font-semibold">₱{positivePayments.toLocaleString()}</span>
                   <span className="text-slate-600 font-medium">Remaining:</span>
                   <span className={`font-semibold ${remainingBalance <= 0 ? 'text-green-700' : 'text-amber-700'}`}>
                     ₱{remainingBalance.toLocaleString()}
@@ -1574,11 +2134,11 @@ export default function BookingDetails() {
                       key={method}
                       type="button"
                       onClick={() => setPaymentFormData(prev => ({ ...prev, pay_method: method }))}
-                      className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border text-sm font-semibold transition-all ${(
+                      className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border text-sm font-semibold transition-all ${
                         paymentFormData.pay_method === method
                           ? 'bg-[#CBDEDD]/60 border-[#008A45] text-slate-900 shadow-xs'
                           : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
-                      )}`}
+                      }`}
                     >
                       <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${paymentFormData.pay_method === method ? 'border-[#008A45]' : 'border-slate-400'}`}>
                         {paymentFormData.pay_method === method && <div className="w-1.5 h-1.5 rounded-full bg-[#008A45]" />}
@@ -1626,6 +2186,91 @@ export default function BookingDetails() {
         document.body
       )}
 
+      {/* ===== EDIT PAYMENT MODAL ===== */}
+      {isEditPaymentModalOpen && editingPayment && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
+              <h2 className="text-lg font-bold text-slate-900">Edit Payment</h2>
+              <button onClick={() => setIsEditPaymentModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+            <form onSubmit={handleEditPaymentSubmit} className="p-6 overflow-y-auto space-y-6 text-left">
+              {/* Booking Details Preview (read-only) */}
+              <div className="bg-[#F8F9FA] border border-slate-200 rounded-lg p-4 space-y-2 text-sm">
+                <h4 className="font-bold text-slate-900 text-sm mb-2">Booking Details</h4>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                  <span className="text-slate-600 font-medium">Customer:</span>
+                  <span className="text-slate-900 font-semibold">{booking.customer ? `${booking.customer.first_name} ${booking.customer.last_name}` : 'Unknown'}</span>
+                  <span className="text-slate-600 font-medium">Type:</span>
+                  <span className="text-slate-900 font-semibold">{booking.booking_type || 'N/A'}</span>
+                  <span className="text-slate-600 font-medium">Total Amount:</span>
+                  <span className="text-slate-900 font-bold text-[#008A45]">₱{booking.total_amount?.toLocaleString() || '0'}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Amount (₱)</label>
+                  <input type="number" name="amount" value={editPaymentFormData.amount} onChange={(e) => setEditPaymentFormData({...editPaymentFormData, amount: e.target.value})} placeholder="0.00" step="0.01" required className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Payment Status</label>
+                  <select name="pay_status" value={editPaymentFormData.pay_status} onChange={(e) => setEditPaymentFormData({...editPaymentFormData, pay_status: e.target.value})} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white">
+                    <option value="Downpayment">Downpayment</option>
+                    <option value="Fully Paid">Fully Paid</option>
+                    <option value="Unpaid">Unpaid</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Payment Method */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2">Payment Method</label>
+                <div className="grid grid-cols-3 gap-3">
+                  {['Cash', 'GCash', 'Bank Transfer'].map((method) => (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={() => setEditPaymentFormData(prev => ({ ...prev, pay_method: method }))}
+                      className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border text-sm font-semibold transition-all ${editPaymentFormData.pay_method === method ? 'bg-[#CBDEDD]/60 border-[#008A45] text-slate-900 shadow-xs' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+                    >
+                      <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${editPaymentFormData.pay_method === method ? 'border-[#008A45]' : 'border-slate-400'}`}>
+                        {editPaymentFormData.pay_method === method && <div className="w-1.5 h-1.5 rounded-full bg-[#008A45]" />}
+                      </div>
+                      {method}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Proof of Payment Upload */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Proof of Payment</label>
+                <label className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center relative overflow-hidden h-24">
+                  <input type="file" onChange={(e) => setEditSelectedFile(e.target.files[0])} accept="image/*" className="hidden" />
+                  <ImageIcon size={20} className="text-slate-400 mb-1" />
+                  <span className="text-xs font-semibold text-slate-600">{editSelectedFile ? editSelectedFile.name : 'Upload New Image'}</span>
+                  <span className="text-[10px] text-slate-400 mt-0.5">PNG, JPG up to 5MB</span>
+                </label>
+                {editPaymentFormData.pay_proof !== 'placeholder.png' && !editSelectedFile && (
+                  <p className="text-xs text-slate-400 mt-1">Current proof: <a href={getProofUrl(editPaymentFormData.pay_proof)} target="_blank" className="text-blue-500 underline">View</a></p>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                <button type="button" onClick={() => setIsEditPaymentModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">Cancel</button>
+                <button type="submit" disabled={isPaymentSubmitting || uploading} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50">
+                  {uploading ? 'Uploading...' : (isPaymentSubmitting ? 'Saving...' : 'Update Payment')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
       {/* ===== CANCEL BOOKING MODAL ===== */}
       {isCancelModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
@@ -1641,9 +2286,9 @@ export default function BookingDetails() {
             </div>
             <div className="p-6 space-y-4">
               {/* Warning / Info */}
-              <div className={`p-3 rounded-lg text-sm border ${(
+              <div className={`p-3 rounded-lg text-sm border ${
                 eventDate && daysUntilEvent < 3 ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-700'
-              )}`}>
+              }`}>
                 <p className="font-bold">Event Date: {eventDate ? new Date(eventDate).toLocaleString() : 'N/A'}</p>
                 {eventDate && daysUntilEvent !== null && (
                   <p>
@@ -1658,8 +2303,11 @@ export default function BookingDetails() {
                 {eventDate && daysUntilEvent !== null && daysUntilEvent >= 3 && (
                   <p className="font-bold mt-1 text-green-700">✅ Cancellation is 3+ days before event – downpayment IS refundable.</p>
                 )}
-                {downpaymentPaid > 0 && (
-                  <p className="mt-1">Downpayment paid: <span className="font-bold">₱{downpaymentPaid.toLocaleString()}</span></p>
+                {positivePayments > 0 && (
+                  <p className="mt-1">Total paid: <span className="font-bold">₱{positivePayments.toLocaleString()}</span></p>
+                )}
+                {positivePayments > 0 && !isRefundable && (
+                  <p className="mt-1 text-xs text-red-600">Downpayment (₱{downpaymentPaid.toLocaleString()}) will be forfeited.</p>
                 )}
               </div>
 
@@ -1676,6 +2324,61 @@ export default function BookingDetails() {
                 />
               </div>
 
+              {/* Refund fields – only show if there is any refundable amount, and refund is optional */}
+              {(() => {
+                const maxRefundable = isRefundable ? positivePayments : Math.max(0, positivePayments - downpaymentPaid);
+                return maxRefundable > 0 && (
+                  <div className="border-t border-slate-200 pt-3 mt-3">
+                    <p className="text-xs font-bold text-slate-700 mb-2">
+                      Record Refund Details <span className="font-normal text-slate-400">(optional – leave blank to skip)</span>
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-0.5">Refund Amount (₱)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={refundAmount}
+                          onChange={(e) => setRefundAmount(e.target.value)}
+                          placeholder="Enter amount (optional)"
+                          className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
+                        />
+                        <p className="text-[10px] text-slate-400 mt-0.5">Max: ₱{maxRefundable.toLocaleString()}</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-0.5">Remarks</label>
+                        <input
+                          type="text"
+                          value={refundRemarks}
+                          onChange={(e) => setRefundRemarks(e.target.value)}
+                          placeholder="Reason for refund"
+                          className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-2">
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">
+                        Receipt / Proof of Refund
+                        <span className="text-red-500 ml-1">*</span>
+                        <span className="font-normal text-slate-400 ml-1">(required if amount entered)</span>
+                      </label>
+                      <label className="border-2 border-dashed border-slate-300 rounded-lg p-2 flex items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center">
+                        <input type="file" onChange={(e) => setRefundFile(e.target.files[0])} accept="image/*" className="hidden" />
+                        <span className="text-xs text-slate-600">{refundFile ? refundFile.name : 'Upload Image (required for refund)'}</span>
+                      </label>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* If non‑refundable, show a note */}
+              {positivePayments > 0 && !isRefundable && downpaymentPaid > 0 && (
+                <div className="border-t border-slate-200 pt-3 mt-3 text-xs text-slate-500">
+                  <p>⚠️ This booking is <strong>non‑refundable</strong> because the event is less than 3 days away. The downpayment of ₱{downpaymentPaid.toLocaleString()} will be forfeited.</p>
+                </div>
+              )}
+
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
                 <button
                   type="button"
@@ -1690,6 +2393,282 @@ export default function BookingDetails() {
                   className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm disabled:opacity-50"
                 >
                   {isCancelling ? 'Processing...' : 'Confirm Cancellation'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ===== EDIT EQUIPMENT QUANTITY MODAL ===== */}
+      {isEditEquipModalOpen && editingAssignment && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Edit Equipment Quantity</h2>
+              <button onClick={() => setIsEditEquipModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+            <form onSubmit={handleEditEquipSubmit} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Equipment</label>
+                <p className="text-sm font-medium text-slate-900">{editingAssignment.eqm_name}</p>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Quantity</label>
+                <input type="number" min="1" value={editEquipData.quantity} onChange={(e) => setEditEquipData({ quantity: parseInt(e.target.value) || 1 })} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]" required />
+              </div>
+              <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
+                <button type="button" onClick={() => setIsEditEquipModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors">Cancel</button>
+                <button type="submit" disabled={isAssignSubmitting} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm disabled:opacity-50">
+                  {isAssignSubmitting ? 'Updating...' : 'Update Quantity'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ===== REJECTION REASON MODAL (with refund fields) ===== */}
+      {isRejectionModalOpen && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Rejection Reason</h2>
+              <button onClick={() => setIsRejectionModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Reason for Rejection</label>
+                <textarea
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  rows="3"
+                  placeholder="e.g., Incomplete details, client requested cancellation, etc."
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
+                />
+                <p className="text-xs text-slate-400 mt-1">Optional, but recommended.</p>
+              </div>
+
+              {/* Refund fields if applicable */}
+              {showRejectionRefund && (
+                <div className="border-t border-slate-200 pt-3 mt-3">
+                  <p className="text-xs font-bold text-slate-700 mb-2">
+                    Process Refund <span className="font-normal text-slate-400">(optional – leave blank to skip)</span>
+                  </p>
+                  <p className="text-xs text-slate-500 mb-2">Max refundable: ₱{rejectionMaxRefundable.toLocaleString()}</p>
+                  <p className="text-xs text-red-500 mb-2">* Proof of refund is required if you enter an amount.</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Refund Amount (₱)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={rejectionRefundAmount}
+                        onChange={(e) => setRejectionRefundAmount(e.target.value)}
+                        placeholder="Enter amount (optional)"
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Remarks</label>
+                      <input
+                        type="text"
+                        value={rejectionRefundRemarks}
+                        onChange={(e) => setRejectionRefundRemarks(e.target.value)}
+                        placeholder="Reason for refund"
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <label className="block text-xs font-semibold text-slate-600 mb-0.5">
+                      Receipt / Proof of Refund <span className="text-red-500">*</span>
+                      <span className="font-normal text-slate-400 ml-1">(required if amount entered)</span>
+                    </label>
+                    <label className="border-2 border-dashed border-slate-300 rounded-lg p-2 flex items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center">
+                      <input type="file" onChange={(e) => setRejectionRefundFile(e.target.files[0])} accept="image/*" className="hidden" />
+                      <span className="text-xs text-slate-600">{rejectionRefundFile ? rejectionRefundFile.name : 'Upload Image (required for refund)'}</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setIsRejectionModalOpen(false)}
+                  className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRejectConfirm}
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm"
+                >
+                  Confirm Rejection
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ===== REFUND AFTER REJECTION MODAL ===== */}
+      {isRefundModalOpen && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Record Refund</h2>
+              <button onClick={() => setIsRefundModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+            <form onSubmit={handleRefundSubmit} className="p-6 space-y-4">
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-sm">
+                <p><span className="font-medium">Booking:</span> {booking.booking_id.slice(0, 8)} – {booking.customer?.first_name} {booking.customer?.last_name}</p>
+                <p className="text-xs text-slate-500 mt-1">Refundable amount: ₱{remainingRefundableAmount.toLocaleString()}</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Refund Amount (₱)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={refundModalAmount}
+                  onChange={(e) => setRefundModalAmount(e.target.value)}
+                  placeholder="e.g. 5000"
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:border-[#008A45] outline-none"
+                  required
+                />
+                <p className="text-xs text-slate-400 mt-0.5">Max: ₱{remainingRefundableAmount.toLocaleString()}</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Remarks</label>
+                <input
+                  type="text"
+                  value={refundModalRemarks}
+                  onChange={(e) => setRefundModalRemarks(e.target.value)}
+                  placeholder="Reason for refund"
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:border-[#008A45] outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Proof of Refund <span className="text-red-500">*</span>
+                </label>
+                <label className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center relative overflow-hidden h-24">
+                  <input type="file" onChange={(e) => setRefundModalFile(e.target.files[0])} accept="image/*" className="hidden" />
+                  <ImageIcon size={20} className="text-slate-400 mb-1" />
+                  <span className="text-xs font-semibold text-slate-600">{refundModalFile ? refundModalFile.name : 'Upload Image'}</span>
+                  <span className="text-[10px] text-slate-400 mt-0.5">PNG, JPG up to 5MB</span>
+                </label>
+                <p className="text-xs text-slate-400 mt-1">Proof image is required.</p>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
+                <button type="button" onClick={() => setIsRefundModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors">Cancel</button>
+                <button type="submit" disabled={isRefundSubmitting} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm disabled:opacity-50">
+                  {isRefundSubmitting ? 'Processing...' : 'Record Refund'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ===== APPROVAL MODAL ===== */}
+      {isApprovalModalOpen && approvalBooking && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
+              <h2 className="text-lg font-bold text-slate-900">Approve Booking – Adjust Fees</h2>
+              <button
+                onClick={() => setIsApprovalModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto space-y-6 text-left">
+              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-sm">
+                <div className="grid grid-cols-2 gap-2">
+                  <span className="font-medium text-slate-600">Customer:</span>
+                  <span className="font-bold text-slate-900">
+                    {approvalBooking.customer?.first_name} {approvalBooking.customer?.last_name}
+                  </span>
+                  <span className="font-medium text-slate-600">Package:</span>
+                  <span className="font-bold text-slate-900">{approvalBooking.package?.pkg_name}</span>
+                  <span className="font-medium text-slate-600">Current Pax:</span>
+                  <span className="font-bold text-slate-900">{approvalBooking.pax_count}</span>
+                  <span className="font-medium text-slate-600">Current Total:</span>
+                  <span className="font-bold text-slate-900">₱{approvalBooking.total_amount?.toLocaleString() || '0'}</span>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">* Adjust extra pax or add fees below.</p>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Extra Pax (additional headcount)</label>
+                  <input
+                    type="number"
+                    name="extraPax"
+                    min="0"
+                    value={approvalData.extraPax}
+                    onChange={handleApprovalInputChange}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">Each extra pax costs ₱{approvalBooking.package?.pkg_price || 0} (package price per pax).</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons, extra services)</label>
+                  <input
+                    type="number"
+                    name="additionalFee"
+                    min="0"
+                    step="0.01"
+                    value={approvalData.additionalFee}
+                    onChange={handleApprovalInputChange}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                    placeholder="e.g. 2000"
+                  />
+                </div>
+              </div>
+
+              <div className="bg-[#EAF3F2] border border-[#d2e8e5] rounded-lg p-4 flex justify-between items-center">
+                <span className="font-bold text-slate-800">New Total:</span>
+                <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+              </div>
+              <div className="text-sm text-slate-500">
+                <p>Down payment (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
+                <p className="text-xs mt-1">* Down payment is required to secure the booking (non-refundable within 3 days of event).</p>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setIsApprovalModalOpen(false)}
+                  className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleFinalizeApproval}
+                  disabled={isSubmitting}
+                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}
                 </button>
               </div>
             </div>
