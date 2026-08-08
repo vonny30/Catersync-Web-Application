@@ -1,4 +1,4 @@
-// pages/PackagesAndMenus.jsx
+// src/pages/PackagesAndMenus.jsx
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
@@ -38,10 +38,11 @@ export default function PackagesAndMenus() {
     selectedCategories: [],
     selectedEquipment: [],
     equipmentQuantities: {},
+    equipmentPerPax: {}, // NEW: track per_pax per equipment
     pricing_type: 'per_pax',
     max_pax: '',
     extra_pax_price: '',
-    colors: [], // array of color names
+    colors: [],
   });
   const [newColorInput, setNewColorInput] = useState('');
 
@@ -104,6 +105,8 @@ export default function PackagesAndMenus() {
         .select(`
           package_id,
           equipment_id,
+          included_quantity,
+          per_pax,
           equipment:equipment_id (eqm_name)
         `)
         .in('package_id', packageIds);
@@ -164,22 +167,24 @@ export default function PackagesAndMenus() {
 
       const { data: equipData, error: equipError } = await supabase
         .from('package_equipment')
-        .select('equipment_id, included_quantity')
+        .select('equipment_id, included_quantity, per_pax')
         .eq('package_id', packageId);
       if (equipError) throw equipError;
 
       const selectedCategories = catData.map(row => row.category_id);
       const selectedEquipment = equipData.map(row => row.equipment_id);
       const equipmentQuantities = {};
+      const equipmentPerPax = {};
       equipData.forEach(row => {
         equipmentQuantities[row.equipment_id] = row.included_quantity;
+        equipmentPerPax[row.equipment_id] = row.per_pax !== undefined ? row.per_pax : true;
       });
 
-      return { selectedCategories, selectedEquipment, equipmentQuantities };
+      return { selectedCategories, selectedEquipment, equipmentQuantities, equipmentPerPax };
     } catch (error) {
       console.error('Error fetching associations for edit:', error);
       toast.error('Unable to load package details for editing.');
-      return { selectedCategories: [], selectedEquipment: [], equipmentQuantities: {} };
+      return { selectedCategories: [], selectedEquipment: [], equipmentQuantities: {}, equipmentPerPax: {} };
     }
   };
 
@@ -204,19 +209,33 @@ export default function PackagesAndMenus() {
     });
   };
 
+  // --- UPDATED: Equipment selection with auto per_pax based on equipment_type ---
   const handleEquipmentSelection = (equipmentId, quantity = 1) => {
+    const equip = equipment.find(e => e.equipment_id === equipmentId);
+    // Auto-set per_pax based on equipment type: Countable = true, Decoration = false
+    const perPax = equip?.equipment_type === 'Countable';
+
     setFormData(prev => {
       const current = prev.selectedEquipment || [];
       const quantities = { ...prev.equipmentQuantities };
+      const perPaxMap = { ...prev.equipmentPerPax };
+      
       if (current.includes(equipmentId)) {
         const newSelected = current.filter(id => id !== equipmentId);
         delete quantities[equipmentId];
-        return { ...prev, selectedEquipment: newSelected, equipmentQuantities: quantities };
+        delete perPaxMap[equipmentId];
+        return { 
+          ...prev, 
+          selectedEquipment: newSelected, 
+          equipmentQuantities: quantities,
+          equipmentPerPax: perPaxMap,
+        };
       } else {
         return {
           ...prev,
           selectedEquipment: [...current, equipmentId],
           equipmentQuantities: { ...quantities, [equipmentId]: quantity },
+          equipmentPerPax: { ...perPaxMap, [equipmentId]: perPax },
         };
       }
     });
@@ -261,7 +280,7 @@ export default function PackagesAndMenus() {
 
     if (item && type === 'Package') {
       // Editing existing package
-      const { selectedCategories, selectedEquipment, equipmentQuantities } =
+      const { selectedCategories, selectedEquipment, equipmentQuantities, equipmentPerPax } =
         await fetchPackageAssociationsForEdit(item.package_id);
       setFormData({
         title: item.pkg_name || '',
@@ -273,10 +292,11 @@ export default function PackagesAndMenus() {
         selectedCategories,
         selectedEquipment,
         equipmentQuantities,
+        equipmentPerPax: equipmentPerPax || {},
         pricing_type: item.pricing_type || 'per_pax',
         max_pax: item.max_pax?.toString() || '',
         extra_pax_price: item.extra_pax_price?.toString() || '',
-        colors: item.colors || [], // keep stored colors (or empty if none)
+        colors: item.colors || [],
       });
     } else if (item && type === 'Menu Item') {
       setFormData({
@@ -289,6 +309,7 @@ export default function PackagesAndMenus() {
         selectedCategories: [],
         selectedEquipment: [],
         equipmentQuantities: {},
+        equipmentPerPax: {},
         pricing_type: 'per_pax',
         max_pax: '',
         extra_pax_price: '',
@@ -297,7 +318,6 @@ export default function PackagesAndMenus() {
     } else {
       // New package or new menu item
       if (type === 'Package') {
-        // New package: pre‑fill with default colors
         setFormData({
           title: '',
           price: '',
@@ -308,13 +328,13 @@ export default function PackagesAndMenus() {
           selectedCategories: [],
           selectedEquipment: [],
           equipmentQuantities: {},
+          equipmentPerPax: {},
           pricing_type: 'per_pax',
           max_pax: '',
           extra_pax_price: '',
           colors: [...DEFAULT_COLORS],
         });
       } else {
-        // New menu item: no colors
         setFormData({
           title: '',
           price: '',
@@ -325,6 +345,7 @@ export default function PackagesAndMenus() {
           selectedCategories: [],
           selectedEquipment: [],
           equipmentQuantities: {},
+          equipmentPerPax: {},
           pricing_type: 'per_pax',
           max_pax: '',
           extra_pax_price: '',
@@ -349,6 +370,7 @@ export default function PackagesAndMenus() {
       selectedCategories: [],
       selectedEquipment: [],
       equipmentQuantities: {},
+      equipmentPerPax: {},
       pricing_type: 'per_pax',
       max_pax: '',
       extra_pax_price: '',
@@ -440,7 +462,7 @@ export default function PackagesAndMenus() {
           if (insertCatError) throw insertCatError;
         }
 
-        // Update equipment
+        // Update equipment with per_pax
         const { error: deleteEquipError } = await supabase
           .from('package_equipment')
           .delete()
@@ -453,6 +475,7 @@ export default function PackagesAndMenus() {
             package_id: packageId,
             equipment_id: equipId,
             included_quantity: formData.equipmentQuantities[equipId] || 1,
+            per_pax: formData.equipmentPerPax[equipId] !== undefined ? formData.equipmentPerPax[equipId] : true,
           }));
           const { error: insertEquipError } = await supabase
             .from('package_equipment')
@@ -998,6 +1021,7 @@ export default function PackagesAndMenus() {
                             selectedCategories: [],
                             selectedEquipment: [],
                             equipmentQuantities: {},
+                            equipmentPerPax: {},
                             pricing_type: 'per_pax',
                             max_pax: '',
                             extra_pax_price: '',
@@ -1025,6 +1049,7 @@ export default function PackagesAndMenus() {
                             selectedCategories: [],
                             selectedEquipment: [],
                             equipmentQuantities: {},
+                            equipmentPerPax: {},
                             pricing_type: 'per_pax',
                             max_pax: '',
                             extra_pax_price: '',
@@ -1236,7 +1261,7 @@ export default function PackagesAndMenus() {
                       <p className="text-xs text-slate-400 mt-1">Customers can choose one menu item from each selected category.</p>
                     </div>
 
-                    {/* Equipment Selection */}
+                    {/* Equipment Selection – UPDATED with per_pax indicator */}
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">Included Equipment (template)</label>
                       <p className="text-xs text-slate-400 mb-2">Equipment will be reserved when a booking is confirmed, not now.</p>
@@ -1246,6 +1271,7 @@ export default function PackagesAndMenus() {
                         ) : (
                           equipment.map((eq) => {
                             const isSelected = (formData.selectedEquipment || []).includes(eq.equipment_id);
+                            const isDecoration = eq.equipment_type === 'Decoration';
                             return (
                               <div key={eq.equipment_id} className="flex items-center gap-3 text-sm">
                                 <label className="flex items-center gap-2 cursor-pointer flex-1">
@@ -1257,6 +1283,12 @@ export default function PackagesAndMenus() {
                                     className="w-4 h-4 text-[#008A45] focus:ring-[#008A45]"
                                   />
                                   {eq.eqm_name} (total stock: {eq.quantity_available})
+                                  {isDecoration && (
+                                    <span className="ml-1 text-xs text-purple-600 font-medium">(Decoration – 1 per event)</span>
+                                  )}
+                                  {!isDecoration && (
+                                    <span className="ml-1 text-xs text-blue-600 font-medium">(Countable – scales with pax)</span>
+                                  )}
                                 </label>
                                 {isSelected && (
                                   <div className="flex items-center gap-1">
@@ -1276,6 +1308,9 @@ export default function PackagesAndMenus() {
                           })
                         )}
                       </div>
+                      <p className="text-xs text-slate-400 mt-1">
+                        <span className="font-semibold">Countable</span> items scale with pax. <span className="font-semibold">Decoration</span> items are fixed per event.
+                      </p>
                     </div>
                   </div>
                 )}

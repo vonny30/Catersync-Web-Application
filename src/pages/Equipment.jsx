@@ -1,55 +1,58 @@
-// pages/Equipment.jsx
+// src/pages/PackagesAndMenus.jsx
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Edit, Trash2, X, CheckCircle, Settings, ClipboardList, RefreshCw, Undo2, Calendar, MapPin, Users, Clock } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 
-export default function Equipment() {
+// Default colors for new packages
+const DEFAULT_COLORS = [
+  'Burgundy', 'Navy Blue', 'Emerald Green', 'Gold', 'Silver', 'White',
+  'Cream', 'Blush Pink', 'Lavender', 'Champagne', 'Mint Green', 'Peach',
+];
+
+export default function PackagesAndMenus() {
   const { showConfirm } = useConfirm();
-  // --- DATA STATE ---
-  const [equipmentList, setEquipmentList] = useState([]);
-  const [assignments, setAssignments] = useState([]);
-  const [bookings, setBookings] = useState([]);
+  // --- STATE ---
+  const [activeTab, setActiveTab] = useState('All');
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // --- USAGE MODAL ---
-  const [isUsageModalOpen, setIsUsageModalOpen] = useState(false);
-  const [selectedEquipment, setSelectedEquipment] = useState(null);
-  const [equipmentUsage, setEquipmentUsage] = useState([]);
+  const [packages, setPackages] = useState([]);
+  const [menuItems, setMenuItems] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [equipment, setEquipment] = useState([]);
+  const [packageEquipment, setPackageEquipment] = useState({});
+  const [packageCategories, setPackageCategories] = useState({});
 
-  // --- MODAL STATES ---
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
-
-  // --- FORM STATES ---
-  const [addFormData, setAddFormData] = useState({
-    equipmentName: '',
-    quantity: 0,
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalType, setModalType] = useState('Package');
+  const [editingId, setEditingId] = useState(null);
+  const [formData, setFormData] = useState({
+    title: '',
+    price: '',
+    minPax: '',
+    categoryId: '',
     description: '',
-    condition: 'Good Condition'
+    imageFile: null,
+    selectedCategories: [],
+    selectedEquipment: [],
+    equipmentQuantities: {},
+    equipmentPerPax: {},
+    pricing_type: 'per_pax',
+    max_pax: '',
+    extra_pax_price: '',
+    colors: [],
   });
+  const [newColorInput, setNewColorInput] = useState('');
 
-  const [editFormData, setEditFormData] = useState({
-    equipment_id: '',
-    eqm_name: '',
-    quantity_available: 0,
-    eqm_description: '',
-    eqm_status: 'Good Condition'
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [categoryForm, setCategoryForm] = useState({
+    category_id: null,
+    category_name: '',
+    category_description: '',
   });
-
-  const [assignFormData, setAssignFormData] = useState({
-    booking_id: '',
-    notes: ''
-  });
-
-  // --- MULTIPLE ASSIGNMENT QUEUE ---
-  const [assignmentQueue, setAssignmentQueue] = useState([]);
-  const [tempEquipId, setTempEquipId] = useState('');
-  const [tempQuantity, setTempQuantity] = useState(1);
+  const [isCategorySubmitting, setIsCategorySubmitting] = useState(false);
 
   // --- Helper: Log technical error and show user-friendly toast ---
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
@@ -61,180 +64,603 @@ export default function Equipment() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
+      // Fetch packages
+      const { data: packagesData, error: packagesError } = await supabase
+        .from('package')
+        .select('*')
+        .order('pkg_name');
+      if (packagesError) throw packagesError;
+      setPackages(packagesData || []);
+
+      // Fetch menu items
+      const { data: menuData, error: menuError } = await supabase
+        .from('menu_item')
+        .select('*, category:category_id(*)')
+        .order('menu_name');
+      if (menuError) throw menuError;
+      setMenuItems(menuData || []);
+
+      // Fetch categories
+      const { data: categoryData, error: categoryError } = await supabase
+        .from('category')
+        .select('*')
+        .order('category_name');
+      if (categoryError) throw categoryError;
+      setCategories(categoryData || []);
+
+      // Fetch equipment
       const { data: equipData, error: equipError } = await supabase
         .from('equipment')
         .select('*')
         .order('eqm_name');
       if (equipError) throw equipError;
-      setEquipmentList(equipData || []);
+      setEquipment(equipData || []);
 
-      const { data: bookingData, error: bookingError } = await supabase
-        .from('booking')
-        .select(`
-          booking_id,
-          booking_type,
-          booking_status,
-          event_datetime,
-          venue,
-          pax_count,
-          notes,
-          customer:customer_id (first_name, last_name, contact_no, cus_address)
-        `)
-        .eq('booking_type', 'Package')
-        .in('booking_status', ['Approved', 'Pending'])
-        .order('event_datetime', { ascending: true });
-      if (bookingError) throw bookingError;
-      setBookings(bookingData || []);
-
-      const { data: assignData, error: assignError } = await supabase
-        .from('booking_equipment')
-        .select(`
-          *,
-          booking:booking_id (
-            booking_id,
-            venue,
-            customer:customer_id (first_name, last_name)
-          ),
-          equipment:equipment_id (eqm_name)
-        `)
-        .order('assigned_at', { ascending: false });
-      if (assignError) throw assignError;
-      setAssignments(assignData || []);
-
+      // Fetch package associations
+      await fetchPackageAssociations(packagesData || []);
     } catch (error) {
-      handleError(error, 'Unable to load equipment data. Please refresh the page.');
+      handleError(error, 'Unable to load data. Please refresh the page.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  // --- FETCH ASSOCIATIONS (categories & equipment per package) ---
+  const fetchPackageAssociations = async (packagesData) => {
+    if (!packagesData || packagesData.length === 0) {
+      setPackageCategories({});
+      setPackageEquipment({});
+      return;
+    }
+    const packageIds = packagesData.map(p => p.package_id);
 
-  // --- FETCH EQUIPMENT USAGE ---
-  const fetchEquipmentUsage = async (equipmentId) => {
     try {
-      const { data, error } = await supabase
-        .from('booking_equipment')
-        .select(`
-          *,
-          booking:booking_id (
-            booking_id,
-            venue,
-            event_datetime,
-            customer:customer_id (first_name, last_name)
-          )
-        `)
-        .eq('equipment_id', equipmentId)
-        .order('assigned_at', { ascending: false });
+      // Categories
+      const { data: catData, error: catError } = await supabase
+        .from('package_category')
+        .select('package_id, category_id')
+        .in('package_id', packageIds);
+      if (catError) throw catError;
 
-      if (error) throw error;
-      setEquipmentUsage(data || []);
+      const catMap = {};
+      catData.forEach(row => {
+        if (!catMap[row.package_id]) catMap[row.package_id] = [];
+        catMap[row.package_id].push(row.category_id);
+      });
+      setPackageCategories(catMap);
+
+      // Equipment
+      const { data: equipData, error: equipError } = await supabase
+        .from('package_equipment')
+        .select('package_id, equipment_id, included_quantity, per_pax')
+        .in('package_id', packageIds);
+      if (equipError) throw equipError;
+
+      const equipMap = {};
+      equipData.forEach(row => {
+        if (!equipMap[row.package_id]) equipMap[row.package_id] = [];
+        equipMap[row.package_id].push({
+          equipment_id: row.equipment_id,
+          quantity: row.included_quantity,
+          perPax: row.per_pax,
+        });
+      });
+      setPackageEquipment(equipMap);
     } catch (error) {
-      console.error('Error fetching usage:', error);
-      setEquipmentUsage([]);
-      toast.error('Unable to load usage history.');
+      handleError(error, 'Unable to load package associations.');
     }
   };
 
-  // --- Get selected booking details ---
-  const selectedBooking = bookings.find(b => b.booking_id === assignFormData.booking_id);
-
-  // --- HANDLERS ---
-  const handleAddInputChange = (e) => {
-    const { name, value } = e.target;
-    setAddFormData(prev => ({
-      ...prev,
-      [name]: name === 'quantity' ? parseInt(value) || 0 : value
-    }));
-  };
-
-  const handleEditInputChange = (e) => {
-    const { name, value } = e.target;
-    setEditFormData(prev => ({
-      ...prev,
-      [name]: name === 'quantity_available' ? parseInt(value) || 0 : value
-    }));
-  };
-
-  const handleAssignInputChange = (e) => {
-    const { name, value } = e.target;
-    setAssignFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  // --- ADD EQUIPMENT ---
-  const handleAddEquipment = async (e) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-
+  // Fetch associations for a single package (for edit modal)
+  const fetchPackageAssociationsForEdit = async (packageId) => {
     try {
-      const { error } = await supabase
-        .from('equipment')
-        .insert([{
-          eqm_name: addFormData.equipmentName,
-          eqm_description: addFormData.description || 'No description',
-          quantity_available: addFormData.quantity,
-          eqm_status: addFormData.condition
-        }]);
+      // Categories
+      const { data: catData, error: catError } = await supabase
+        .from('package_category')
+        .select('category_id')
+        .eq('package_id', packageId);
+      if (catError) throw catError;
+      const selectedCategories = catData.map(row => row.category_id);
 
-      if (error) throw error;
+      // Equipment
+      const { data: equipData, error: equipError } = await supabase
+        .from('package_equipment')
+        .select('equipment_id, included_quantity, per_pax')
+        .eq('package_id', packageId);
+      if (equipError) throw equipError;
+      const selectedEquipment = equipData.map(row => row.equipment_id);
+      const equipmentQuantities = {};
+      const equipmentPerPax = {};
+      equipData.forEach(row => {
+        equipmentQuantities[row.equipment_id] = row.included_quantity;
+        equipmentPerPax[row.equipment_id] = row.per_pax;
+      });
 
-      setIsAddModalOpen(false);
-      setAddFormData({ equipmentName: '', quantity: 0, description: '', condition: 'Good Condition' });
-      toast.success('Equipment added successfully!');
-      await fetchData();
+      return { selectedCategories, selectedEquipment, equipmentQuantities, equipmentPerPax };
     } catch (error) {
-      handleError(error, 'Failed to add equipment.');
-    } finally {
-      setIsSubmitting(false);
+      handleError(error, 'Unable to load package associations.');
+      return null;
     }
   };
 
-  // --- EDIT EQUIPMENT ---
-  const handleEditClick = (item) => {
-    setEditFormData({
-      equipment_id: item.equipment_id,
-      eqm_name: item.eqm_name,
-      quantity_available: item.quantity_available,
-      eqm_description: item.eqm_description || '',
-      eqm_status: item.eqm_status || 'Good Condition'
+  // --- HANDLERS (with validations) ---
+  const handleInputChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value,
+    }));
+  };
+
+  const handleCategorySelection = (categoryId) => {
+    setFormData(prev => {
+      const current = prev.selectedCategories || [];
+      if (current.includes(categoryId)) {
+        return { ...prev, selectedCategories: current.filter(id => id !== categoryId) };
+      } else {
+        return { ...prev, selectedCategories: [...current, categoryId] };
+      }
     });
-    setIsEditModalOpen(true);
   };
 
-  const handleEditSubmit = async (e) => {
+  const handleEquipmentSelection = (equipmentId, quantity = 1) => {
+    const equip = equipment.find(e => e.equipment_id === equipmentId);
+    const perPax = equip?.equipment_type === 'Countable';
+
+    setFormData(prev => {
+      const current = prev.selectedEquipment || [];
+      const quantities = { ...prev.equipmentQuantities };
+      const perPaxMap = { ...prev.equipmentPerPax };
+
+      if (current.includes(equipmentId)) {
+        const newSelected = current.filter(id => id !== equipmentId);
+        delete quantities[equipmentId];
+        delete perPaxMap[equipmentId];
+        return { ...prev, selectedEquipment: newSelected, equipmentQuantities: quantities, equipmentPerPax: perPaxMap };
+      } else {
+        return {
+          ...prev,
+          selectedEquipment: [...current, equipmentId],
+          equipmentQuantities: { ...quantities, [equipmentId]: quantity },
+          equipmentPerPax: { ...perPaxMap, [equipmentId]: perPax },
+        };
+      }
+    });
+  };
+
+  const handleEquipmentQuantityChange = (equipmentId, quantity) => {
+    const qty = parseInt(quantity) || 1;
+    if (qty < 1) {
+      toast.error('Quantity must be at least 1.');
+      return;
+    }
+    setFormData(prev => ({
+      ...prev,
+      equipmentQuantities: { ...prev.equipmentQuantities, [equipmentId]: qty },
+    }));
+  };
+
+  // --- Color management ---
+  const handleAddColor = () => {
+    const color = newColorInput.trim();
+    if (!color) {
+      toast.error('Please enter a color name.');
+      return;
+    }
+    if (formData.colors.includes(color)) {
+      toast.error('Color already added.');
+      return;
+    }
+    setFormData(prev => ({
+      ...prev,
+      colors: [...prev.colors, color],
+    }));
+    setNewColorInput('');
+  };
+
+  const handleRemoveColor = (colorToRemove) => {
+    setFormData(prev => ({
+      ...prev,
+      colors: prev.colors.filter(c => c !== colorToRemove),
+    }));
+  };
+
+  // --- Open modal ---
+  const handleOpenModal = async (type, item = null) => {
+    setModalType(type);
+    setEditingId(item ? item.package_id || item.menu_item_id : null);
+
+    // Reset form
+    setFormData({
+      title: '',
+      price: '',
+      minPax: '',
+      categoryId: '',
+      description: '',
+      imageFile: null,
+      selectedCategories: [],
+      selectedEquipment: [],
+      equipmentQuantities: {},
+      equipmentPerPax: {},
+      pricing_type: 'per_pax',
+      max_pax: '',
+      extra_pax_price: '',
+      colors: [],
+    });
+
+    if (item) {
+      if (type === 'Package') {
+        setFormData(prev => ({
+          ...prev,
+          title: item.pkg_name || '',
+          price: item.pkg_price || '',
+          minPax: item.minimum_pax || '',
+          description: item.pkg_description || '',
+          pricing_type: item.pricing_type || 'per_pax',
+          max_pax: item.max_pax || '',
+          extra_pax_price: item.extra_pax_price || '',
+          colors: item.colors || [],
+        }));
+        // Fetch associations
+        const associations = await fetchPackageAssociationsForEdit(item.package_id);
+        if (associations) {
+          setFormData(prev => ({
+            ...prev,
+            selectedCategories: associations.selectedCategories || [],
+            selectedEquipment: associations.selectedEquipment || [],
+            equipmentQuantities: associations.equipmentQuantities || {},
+            equipmentPerPax: associations.equipmentPerPax || {},
+          }));
+        }
+      } else {
+        // Menu Item
+        setFormData(prev => ({
+          ...prev,
+          title: item.menu_name || '',
+          price: item.menu_price || '',
+          categoryId: item.category_id || '',
+        }));
+      }
+    }
+    setIsModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setEditingId(null);
+    setFormData({
+      title: '',
+      price: '',
+      minPax: '',
+      categoryId: '',
+      description: '',
+      imageFile: null,
+      selectedCategories: [],
+      selectedEquipment: [],
+      equipmentQuantities: {},
+      equipmentPerPax: {},
+      pricing_type: 'per_pax',
+      max_pax: '',
+      extra_pax_price: '',
+      colors: [],
+    });
+  };
+
+  // --- VALIDATION for package form ---
+  const validatePackageForm = () => {
+    const { title, price, minPax, selectedCategories, selectedEquipment, equipmentQuantities } = formData;
+    if (!title || title.trim() === '') {
+      toast.error('Package title is required.');
+      return false;
+    }
+    const priceNum = parseFloat(price);
+    if (isNaN(priceNum) || priceNum <= 0) {
+      toast.error('Package price must be greater than zero.');
+      return false;
+    }
+    const minPaxNum = parseInt(minPax);
+    if (isNaN(minPaxNum) || minPaxNum < 1) {
+      toast.error('Minimum pax must be at least 1.');
+      return false;
+    }
+    if (!selectedCategories || selectedCategories.length === 0) {
+      toast.error('Please select at least one category for this package.');
+      return false;
+    }
+    // Check equipment quantities
+    for (const [equipId, qty] of Object.entries(equipmentQuantities)) {
+      if (qty < 1) {
+        toast.error('Equipment quantities must be at least 1.');
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const validateMenuItemForm = () => {
+    const { title, price, categoryId } = formData;
+    if (!title || title.trim() === '') {
+      toast.error('Menu item title is required.');
+      return false;
+    }
+    const priceNum = parseFloat(price);
+    if (isNaN(priceNum) || priceNum <= 0) {
+      toast.error('Price must be greater than zero.');
+      return false;
+    }
+    if (!categoryId) {
+      toast.error('Please select a category.');
+      return false;
+    }
+    return true;
+  };
+
+  // --- SUBMIT (with validation) ---
+  const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Validate based on type
+    if (modalType === 'Package') {
+      if (!validatePackageForm()) return;
+    } else {
+      if (!validateMenuItemForm()) return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      const { error } = await supabase
-        .from('equipment')
-        .update({
-          eqm_name: editFormData.eqm_name,
-          eqm_description: editFormData.eqm_description,
-          quantity_available: editFormData.quantity_available,
-          eqm_status: editFormData.eqm_status
-        })
-        .eq('equipment_id', editFormData.equipment_id);
+      const cleanPrice = parseFloat(formData.price) || 0;
+      let uploadedImageUrl = null;
 
-      if (error) throw error;
+      if (formData.imageFile) {
+        try {
+          const file = formData.imageFile;
+          if (!file.type.startsWith('image/')) {
+            toast.error('Please upload a valid image file.');
+            setIsSubmitting(false);
+            return;
+          }
+          if (file.size > 5 * 1024 * 1024) {
+            toast.error('Image size must be less than 5MB.');
+            setIsSubmitting(false);
+            return;
+          }
 
-      setIsEditModalOpen(false);
-      toast.success('Equipment updated successfully!');
-      await fetchData();
+          const fileExt = file.name.split('.').pop();
+          const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+          const filePath = `${modalType === 'Package' ? 'packages' : 'menu'}/${fileName}`;
+
+          const { error: uploadError } = await supabase.storage
+            .from('images')
+            .upload(filePath, file);
+
+          if (uploadError) throw uploadError;
+
+          const { data: publicUrlData } = supabase.storage
+            .from('images')
+            .getPublicUrl(filePath);
+
+          uploadedImageUrl = publicUrlData.publicUrl;
+        } catch (uploadErr) {
+          handleError(uploadErr, 'Failed to upload image. Please try again.');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      if (modalType === 'Package') {
+        const packageData = {
+          pkg_name: formData.title.trim(),
+          pkg_description: formData.description?.trim() || 'No description provided.',
+          pkg_price: cleanPrice,
+          minimum_pax: parseInt(formData.minPax) || 0,
+          pricing_type: formData.pricing_type || 'per_pax',
+          max_pax: formData.pricing_type === 'fixed' ? (parseInt(formData.max_pax) || null) : null,
+          extra_pax_price: formData.pricing_type === 'fixed' ? (parseFloat(formData.extra_pax_price) || 0) : 0,
+          colors: formData.colors || [],
+        };
+        if (uploadedImageUrl) packageData.pkg_image = uploadedImageUrl;
+
+        let packageId = editingId;
+
+        if (editingId) {
+          const { error } = await supabase
+            .from('package')
+            .update(packageData)
+            .eq('package_id', editingId);
+          if (error) throw error;
+        } else {
+          const { data: newPackage, error } = await supabase
+            .from('package')
+            .insert([{ ...packageData, pkg_availability: 'Available' }])
+            .select();
+          if (error) throw error;
+          packageId = newPackage[0].package_id;
+        }
+
+        // Update categories
+        const { error: deleteCatError } = await supabase
+          .from('package_category')
+          .delete()
+          .eq('package_id', packageId);
+        if (deleteCatError) throw deleteCatError;
+
+        const selectedCatIds = formData.selectedCategories || [];
+        if (selectedCatIds.length > 0) {
+          const inserts = selectedCatIds.map(catId => ({
+            package_id: packageId,
+            category_id: catId,
+          }));
+          const { error: insertCatError } = await supabase
+            .from('package_category')
+            .insert(inserts);
+          if (insertCatError) throw insertCatError;
+        }
+
+        // Update equipment with per_pax
+        const { error: deleteEquipError } = await supabase
+          .from('package_equipment')
+          .delete()
+          .eq('package_id', packageId);
+        if (deleteEquipError) throw deleteEquipError;
+
+        const selectedEquipIds = formData.selectedEquipment || [];
+        if (selectedEquipIds.length > 0) {
+          const inserts = selectedEquipIds.map(equipId => ({
+            package_id: packageId,
+            equipment_id: equipId,
+            included_quantity: formData.equipmentQuantities[equipId] || 1,
+            per_pax: formData.equipmentPerPax[equipId] !== undefined ? formData.equipmentPerPax[equipId] : true,
+          }));
+          const { error: insertEquipError } = await supabase
+            .from('package_equipment')
+            .insert(inserts);
+          if (insertEquipError) throw insertEquipError;
+        }
+
+        toast.success(editingId ? 'Package updated successfully!' : 'Package created successfully!');
+        await fetchData();
+
+      } else {
+        // Menu Item
+        const menuData = {
+          menu_name: formData.title.trim(),
+          menu_price: cleanPrice,
+          category_id: formData.categoryId,
+        };
+        if (uploadedImageUrl) menuData.menu_image = uploadedImageUrl;
+
+        if (editingId) {
+          const { error } = await supabase
+            .from('menu_item')
+            .update(menuData)
+            .eq('menu_item_id', editingId);
+          if (error) throw error;
+          toast.success('Menu item updated successfully!');
+        } else {
+          const { error } = await supabase
+            .from('menu_item')
+            .insert([{ ...menuData, menu_availability: 'Available' }]);
+          if (error) throw error;
+          toast.success('Menu item created successfully!');
+        }
+      }
+
+      handleCloseModal();
+      fetchData();
     } catch (error) {
-      handleError(error, 'Failed to update equipment.');
+      handleError(error, 'Failed to save item.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // --- DELETE EQUIPMENT ---
-  const handleDeleteEquipment = async (id) => {
+  // --- DELETE ---
+  const handleDelete = async (id, type) => {
     const confirmed = await showConfirm({
-      title: 'Delete Equipment?',
-      message: 'Are you sure you want to delete this equipment? This action cannot be undone.',
+      title: `Delete ${type}?`,
+      message: `Are you sure you want to delete this ${type.toLowerCase()}? This action cannot be undone.`,
+      confirmLabel: 'Delete',
+      confirmVariant: 'danger',
+    });
+    if (!confirmed) return;
+
+    try {
+      const table = type === 'Package' ? 'package' : 'menu_item';
+      const idField = type === 'Package' ? 'package_id' : 'menu_item_id';
+      const { error } = await supabase
+        .from(table)
+        .delete()
+        .eq(idField, id);
+      if (error) throw error;
+
+      toast.success(`${type} deleted.`);
+      await fetchData();
+    } catch (error) {
+      handleError(error, `Failed to delete ${type.toLowerCase()}.`);
+    }
+  };
+
+  // --- TOGGLE ARCHIVE ---
+  const toggleArchive = async (id, type) => {
+    const currentItem = type === 'Package'
+      ? packages.find(p => p.package_id === id)
+      : menuItems.find(m => m.menu_item_id === id);
+    const newStatus = currentItem.pkg_availability === 'Available' ? 'Archived' : 'Available';
+
+    try {
+      const table = type === 'Package' ? 'package' : 'menu_item';
+      const idField = type === 'Package' ? 'package_id' : 'menu_item_id';
+      const statusField = type === 'Package' ? 'pkg_availability' : 'menu_availability';
+      const { error } = await supabase
+        .from(table)
+        .update({ [statusField]: newStatus })
+        .eq(idField, id);
+      if (error) throw error;
+
+      toast.success(`Item ${newStatus.toLowerCase()}.`);
+      await fetchData();
+    } catch (error) {
+      handleError(error, 'Failed to update status.');
+    }
+  };
+
+  // --- CATEGORY MANAGEMENT ---
+  const handleOpenCategoryModal = (category = null) => {
+    setCategoryForm({
+      category_id: category?.category_id || null,
+      category_name: category?.category_name || '',
+      category_description: category?.category_description || '',
+    });
+    setIsCategoryModalOpen(true);
+  };
+
+  const handleCategoryFormChange = (e) => {
+    const { name, value } = e.target;
+    setCategoryForm(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleCategorySubmit = async (e) => {
+    e.preventDefault();
+    setIsCategorySubmitting(true);
+
+    try {
+      const { category_id, category_name, category_description } = categoryForm;
+      if (!category_name.trim()) {
+        toast.error('Category name is required.');
+        return;
+      }
+
+      if (category_id) {
+        // Update
+        const { error } = await supabase
+          .from('category')
+          .update({ category_name: category_name.trim(), category_description: category_description.trim() })
+          .eq('category_id', category_id);
+        if (error) throw error;
+        toast.success('Category updated.');
+      } else {
+        // Insert
+        const { error } = await supabase
+          .from('category')
+          .insert([{ category_name: category_name.trim(), category_description: category_description.trim() }]);
+        if (error) throw error;
+        toast.success('Category created.');
+      }
+
+      setIsCategoryModalOpen(false);
+      await fetchData();
+    } catch (error) {
+      handleError(error, 'Failed to save category.');
+    } finally {
+      setIsCategorySubmitting(false);
+    }
+  };
+
+  const handleDeleteCategory = async (categoryId) => {
+    const confirmed = await showConfirm({
+      title: 'Delete Category?',
+      message: 'Are you sure you want to delete this category? This action cannot be undone.',
       confirmLabel: 'Delete',
       confirmVariant: 'danger',
     });
@@ -242,146 +668,32 @@ export default function Equipment() {
 
     try {
       const { error } = await supabase
-        .from('equipment')
+        .from('category')
         .delete()
-        .eq('equipment_id', id);
-
+        .eq('category_id', categoryId);
       if (error) throw error;
-      toast.success('Equipment deleted.');
+      toast.success('Category deleted.');
       await fetchData();
     } catch (error) {
-      handleError(error, 'Failed to delete equipment. It may be in use.');
+      handleError(error, 'Failed to delete category. It may be in use.');
     }
   };
 
-  // --- QUEUE FUNCTIONS ---
-  const addToQueue = () => {
-    if (!tempEquipId) {
-      toast.error('Please select equipment.');
-      return;
-    }
-    if (tempQuantity < 1) {
-      toast.error('Quantity must be at least 1.');
-      return;
-    }
-    const existing = assignmentQueue.find(item => item.equipment_id === tempEquipId);
-    if (existing) {
-      toast.error('This equipment is already in the list. Remove it first if you want to change quantity.');
-      return;
-    }
-    const equip = equipmentList.find(e => e.equipment_id === tempEquipId);
-    if (!equip) {
-      toast.error('Equipment not found.');
-      return;
-    }
-    // Just warn if not enough stock – but we do not block assignment (soft check)
-    if (tempQuantity > equip.quantity_available) {
-      toast.warning(`Only ${equip.quantity_available} total stock available. You may still proceed, but please verify capacity.`);
-    }
-    setAssignmentQueue([...assignmentQueue, { equipment_id: tempEquipId, quantity: tempQuantity }]);
-    setTempEquipId('');
-    setTempQuantity(1);
+  // --- FILTER LOGIC ---
+  const getDisplayedPackages = () => {
+    if (activeTab === 'All') return packages;
+    return packages.filter(p => p.pkg_availability === activeTab);
   };
 
-  const removeFromQueue = (equipment_id) => {
-    setAssignmentQueue(assignmentQueue.filter(item => item.equipment_id !== equipment_id));
+  const getDisplayedMenuItems = () => {
+    if (activeTab === 'All') return menuItems;
+    return menuItems.filter(m => m.menu_availability === activeTab);
   };
 
-  // --- ASSIGN EQUIPMENT (Multiple) ---
-  const handleAssignSubmit = async (e) => {
-    e.preventDefault();
-    if (assignmentQueue.length === 0) {
-      toast.error('Please add at least one equipment to assign.');
-      return;
-    }
-    if (!assignFormData.booking_id) {
-      toast.error('Please select a booking.');
-      return;
-    }
-
-    setIsSubmitting(true);
-
-    try {
-      // Validate all items have enough total stock (soft validation – we just warn)
-      const itemsToAssign = assignmentQueue.map(item => {
-        const equip = equipmentList.find(e => e.equipment_id === item.equipment_id);
-        if (!equip) throw new Error(`Equipment ${item.equipment_id} not found.`);
-        if (item.quantity > equip.quantity_available) {
-          toast.warning(`Not enough total stock for ${equip.eqm_name}. Needed ${item.quantity}, only ${equip.quantity_available} available. You may still proceed, but please verify capacity.`);
-        }
-        return { ...item, equip };
-      });
-
-      // Insert all assignments without touching stock
-      for (const item of itemsToAssign) {
-        // Check if this equipment is already assigned to this booking
-        const existingAssign = assignments.find(
-          a => a.booking_id === assignFormData.booking_id && a.equipment_id === item.equipment_id && !a.returned
-        );
-        if (existingAssign) {
-          throw new Error(`Equipment ${item.equip.eqm_name} is already assigned to this booking. Please return it first.`);
-        }
-
-        // Insert assignment
-        const { error: insertError } = await supabase
-          .from('booking_equipment')
-          .insert([{
-            booking_id: assignFormData.booking_id,
-            equipment_id: item.equipment_id,
-            quantity: item.quantity,
-            notes: assignFormData.notes || null,
-            returned: false
-          }]);
-        if (insertError) throw insertError;
-      }
-
-      setAssignmentQueue([]);
-      setIsAssignModalOpen(false);
-      setAssignFormData({ booking_id: '', notes: '' });
-      toast.success(`Successfully assigned ${itemsToAssign.length} equipment items.`);
-      await fetchData();
-    } catch (error) {
-      handleError(error, error.message || 'Failed to assign equipment.');
-    } finally {
-      setIsSubmitting(false);
-    }
+  const renderImage = (src, alt, className = 'w-16 h-16 object-cover rounded-lg') => {
+    if (!src) return <div className={`${className} bg-slate-100 flex items-center justify-center text-slate-400 text-xs`}>No image</div>;
+    return <img src={src} alt={alt} className={className} />;
   };
-
-  // --- RETURN EQUIPMENT ---
-  const handleReturnEquipment = async (assignmentId, equipmentId, quantity) => {
-    const confirmed = await showConfirm({
-      title: 'Return Equipment?',
-      message: 'Are you sure you want to mark this equipment as returned?',
-      confirmLabel: 'Return',
-      confirmVariant: 'success',
-    });
-    if (!confirmed) return;
-
-    try {
-      const { error: updateAssignError } = await supabase
-        .from('booking_equipment')
-        .update({ returned: true, returned_at: new Date().toISOString() })
-        .eq('assignment_id', assignmentId);
-      if (updateAssignError) throw updateAssignError;
-
-      toast.success('Equipment returned successfully!');
-      await fetchData();
-    } catch (error) {
-      handleError(error, 'Failed to return equipment.');
-    }
-  };
-
-  // --- VIEW USAGE ---
-  const handleViewUsage = async (item) => {
-    setSelectedEquipment(item);
-    await fetchEquipmentUsage(item.equipment_id);
-    setIsUsageModalOpen(true);
-  };
-
-  // --- CALCULATE STATS ---
-  const totalItems = equipmentList.reduce((sum, eq) => sum + eq.quantity_available, 0);
-  const damagedItems = equipmentList.filter(eq => eq.eqm_status === 'Damaged').length;
-  const activeAssignments = assignments.filter(a => !a.returned).length;
 
   // --- RENDER ---
   return (
@@ -389,21 +701,27 @@ export default function Equipment() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Equipment</h1>
-          <p className="text-sm text-slate-500">Monitor inventory, assign equipment, and view usage</p>
+          <h1 className="text-2xl font-bold text-slate-900">Packages & Menus</h1>
+          <p className="text-sm text-slate-500">Manage your packages, menu items, and categories</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={() => handleOpenCategoryModal()}
             className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-xs cursor-pointer"
           >
-            <Settings size={16} /> Add Stock
+            <span>+ Category</span>
           </button>
           <button
-            onClick={() => { setAssignmentQueue([]); setIsAssignModalOpen(true); }}
+            onClick={() => handleOpenModal('Package')}
             className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-sm cursor-pointer"
           >
-            <ClipboardList size={16} /> Assign Equipment
+            <span>+ Package</span>
+          </button>
+          <button
+            onClick={() => handleOpenModal('Menu')}
+            className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-sm cursor-pointer"
+          >
+            <span>+ Menu Item</span>
           </button>
           <button
             onClick={fetchData}
@@ -414,155 +732,88 @@ export default function Equipment() {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-center">
-          <p className="text-xs font-semibold text-slate-600 mb-1">Total Items</p>
-          <h3 className="text-3xl font-extrabold text-slate-900">{totalItems}</h3>
-        </div>
-        <div className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-center">
-          <p className="text-xs font-semibold text-slate-600 mb-1">Equipment Types</p>
-          <h3 className="text-3xl font-extrabold text-slate-900">{equipmentList.length}</h3>
-        </div>
-        <div className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-center">
-          <p className="text-xs font-semibold text-slate-600 mb-1">Active Assignments</p>
-          <h3 className="text-3xl font-extrabold text-[#008A45]">{activeAssignments}</h3>
-        </div>
-        <div className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-center">
-          <p className="text-xs font-semibold text-slate-600 mb-1">Damaged</p>
-          <h3 className="text-3xl font-extrabold text-red-600">{damagedItems}</h3>
-        </div>
+      {/* Tabs */}
+      <div className="flex border-b border-slate-200 space-x-4">
+        {['All', 'Available', 'Archived'].map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`pb-2 px-1 text-sm font-semibold transition-colors ${activeTab === tab ? 'border-b-2 border-[#008A45] text-[#008A45]' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            {tab}
+          </button>
+        ))}
       </div>
 
-      {/* Equipment Table */}
+      {/* Packages Section */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800">
-          Equipment Inventory
+        <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800 flex justify-between items-center">
+          <span>Packages</span>
+          <span className="text-xs font-normal text-slate-500">{packages.length} total</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
-                <th className="p-4 font-bold">Equipment</th>
-                <th className="p-4 font-bold text-center">Available</th>
-                <th className="p-4 font-bold text-center">Condition</th>
-                <th className="p-4 font-bold text-center">Usage</th>
+                <th className="p-4 font-bold">Image</th>
+                <th className="p-4 font-bold">Name</th>
+                <th className="p-4 font-bold text-center">Price</th>
+                <th className="p-4 font-bold text-center">Min Pax</th>
+                <th className="p-4 font-bold text-center">Status</th>
+                <th className="p-4 font-bold text-center">Colors</th>
                 <th className="p-4 font-bold text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
               {isLoading ? (
-                <tr>
-                  <td colSpan="5" className="p-6 text-center text-slate-400">Loading equipment...</td>
-                </tr>
-              ) : equipmentList.length === 0 ? (
-                <tr>
-                  <td colSpan="5" className="p-6 text-center text-slate-400 italic">No equipment found.</td>
-                </tr>
+                <tr><td colSpan="7" className="p-6 text-center text-slate-400">Loading packages...</td></tr>
+              ) : getDisplayedPackages().length === 0 ? (
+                <tr><td colSpan="7" className="p-6 text-center text-slate-400 italic">No packages found.</td></tr>
               ) : (
-                equipmentList.map((item) => {
-                  const usageCount = assignments.filter(a => a.equipment_id === item.equipment_id && !a.returned).length;
-                  return (
-                    <tr key={item.equipment_id} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-4">
-                        <p className="font-bold text-slate-900">{item.eqm_name}</p>
-                        <p className="text-xs text-slate-500 mt-0.5">{item.eqm_description}</p>
-                      </td>
-                      <td className="p-4 text-center font-semibold text-slate-900">{item.quantity_available}</td>
-                      <td className="p-4 text-center">
-                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold 
-                          ${item.eqm_status === 'Good Condition' ? 'bg-[#CBDEDD]/60 border-[#a3c7c4] text-slate-800' : 
-                            item.eqm_status === 'Damaged' ? 'bg-red-50 border-red-200 text-red-600' :
-                            'bg-yellow-50 border-yellow-200 text-yellow-700'}`}
-                        >
-                          <CheckCircle size={12} className={item.eqm_status === 'Good Condition' ? 'text-[#008A45]' : 'text-slate-400'} />
-                          {item.eqm_status}
-                        </span>
-                      </td>
-                      <td className="p-4 text-center">
-                        <button
-                          onClick={() => handleViewUsage(item)}
-                          className="text-blue-500 hover:text-blue-700 transition-colors text-xs font-medium flex items-center gap-1 mx-auto"
-                        >
-                          <ClipboardList size={14} />
-                          {usageCount > 0 ? `${usageCount} in use` : 'No usage'}
-                        </button>
-                      </td>
-                      <td className="p-4 text-right">
-                        <div className="flex items-center justify-end gap-3">
-                          <button 
-                            onClick={() => handleEditClick(item)}
-                            className="text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                            title="Edit Equipment"
-                          >
-                            <Edit size={16} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteEquipment(item.equipment_id)}
-                            className="text-red-400 hover:text-red-600 transition-colors cursor-pointer"
-                            title="Delete Equipment"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Active Assignments Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800 flex justify-between items-center">
-          <span>Active Equipment Assignments</span>
-          <span className="text-xs font-normal text-slate-500">{activeAssignments} active</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
-                <th className="p-4 font-bold">Client</th>
-                <th className="p-4 font-bold">Booking</th>
-                <th className="p-4 font-bold">Equipment</th>
-                <th className="p-4 font-bold text-center">Qty</th>
-                <th className="p-4 font-bold">Assigned At</th>
-                <th className="p-4 font-bold text-center">Status</th>
-                <th className="p-4 font-bold text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
-              {isLoading ? (
-                <tr><td colSpan="7" className="p-6 text-center text-slate-400">Loading assignments...</td></tr>
-              ) : assignments.filter(a => !a.returned).length === 0 ? (
-                <tr><td colSpan="7" className="p-6 text-center text-slate-400 italic">No active assignments.</td></tr>
-              ) : (
-                assignments.filter(a => !a.returned).map((assign) => (
-                  <tr key={assign.assignment_id} className="hover:bg-slate-50 transition-colors">
-                    <td className="p-4 font-bold text-slate-900">
-                      {assign.booking?.customer ? `${assign.booking.customer.first_name} ${assign.booking.customer.last_name}` : 'Unknown'}
-                    </td>
-                    <td className="p-4 text-slate-600">{assign.booking?.booking_id?.slice(0, 8) || 'N/A'}</td>
-                    <td className="p-4 font-medium text-slate-800">{assign.equipment?.eqm_name || 'Unknown'}</td>
-                    <td className="p-4 text-center font-bold text-[#008A45]">{assign.quantity}</td>
-                    <td className="p-4 text-slate-600">
-                      {assign.assigned_at ? new Date(assign.assigned_at).toLocaleDateString() : 'N/A'}
-                    </td>
+                getDisplayedPackages().map(pkg => (
+                  <tr key={pkg.package_id} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-4">{renderImage(pkg.pkg_image, pkg.pkg_name, 'w-14 h-14 object-cover rounded-lg')}</td>
+                    <td className="p-4 font-bold text-slate-900">{pkg.pkg_name}</td>
+                    <td className="p-4 text-center font-semibold text-[#008A45]">₱{pkg.pkg_price}</td>
+                    <td className="p-4 text-center">{pkg.minimum_pax}</td>
                     <td className="p-4 text-center">
-                      <span className="px-2 py-1 bg-amber-50 border border-amber-200 text-amber-700 rounded-full text-xs font-medium">
-                        Assigned
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${pkg.pkg_availability === 'Available' ? 'bg-green-100 text-green-700 border border-green-200' : 'bg-slate-100 text-slate-500 border border-slate-200'}`}>
+                        {pkg.pkg_availability}
                       </span>
                     </td>
+                    <td className="p-4 text-center">
+                      <div className="flex flex-wrap justify-center gap-1">
+                        {pkg.colors && pkg.colors.map((color, idx) => (
+                          <span key={idx} className="inline-block px-2 py-0.5 bg-slate-100 text-xs rounded-full text-slate-700 border border-slate-200">
+                            {color}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
                     <td className="p-4 text-right">
-                      <button
-                        onClick={() => handleReturnEquipment(assign.assignment_id, assign.equipment_id, assign.quantity)}
-                        className="text-blue-500 hover:text-blue-700 transition-colors cursor-pointer flex items-center gap-1 text-sm font-medium"
-                      >
-                        <Undo2 size={16} /> Return
-                      </button>
+                      <div className="flex items-center justify-end gap-3">
+                        <button
+                          onClick={() => handleOpenModal('Package', pkg)}
+                          className="text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                          title="Edit"
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button
+                          onClick={() => toggleArchive(pkg.package_id, 'Package')}
+                          className="text-amber-400 hover:text-amber-600 transition-colors cursor-pointer"
+                          title="Toggle archive"
+                        >
+                          <Archive size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(pkg.package_id, 'Package')}
+                          className="text-red-400 hover:text-red-600 transition-colors cursor-pointer"
+                          title="Delete"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -572,121 +823,326 @@ export default function Equipment() {
         </div>
       </div>
 
-      {/* ========================================================= */}
-      {/* ADD EQUIPMENT MODAL */}
-      {/* ========================================================= */}
-      {isAddModalOpen && createPortal(
+      {/* Menu Items Section */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800 flex justify-between items-center">
+          <span>Menu Items</span>
+          <span className="text-xs font-normal text-slate-500">{menuItems.length} total</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
+                <th className="p-4 font-bold">Image</th>
+                <th className="p-4 font-bold">Name</th>
+                <th className="p-4 font-bold text-center">Price</th>
+                <th className="p-4 font-bold">Category</th>
+                <th className="p-4 font-bold text-center">Status</th>
+                <th className="p-4 font-bold text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
+              {isLoading ? (
+                <tr><td colSpan="6" className="p-6 text-center text-slate-400">Loading menu items...</td></tr>
+              ) : getDisplayedMenuItems().length === 0 ? (
+                <tr><td colSpan="6" className="p-6 text-center text-slate-400 italic">No menu items found.</td></tr>
+              ) : (
+                getDisplayedMenuItems().map(item => (
+                  <tr key={item.menu_item_id} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-4">{renderImage(item.menu_image, item.menu_name, 'w-14 h-14 object-cover rounded-lg')}</td>
+                    <td className="p-4 font-bold text-slate-900">{item.menu_name}</td>
+                    <td className="p-4 text-center font-semibold text-[#008A45]">₱{item.menu_price}</td>
+                    <td className="p-4">{item.category?.category_name || 'N/A'}</td>
+                    <td className="p-4 text-center">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${item.menu_availability === 'Available' ? 'bg-green-100 text-green-700 border border-green-200' : 'bg-slate-100 text-slate-500 border border-slate-200'}`}>
+                        {item.menu_availability}
+                      </span>
+                    </td>
+                    <td className="p-4 text-right">
+                      <div className="flex items-center justify-end gap-3">
+                        <button
+                          onClick={() => handleOpenModal('Menu', item)}
+                          className="text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                          title="Edit"
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button
+                          onClick={() => toggleArchive(item.menu_item_id, 'Menu')}
+                          className="text-amber-400 hover:text-amber-600 transition-colors cursor-pointer"
+                          title="Toggle archive"
+                        >
+                          <Archive size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(item.menu_item_id, 'Menu')}
+                          className="text-red-400 hover:text-red-600 transition-colors cursor-pointer"
+                          title="Delete"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ============================ */}
+      {/* PACKAGE / MENU MODAL          */}
+      {/* ============================ */}
+      {isModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
-            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
-              <h2 className="text-lg font-bold text-slate-900">Add New Equipment</h2>
+          <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 sticky top-0 bg-white z-10">
+              <h2 className="text-lg font-bold text-slate-900">
+                {editingId ? `Edit ${modalType}` : `Add ${modalType}`}
+              </h2>
               <button
-                onClick={() => setIsAddModalOpen(false)}
+                onClick={handleCloseModal}
                 className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors cursor-pointer"
               >
                 <X size={18} />
               </button>
             </div>
-            <form onSubmit={handleAddEquipment} className="p-6 space-y-5 text-left">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Equipment Name</label>
+            <form onSubmit={handleSubmit} className="p-6 space-y-5 text-left">
+              {/* Common fields: title, price */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Title *</label>
                   <input
                     type="text"
-                    name="equipmentName"
-                    value={addFormData.equipmentName}
-                    onChange={handleAddInputChange}
-                    placeholder="e.g. Infinity Chairs"
+                    name="title"
+                    value={formData.title}
+                    onChange={handleInputChange}
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none font-medium text-slate-800"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Quantity</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Price *</label>
                   <input
                     type="number"
-                    name="quantity"
-                    min="1"
-                    value={addFormData.quantity}
-                    onChange={handleAddInputChange}
+                    name="price"
+                    step="0.01"
+                    min="0"
+                    value={formData.price}
+                    onChange={handleInputChange}
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
                     required
                   />
                 </div>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Condition</label>
-                <select
-                  name="condition"
-                  value={addFormData.condition}
-                  onChange={handleAddInputChange}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                >
-                  <option value="Good Condition">Good Condition</option>
-                  <option value="Damaged">Damaged</option>
-                  <option value="Under Maintenance">Under Maintenance</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Description</label>
-                <textarea
-                  name="description"
-                  rows="3"
-                  placeholder="Type description..."
-                  value={addFormData.description}
-                  onChange={handleAddInputChange}
-                  className="w-full border border-slate-300 rounded-lg p-3 text-sm text-slate-700 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
-                />
-              </div>
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
-                <button type="button" onClick={() => setIsAddModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors cursor-pointer">Cancel</button>
-                <button type="submit" disabled={isSubmitting} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm cursor-pointer disabled:opacity-50">
-                  {isSubmitting ? 'Adding...' : 'Add Equipment'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>,
-        document.body
-      )}
 
-      {/* ========================================================= */}
-      {/* EDIT EQUIPMENT MODAL */}
-      {/* ========================================================= */}
-      {isEditModalOpen && createPortal(
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
-            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
-              <h2 className="text-lg font-bold text-slate-900">Edit Equipment</h2>
-              <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors cursor-pointer"><X size={18} /></button>
-            </div>
-            <form onSubmit={handleEditSubmit} className="p-6 space-y-5 text-left">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Equipment Name</label>
-                  <input type="text" name="eqm_name" value={editFormData.eqm_name} onChange={handleEditInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none font-medium text-slate-800" required />
-                </div>
+              {/* Package-specific fields */}
+              {modalType === 'Package' && (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">Minimum Pax *</label>
+                      <input
+                        type="number"
+                        name="minPax"
+                        min="1"
+                        value={formData.minPax}
+                        onChange={handleInputChange}
+                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">Pricing Type</label>
+                      <select
+                        name="pricing_type"
+                        value={formData.pricing_type}
+                        onChange={handleInputChange}
+                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                      >
+                        <option value="per_pax">Per Pax</option>
+                        <option value="fixed">Fixed (with extra pax)</option>
+                      </select>
+                    </div>
+                    {formData.pricing_type === 'fixed' && (
+                      <>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1.5">Max Pax (for fixed)</label>
+                          <input
+                            type="number"
+                            name="max_pax"
+                            min="1"
+                            value={formData.max_pax}
+                            onChange={handleInputChange}
+                            className="w-full border border-slate-300 rounded-lg p-2.5 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1.5">Extra Pax Price</label>
+                          <input
+                            type="number"
+                            name="extra_pax_price"
+                            step="0.01"
+                            min="0"
+                            value={formData.extra_pax_price}
+                            onChange={handleInputChange}
+                            className="w-full border border-slate-300 rounded-lg p-2.5 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Colors */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Colors</label>
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {formData.colors.map((color, idx) => (
+                        <span key={idx} className="inline-flex items-center gap-1 bg-slate-100 border border-slate-300 rounded-full px-3 py-1 text-sm text-slate-700">
+                          {color}
+                          <button type="button" onClick={() => handleRemoveColor(color)} className="text-slate-400 hover:text-red-500">
+                            <X size={14} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newColorInput}
+                        onChange={(e) => setNewColorInput(e.target.value)}
+                        placeholder="Add color (e.g. Burgundy)"
+                        className="flex-1 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                      />
+                      <button type="button" onClick={handleAddColor} className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2 rounded-lg text-sm font-medium">
+                        Add
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Categories */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Categories *</label>
+                    <div className="flex flex-wrap gap-2">
+                      {categories.map(cat => (
+                        <button
+                          key={cat.category_id}
+                          type="button"
+                          onClick={() => handleCategorySelection(cat.category_id)}
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors cursor-pointer ${formData.selectedCategories.includes(cat.category_id) ? 'bg-[#008A45] text-white border-[#008A45]' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}
+                        >
+                          {cat.category_name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Equipment */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Equipment</label>
+                    <div className="space-y-2">
+                      {equipment.map(equip => {
+                        const isSelected = formData.selectedEquipment.includes(equip.equipment_id);
+                        const qty = formData.equipmentQuantities[equip.equipment_id] || 1;
+                        const perPax = formData.equipmentPerPax[equip.equipment_id] !== undefined ? formData.equipmentPerPax[equip.equipment_id] : true;
+                        return (
+                          <div key={equip.equipment_id} className="flex items-center gap-3 bg-slate-50 p-2 rounded-lg border border-slate-200">
+                            <button
+                              type="button"
+                              onClick={() => handleEquipmentSelection(equip.equipment_id)}
+                              className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${isSelected ? 'bg-[#008A45] text-white' : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'}`}
+                            >
+                              {isSelected ? '✓' : '+'} {equip.eqm_name}
+                            </button>
+                            {isSelected && (
+                              <>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={qty}
+                                  onChange={(e) => handleEquipmentQuantityChange(equip.equipment_id, e.target.value)}
+                                  className="w-16 border border-slate-300 rounded p-1 text-sm text-center focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                                />
+                                <label className="flex items-center gap-1 text-xs text-slate-600">
+                                  <input
+                                    type="checkbox"
+                                    checked={perPax}
+                                    onChange={(e) => {
+                                      setFormData(prev => ({
+                                        ...prev,
+                                        equipmentPerPax: { ...prev.equipmentPerPax, [equip.equipment_id]: e.target.checked }
+                                      }));
+                                    }}
+                                    className="rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]/20"
+                                  />
+                                  Per Pax
+                                </label>
+                                <span className="text-xs text-slate-400 ml-auto">
+                                  {equip.equipment_type === 'Countable' ? 'Countable' : 'Decoration'}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Menu-specific: category */}
+              {modalType === 'Menu' && (
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Quantity</label>
-                  <input type="number" name="quantity_available" min="0" value={editFormData.quantity_available} onChange={handleEditInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" required />
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Category *</label>
+                  <select
+                    name="categoryId"
+                    value={formData.categoryId}
+                    onChange={handleInputChange}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                    required
+                  >
+                    <option value="">Select category</option>
+                    {categories.map(cat => (
+                      <option key={cat.category_id} value={cat.category_id}>{cat.category_name}</option>
+                    ))}
+                  </select>
                 </div>
-              </div>
+              )}
+
+              {/* Description (only for packages) */}
+              {modalType === 'Package' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Description</label>
+                  <textarea
+                    name="description"
+                    rows="3"
+                    value={formData.description}
+                    onChange={handleInputChange}
+                    placeholder="Describe the package"
+                    className="w-full border border-slate-300 rounded-lg p-3 text-sm text-slate-700 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
+                  />
+                </div>
+              )}
+
+              {/* Image upload */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Condition</label>
-                <select name="eqm_status" value={editFormData.eqm_status} onChange={handleEditInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none">
-                  <option value="Good Condition">Good Condition</option>
-                  <option value="Damaged">Damaged</option>
-                  <option value="Under Maintenance">Under Maintenance</option>
-                </select>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Image</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setFormData(prev => ({ ...prev, imageFile: e.target.files[0] }))}
+                  className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#EAF3F2] file:text-[#008A45] hover:file:bg-[#d4e8e5]"
+                />
+                <p className="text-xs text-slate-400 mt-1">Max size 5MB. Supported formats: jpg, png, etc.</p>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Description</label>
-                <textarea name="eqm_description" rows="3" placeholder="Type description..." value={editFormData.eqm_description} onChange={handleEditInputChange} className="w-full border border-slate-300 rounded-lg p-3 text-sm text-slate-700 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none" />
-              </div>
+
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
-                <button type="button" onClick={() => setIsEditModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors cursor-pointer">Cancel</button>
+                <button type="button" onClick={handleCloseModal} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors cursor-pointer">
+                  Cancel
+                </button>
                 <button type="submit" disabled={isSubmitting} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm cursor-pointer disabled:opacity-50">
-                  {isSubmitting ? 'Saving...' : 'Save Changes'}
+                  {isSubmitting ? 'Saving...' : editingId ? 'Update' : 'Create'}
                 </button>
               </div>
             </form>
@@ -695,236 +1151,52 @@ export default function Equipment() {
         document.body
       )}
 
-      {/* ========================================================= */}
-      {/* ASSIGN EQUIPMENT MODAL - Multiple Assignment */}
-      {/* ========================================================= */}
-      {isAssignModalOpen && createPortal(
+      {/* ============================ */}
+      {/* CATEGORY MODAL               */}
+      {/* ============================ */}
+      {isCategoryModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
-              <div>
-                <h2 className="text-lg font-bold text-slate-900">Assign Equipment</h2>
-                <p className="text-xs text-slate-500">Select a booking and add multiple equipment items</p>
-              </div>
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">{categoryForm.category_id ? 'Edit Category' : 'Add Category'}</h2>
               <button
-                onClick={() => {
-                  setIsAssignModalOpen(false);
-                  setAssignmentQueue([]);
-                }}
+                onClick={() => setIsCategoryModalOpen(false)}
                 className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors cursor-pointer"
               >
                 <X size={18} />
               </button>
             </div>
-            <form onSubmit={handleAssignSubmit} className="p-6 overflow-y-auto space-y-5 text-left">
-              {/* Booking Selection */}
+            <form onSubmit={handleCategorySubmit} className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Select Booking</label>
-                <select
-                  name="booking_id"
-                  value={assignFormData.booking_id}
-                  onChange={handleAssignInputChange}
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Category Name *</label>
+                <input
+                  type="text"
+                  name="category_name"
+                  value={categoryForm.category_name}
+                  onChange={handleCategoryFormChange}
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none font-medium text-slate-800"
                   required
-                >
-                  <option value="">Select approved booking...</option>
-                  {bookings.map((b) => {
-                    const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
-                    const date = b.event_datetime ? new Date(b.event_datetime).toLocaleDateString() : 'No date';
-                    return (
-                      <option key={b.booking_id} value={b.booking_id}>
-                        {b.booking_id.slice(0, 8)} - {customerName} ({date})
-                      </option>
-                    );
-                  })}
-                  {bookings.length === 0 && <option disabled>No approved bookings available</option>}
-                </select>
-              </div>
-
-              {/* Booking Details Preview */}
-              {selectedBooking && (
-                <div className="bg-[#F8F9FA] border border-slate-200 rounded-lg p-4 space-y-3">
-                  <div className="flex justify-between items-start">
-                    <h4 className="font-bold text-slate-900 text-sm">Booking Details</h4>
-                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      selectedBooking.booking_status === 'Approved' ? 'bg-green-100 text-green-700 border border-green-200' :
-                      selectedBooking.booking_status === 'Pending' ? 'bg-amber-100 text-amber-700 border border-amber-200' :
-                      'bg-slate-100 text-slate-700 border border-slate-200'
-                    }`}>
-                      {selectedBooking.booking_status}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div className="flex items-center gap-2 col-span-2">
-                      <Users size={14} className="text-slate-400" />
-                      <span className="text-slate-600">Customer:</span>
-                      <span className="font-semibold text-slate-900">
-                        {selectedBooking.customer ? `${selectedBooking.customer.first_name} ${selectedBooking.customer.last_name}` : 'Unknown'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 col-span-2">
-                      <Calendar size={14} className="text-slate-400" />
-                      <span className="text-slate-600">Event Date:</span>
-                      <span className="font-semibold text-slate-900">
-                        {selectedBooking.event_datetime ? new Date(selectedBooking.event_datetime).toLocaleString() : 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 col-span-2">
-                      <MapPin size={14} className="text-slate-400" />
-                      <span className="text-slate-600">Venue:</span>
-                      <span className="font-semibold text-slate-900">{selectedBooking.venue || 'N/A'}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Users size={14} className="text-slate-400" />
-                      <span className="text-slate-600">Pax:</span>
-                      <span className="font-semibold text-slate-900">{selectedBooking.pax_count || 0}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-slate-600">Type:</span>
-                      <span className="font-semibold text-slate-900">{selectedBooking.booking_type || 'Package'}</span>
-                    </div>
-                    {selectedBooking.notes && (
-                      <div className="col-span-2 text-xs text-slate-500 border-t border-slate-200 pt-2 mt-1">
-                        <span className="font-medium text-slate-600">Notes:</span> {selectedBooking.notes}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Add Equipment to Queue */}
-              <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Add Equipment to Assignment List</label>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <select
-                    value={tempEquipId}
-                    onChange={(e) => setTempEquipId(e.target.value)}
-                    className="flex-1 border border-slate-300 rounded-lg p-2 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                  >
-                    <option value="">Select equipment...</option>
-                    {equipmentList.map((eq) => (
-                      <option key={eq.equipment_id} value={eq.equipment_id}>
-                        {eq.eqm_name} ({eq.quantity_available} total)
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="number"
-                    min="1"
-                    value={tempQuantity}
-                    onChange={(e) => setTempQuantity(parseInt(e.target.value) || 1)}
-                    className="w-20 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={addToQueue}
-                    className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1"
-                  >
-                    <Plus size={16} /> Add
-                  </button>
-                </div>
-                {assignmentQueue.length > 0 && (
-                  <div className="mt-3 space-y-1.5">
-                    <p className="text-xs font-medium text-slate-600">Selected Equipment:</p>
-                    {assignmentQueue.map((item) => {
-                      const equip = equipmentList.find(e => e.equipment_id === item.equipment_id);
-                      return (
-                        <div key={item.equipment_id} className="flex items-center justify-between bg-white border border-slate-200 rounded px-3 py-1.5 text-sm">
-                          <span className="font-medium text-slate-700">{equip?.eqm_name || 'Unknown'} × {item.quantity}</span>
-                          <button
-                            type="button"
-                            onClick={() => removeFromQueue(item.equipment_id)}
-                            className="text-red-500 hover:text-red-700 text-xs font-bold"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* Notes */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Notes (optional)</label>
-                <textarea
-                  name="notes"
-                  rows="2"
-                  placeholder="Any special instructions..."
-                  value={assignFormData.notes}
-                  onChange={handleAssignInputChange}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm text-slate-700 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
                 />
               </div>
-
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Description</label>
+                <textarea
+                  name="category_description"
+                  rows="3"
+                  value={categoryForm.category_description}
+                  onChange={handleCategoryFormChange}
+                  className="w-full border border-slate-300 rounded-lg p-3 text-sm text-slate-700 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
+                />
+              </div>
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsAssignModalOpen(false);
-                    setAssignmentQueue([]);
-                  }}
-                  className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors cursor-pointer"
-                >
+                <button type="button" onClick={() => setIsCategoryModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors cursor-pointer">
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm cursor-pointer disabled:opacity-50"
-                >
-                  {isSubmitting ? 'Assigning...' : `Assign ${assignmentQueue.length} Item${assignmentQueue.length !== 1 ? 's' : ''}`}
+                <button type="submit" disabled={isCategorySubmitting} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm cursor-pointer disabled:opacity-50">
+                  {isCategorySubmitting ? 'Saving...' : categoryForm.category_id ? 'Update' : 'Create'}
                 </button>
               </div>
             </form>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* ========================================================= */}
-      {/* USAGE MODAL */}
-      {/* ========================================================= */}
-      {isUsageModalOpen && createPortal(
-        <div className="fixed inset-0 z-[9999] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex justify-between items-center px-6 py-4 border-b border-slate-200 shrink-0">
-              <h3 className="text-lg font-bold text-slate-900">
-                Equipment Usage: {selectedEquipment?.eqm_name}
-              </h3>
-              <button onClick={() => setIsUsageModalOpen(false)} className="text-slate-400 hover:text-slate-600 border border-slate-300 rounded-md p-1 transition-colors">
-                <X size={20} />
-              </button>
-            </div>
-            <div className="p-4 overflow-y-auto flex-1">
-              {equipmentUsage.length === 0 ? (
-                <p className="text-sm text-slate-500 italic text-center py-8">No usage records found.</p>
-              ) : (
-                <div className="space-y-3">
-                  {equipmentUsage.map(record => {
-                    const booking = record.booking;
-                    const customerName = booking?.customer 
-                      ? `${booking.customer.first_name} ${booking.customer.last_name}` 
-                      : 'Unknown';
-                    return (
-                      <div key={record.assignment_id} className={`border rounded-lg p-3 flex justify-between items-center ${record.returned ? 'bg-slate-50 border-slate-200' : 'bg-amber-50 border-amber-200'}`}>
-                        <div>
-                          <p className="font-bold text-slate-900 text-sm">{customerName}</p>
-                          <p className="text-xs text-slate-500">{booking?.venue || 'No venue'} · {booking?.event_datetime ? new Date(booking.event_datetime).toLocaleDateString() : 'N/A'}</p>
-                          <p className="text-xs text-slate-500">Booking: {booking?.booking_id?.slice(0, 8) || 'N/A'} · Quantity: <span className="font-bold text-[#008A45]">{record.quantity}</span></p>
-                        </div>
-                        <div className="text-right">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${record.returned ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                            {record.returned ? '✅ Returned' : '📌 Assigned'}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
           </div>
         </div>,
         document.body
