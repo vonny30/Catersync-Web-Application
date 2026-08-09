@@ -1,46 +1,55 @@
-// pages/Login.jsx
+// src/pages/Login.jsx
 import { useState, useEffect } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../supabase';
+import toast from 'react-hot-toast';
 
 export default function Login() {
   const navigate = useNavigate();
 
-  // Form State
   const [formData, setFormData] = useState({
     email: '',
     password: '',
     rememberMe: false,
   });
 
-  // UI State
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [isChecking, setIsChecking] = useState(true);
 
-  // --- Auto-redirect if already logged in and is a manager ---
+  // --- Check session on mount (Back button logout) ---
   useEffect(() => {
     const checkSession = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        // Verify manager existence
-        const { data: manager, error } = await supabase
-          .from('manager')
-          .select('manager_id')
-          .eq('user_id', user.id)
-          .maybeSingle();
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          // Verify if user is a manager
+          const { data: manager, error } = await supabase
+            .from('manager')
+            .select('manager_id')
+            .eq('user_id', user.id)
+            .maybeSingle();
 
-        if (!error && manager) {
-          navigate('/app');
-        } else {
-          // Not a manager – sign out to avoid stale session
-          await supabase.auth.signOut();
+          if (!error && manager) {
+            // ✅ User is logged in and is a manager – sign them out (Back button case)
+            await supabase.auth.signOut();
+            toast('🔒 You have been logged out.', { duration: 3000 });
+          } else {
+            // Not a manager – sign out just in case
+            await supabase.auth.signOut();
+          }
         }
+      } catch (error) {
+        console.error('Session check error:', error);
+      } finally {
+        setIsChecking(false);
       }
     };
+
     checkSession();
-  }, [navigate]);
+  }, []);
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -57,7 +66,6 @@ export default function Login() {
     setErrorMsg('');
 
     try {
-      // 1. Authenticate with Supabase Auth (email/password)
       const { data, error } = await supabase.auth.signInWithPassword({
         email: formData.email,
         password: formData.password,
@@ -65,8 +73,6 @@ export default function Login() {
 
       if (error) throw error;
 
-      // 2. Check if this user is authorized as a manager
-      //    The manager table has a user_id column referencing auth.users.id
       const { data: managerData, error: managerError } = await supabase
         .from('manager')
         .select('manager_id')
@@ -76,12 +82,10 @@ export default function Login() {
       if (managerError) throw managerError;
 
       if (!managerData) {
-        // User exists in auth but not in manager table – deny access
         await supabase.auth.signOut();
         throw new Error('You are not authorized to access this system.');
       }
 
-      // 3. Success – redirect to dashboard
       navigate('/app');
     } catch (error) {
       console.error('Login error:', error.message);
@@ -91,34 +95,38 @@ export default function Login() {
     }
   };
 
+  if (isChecking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-[#008A45] border-t-transparent"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-white font-sans">
-      {/* HEADER */}
       <header className="bg-[#008A45] text-white h-[72px] flex items-center px-6 w-full shrink-0 shadow-sm">
         <div className="flex items-center gap-3">
-         <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-sm flex-shrink-0">
-            <img 
-              src="/logo.svg" 
-              alt="Catersync" 
-              className="w-full h-full object-cover" 
+          <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-sm flex-shrink-0">
+            <img
+              src="/logo.svg"
+              alt="Catersync"
+              className="w-full h-full object-cover"
             />
           </div>
           <h1 className="text-2xl font-bold tracking-wide">Catersync</h1>
         </div>
       </header>
 
-      {/* MAIN CONTENT */}
       <main className="flex-1 flex flex-col items-center justify-center px-4 py-12">
         <div className="text-center mb-8">
           <h2 className="text-3xl font-bold text-slate-900 mb-2">Welcome back, Owner!</h2>
           <p className="text-lg text-slate-700">Sign-in to your account</p>
         </div>
 
-        {/* LOGIN CARD */}
         <div className="bg-[#F8F9FA] border-2 border-slate-200 rounded-lg shadow-lg w-full max-w-md p-10">
           <h3 className="text-2xl font-bold text-slate-900 text-center mb-6">Login</h3>
 
-          {/* Error Message Display */}
           {errorMsg && (
             <div className="mb-6 p-3 bg-red-50 border border-red-200 text-red-600 text-sm rounded-md text-center">
               {errorMsg}
@@ -126,7 +134,6 @@ export default function Login() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Email */}
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">Email</label>
               <input
@@ -139,7 +146,6 @@ export default function Login() {
               />
             </div>
 
-            {/* Password */}
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">Password</label>
               <div className="relative">
@@ -161,7 +167,6 @@ export default function Login() {
               </div>
             </div>
 
-            {/* Remember Me & Forgot Password */}
             <div className="flex items-center justify-between mt-2">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -173,12 +178,14 @@ export default function Login() {
                 />
                 <span className="text-xs font-medium text-slate-500">Remember me</span>
               </label>
-              <a href="#" className="text-xs font-medium text-slate-500 hover:text-slate-800 underline decoration-slate-300 underline-offset-2">
+              <Link
+                to="/forgot-password"
+                className="text-xs font-medium text-slate-500 hover:text-slate-800 underline decoration-slate-300 underline-offset-2"
+              >
                 Forgot password?
-              </a>
+              </Link>
             </div>
 
-            {/* Submit Button */}
             <div className="pt-4 flex justify-center">
               <button
                 type="submit"
@@ -194,7 +201,6 @@ export default function Login() {
         </div>
       </main>
 
-      {/* FOOTER */}
       <footer className="bg-[#C1DEDC] py-5 text-center flex items-center justify-center gap-4 text-xs font-semibold text-slate-800">
         <span>@2023 all rights reserved</span>
         <span>PG's Catering</span>

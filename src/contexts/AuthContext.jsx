@@ -9,8 +9,39 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [isManager, setIsManager] = useState(false);
 
+  const checkManager = async (authUser) => {
+    try {
+      if (window.isCreatingWalkIn) {
+        setLoading(false);
+        return;
+      }
+
+      const { data: manager, error } = await supabase
+        .from('manager')
+        .select('manager_id')
+        .eq('user_id', authUser.id)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (manager) {
+        setUser(authUser);
+        setIsManager(true);
+      } else {
+        await supabase.auth.signOut();
+        setUser(null);
+        setIsManager(false);
+      }
+    } catch (error) {
+      console.error('Error checking manager status:', error);
+      setUser(null);
+      setIsManager(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    // 1. Get initial session
     const getSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
@@ -20,7 +51,6 @@ export const AuthProvider = ({ children }) => {
       }
     };
 
-    // 2. Listen for auth changes
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         if (session?.user) {
@@ -40,41 +70,7 @@ export const AuthProvider = ({ children }) => {
     };
   }, []);
 
-// Check if user exists in manager table – with global flag guard
-const checkManager = async (authUser) => {
-  try {
-    // 🔥 If we are in the middle of creating a walk‑in customer, do NOT update state
-    if (window.isCreatingWalkIn) {
-      // Keep the current state unchanged; just finish loading
-      setLoading(false);
-      return;
-    }
-
-    const { data: manager, error } = await supabase
-      .from('manager')
-      .select('manager_id')
-      .eq('user_id', authUser.id)
-      .maybeSingle();
-
-    if (error) throw error;
-
-    if (manager) {
-      setUser(authUser);
-      setIsManager(true);
-    } else {
-      // Not a manager – sign out and clear state
-      await supabase.auth.signOut();
-      setUser(null);
-      setIsManager(false);
-    }
-  } catch (error) {
-    console.error('Error checking manager status:', error);
-    setUser(null);
-    setIsManager(false);
-  } finally {
-    setLoading(false);
-  }
-};
+  // ❌ REMOVED beforeunload – reload does NOT log out.
 
   const login = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });

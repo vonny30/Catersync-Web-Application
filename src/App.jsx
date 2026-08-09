@@ -20,6 +20,8 @@ import Reports from './pages/Reports';
 import PackagesAndMenus from './pages/PackagesAndMenus';
 import SettingsPage from './pages/SettingsPage';
 import Login from './pages/Login';
+import ForgotPassword from './pages/ForgotPassword';   // ✅ NEW
+import ResetPassword from './pages/ResetPassword';     // ✅ NEW
 
 function AppContent() {
   const { confirmState } = useConfirm();
@@ -29,7 +31,7 @@ function AppContent() {
       <Toaster
         position="bottom-right"
         containerStyle={{
-          zIndex: 999999, // 👈 Higher than all modals (z-[9999] / z-[99999])
+          zIndex: 999999,
         }}
         toastOptions={{
           duration: 4000,
@@ -59,6 +61,8 @@ function AppContent() {
       <Routes>
         <Route path="/" element={<Login />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />     {/* ✅ NEW */}
+        <Route path="/reset-password" element={<ResetPassword />} />       {/* ✅ NEW */}
         <Route
           path="/app"
           element={
@@ -81,7 +85,6 @@ function AppContent() {
         </Route>
       </Routes>
 
-      {/* Global Confirmation Modal */}
       <ConfirmModal
         isOpen={confirmState.isOpen}
         title={confirmState.title}
