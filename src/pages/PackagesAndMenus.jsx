@@ -4,8 +4,8 @@ import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { Edit, Trash2, Archive, RefreshCw, X, Plus } from 'lucide-react';
 
-// Default colors for new packages
 const DEFAULT_COLORS = [
   'Burgundy', 'Navy Blue', 'Emerald Green', 'Gold', 'Silver', 'White',
   'Cream', 'Blush Pink', 'Lavender', 'Champagne', 'Mint Green', 'Peach',
@@ -13,6 +13,7 @@ const DEFAULT_COLORS = [
 
 export default function PackagesAndMenus() {
   const { showConfirm } = useConfirm();
+
   // --- STATE ---
   const [activeTab, setActiveTab] = useState('All');
   const [isLoading, setIsLoading] = useState(true);
@@ -38,7 +39,7 @@ export default function PackagesAndMenus() {
     selectedCategories: [],
     selectedEquipment: [],
     equipmentQuantities: {},
-    equipmentPerPax: {}, // NEW: track per_pax per equipment
+    equipmentPerPax: {},
     pricing_type: 'per_pax',
     max_pax: '',
     extra_pax_price: '',
@@ -54,13 +55,13 @@ export default function PackagesAndMenus() {
   });
   const [isCategorySubmitting, setIsCategorySubmitting] = useState(false);
 
-  // --- Helper: Log technical error and show user-friendly toast ---
+  // --- Helper ---
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
     console.error('Error:', error);
     toast.error(userMessage);
   };
 
-  // --- FETCH DATA ---
+  // ========== FETCH DATA ==========
   const fetchData = async () => {
     setIsLoading(true);
     try {
@@ -76,12 +77,17 @@ export default function PackagesAndMenus() {
       if (categoriesRes.error) throw categoriesRes.error;
       if (equipmentRes.error) throw equipmentRes.error;
 
-      setPackages(packagesRes.data || []);
-      setMenuItems(menuRes.data || []);
-      setCategories(categoriesRes.data || []);
-      setEquipment(equipmentRes.data || []);
+      const packagesData = packagesRes.data || [];
+      const menuData = menuRes.data || [];
+      const categoriesData = categoriesRes.data || [];
+      const equipmentData = equipmentRes.data || [];
 
-      await fetchPackageAssociations(packagesRes.data || []);
+      setPackages(packagesData);
+      setMenuItems(menuData);
+      setCategories(categoriesData);
+      setEquipment(equipmentData);
+
+      await fetchPackageAssociations(packagesData, equipmentData, categoriesData);
     } catch (error) {
       handleError(error, 'Unable to load catalog data. Please refresh the page.');
     } finally {
@@ -90,71 +96,58 @@ export default function PackagesAndMenus() {
   };
 
   // --- FETCH ASSOCIATIONS ---
-  const fetchPackageAssociations = async (packagesData) => {
+  const fetchPackageAssociations = async (packagesData, equipmentData, categoriesData) => {
     if (!packagesData || packagesData.length === 0) {
       setPackageEquipment({});
       setPackageCategories({});
       return;
     }
-
-    const packageIds = packagesData.map(pkg => pkg.package_id);
+    const packageIds = packagesData.map(p => p.package_id);
 
     try {
-      const { data: equipData, error: equipError } = await supabase
-        .from('package_equipment')
-        .select(`
-          package_id,
-          equipment_id,
-          included_quantity,
-          per_pax,
-          equipment:equipment_id (eqm_name)
-        `)
-        .in('package_id', packageIds);
-
-      if (equipError) throw equipError;
-
-      const equipmentMap = {};
-      if (equipData) {
-        equipData.forEach(item => {
-          if (!equipmentMap[item.package_id]) equipmentMap[item.package_id] = [];
-          const name = item.equipment?.eqm_name || 'Unknown';
-          equipmentMap[item.package_id].push(name);
-        });
-      }
-      setPackageEquipment(equipmentMap);
-
+      // --- Categories ---
       const { data: catData, error: catError } = await supabase
         .from('package_category')
-        .select(`
-          package_id,
-          category_id,
-          category:category_id (category_name)
-        `)
+        .select('package_id, category_id')
         .in('package_id', packageIds);
-
       if (catError) throw catError;
 
-      const categoryMap = {};
-      if (catData) {
-        catData.forEach(item => {
-          if (!categoryMap[item.package_id]) categoryMap[item.package_id] = [];
-          const name = item.category?.category_name || 'Unknown';
-          categoryMap[item.package_id].push(name);
-        });
-      }
-      setPackageCategories(categoryMap);
+      const catNameMap = {};
+      categoriesData.forEach(c => {
+        catNameMap[c.category_id] = c.category_name;
+      });
 
+      const catMap = {};
+      catData.forEach(row => {
+        if (!catMap[row.package_id]) catMap[row.package_id] = [];
+        const name = catNameMap[row.category_id] || row.category_id;
+        catMap[row.package_id].push(name);
+      });
+      setPackageCategories(catMap);
+
+      // --- Equipment ---
+      const { data: equipData, error: equipError } = await supabase
+        .from('package_equipment')
+        .select('package_id, equipment_id, included_quantity, per_pax')
+        .in('package_id', packageIds);
+      if (equipError) throw equipError;
+
+      const equipMap = {};
+      equipData.forEach(row => {
+        if (!equipMap[row.package_id]) equipMap[row.package_id] = [];
+        const equip = equipmentData.find(e => e.equipment_id === row.equipment_id);
+        equipMap[row.package_id].push({
+          equipment_id: row.equipment_id,
+          name: equip?.eqm_name || 'Unknown',
+          quantity: row.included_quantity,
+          perPax: row.per_pax,
+        });
+      });
+      setPackageEquipment(equipMap);
     } catch (error) {
-      console.error('Error fetching package associations:', error);
-      setPackageEquipment({});
-      setPackageCategories({});
-      toast.error('Unable to load package associations.');
+      handleError(error, 'Unable to load package associations.');
     }
   };
-
-  useEffect(() => {
-    fetchData();
-  }, []);
 
   // --- FETCH ASSOCIATIONS FOR EDIT ---
   const fetchPackageAssociationsForEdit = async (packageId) => {
@@ -209,27 +202,19 @@ export default function PackagesAndMenus() {
     });
   };
 
-  // --- UPDATED: Equipment selection with auto per_pax based on equipment_type ---
   const handleEquipmentSelection = (equipmentId, quantity = 1) => {
     const equip = equipment.find(e => e.equipment_id === equipmentId);
-    // Auto-set per_pax based on equipment type: Countable = true, Decoration = false
     const perPax = equip?.equipment_type === 'Countable';
 
     setFormData(prev => {
       const current = prev.selectedEquipment || [];
       const quantities = { ...prev.equipmentQuantities };
       const perPaxMap = { ...prev.equipmentPerPax };
-      
       if (current.includes(equipmentId)) {
         const newSelected = current.filter(id => id !== equipmentId);
         delete quantities[equipmentId];
         delete perPaxMap[equipmentId];
-        return { 
-          ...prev, 
-          selectedEquipment: newSelected, 
-          equipmentQuantities: quantities,
-          equipmentPerPax: perPaxMap,
-        };
+        return { ...prev, selectedEquipment: newSelected, equipmentQuantities: quantities, equipmentPerPax: perPaxMap };
       } else {
         return {
           ...prev,
@@ -273,13 +258,12 @@ export default function PackagesAndMenus() {
     }));
   };
 
-  // --- Open modal ---
+  // --- Open/Close Modal ---
   const handleOpenModal = async (type, item = null) => {
     setModalType(type);
     setEditingId(item ? (type === 'Package' ? item.package_id : item.menu_item_id) : null);
 
     if (item && type === 'Package') {
-      // Editing existing package
       const { selectedCategories, selectedEquipment, equipmentQuantities, equipmentPerPax } =
         await fetchPackageAssociationsForEdit(item.package_id);
       setFormData({
@@ -316,7 +300,6 @@ export default function PackagesAndMenus() {
         colors: [],
       });
     } else {
-      // New package or new menu item
       if (type === 'Package') {
         setFormData({
           title: '',
@@ -380,9 +363,82 @@ export default function PackagesAndMenus() {
     setIsSubmitting(false);
   };
 
+  // ============================================================
+  // ✅ UPDATED VALIDATION: Food‑only, Equipment‑only, or Both
+  // ============================================================
+  const validatePackageForm = () => {
+    const { title, price, minPax, selectedCategories, selectedEquipment, equipmentQuantities } = formData;
+
+    // 1. Title
+    if (!title || title.trim() === '') {
+      toast.error('Package title is required.');
+      return false;
+    }
+
+    // 2. Price
+    const priceNum = parseFloat(price);
+    if (isNaN(priceNum) || priceNum <= 0) {
+      toast.error('Package price must be greater than zero.');
+      return false;
+    }
+
+    // 3. Minimum Pax
+    const minPaxNum = parseInt(minPax);
+    if (isNaN(minPaxNum) || minPaxNum < 1) {
+      toast.error('Minimum pax must be at least 1.');
+      return false;
+    }
+
+    // 4. ✅ NEW: At least one of Categories OR Equipment must be selected
+    const hasCategories = selectedCategories && selectedCategories.length > 0;
+    const hasEquipment = selectedEquipment && selectedEquipment.length > 0;
+
+    if (!hasCategories && !hasEquipment) {
+      toast.error('Package must include at least one Category (Food) or Equipment item.');
+      return false;
+    }
+
+    // 5. Check equipment quantities (only if equipment is selected)
+    if (hasEquipment) {
+      for (const [equipId, qty] of Object.entries(equipmentQuantities)) {
+        if (qty < 1) {
+          toast.error('Equipment quantities must be at least 1.');
+          return false;
+        }
+      }
+    }
+
+    return true;
+  };
+
+  const validateMenuItemForm = () => {
+    const { title, price, categoryId } = formData;
+    if (!title || title.trim() === '') {
+      toast.error('Menu item title is required.');
+      return false;
+    }
+    const priceNum = parseFloat(price);
+    if (isNaN(priceNum) || priceNum <= 0) {
+      toast.error('Price must be greater than zero.');
+      return false;
+    }
+    if (!categoryId) {
+      toast.error('Please select a category.');
+      return false;
+    }
+    return true;
+  };
+
   // --- SUBMIT ---
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (modalType === 'Package') {
+      if (!validatePackageForm()) return;
+    } else {
+      if (!validateMenuItemForm()) return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -394,17 +450,13 @@ export default function PackagesAndMenus() {
           const fileExt = formData.imageFile.name.split('.').pop();
           const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
           const filePath = `${modalType === 'Package' ? 'packages' : 'menu'}/${fileName}`;
-
           const { error: uploadError } = await supabase.storage
             .from('images')
             .upload(filePath, formData.imageFile);
-
           if (uploadError) throw uploadError;
-
           const { data: publicUrlData } = supabase.storage
             .from('images')
             .getPublicUrl(filePath);
-
           uploadedImageUrl = publicUrlData.publicUrl;
         } catch (uploadErr) {
           handleError(uploadErr, 'Failed to upload image. Please try again.');
@@ -444,31 +496,16 @@ export default function PackagesAndMenus() {
         }
 
         // Update categories
-        const { error: deleteCatError } = await supabase
-          .from('package_category')
-          .delete()
-          .eq('package_id', packageId);
-        if (deleteCatError) throw deleteCatError;
-
+        await supabase.from('package_category').delete().eq('package_id', packageId);
         const selectedCatIds = formData.selectedCategories || [];
         if (selectedCatIds.length > 0) {
-          const inserts = selectedCatIds.map(catId => ({
-            package_id: packageId,
-            category_id: catId,
-          }));
-          const { error: insertCatError } = await supabase
-            .from('package_category')
-            .insert(inserts);
-          if (insertCatError) throw insertCatError;
+          const inserts = selectedCatIds.map(catId => ({ package_id: packageId, category_id: catId }));
+          const { error } = await supabase.from('package_category').insert(inserts);
+          if (error) throw error;
         }
 
-        // Update equipment with per_pax
-        const { error: deleteEquipError } = await supabase
-          .from('package_equipment')
-          .delete()
-          .eq('package_id', packageId);
-        if (deleteEquipError) throw deleteEquipError;
-
+        // Update equipment
+        await supabase.from('package_equipment').delete().eq('package_id', packageId);
         const selectedEquipIds = formData.selectedEquipment || [];
         if (selectedEquipIds.length > 0) {
           const inserts = selectedEquipIds.map(equipId => ({
@@ -477,17 +514,14 @@ export default function PackagesAndMenus() {
             included_quantity: formData.equipmentQuantities[equipId] || 1,
             per_pax: formData.equipmentPerPax[equipId] !== undefined ? formData.equipmentPerPax[equipId] : true,
           }));
-          const { error: insertEquipError } = await supabase
-            .from('package_equipment')
-            .insert(inserts);
-          if (insertEquipError) throw insertEquipError;
+          const { error } = await supabase.from('package_equipment').insert(inserts);
+          if (error) throw error;
         }
 
         toast.success(editingId ? 'Package updated successfully!' : 'Package created successfully!');
         await fetchData();
-
       } else {
-        // Menu Item – price is per tray
+        // Menu Item
         const menuData = {
           menu_name: formData.title,
           menu_price: cleanPrice,
@@ -520,11 +554,11 @@ export default function PackagesAndMenus() {
     }
   };
 
-  // --- DELETE ---
+  // --- DELETE (with foreign key checks) ---
   const handleDelete = async (id, type) => {
     const confirmed = await showConfirm({
       title: `Delete ${type}?`,
-      message: `Are you sure you want to delete this ${type}? This action cannot be undone.`,
+      message: `Are you sure you want to delete this ${type.toLowerCase()}? This action cannot be undone.`,
       confirmLabel: 'Delete',
       confirmVariant: 'danger',
     });
@@ -538,14 +572,12 @@ export default function PackagesAndMenus() {
           .eq('package_id', id);
         if (countError) throw countError;
         if (count > 0) {
-          toast.error(`Cannot delete this package because it is used in ${count} booking(s). Please remove the bookings first.`);
+          toast.error(`Cannot delete this package because it is used in ${count} booking(s).`);
           return;
         }
-
         await supabase.from('package_category').delete().eq('package_id', id);
         await supabase.from('package_equipment').delete().eq('package_id', id);
-        const { error } = await supabase.from('package').delete().eq('package_id', id);
-        if (error) throw error;
+        await supabase.from('package').delete().eq('package_id', id);
         toast.success('Package deleted.');
       } else {
         const { count, error: countError } = await supabase
@@ -554,20 +586,15 @@ export default function PackagesAndMenus() {
           .eq('menu_item_id', id);
         if (countError) throw countError;
         if (count > 0) {
-          toast.error(`Cannot delete this menu item because it is included in ${count} package(s). Please remove it from packages first.`);
+          toast.error(`Cannot delete this menu item because it is included in ${count} package(s).`);
           return;
         }
-
-        const { error } = await supabase
-          .from('menu_item')
-          .delete()
-          .eq('menu_item_id', id);
-        if (error) throw error;
+        await supabase.from('menu_item').delete().eq('menu_item_id', id);
         toast.success('Menu item deleted.');
       }
-      fetchData();
+      await fetchData();
     } catch (error) {
-      handleError(error, 'Failed to delete item.');
+      handleError(error, `Failed to delete ${type.toLowerCase()}.`);
     }
   };
 
@@ -575,7 +602,7 @@ export default function PackagesAndMenus() {
   const toggleArchive = async (id, type) => {
     const confirmed = await showConfirm({
       title: type === 'package' ? 'Archive Package?' : 'Archive Menu Item?',
-      message: type === 'package' 
+      message: type === 'package'
         ? 'Are you sure you want to archive this package? It will be hidden from customers.'
         : 'Are you sure you want to archive this menu item? It will be hidden from customers.',
       confirmLabel: 'Archive',
@@ -603,7 +630,7 @@ export default function PackagesAndMenus() {
         if (error) throw error;
         toast.success(`Menu item ${newStatus === 'Archived' ? 'archived' : 'unarchived'}.`);
       }
-      fetchData();
+      await fetchData();
     } catch (error) {
       handleError(error, 'Failed to update status.');
     }
@@ -647,7 +674,7 @@ export default function PackagesAndMenus() {
         toast.success('Category added!');
       }
       setIsCategoryModalOpen(false);
-      fetchData();
+      await fetchData();
     } catch (error) {
       handleError(error, 'Failed to save category.');
     } finally {
@@ -671,7 +698,7 @@ export default function PackagesAndMenus() {
         .eq('category_id', categoryId);
       if (error) throw error;
       toast.success('Category deleted.');
-      fetchData();
+      await fetchData();
     } catch (error) {
       handleError(error, 'Failed to delete category.');
     }
@@ -679,25 +706,15 @@ export default function PackagesAndMenus() {
 
   // --- FILTER LOGIC ---
   const getDisplayedPackages = () => {
-    if (activeTab === 'Archived') {
-      return packages.filter(p => p.pkg_availability === 'Archived');
-    }
-    if (activeTab === 'Catering Packages') {
-      return packages.filter(p => p.pkg_availability !== 'Archived');
-    }
+    if (activeTab === 'Archived') return packages.filter(p => p.pkg_availability === 'Archived');
+    if (activeTab === 'Catering Packages') return packages.filter(p => p.pkg_availability !== 'Archived');
     return packages;
   };
 
   const getDisplayedMenuItems = () => {
-    if (activeTab === 'Archived') {
-      return menuItems.filter(m => m.menu_availability === 'Archived');
-    }
-    if (activeTab === 'Menu Items') {
-      return menuItems.filter(m => m.menu_availability !== 'Archived');
-    }
-    if (activeTab === 'All') {
-      return menuItems;
-    }
+    if (activeTab === 'Archived') return menuItems.filter(m => m.menu_availability === 'Archived');
+    if (activeTab === 'Menu Items') return menuItems.filter(m => m.menu_availability !== 'Archived');
+    if (activeTab === 'All') return menuItems;
     return [];
   };
 
@@ -742,6 +759,12 @@ export default function PackagesAndMenus() {
     );
   };
 
+  // --- useEffect to load data on mount ---
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  // ========== RENDER ==========
   return (
     <div className="space-y-6 relative pb-12">
       {/* HEADER */}
@@ -749,7 +772,7 @@ export default function PackagesAndMenus() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Packages & Menu</h1>
           <p className="text-sm text-slate-500">
-            Manage catering packages and short‑order menu items. 
+            Manage catering packages and short‑order menu items.
             <span className="block text-xs text-slate-400 mt-1">
               Menu items for short orders are priced <strong>per tray</strong> – each tray serves 35‑50 pax.
             </span>
@@ -829,8 +852,8 @@ export default function PackagesAndMenus() {
                           <div>
                             <h3 className="text-xl font-bold text-slate-900">{pkg.pkg_name}</h3>
                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium mt-1 ${
-                              pkg.pricing_type === 'fixed' 
-                                ? 'bg-purple-50 border border-purple-200 text-purple-700' 
+                              pkg.pricing_type === 'fixed'
+                                ? 'bg-purple-50 border border-purple-200 text-purple-700'
                                 : 'bg-blue-50 border border-blue-200 text-blue-700'
                             }`}>
                               {pkg.pricing_type === 'fixed' ? '📦 Fixed Price' : '👤 Per Pax'}
@@ -859,16 +882,12 @@ export default function PackagesAndMenus() {
                         </div>
                         <p className="text-sm text-slate-600 mb-3 max-w-2xl">{pkg.pkg_description}</p>
 
-                        {/* Categories */}
                         {categoryNames.length > 0 && (
                           <div className="mb-3">
                             <p className="text-xs font-medium text-slate-500 mb-1.5">Included Categories:</p>
                             <div className="flex flex-wrap gap-1.5">
                               {categoryNames.map((name, index) => (
-                                <span
-                                  key={index}
-                                  className="px-2.5 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full border border-blue-200"
-                                >
+                                <span key={index} className="px-2.5 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full border border-blue-200">
                                   {name}
                                 </span>
                               ))}
@@ -876,17 +895,13 @@ export default function PackagesAndMenus() {
                           </div>
                         )}
 
-                        {/* Equipment */}
                         {equipmentNames.length > 0 && (
                           <div className="mb-3">
                             <p className="text-xs font-medium text-slate-500 mb-1.5">Included Equipment:</p>
                             <div className="flex flex-wrap gap-1.5">
-                              {equipmentNames.map((name, index) => (
-                                <span
-                                  key={index}
-                                  className="px-2.5 py-0.5 bg-[#EAF3F2] text-slate-700 text-xs rounded-full border border-[#CBDEDD]"
-                                >
-                                  {name}
+                              {equipmentNames.map((item, index) => (
+                                <span key={index} className="px-2.5 py-0.5 bg-[#EAF3F2] text-slate-700 text-xs rounded-full border border-[#CBDEDD]">
+                                  {item.name}
                                 </span>
                               ))}
                             </div>
@@ -984,11 +999,8 @@ export default function PackagesAndMenus() {
       {isModalOpen && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            {/* Header */}
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-10">
-              <h2 className="text-lg font-bold text-slate-900">
-                {editingId ? 'Edit Item' : 'Add New Item'}
-              </h2>
+              <h2 className="text-lg font-bold text-slate-900">{editingId ? 'Edit Item' : 'Add New Item'}</h2>
               <button onClick={handleCloseModal} className="text-slate-400 hover:text-slate-600 transition-colors" disabled={isSubmitting}>
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
@@ -996,7 +1008,6 @@ export default function PackagesAndMenus() {
               </button>
             </div>
 
-            {/* Body */}
             <div className="p-6 overflow-y-auto">
               <form id="item-form" onSubmit={handleSubmit} className="space-y-6">
                 {/* Type Toggle */}
@@ -1012,20 +1023,9 @@ export default function PackagesAndMenus() {
                         onChange={() => {
                           setModalType('Package');
                           setFormData({
-                            title: '',
-                            price: '',
-                            minPax: '',
-                            categoryId: '',
-                            description: '',
-                            imageFile: null,
-                            selectedCategories: [],
-                            selectedEquipment: [],
-                            equipmentQuantities: {},
-                            equipmentPerPax: {},
-                            pricing_type: 'per_pax',
-                            max_pax: '',
-                            extra_pax_price: '',
-                            colors: [...DEFAULT_COLORS],
+                            title: '', price: '', minPax: '', categoryId: '', description: '', imageFile: null,
+                            selectedCategories: [], selectedEquipment: [], equipmentQuantities: {}, equipmentPerPax: {},
+                            pricing_type: 'per_pax', max_pax: '', extra_pax_price: '', colors: [...DEFAULT_COLORS],
                           });
                         }}
                         className="w-4 h-4 text-[#008A45] focus:ring-[#008A45]" />
@@ -1040,20 +1040,9 @@ export default function PackagesAndMenus() {
                         onChange={() => {
                           setModalType('Menu Item');
                           setFormData({
-                            title: '',
-                            price: '',
-                            minPax: '',
-                            categoryId: '',
-                            description: '',
-                            imageFile: null,
-                            selectedCategories: [],
-                            selectedEquipment: [],
-                            equipmentQuantities: {},
-                            equipmentPerPax: {},
-                            pricing_type: 'per_pax',
-                            max_pax: '',
-                            extra_pax_price: '',
-                            colors: [],
+                            title: '', price: '', minPax: '', categoryId: '', description: '', imageFile: null,
+                            selectedCategories: [], selectedEquipment: [], equipmentQuantities: {}, equipmentPerPax: {},
+                            pricing_type: 'per_pax', max_pax: '', extra_pax_price: '', colors: [],
                           });
                         }}
                         className="w-4 h-4 text-[#008A45] focus:ring-[#008A45]" />
@@ -1082,7 +1071,6 @@ export default function PackagesAndMenus() {
                       </div>
                     </div>
 
-                    {/* Pricing Model Selection */}
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-bold text-slate-700 mb-1.5">Pricing Model</label>
@@ -1090,16 +1078,9 @@ export default function PackagesAndMenus() {
                           <button
                             type="button"
                             onClick={() => setFormData(prev => ({ ...prev, pricing_type: 'per_pax' }))}
-                            className={`p-2 rounded-lg border-2 text-sm font-semibold transition-all ${
-                              formData.pricing_type === 'per_pax'
-                                ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900'
-                                : 'border-slate-200 text-slate-600 hover:border-slate-300'
-                            }`}
-                          >
+                            className={`p-2 rounded-lg border-2 text-sm font-semibold transition-all ${formData.pricing_type === 'per_pax' ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}>
                             <div className="flex items-center justify-center gap-2">
-                              <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
-                                formData.pricing_type === 'per_pax' ? 'border-[#008A45]' : 'border-slate-400'
-                              }`}>
+                              <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${formData.pricing_type === 'per_pax' ? 'border-[#008A45]' : 'border-slate-400'}`}>
                                 {formData.pricing_type === 'per_pax' && <div className="w-1.5 h-1.5 rounded-full bg-[#008A45]" />}
                               </div>
                               Per Pax
@@ -1108,16 +1089,9 @@ export default function PackagesAndMenus() {
                           <button
                             type="button"
                             onClick={() => setFormData(prev => ({ ...prev, pricing_type: 'fixed' }))}
-                            className={`p-2 rounded-lg border-2 text-sm font-semibold transition-all ${
-                              formData.pricing_type === 'fixed'
-                                ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900'
-                                : 'border-slate-200 text-slate-600 hover:border-slate-300'
-                            }`}
-                          >
+                            className={`p-2 rounded-lg border-2 text-sm font-semibold transition-all ${formData.pricing_type === 'fixed' ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}>
                             <div className="flex items-center justify-center gap-2">
-                              <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
-                                formData.pricing_type === 'fixed' ? 'border-[#008A45]' : 'border-slate-400'
-                              }`}>
+                              <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${formData.pricing_type === 'fixed' ? 'border-[#008A45]' : 'border-slate-400'}`}>
                                 {formData.pricing_type === 'fixed' && <div className="w-1.5 h-1.5 rounded-full bg-[#008A45]" />}
                               </div>
                               Fixed
@@ -1129,100 +1103,49 @@ export default function PackagesAndMenus() {
                         <label className="block text-xs font-bold text-slate-700 mb-1.5">
                           {formData.pricing_type === 'per_pax' ? 'Price per Pax (₱)' : 'Fixed Price (₱)'}
                         </label>
-                        <input
-                          type="number"
-                          name="price"
-                          value={formData.price}
-                          onChange={handleInputChange}
+                        <input type="number" name="price" value={formData.price} onChange={handleInputChange}
                           placeholder={formData.pricing_type === 'per_pax' ? 'e.g. 500' : 'e.g. 25000'}
                           className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                          required
-                          disabled={isSubmitting}
-                        />
+                          required disabled={isSubmitting} />
                       </div>
                     </div>
 
-                    {/* Fixed Price Extra Fields */}
                     {formData.pricing_type === 'fixed' && (
                       <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
                         <div>
                           <label className="block text-xs font-bold text-slate-700 mb-1.5">Max Pax Included</label>
-                          <input
-                            type="number"
-                            name="max_pax"
-                            value={formData.max_pax}
-                            onChange={handleInputChange}
-                            placeholder="e.g. 100"
-                            className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                            disabled={isSubmitting}
-                          />
+                          <input type="number" name="max_pax" value={formData.max_pax} onChange={handleInputChange}
+                            placeholder="e.g. 100" className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" disabled={isSubmitting} />
                           <p className="text-xs text-slate-400 mt-1">Guests above this pay extra</p>
                         </div>
                         <div>
                           <label className="block text-xs font-bold text-slate-700 mb-1.5">Extra Pax Price (₱)</label>
-                          <input
-                            type="number"
-                            name="extra_pax_price"
-                            value={formData.extra_pax_price}
-                            onChange={handleInputChange}
-                            placeholder="e.g. 250"
-                            className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                            disabled={isSubmitting}
-                          />
+                          <input type="number" name="extra_pax_price" value={formData.extra_pax_price} onChange={handleInputChange}
+                            placeholder="e.g. 250" className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" disabled={isSubmitting} />
                           <p className="text-xs text-slate-400 mt-1">Price per guest above max</p>
                         </div>
                       </div>
                     )}
 
-                    {/* Color Management Section */}
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">Available Colors</label>
                       <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={newColorInput}
-                          onChange={(e) => setNewColorInput(e.target.value)}
+                        <input type="text" value={newColorInput} onChange={(e) => setNewColorInput(e.target.value)}
                           placeholder="Add a color (e.g. Burgundy)"
                           className="flex-1 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-[#008A45] outline-none"
                           disabled={isSubmitting}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleAddColor();
-                            }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={handleAddColor}
-                          disabled={isSubmitting}
-                          className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
-                        >
-                          Add
-                        </button>
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddColor(); } }} />
+                        <button type="button" onClick={handleAddColor} disabled={isSubmitting}
+                          className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">Add</button>
                       </div>
-                      {formData.colors && formData.colors.length > 0 ? (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {formData.colors.map(color => (
-                            <span
-                              key={color}
-                              className="inline-flex items-center gap-1 bg-slate-100 border border-slate-300 rounded-full px-3 py-1 text-sm"
-                            >
-                              {color}
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveColor(color)}
-                                className="text-slate-400 hover:text-red-500 transition-colors"
-                                disabled={isSubmitting}
-                              >
-                                ×
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-slate-400 mt-2">No colors added yet.</p>
-                      )}
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {formData.colors.map(color => (
+                          <span key={color} className="inline-flex items-center gap-1 bg-slate-100 border border-slate-300 rounded-full px-3 py-1 text-sm">
+                            {color}
+                            <button type="button" onClick={() => handleRemoveColor(color)} className="text-slate-400 hover:text-red-500 transition-colors" disabled={isSubmitting}>×</button>
+                          </span>
+                        ))}
+                      </div>
                       <p className="text-xs text-slate-400 mt-1">These colors will appear in the booking form when this package is selected.</p>
                     </div>
 
@@ -1234,79 +1157,55 @@ export default function PackagesAndMenus() {
                         disabled={isSubmitting} />
                     </div>
 
-                    {/* Categories Selection */}
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">Included Categories</label>
                       <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto border border-slate-200 rounded-lg p-2">
-                        {categories.length === 0 ? (
-                          <p className="text-sm text-slate-500">No categories available. Please add one.</p>
-                        ) : (
-                          categories.map((cat) => (
-                            <label key={cat.category_id} className="flex items-center gap-2 text-sm cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={(formData.selectedCategories || []).includes(cat.category_id)}
-                                onChange={() => handleCategorySelection(cat.category_id)}
-                                disabled={isSubmitting}
-                                className="w-4 h-4 text-[#008A45] focus:ring-[#008A45]"
-                              />
-                              {cat.category_name}
-                              {cat.category_description && (
-                                <span className="text-xs text-slate-400">({cat.category_description})</span>
-                              )}
-                            </label>
-                          ))
-                        )}
+                        {categories.map((cat) => (
+                          <label key={cat.category_id} className="flex items-center gap-2 text-sm cursor-pointer">
+                            <input type="checkbox"
+                              checked={(formData.selectedCategories || []).includes(cat.category_id)}
+                              onChange={() => handleCategorySelection(cat.category_id)}
+                              disabled={isSubmitting}
+                              className="w-4 h-4 text-[#008A45] focus:ring-[#008A45]" />
+                            {cat.category_name}
+                            {cat.category_description && <span className="text-xs text-slate-400">({cat.category_description})</span>}
+                          </label>
+                        ))}
                       </div>
                       <p className="text-xs text-slate-400 mt-1">Customers can choose one menu item from each selected category.</p>
                     </div>
 
-                    {/* Equipment Selection – UPDATED with per_pax indicator */}
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">Included Equipment (template)</label>
                       <p className="text-xs text-slate-400 mb-2">Equipment will be reserved when a booking is confirmed, not now.</p>
                       <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto border border-slate-200 rounded-lg p-2">
-                        {equipment.length === 0 ? (
-                          <p className="text-sm text-slate-500">No equipment available.</p>
-                        ) : (
-                          equipment.map((eq) => {
-                            const isSelected = (formData.selectedEquipment || []).includes(eq.equipment_id);
-                            const isDecoration = eq.equipment_type === 'Decoration';
-                            return (
-                              <div key={eq.equipment_id} className="flex items-center gap-3 text-sm">
-                                <label className="flex items-center gap-2 cursor-pointer flex-1">
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={() => handleEquipmentSelection(eq.equipment_id, 1)}
-                                    disabled={isSubmitting}
-                                    className="w-4 h-4 text-[#008A45] focus:ring-[#008A45]"
-                                  />
-                                  {eq.eqm_name} (total stock: {eq.quantity_available})
-                                  {isDecoration && (
-                                    <span className="ml-1 text-xs text-purple-600 font-medium">(Decoration – 1 per event)</span>
-                                  )}
-                                  {!isDecoration && (
-                                    <span className="ml-1 text-xs text-blue-600 font-medium">(Countable – scales with pax)</span>
-                                  )}
-                                </label>
-                                {isSelected && (
-                                  <div className="flex items-center gap-1">
-                                    <label className="text-xs text-slate-600">Qty:</label>
-                                    <input
-                                      type="number"
-                                      min="1"
-                                      value={formData.equipmentQuantities?.[eq.equipment_id] || 1}
-                                      onChange={(e) => handleEquipmentQuantityChange(eq.equipment_id, e.target.value)}
-                                      className="w-16 border border-slate-300 rounded p-1 text-sm"
-                                      disabled={isSubmitting}
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })
-                        )}
+                        {equipment.map((eq) => {
+                          const isSelected = (formData.selectedEquipment || []).includes(eq.equipment_id);
+                          return (
+                            <div key={eq.equipment_id} className="flex items-center gap-3 text-sm">
+                              <label className="flex items-center gap-2 cursor-pointer flex-1">
+                                <input type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => handleEquipmentSelection(eq.equipment_id, 1)}
+                                  disabled={isSubmitting}
+                                  className="w-4 h-4 text-[#008A45] focus:ring-[#008A45]" />
+                                {eq.eqm_name} (total stock: {eq.quantity_available})
+                                {eq.equipment_type === 'Decoration' && <span className="ml-1 text-xs text-purple-600 font-medium">(Decoration – 1 per event)</span>}
+                                {eq.equipment_type === 'Countable' && <span className="ml-1 text-xs text-blue-600 font-medium">(Countable – scales with pax)</span>}
+                              </label>
+                              {isSelected && (
+                                <div className="flex items-center gap-1">
+                                  <label className="text-xs text-slate-600">Qty:</label>
+                                  <input type="number" min="1"
+                                    value={formData.equipmentQuantities?.[eq.equipment_id] || 1}
+                                    onChange={(e) => handleEquipmentQuantityChange(eq.equipment_id, e.target.value)}
+                                    className="w-16 border border-slate-300 rounded p-1 text-sm"
+                                    disabled={isSubmitting} />
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                       <p className="text-xs text-slate-400 mt-1">
                         <span className="font-semibold">Countable</span> items scale with pax. <span className="font-semibold">Decoration</span> items are fixed per event.
@@ -1327,9 +1226,7 @@ export default function PackagesAndMenus() {
                           required disabled={isSubmitting} />
                       </div>
                       <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1">
-                          Price <span className="font-normal text-slate-500">(per tray)</span>
-                        </label>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Price <span className="font-normal text-slate-500">(per tray)</span></label>
                         <input type="number" name="price" value={formData.price} onChange={handleInputChange}
                           placeholder="e.g. 150"
                           className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45] outline-none"
@@ -1343,11 +1240,7 @@ export default function PackagesAndMenus() {
                         className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45] outline-none bg-white"
                         required disabled={isSubmitting}>
                         <option value="">Select Category</option>
-                        {categories.map(cat => (
-                          <option key={cat.category_id} value={cat.category_id}>
-                            {cat.category_name}
-                          </option>
-                        ))}
+                        {categories.map(cat => <option key={cat.category_id} value={cat.category_id}>{cat.category_name}</option>)}
                       </select>
                     </div>
                   </div>
@@ -1374,12 +1267,9 @@ export default function PackagesAndMenus() {
               </form>
             </div>
 
-            {/* Footer */}
             <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 sticky bottom-0">
               <button type="button" onClick={handleCloseModal} disabled={isSubmitting}
-                className="px-5 py-2.5 text-sm font-bold text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50">
-                Cancel
-              </button>
+                className="px-5 py-2.5 text-sm font-bold text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50">Cancel</button>
               <button type="submit" form="item-form" disabled={isSubmitting}
                 className="px-5 py-2.5 text-sm font-bold text-white bg-[#008A45] rounded-lg hover:bg-[#007038] transition-colors shadow-sm disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2">
                 {isSubmitting && <svg className="w-4 h-4 animate-spin text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>}
@@ -1410,64 +1300,32 @@ export default function PackagesAndMenus() {
                       {cat.category_description && <p className="text-xs text-slate-500">{cat.category_description}</p>}
                     </div>
                     <div className="flex gap-2">
-                      <button
-                        onClick={() => { setIsCategoryModalOpen(false); handleOpenCategoryModal(cat); }}
-                        className="text-slate-500 hover:text-slate-700 text-sm"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeleteCategory(cat.category_id)}
-                        className="text-red-500 hover:text-red-700 text-sm"
-                      >
-                        Delete
-                      </button>
+                      <button onClick={() => { setIsCategoryModalOpen(false); handleOpenCategoryModal(cat); }} className="text-slate-500 hover:text-slate-700 text-sm">Edit</button>
+                      <button onClick={() => handleDeleteCategory(cat.category_id)} className="text-red-500 hover:text-red-700 text-sm">Delete</button>
                     </div>
                   </div>
                 ))}
-                {categories.length === 0 && <p className="text-sm text-slate-500 italic">No categories yet.</p>}
               </div>
             </div>
             <div className="p-6 border-t border-slate-100 bg-slate-50">
               <form onSubmit={handleCategorySubmit} className="flex flex-col sm:flex-row gap-3 items-end">
                 <div className="flex-1">
                   <label className="block text-xs font-bold text-slate-700 mb-1">Category Name</label>
-                  <input
-                    type="text"
-                    name="category_name"
-                    value={categoryForm.category_name}
-                    onChange={handleCategoryFormChange}
-                    placeholder="e.g. Seafood"
-                    className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-[#008A45] outline-none"
-                    required
-                  />
+                  <input type="text" name="category_name" value={categoryForm.category_name} onChange={handleCategoryFormChange}
+                    placeholder="e.g. Seafood" className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-[#008A45] outline-none" required />
                 </div>
                 <div className="flex-1">
                   <label className="block text-xs font-bold text-slate-700 mb-1">Description (optional)</label>
-                  <input
-                    type="text"
-                    name="category_description"
-                    value={categoryForm.category_description}
-                    onChange={handleCategoryFormChange}
-                    placeholder="e.g. All seafood dishes"
-                    className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-[#008A45] outline-none"
-                  />
+                  <input type="text" name="category_description" value={categoryForm.category_description} onChange={handleCategoryFormChange}
+                    placeholder="e.g. All seafood dishes" className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-[#008A45] outline-none" />
                 </div>
-                <button
-                  type="submit"
-                  disabled={isCategorySubmitting}
-                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm disabled:opacity-50"
-                >
+                <button type="submit" disabled={isCategorySubmitting}
+                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm disabled:opacity-50">
                   {isCategorySubmitting ? 'Saving...' : (categoryForm.category_id ? 'Update' : 'Add')}
                 </button>
                 {categoryForm.category_id && (
-                  <button
-                    type="button"
-                    onClick={() => setCategoryForm({ category_id: null, category_name: '', category_description: '' })}
-                    className="text-sm text-slate-500 hover:text-slate-700"
-                  >
-                    Cancel
-                  </button>
+                  <button type="button" onClick={() => setCategoryForm({ category_id: null, category_name: '', category_description: '' })}
+                    className="text-sm text-slate-500 hover:text-slate-700">Cancel</button>
                 )}
               </form>
             </div>
