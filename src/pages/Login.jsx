@@ -17,38 +17,23 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [isChecking, setIsChecking] = useState(true);
 
-  // --- Check session on mount (Back button logout) ---
+  // Detect if user came from dashboard via back button
   useEffect(() => {
-    const checkSession = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          // Verify if user is a manager
-          const { data: manager, error } = await supabase
-            .from('manager')
-            .select('manager_id')
-            .eq('user_id', user.id)
-            .maybeSingle();
-
-          if (!error && manager) {
-            // ✅ User is logged in and is a manager – sign them out (Back button case)
-            await supabase.auth.signOut();
-            toast('🔒 You have been logged out.', { duration: 3000 });
-          } else {
-            // Not a manager – sign out just in case
-            await supabase.auth.signOut();
-          }
-        }
-      } catch (error) {
-        console.error('Session check error:', error);
-      } finally {
-        setIsChecking(false);
+    const handleBackToLogin = async () => {
+      // Check if we have a flag indicating the dashboard was visited
+      const wasOnDashboard = sessionStorage.getItem('wasOnDashboard') === 'true';
+      if (wasOnDashboard) {
+        // Clear the flag so it doesn't trigger again
+        sessionStorage.removeItem('wasOnDashboard');
+        // Sign out the user
+        await supabase.auth.signOut();
+        toast('You have been logged out.', { duration: 3000 });
+        // Reload to ensure state is clean (optional)
+        // window.location.reload();
       }
     };
-
-    checkSession();
+    handleBackToLogin();
   }, []);
 
   const handleInputChange = (e) => {
@@ -71,48 +56,45 @@ export default function Login() {
         password: formData.password,
       });
 
-      if (error) throw error;
+      if (error) {
+        setErrorMsg('Invalid email or password. Please try again.');
+        setIsLoading(false);
+        return;
+      }
 
+      // Check if user exists in manager table
       const { data: managerData, error: managerError } = await supabase
         .from('manager')
         .select('manager_id')
         .eq('user_id', data.user.id)
         .maybeSingle();
 
-      if (managerError) throw managerError;
-
-      if (!managerData) {
+      if (managerError || !managerData) {
         await supabase.auth.signOut();
-        throw new Error('You are not authorized to access this system.');
+        setErrorMsg('Invalid email or password. Please try again.');
+        setIsLoading(false);
+        return;
       }
 
+      // Store rememberMe preference
+      localStorage.setItem('rememberMe', String(formData.rememberMe));
+
+      toast.success('Welcome back!');
       navigate('/app');
     } catch (error) {
       console.error('Login error:', error.message);
-      setErrorMsg(error.message || 'Invalid email or password. Please try again.');
+      setErrorMsg('Something went wrong. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
-
-  if (isChecking) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-[#008A45] border-t-transparent"></div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen flex flex-col bg-white font-sans">
       <header className="bg-[#008A45] text-white h-[72px] flex items-center px-6 w-full shrink-0 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-sm flex-shrink-0">
-            <img
-              src="/logo.svg"
-              alt="Catersync"
-              className="w-full h-full object-cover"
-            />
+            <img src="/logo.svg" alt="Catersync" className="w-full h-full object-cover" />
           </div>
           <h1 className="text-2xl font-bold tracking-wide">Catersync</h1>
         </div>
@@ -143,6 +125,7 @@ export default function Login() {
                 onChange={handleInputChange}
                 className="w-full border border-slate-300 rounded-md p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
                 required
+                placeholder="Enter your email"
               />
             </div>
 
@@ -156,11 +139,13 @@ export default function Login() {
                   onChange={handleInputChange}
                   className="w-full border border-slate-300 rounded-md p-2.5 pr-10 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
                   required
+                  placeholder="Enter your password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                  aria-label="Toggle password visibility"
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
@@ -178,12 +163,7 @@ export default function Login() {
                 />
                 <span className="text-xs font-medium text-slate-500">Remember me</span>
               </label>
-              <Link
-                to="/forgot-password"
-                className="text-xs font-medium text-slate-500 hover:text-slate-800 underline decoration-slate-300 underline-offset-2"
-              >
-                Forgot password?
-              </Link>
+              {/* Forgot password link removed */}
             </div>
 
             <div className="pt-4 flex justify-center">

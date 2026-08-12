@@ -136,6 +136,24 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
 
     let finalPayStatus = status;
     const isAmountEqualRemaining = Math.abs(amount - remainingBalance) < 0.01;
+    const isAmountEqualTotal = Math.abs(amount - totalAmount) < 0.01;
+
+    // ✅ NEW: First payment equals full total → ask to mark as Fully Paid
+    if (status === 'Downpayment' && isFirstPayment && isAmountEqualTotal) {
+      const confirm = await showConfirm({
+        title: 'Full Payment?',
+        message: `This is the first payment and the amount (₱${amount.toLocaleString()}) equals the full total. Would you like to mark it as Fully Paid instead?`,
+        confirmLabel: 'Yes, Mark Fully Paid',
+        cancelLabel: 'No, Keep as Downpayment',
+        confirmVariant: 'success',
+      });
+      if (confirm) {
+        finalPayStatus = 'Fully Paid';
+        setPaymentFormData(prev => ({ ...prev, pay_status: 'Fully Paid' }));
+      }
+    }
+
+    // Existing: subsequent payment equals remaining balance → ask to mark as Fully Paid
     if (status === 'Downpayment' && isAmountEqualRemaining && !isFirstPayment) {
       const confirm = await showConfirm({
         title: 'Full Payment?',
@@ -230,6 +248,29 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       setIsPaymentSubmitting(false);
       return;
     }
+
+    // ✅ Check if editing would exceed remaining balance (for non-refund payments)
+    const positivePayments = payments
+      .filter(p => p.amount_paid > 0 && p.payment_id !== editingPayment.payment_id)
+      .reduce((sum, p) => sum + p.amount_paid, 0);
+    const newRemainingBalance = Math.max(0, totalAmount - positivePayments - amount);
+    if (newRemainingBalance < 0) {
+      toast.error(`Amount exceeds remaining balance of ₱${(totalAmount - positivePayments).toLocaleString()}.`);
+      setIsPaymentSubmitting(false);
+      return;
+    }
+
+    // Inside handleEditPaymentSubmit
+const totalAmount = booking.total_amount || 0; // you need to get the booking total (available from props)
+const existingPayments = payments.filter(p => p.booking_id === bookingId && p.amount_paid > 0 && p.payment_id !== editingPayment.payment_id);
+const totalPaid = existingPayments.reduce((sum, p) => sum + p.amount_paid, 0);
+const isFirstPayment = totalPaid === 0;
+
+if (isFirstPayment && editPaymentFormData.pay_status === 'Downpayment' && amount < totalAmount * 0.5) {
+  toast.error(`First payment must be at least 50% of total (₱${(totalAmount * 0.5).toLocaleString()}).`);
+  setIsPaymentSubmitting(false);
+  return;
+}
 
     try {
       let proofUrl = editPaymentFormData.pay_proof;

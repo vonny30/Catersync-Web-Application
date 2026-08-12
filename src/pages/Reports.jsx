@@ -49,7 +49,7 @@ export default function Reports() {
       const now = new Date();
       const currentMonthLabel = now.toLocaleString('default', { month: 'long', year: 'numeric' });
 
-      // ========== FINANCIAL SUMMARY (includes both Package & Short Order) ==========
+      // ========== FINANCIAL SUMMARY ==========
       const { data: bookings, error: bookingsError } = await supabase
         .from('booking')
         .select(`
@@ -411,39 +411,40 @@ export default function Reports() {
                 </button>
               </div>
 
-              {/* BAR CHART */}
+              {/* ✅ SIMPLIFIED MONTHLY REVENUE – HORIZONTAL BARS */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div className="bg-[#f8fafa] border border-slate-200 rounded-xl p-6">
-                  <h3 className="text-base font-bold text-slate-900 mb-6">Monthly Revenue</h3>
+                  <h3 className="text-base font-bold text-slate-900 mb-4">Monthly Revenue</h3>
                   {monthlyRevenueData.length === 0 ? (
                     <div className="h-48 flex items-center justify-center text-slate-400 text-sm">
-                      No payment data available for the current year.
+                      No payment data available.
                     </div>
                   ) : (
-                    <div className="relative h-48 flex items-end gap-2 sm:gap-6 pt-4">
-                      <div className="absolute inset-0 flex flex-col justify-between text-[10px] text-slate-400 font-medium pb-6">
-                        <div className="flex items-center gap-2 border-b border-dashed border-slate-200 w-full h-0"><span className="w-8 text-right -mt-2">₱40k</span></div>
-                        <div className="flex items-center gap-2 border-b border-dashed border-slate-200 w-full h-0"><span className="w-8 text-right -mt-2">₱30k</span></div>
-                        <div className="flex items-center gap-2 border-b border-dashed border-slate-200 w-full h-0"><span className="w-8 text-right -mt-2">₱20k</span></div>
-                        <div className="flex items-center gap-2 border-b border-dashed border-slate-200 w-full h-0"><span className="w-8 text-right -mt-2">₱10k</span></div>
-                        <div className="flex items-center gap-2 border-b border-slate-300 w-full h-0"><span className="w-8 text-right -mt-2">0</span></div>
-                      </div>
-                      <div className="relative z-10 flex justify-between items-end w-full h-full pb-6 pl-12 pr-4">
-                        {monthlyRevenueData.map((data, index) => {
-                          const maxRevenue = Math.max(...monthlyRevenueData.map(d => d.revenue), 1);
-                          const heightPercentage = (data.revenue / maxRevenue) * 100;
-                          const isLast = index === monthlyRevenueData.length - 1;
-                          return (
-                            <div key={data.id} className="flex flex-col items-center gap-2 w-1/6 group cursor-pointer">
-                              <div className={`w-full rounded-sm transition-all duration-500 relative ${isLast ? 'bg-[#008A45]' : 'bg-[#CBDEDD]'}`} style={{ height: `${heightPercentage}%` }}>
-                                <div className="opacity-0 group-hover:opacity-100 absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] py-1 px-2 rounded pointer-events-none whitespace-nowrap z-30 transition-opacity">
-                                  {formatCurrency(data.revenue)}
-                                </div>
-                              </div>
-                              <span className="text-xs font-semibold text-slate-600 absolute bottom-0">{data.month}</span>
+                    <div className="space-y-4">
+                      {monthlyRevenueData.map((item) => {
+                        const maxRevenue = Math.max(...monthlyRevenueData.map(d => d.revenue), 1);
+                        const percentage = Math.max((item.revenue / maxRevenue) * 100, 5);
+                        return (
+                          <div key={item.id} className="flex items-center gap-3">
+                            <div className="w-12 text-sm font-bold text-slate-700 text-right">
+                              {item.month}
                             </div>
-                          );
-                        })}
+                            <div className="flex-1">
+                              <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
+                                <div
+                                  className="h-full rounded-full bg-[#008A45] transition-all duration-500"
+                                  style={{ width: `${percentage}%` }}
+                                />
+                              </div>
+                            </div>
+                            <div className="w-20 text-sm font-semibold text-slate-800 text-right">
+                              {formatCurrency(item.revenue)}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <div className="mt-2 text-xs text-slate-500 text-right">
+                        Bar length shows relative revenue (100% = highest month)
                       </div>
                     </div>
                   )}
@@ -661,7 +662,6 @@ export default function Reports() {
       {detailModal.open && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-150">
           <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden">
-            {/* Header */}
             <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0 bg-white">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">{detailModal.title}</h2>
@@ -679,7 +679,6 @@ export default function Reports() {
               </button>
             </div>
 
-            {/* Body – scrollable */}
             <div className="p-6 overflow-y-auto flex-1">
               {detailModal.data.length === 0 ? (
                 <div className="text-center py-10 text-slate-500">No records found for this category.</div>
@@ -815,7 +814,6 @@ export default function Reports() {
               )}
             </div>
 
-            {/* Footer */}
             <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-200 shrink-0">
               <button
                 onClick={closeDetailModal}

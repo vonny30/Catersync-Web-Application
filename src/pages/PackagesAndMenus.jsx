@@ -258,6 +258,37 @@ export default function PackagesAndMenus() {
     }));
   };
 
+  // --- CHECK DUPLICATES ---
+  const checkDuplicatePackageName = async (name, excludeId = null) => {
+    let query = supabase
+      .from('package')
+      .select('package_id')
+      .eq('pkg_name', name.trim());
+    
+    if (excludeId) {
+      query = query.neq('package_id', excludeId);
+    }
+    
+    const { data, error } = await query;
+    if (error) throw error;
+    return data && data.length > 0;
+  };
+
+  const checkDuplicateMenuItemName = async (name, excludeId = null) => {
+    let query = supabase
+      .from('menu_item')
+      .select('menu_item_id')
+      .eq('menu_name', name.trim());
+    
+    if (excludeId) {
+      query = query.neq('menu_item_id', excludeId);
+    }
+    
+    const { data, error } = await query;
+    if (error) throw error;
+    return data && data.length > 0;
+  };
+
   // --- Open/Close Modal ---
   const handleOpenModal = async (type, item = null) => {
     setModalType(type);
@@ -288,7 +319,7 @@ export default function PackagesAndMenus() {
         price: item.menu_price?.toString() || '',
         minPax: '',
         categoryId: item.category_id || '',
-        description: '',
+        description: item.menu_description || '',
         imageFile: null,
         selectedCategories: [],
         selectedEquipment: [],
@@ -364,10 +395,10 @@ export default function PackagesAndMenus() {
   };
 
   // ============================================================
-  // ✅ UPDATED VALIDATION: Food‑only, Equipment‑only, or Both
+  // ✅ VALIDATION – with duplicate check, image, and description
   // ============================================================
-  const validatePackageForm = () => {
-    const { title, price, minPax, selectedCategories, selectedEquipment, equipmentQuantities } = formData;
+  const validatePackageForm = async () => {
+    const { title, price, minPax, selectedCategories, selectedEquipment, equipmentQuantities, description, imageFile } = formData;
 
     // 1. Title
     if (!title || title.trim() === '') {
@@ -375,21 +406,40 @@ export default function PackagesAndMenus() {
       return false;
     }
 
-    // 2. Price
+    // 2. ✅ DUPLICATE CHECK for Package Name
+    const isDuplicate = await checkDuplicatePackageName(title, editingId);
+    if (isDuplicate) {
+      toast.error(`A package named "${title}" already exists. Please use a different name.`);
+      return false;
+    }
+
+    // 3. Price
     const priceNum = parseFloat(price);
     if (isNaN(priceNum) || priceNum <= 0) {
       toast.error('Package price must be greater than zero.');
       return false;
     }
 
-    // 3. Minimum Pax
+    // 4. Minimum Pax
     const minPaxNum = parseInt(minPax);
     if (isNaN(minPaxNum) || minPaxNum < 1) {
       toast.error('Minimum pax must be at least 1.');
       return false;
     }
 
-    // 4. ✅ NEW: At least one of Categories OR Equipment must be selected
+    // 5. ✅ DESCRIPTION is required
+    if (!description || description.trim() === '') {
+      toast.error('Package description is required.');
+      return false;
+    }
+
+    // 6. ✅ IMAGE is required for NEW packages (or if no existing image)
+    if (!editingId && !imageFile) {
+      toast.error('Please upload an image for this package.');
+      return false;
+    }
+
+    // 7. At least one of Categories OR Equipment must be selected
     const hasCategories = selectedCategories && selectedCategories.length > 0;
     const hasEquipment = selectedEquipment && selectedEquipment.length > 0;
 
@@ -398,7 +448,7 @@ export default function PackagesAndMenus() {
       return false;
     }
 
-    // 5. Check equipment quantities (only if equipment is selected)
+    // 8. Check equipment quantities
     if (hasEquipment) {
       for (const [equipId, qty] of Object.entries(equipmentQuantities)) {
         if (qty < 1) {
@@ -411,21 +461,47 @@ export default function PackagesAndMenus() {
     return true;
   };
 
-  const validateMenuItemForm = () => {
-    const { title, price, categoryId } = formData;
+  const validateMenuItemForm = async () => {
+    const { title, price, categoryId, description, imageFile } = formData;
+
+    // 1. Title
     if (!title || title.trim() === '') {
       toast.error('Menu item title is required.');
       return false;
     }
+
+    // 2. ✅ DUPLICATE CHECK for Menu Item Name
+    const isDuplicate = await checkDuplicateMenuItemName(title, editingId);
+    if (isDuplicate) {
+      toast.error(`A menu item named "${title}" already exists. Please use a different name.`);
+      return false;
+    }
+
+    // 3. Price
     const priceNum = parseFloat(price);
     if (isNaN(priceNum) || priceNum <= 0) {
       toast.error('Price must be greater than zero.');
       return false;
     }
+
+    // 4. Category
     if (!categoryId) {
       toast.error('Please select a category.');
       return false;
     }
+
+    // 5. ✅ DESCRIPTION is required
+    if (!description || description.trim() === '') {
+      toast.error('Menu item description is required.');
+      return false;
+    }
+
+    // 6. ✅ IMAGE is required for NEW menu items (or if no existing image)
+    if (!editingId && !imageFile) {
+      toast.error('Please upload an image for this menu item.');
+      return false;
+    }
+
     return true;
   };
 
@@ -433,11 +509,13 @@ export default function PackagesAndMenus() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    let isValid = false;
     if (modalType === 'Package') {
-      if (!validatePackageForm()) return;
+      isValid = await validatePackageForm();
     } else {
-      if (!validateMenuItemForm()) return;
+      isValid = await validateMenuItemForm();
     }
+    if (!isValid) return;
 
     setIsSubmitting(true);
 
@@ -445,6 +523,7 @@ export default function PackagesAndMenus() {
       const cleanPrice = parseFloat(formData.price) || 0;
       let uploadedImageUrl = null;
 
+      // Upload image if a new file is selected
       if (formData.imageFile) {
         try {
           const fileExt = formData.imageFile.name.split('.').pop();
@@ -467,8 +546,8 @@ export default function PackagesAndMenus() {
 
       if (modalType === 'Package') {
         const packageData = {
-          pkg_name: formData.title,
-          pkg_description: formData.description || 'No description provided.',
+          pkg_name: formData.title.trim(),
+          pkg_description: formData.description.trim(),
           pkg_price: cleanPrice,
           minimum_pax: parseInt(formData.minPax) || 0,
           pricing_type: formData.pricing_type || 'per_pax',
@@ -476,7 +555,12 @@ export default function PackagesAndMenus() {
           extra_pax_price: formData.pricing_type === 'fixed' ? (parseFloat(formData.extra_pax_price) || 0) : 0,
           colors: formData.colors || [],
         };
-        if (uploadedImageUrl) packageData.pkg_image = uploadedImageUrl;
+        if (uploadedImageUrl) {
+          packageData.pkg_image = uploadedImageUrl;
+        } else if (!editingId) {
+          // If no image uploaded and it's a new item, use placeholder (but validation should prevent this)
+          packageData.pkg_image = 'https://via.placeholder.com/400x300?text=No+Image';
+        }
 
         let packageId = editingId;
 
@@ -523,11 +607,16 @@ export default function PackagesAndMenus() {
       } else {
         // Menu Item
         const menuData = {
-          menu_name: formData.title,
+          menu_name: formData.title.trim(),
           menu_price: cleanPrice,
           category_id: formData.categoryId,
+          menu_description: formData.description.trim(),
         };
-        if (uploadedImageUrl) menuData.menu_image = uploadedImageUrl;
+        if (uploadedImageUrl) {
+          menuData.menu_image = uploadedImageUrl;
+        } else if (!editingId) {
+          menuData.menu_image = 'https://via.placeholder.com/400x300?text=No+Image';
+        }
 
         if (editingId) {
           const { error } = await supabase
@@ -959,6 +1048,7 @@ export default function PackagesAndMenus() {
                         </div>
                         <p className="text-xs font-bold text-[#008A45] mb-1">{category?.category_name || 'Uncategorized'}</p>
                         <h4 className="font-bold text-slate-900">{item.menu_name}</h4>
+                        <p className="text-xs text-slate-500 mt-1 line-clamp-2">{item.menu_description || 'No description'}</p>
                         <p className="font-semibold text-slate-700 mt-2">
                           ₱{Number(item.menu_price).toLocaleString()} <span className="text-sm font-normal text-slate-500">/ tray</span>
                         </p>
@@ -1056,14 +1146,14 @@ export default function PackagesAndMenus() {
                   <div className="space-y-4">
                     <div className="grid grid-cols-4 gap-4">
                       <div className="col-span-4 sm:col-span-2">
-                        <label className="block text-xs font-bold text-slate-700 mb-1">Package Title</label>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Package Title *</label>
                         <input type="text" name="title" value={formData.title} onChange={handleInputChange}
                           placeholder="e.g. Buffet Tier 1"
                           className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45] focus:border-[#008A45] outline-none"
                           required disabled={isSubmitting} />
                       </div>
                       <div className="col-span-2 sm:col-span-2">
-                        <label className="block text-xs font-bold text-slate-700 mb-1">Min Pax.</label>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Min Pax. *</label>
                         <input type="number" name="minPax" value={formData.minPax} onChange={handleInputChange}
                           placeholder="e.g. 50"
                           className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45] outline-none"
@@ -1101,7 +1191,7 @@ export default function PackagesAndMenus() {
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                          {formData.pricing_type === 'per_pax' ? 'Price per Pax (₱)' : 'Fixed Price (₱)'}
+                          {formData.pricing_type === 'per_pax' ? 'Price per Pax (₱) *' : 'Fixed Price (₱) *'}
                         </label>
                         <input type="number" name="price" value={formData.price} onChange={handleInputChange}
                           placeholder={formData.pricing_type === 'per_pax' ? 'e.g. 500' : 'e.g. 25000'}
@@ -1150,11 +1240,11 @@ export default function PackagesAndMenus() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Description</label>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Description *</label>
                       <textarea name="description" value={formData.description} onChange={handleInputChange}
-                        placeholder="Describe the package..." rows="2"
+                        placeholder="Describe the package..." rows="3"
                         className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45] outline-none"
-                        disabled={isSubmitting} />
+                        required disabled={isSubmitting} />
                     </div>
 
                     <div>
@@ -1219,14 +1309,14 @@ export default function PackagesAndMenus() {
                   <div className="space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div className="sm:col-span-2">
-                        <label className="block text-xs font-bold text-slate-700 mb-1">Menu Title</label>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Menu Title *</label>
                         <input type="text" name="title" value={formData.title} onChange={handleInputChange}
                           placeholder="e.g. Shrimp Dish"
                           className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45] outline-none"
                           required disabled={isSubmitting} />
                       </div>
                       <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1">Price <span className="font-normal text-slate-500">(per tray)</span></label>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Price <span className="font-normal text-slate-500">(per tray) *</span></label>
                         <input type="number" name="price" value={formData.price} onChange={handleInputChange}
                           placeholder="e.g. 150"
                           className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45] outline-none"
@@ -1234,8 +1324,9 @@ export default function PackagesAndMenus() {
                         <p className="text-xs text-slate-400 mt-1">Each tray serves 35‑50 pax.</p>
                       </div>
                     </div>
+
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Category</label>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Category *</label>
                       <select name="categoryId" value={formData.categoryId} onChange={handleInputChange}
                         className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45] outline-none bg-white"
                         required disabled={isSubmitting}>
@@ -1243,12 +1334,24 @@ export default function PackagesAndMenus() {
                         {categories.map(cat => <option key={cat.category_id} value={cat.category_id}>{cat.category_name}</option>)}
                       </select>
                     </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Description *</label>
+                      <textarea name="description" value={formData.description} onChange={handleInputChange}
+                        placeholder="Describe the menu item..." rows="3"
+                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45] outline-none"
+                        required disabled={isSubmitting} />
+                    </div>
                   </div>
                 )}
 
-                {/* Image Upload */}
+                {/* Image Upload - Required for NEW items */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Upload Image</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Upload Image
+                    {!editingId && <span className="text-red-500 ml-1">*</span>}
+                    {editingId && <span className="text-xs font-normal text-slate-400 ml-1">(leave empty to keep current)</span>}
+                  </label>
                   <label className={`border-2 border-dashed border-slate-300 rounded-lg h-32 flex flex-col items-center justify-center text-slate-400 bg-slate-50 transition-colors relative overflow-hidden ${isSubmitting ? 'opacity-50 cursor-wait' : 'cursor-pointer hover:bg-slate-100'}`}>
                     <input type="file" name="imageFile" accept="image/*" onChange={handleInputChange}
                       disabled={isSubmitting} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-wait" />
@@ -1259,7 +1362,8 @@ export default function PackagesAndMenus() {
                         <svg className="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                         </svg>
-                        <span className="text-sm font-medium">Click to upload or update</span>
+                        <span className="text-sm font-medium">{editingId ? 'Click to update image (optional)' : 'Click to upload image (required)'}</span>
+                        {!editingId && <span className="text-xs text-red-400 mt-1">* Required for new items</span>}
                       </>
                     )}
                   </label>

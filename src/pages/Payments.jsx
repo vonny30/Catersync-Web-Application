@@ -44,6 +44,10 @@ export default function Payments() {
   const [isPaymentDetailModalOpen, setIsPaymentDetailModalOpen] = useState(false);
   const [selectedPaymentDetail, setSelectedPaymentDetail] = useState(null);
 
+  // --- PROOF IMAGE MODAL STATE ---
+  const [isProofModalOpen, setIsProofModalOpen] = useState(false);
+  const [proofModalUrl, setProofModalUrl] = useState('');
+
   const initialFormState = {
     booking_id: '',
     amount: '',
@@ -371,8 +375,25 @@ export default function Payments() {
 
     let finalPayStatus = status;
     const isAmountEqualRemaining = Math.abs(amount - remainingBalance) < 0.01;
+    const isAmountEqualTotal = Math.abs(amount - totalAmount) < 0.01;
 
-    if (status === 'Downpayment' && isAmountEqualRemaining) {
+    // First payment equals full total → ask to mark as Fully Paid
+    if (status === 'Downpayment' && isFirstPayment && isAmountEqualTotal) {
+      const confirm = await showConfirm({
+        title: 'Full Payment?',
+        message: `This is the first payment and the amount (₱${amount.toLocaleString()}) equals the full total. Would you like to mark it as Fully Paid instead?`,
+        confirmLabel: 'Yes, Mark Fully Paid',
+        cancelLabel: 'No, Keep as Downpayment',
+        confirmVariant: 'success',
+      });
+      if (confirm) {
+        finalPayStatus = 'Fully Paid';
+        setFormData(prev => ({ ...prev, pay_status: 'Fully Paid' }));
+      }
+    }
+
+    // Subsequent payment equals remaining balance → ask to mark as Fully Paid
+    if (status === 'Downpayment' && isAmountEqualRemaining && !isFirstPayment) {
       const confirm = await showConfirm({
         title: 'Full Payment?',
         message: `This payment amount (₱${amount.toLocaleString()}) equals the remaining balance. Would you like to mark it as Fully Paid instead?`,
@@ -508,6 +529,7 @@ export default function Payments() {
     return map[status] || 'bg-slate-100 text-slate-600 border-slate-200';
   };
 
+  // --- Updated renderProof: opens modal instead of new tab ---
   const renderProof = (proofUrl) => {
     if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
       return <span className="text-xs text-slate-400 italic">None</span>;
@@ -520,7 +542,10 @@ export default function Payments() {
 
     return (
       <button
-        onClick={() => window.open(fullUrl, '_blank')}
+        onClick={() => {
+          setProofModalUrl(fullUrl);
+          setIsProofModalOpen(true);
+        }}
         className="inline-flex items-center justify-center w-10 h-10 border border-slate-300 rounded bg-slate-50 hover:bg-slate-100 hover:shadow-md transition-all cursor-pointer"
         title="Click to view proof"
       >
@@ -549,7 +574,9 @@ export default function Payments() {
     setIsPaymentDetailModalOpen(true);
   };
 
-  // --- Summary Card Click Handlers (updated text) ---
+  // --- Summary Card Click Handlers ---
+
+  // 1. Net Collected – shows all positive payments from active (non-rejected/cancelled) orders
   const handleCollectedClick = () => {
     const data = payments
       .filter(p => {
@@ -567,6 +594,7 @@ export default function Payments() {
     setIsSummaryModalOpen(true);
   };
 
+  // 2. Pending Balance – shows orders with outstanding amount
   const handlePendingClick = () => {
     const data = bookings.map(b => {
       const paid = payments
@@ -587,22 +615,29 @@ export default function Payments() {
     setIsSummaryModalOpen(true);
   };
 
+  // 3. ✅ FIXED Fully Paid – shows payments from fully paid orders (positive payments only)
   const handleFullyPaidClick = () => {
-    const data = bookings.map(b => {
-      const paid = payments
-        .filter(p => p.booking_id === b.booking_id)
-        .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-      const remaining = Math.max(0, (b.total_amount || 0) - paid);
-      return {
-        ...b,
-        remaining,
-        paid,
-        clientName: b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown',
-        bookingRef: b.booking_type === 'Short Order' ? `SO-${b.booking_id.slice(0, 8)}` : `BKG-${b.booking_id.slice(0, 8)}`,
-      };
-    }).filter(b => b.remaining === 0 && b.paid > 0);
+    // 3a. Determine which booking IDs are fully paid (active, not rejected/cancelled)
+    const fullyPaidBookingIds = bookings
+      .filter(b => {
+        const paid = payments
+          .filter(p => p.booking_id === b.booking_id)
+          .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+        return paid >= (b.total_amount || 0) && paid > 0;
+      })
+      .map(b => b.booking_id);
+
+    // 3b. Filter payments to those belonging to fully paid bookings (positive amounts only)
+    const data = payments
+      .filter(p => fullyPaidBookingIds.includes(p.booking_id) && p.amount_paid > 0)
+      .map(p => ({
+        ...p,
+        clientName: getClientName(p),
+        bookingRef: getBookingRef(p),
+      }));
+
     setSummaryModalData(data);
-    setSummaryModalTitle('Fully Paid Orders');
+    setSummaryModalTitle('Fully Paid Orders – Payment Details');
     setSummaryModalType('fullypaid');
     setIsSummaryModalOpen(true);
   };
@@ -804,6 +839,46 @@ export default function Payments() {
         </div>
       </div>
 
+      {/* ===== PROOF IMAGE MODAL ===== */}
+      {isProofModalOpen && proofModalUrl && createPortal(
+        <div
+          className="fixed inset-0 z-[99999] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setIsProofModalOpen(false)}
+        >
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center px-6 py-4 border-b border-slate-200">
+              <h3 className="text-lg font-bold text-slate-900">Payment Proof</h3>
+              <button
+                onClick={() => setIsProofModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-4 flex items-center justify-center max-h-[75vh] overflow-auto">
+              <img src={proofModalUrl} alt="Payment proof" className="max-w-full max-h-full object-contain rounded-lg" />
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-200">
+              <button
+                onClick={() => setIsProofModalOpen(false)}
+                className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"
+              >
+                Close
+              </button>
+              <a
+                href={proofModalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors"
+              >
+                Open in New Tab
+              </a>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
       {/* ===== PAYMENT DETAIL MODAL ===== */}
       {isPaymentDetailModalOpen && selectedPaymentDetail && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-150">
@@ -870,16 +945,6 @@ export default function Payments() {
                   <span className="font-medium text-slate-500">Proof of Payment</span>
                   <div className="mt-2">
                     {renderProof(selectedPaymentDetail.pay_proof)}
-                    {selectedPaymentDetail.pay_proof && selectedPaymentDetail.pay_proof !== 'placeholder.png' && selectedPaymentDetail.pay_proof !== 'refund_placeholder.png' && (
-                      <a
-                        href={getProofUrl(selectedPaymentDetail.pay_proof)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="ml-2 text-xs text-[#008A45] underline"
-                      >
-                        View full image
-                      </a>
-                    )}
                   </div>
                 </div>
               </div>

@@ -10,30 +10,26 @@ import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { createWalkInCustomer } from '../utils/createWalkInCustomer';
-import { useApprovalHandlers } from '../hooks/useApprovalHandlers'; // ✅ NEW
+import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
+import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 
 export default function ShortOrders() {
   const navigate = useNavigate();
   const { showConfirm } = useConfirm();
 
-  // --- DATA STATE ---
+  // --- STATE ---
   const [orders, setOrders] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  // --- UI STATE ---
   const [activeTab, setActiveTab] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedOrders, setSelectedOrders] = useState([]);
-
-  // --- PAGINATION ---
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const pageSize = 10;
   const [totalPages, setTotalPages] = useState(1);
 
-  // --- FILTERS ---
   const [filters, setFilters] = useState({
     dateFrom: '',
     dateTo: '',
@@ -43,10 +39,8 @@ export default function ShortOrders() {
   });
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
 
-  // --- MODAL STATE (Create/Edit) ---
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  // --- NEW: Customer mode selector: 'existing' or 'new' ---
   const [customerMode, setCustomerMode] = useState('existing');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -58,7 +52,7 @@ export default function ShortOrders() {
     notes: '',
     total_amount: '0',
     delivery_fee: '0',
-    menu_selections: [], // [{menu_item_id, quantity}]
+    menu_selections: [],
   });
   const [tempItem, setTempItem] = useState({ menu_item_id: '', quantity: 1 });
   const [walkInData, setWalkInData] = useState({
@@ -69,28 +63,16 @@ export default function ShortOrders() {
     cus_address: '',
   });
 
-  // --- CUSTOMER SEARCH STATE ---
   const [customerSearch, setCustomerSearch] = useState('');
   const [filteredCustomers, setFilteredCustomers] = useState([]);
   const [showCustomerList, setShowCustomerList] = useState(false);
 
-  // --- REJECTION MODAL STATE ---
-  const [isRejectionModalOpen, setIsRejectionModalOpen] = useState(false);
-  const [rejectionOrderId, setRejectionOrderId] = useState(null);
-  const [rejectionReason, setRejectionReason] = useState('');
-  const [rejectionRefundAmount, setRejectionRefundAmount] = useState('');
-  const [rejectionRefundRemarks, setRejectionRefundRemarks] = useState('');
-  const [rejectionRefundFile, setRejectionRefundFile] = useState(null);
-  const [showRejectionRefund, setShowRejectionRefund] = useState(false);
-  const [rejectionMaxRefundable, setRejectionMaxRefundable] = useState(0);
-
-  // --- HELPER: Error handling ---
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
     console.error('Error:', error);
     toast.error(userMessage);
   };
 
-  // --- FETCH DATA (with pagination) ---
+  // --- FETCH DATA ---
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -106,7 +88,6 @@ export default function ShortOrders() {
         query = query.eq('booking_status', activeTab);
       }
 
-      // Apply date range filters
       if (filters.dateFrom) {
         const fromDate = new Date(filters.dateFrom);
         fromDate.setHours(0, 0, 0, 0);
@@ -118,33 +99,31 @@ export default function ShortOrders() {
         query = query.lte('event_datetime', toDate.toISOString());
       }
 
-      // Apply customer filter
       if (filters.customerId) {
         query = query.eq('customer_id', filters.customerId);
       }
-
-      // Apply venue filter (contains)
       if (filters.venue) {
         query = query.ilike('venue', `%${filters.venue}%`);
       }
 
-      // ============================================================
-      // 🔧 FIXED SEARCH – only searches customer name (no UUID ilike)
-      // ============================================================
+      // --- SEARCH ---
       if (searchTerm) {
         const search = searchTerm.trim();
         if (search) {
-          const encodedSearch = encodeURIComponent(search);
-          let customerIds = [];
+          const parts = search.split(' ').filter(p => p.length > 0);
+          const conditions = [];
+          parts.forEach(part => {
+            conditions.push(`first_name.ilike.%${part}%`);
+            conditions.push(`last_name.ilike.%${part}%`);
+          });
+          const queryCondition = conditions.join(',');
 
+          let customerIds = [];
           try {
             const { data: matchingCustomers } = await supabase
               .from('customer')
               .select('customer_id')
-              .or(
-                `first_name.ilike.%${encodedSearch}%,` +
-                `last_name.ilike.%${encodedSearch}%`
-              );
+              .or(queryCondition);
             customerIds = (matchingCustomers || []).map(c => c.customer_id);
           } catch (e) {
             console.warn('Customer search failed:', e);
@@ -153,7 +132,6 @@ export default function ShortOrders() {
           if (customerIds.length > 0) {
             query = query.in('customer_id', customerIds);
           } else {
-            // No matches – force empty result
             query = query.eq('customer_id', '00000000-0000-0000-0000-000000000000');
           }
         }
@@ -171,7 +149,7 @@ export default function ShortOrders() {
       setTotalCount(count || 0);
       setTotalPages(Math.ceil((count || 0) / pageSize));
 
-      // Enrich with payment summaries (for refund status)
+      // Enrich with payment summaries
       if (ordersData && ordersData.length > 0) {
         const bookingIds = ordersData.map(b => b.booking_id);
         const { data: paymentsData, error: paymentsError } = await supabase
@@ -198,7 +176,7 @@ export default function ShortOrders() {
         const enriched = ordersData.map(order => {
           const p = paymentMap[order.booking_id] || { positive: 0, refunded: 0, downpayment: 0 };
           let refundStatus = null;
-          if (order.booking_status === 'Rejected' && p.positive > 0 || order.booking_status === 'Cancelled' && p.positive > 0) {
+          if (order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') {
             const eventDate = order.event_datetime ? new Date(order.event_datetime) : null;
             let isRefundable = false;
             if (eventDate) {
@@ -206,12 +184,16 @@ export default function ShortOrders() {
               const daysUntilEvent = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
               isRefundable = daysUntilEvent >= 3;
             }
-            if (p.refunded >= p.positive) {
-              refundStatus = 'Fully Refunded';
-            } else if (isRefundable) {
-              refundStatus = 'Refundable';
+            if (p.positive > 0) {
+              if (p.refunded >= p.positive) {
+                refundStatus = 'Fully Refunded';
+              } else if (isRefundable) {
+                refundStatus = 'Refundable';
+              } else {
+                refundStatus = 'Non-Refundable';
+              }
             } else {
-              refundStatus = 'Non-Refundable';
+              refundStatus = 'No Payments';
             }
           }
           return { ...order, positivePayments: p.positive, totalRefunded: p.refunded, downpaymentPaid: p.downpayment, refundStatus };
@@ -221,7 +203,6 @@ export default function ShortOrders() {
         setOrders(ordersData || []);
       }
 
-      // Fetch dropdown data (customers, menu items)
       const { data: customersData, error: customersError } = await supabase
         .from('customer')
         .select('customer_id, first_name, last_name, contact_no, email_address')
@@ -246,7 +227,9 @@ export default function ShortOrders() {
     }
   };
 
-  // ✅ NOW the hook can safely reference fetchData
+  // --- REACT HOOKS (top level) ---
+
+  // 1. Approval Handler Hook
   const {
     isApprovalModalOpen,
     setIsApprovalModalOpen,
@@ -262,11 +245,35 @@ export default function ShortOrders() {
     fetchData: fetchData,
   });
 
-  useEffect(() => {
-    fetchData();
-  }, [currentPage, activeTab, searchTerm, filters]);
+  // 2. Rejection Handler Hook with callbacks
+  const getOrder = (id) => orders.find(o => o.booking_id === id);
+  const getPaymentSummary = (id) => {
+    const o = getOrder(id);
+    return o ? { positivePayments: o.positivePayments, downpaymentPaid: o.downpaymentPaid } : { positivePayments: 0, downpaymentPaid: 0 };
+  };
 
-  // --- CUSTOMER SEARCH FILTER ---
+  const {
+    isRejectionModalOpen,
+    setIsRejectionModalOpen,
+    rejectionReason,
+    setRejectionReason,
+    rejectionRefundAmount,
+    setRejectionRefundAmount,
+    rejectionRefundRemarks,
+    setRejectionRefundRemarks,
+    rejectionRefundFile,
+    setRejectionRefundFile,
+    showRejectionRefund,
+    rejectionMaxRefundable,
+    openRejectionModal,
+    handleRejectConfirm,
+  } = useRejectionHandlers({
+    getBooking: getOrder,
+    getPaymentSummary,
+    fetchData,
+  });
+
+  // 3. Customer search filter for modal dropdown
   useEffect(() => {
     if (customerSearch.trim() === '') {
       setFilteredCustomers(customers.slice(0, 10));
@@ -281,6 +288,34 @@ export default function ShortOrders() {
     setFilteredCustomers(filtered.slice(0, 15));
   }, [customerSearch, customers]);
 
+  // 4. Fetch data when dependencies change
+  useEffect(() => {
+    fetchData();
+  }, [currentPage, activeTab, searchTerm, filters]);
+
+  // 5. ✅ REAL‑TIME SUBSCRIPTION (MUST be at top level, NOT inside fetchData)
+  useEffect(() => {
+    const subscription = supabase
+      .channel('shortorder-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'booking',
+          filter: `booking_type=eq.Short Order`,
+        },
+        () => {
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
+  }, []);
+
   // --- SELECT CUSTOMER ---
   const selectCustomer = (customer) => {
     setFormData(prev => ({ ...prev, customer_id: customer.customer_id }));
@@ -292,7 +327,6 @@ export default function ShortOrders() {
   const openWalkInFromSearch = () => {
     setCustomerMode('new');
     setShowCustomerList(false);
-    // Auto-fill: if search contains '@', put in email, else split name
     const search = customerSearch.trim();
     if (search.includes('@')) {
       setWalkInData(prev => ({ ...prev, email_address: search }));
@@ -452,11 +486,11 @@ export default function ShortOrders() {
   };
   const applyFilters = () => {
     setIsFilterModalOpen(false);
-    setCurrentPage(1); // Reset to first page when filters change
+    setCurrentPage(1);
   };
   const clearFilters = () => {
     setFilters({ dateFrom: '', dateTo: '', customerId: '', venue: '', status: '' });
-    setCurrentPage(1); // Reset to first page
+    setCurrentPage(1);
   };
 
   // --- CRUD SUBMIT (Create/Edit) ---
@@ -468,14 +502,12 @@ export default function ShortOrders() {
 
     // --- CUSTOMER VALIDATION ---
     if (!editingId) {
-      // For existing customer mode: customer_id must be selected
       if (customerMode === 'existing' && !formData.customer_id) {
         toast.error('Please select an existing customer.');
         setIsSubmitting(false);
         return;
       }
 
-      // For walk-in/new customer mode: require all fields
       if (customerMode === 'new') {
         if (!walkInData.first_name || !walkInData.last_name || !walkInData.contact_no || !walkInData.email_address) {
           toast.error('Please fill in all customer details for walk-in customer.');
@@ -487,7 +519,6 @@ export default function ShortOrders() {
           setIsSubmitting(false);
           return;
         }
-        // Validate contact number: 11 digits, numeric only
         const phoneRegex = /^[0-9]{11}$/;
         if (!phoneRegex.test(walkInData.contact_no)) {
           toast.error('Contact number must be exactly 11 digits (numbers only).');
@@ -572,7 +603,7 @@ export default function ShortOrders() {
         }
       }
 
-      // Duplicate check: same customer, same DATE (ignoring time) – warning
+      // ✅ DUPLICATE CHECK – only active bookings (not Rejected or Cancelled) on the same date
       const eventDate = new Date(formData.event_datetime);
       const startOfDay = new Date(eventDate);
       startOfDay.setHours(0, 0, 0, 0);
@@ -587,8 +618,11 @@ export default function ShortOrders() {
         .eq('customer_id', customerId)
         .eq('booking_type', 'Short Order')
         .gte('event_datetime', startISO)
-        .lte('event_datetime', endISO);
+        .lte('event_datetime', endISO)
+        .not('booking_status', 'in', '("Rejected","Cancelled")'); // ✅ exclude
+
       if (editingId) dupQuery = dupQuery.neq('booking_id', editingId);
+
       const { data: duplicates, error: dupError } = await dupQuery;
       if (dupError) console.error('Duplicate check error:', dupError);
       else if (duplicates && duplicates.length > 0) {
@@ -599,19 +633,23 @@ export default function ShortOrders() {
           .eq('customer_id', customerId)
           .maybeSingle();
         const customerName = customerData ? `${customerData.first_name} ${customerData.last_name}` : 'Unknown Customer';
-        const eventDateStr = existing.event_datetime ? new Date(existing.event_datetime).toLocaleString() : 'Unknown Date';
+        const existingTime = existing.event_datetime
+          ? new Date(existing.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          : 'Unknown Time';
         const venue = existing.venue || 'N/A';
         const status = existing.booking_status || 'Unknown';
         const count = duplicates.length;
+
         let message = `⚠️ Duplicate Booking Found\n\n`;
         if (count > 1) message += `Found ${count} bookings on this date. Showing the first one:\n\n`;
         message +=
           `Customer  : ${customerName}\n` +
           `Date      : ${new Date(eventDate).toLocaleDateString()}\n` +
-          `Time      : ${new Date(existing.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}\n` +
+          `Time      : ${existingTime}\n` +
           `Venue     : ${venue}\n` +
           `Status    : ${status}\n\n` +
           `Do you still want to proceed with this new booking?`;
+
         const proceed = await showConfirm({
           title: '⚠️ Duplicate Booking Detected',
           message: message,
@@ -637,8 +675,6 @@ export default function ShortOrders() {
         delivery_fee: parseFloat(formData.delivery_fee) || 0,
         booking_status: editingId ? undefined : 'Pending',
         menu_selections: formData.menu_selections,
-        // Only set these fields when creating a NEW order.
-        // Editing must NOT reset is_read or book_datetime.
         ...(editingId
           ? {}
           : {
@@ -679,143 +715,7 @@ export default function ShortOrders() {
   };
 
   // ❌ REMOVED local approval functions – now provided by the hook.
-
-  // --- REJECTION FLOW (with reason and refund modal) ---
-  const openRejectionModal = async (id) => {
-    const order = orders.find(o => o.booking_id === id);
-    if (!order) return;
-
-    const positivePayments = order.positivePayments || 0;
-    const downpaymentPaid = order.downpaymentPaid || 0;
-
-    let warningMessage = 'Are you sure you want to reject this order? This will cancel it and cannot be undone.';
-    if (positivePayments > 0) {
-      const totalAmount = order.total_amount || 0;
-      const percentage = totalAmount > 0 ? (positivePayments / totalAmount) * 100 : 0;
-      warningMessage = `This order has payments totaling ₱${positivePayments.toLocaleString()} (${percentage.toFixed(1)}% of total). Rejecting this order will keep the payments recorded. You may need to process refunds separately. Do you still want to reject?`;
-    }
-    const confirmed = await showConfirm({
-      title: 'Reject Order?',
-      message: warningMessage,
-      confirmLabel: 'Yes, Continue',
-      cancelLabel: 'Cancel',
-      confirmVariant: 'danger',
-    });
-    if (!confirmed) return;
-
-    const eventDate = order.event_datetime ? new Date(order.event_datetime) : null;
-    let isRefundable = false;
-    if (eventDate) {
-      const now = new Date();
-      const diffTime = eventDate.getTime() - now.getTime();
-      const daysUntilEvent = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      isRefundable = daysUntilEvent >= 3;
-    }
-
-    // Max refundable = all paid if >=3 days, otherwise only the excess above downpayment
-    let maxRefundable = 0;
-    if (isRefundable) {
-      maxRefundable = positivePayments;
-    } else {
-      maxRefundable = Math.max(0, positivePayments - downpaymentPaid);
-    }
-
-    setRejectionOrderId(id);
-    setRejectionMaxRefundable(maxRefundable);
-    setShowRejectionRefund(maxRefundable > 0);
-    setRejectionReason('');
-    setRejectionRefundAmount('');
-    setRejectionRefundRemarks('');
-    setRejectionRefundFile(null);
-    setIsRejectionModalOpen(true);
-  };
-
-  const handleRejectConfirm = async () => {
-    const id = rejectionOrderId;
-    if (!id) return;
-    const order = orders.find(o => o.booking_id === id);
-    if (!order) return;
-
-    // ✅ VALIDATE REFUND FIRST – before the order is marked Rejected.
-    let enteredAmount = 0;
-    let proofUrl = 'refund_placeholder.png';
-
-    if (showRejectionRefund) {
-      enteredAmount = parseFloat(rejectionRefundAmount) || 0;
-      if (enteredAmount > 0) {
-        if (enteredAmount > rejectionMaxRefundable) {
-          toast.error(`Refund amount cannot exceed ₱${rejectionMaxRefundable.toLocaleString()}.`);
-          return; // Modal stays open
-        }
-        if (!rejectionRefundFile) {
-          toast.error('Please upload a proof of refund receipt.');
-          return; // Modal stays open
-        }
-        // Upload proof first (before any state changes)
-        const fileExt = rejectionRefundFile.name.split('.').pop();
-        const fileName = `refunds/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-        const { error: uploadError } = await supabase.storage
-          .from('images')
-          .upload(fileName, rejectionRefundFile);
-        if (uploadError) {
-          toast.error('Failed to upload refund proof. Please try again.');
-          return; // Modal stays open
-        }
-        const { data: publicUrlData } = supabase.storage
-          .from('images')
-          .getPublicUrl(fileName);
-        proofUrl = publicUrlData.publicUrl;
-      }
-    }
-
-    // Only close the modal once validation/upload succeeded
-    setIsRejectionModalOpen(false);
-
-    try {
-      const reasonText = rejectionReason.trim() || 'No reason provided';
-      let updatedNotes = order.notes
-        ? `${order.notes}\n[REJECTION] ${reasonText}`
-        : `[REJECTION] ${reasonText}`;
-
-      const { error } = await supabase
-        .from('booking')
-        .update({
-          booking_status: 'Rejected',
-          notes: updatedNotes,
-        })
-        .eq('booking_id', id);
-      if (error) throw error;
-
-      // Process refund if requested and amount > 0
-      if (showRejectionRefund && enteredAmount > 0) {
-        const { error: refundError } = await supabase
-          .from('payment')
-          .insert([{
-            booking_id: id,
-            amount_paid: -enteredAmount,
-            pay_method: 'Refund',
-            pay_status: 'Refunded',
-            pay_datetime: new Date().toISOString(),
-            pay_proof: proofUrl,
-            customer_id: order.customer_id,
-            remarks: rejectionRefundRemarks || 'Refund processed during rejection',
-          }]);
-        if (refundError) throw refundError;
-
-        const refundNote = `[REFUND] Amount: ₱${enteredAmount.toFixed(2)}. ${rejectionRefundRemarks || ''}`;
-        updatedNotes = updatedNotes + `\n${refundNote}`;
-        await supabase
-          .from('booking')
-          .update({ notes: updatedNotes })
-          .eq('booking_id', id);
-      }
-
-      toast.success('Order rejected.');
-      fetchData();
-    } catch (error) {
-      handleError(error, 'Failed to reject order.');
-    }
-  };
+  // ❌ REMOVED local rejection functions – now provided by the hook.
 
   const handleMarkCompleted = async (id) => {
     const order = orders.find(o => o.booking_id === id);
@@ -834,8 +734,6 @@ export default function ShortOrders() {
         .eq('booking_id', id);
       if (error) throw error;
 
-      // ✅ Only mark payments as Fully Paid if the order is actually fully settled.
-      // Do NOT overwrite payment records for orders still carrying a balance.
       if (order && order.positivePayments >= (order.total_amount || 0)) {
         const { error: updatePaymentsError } = await supabase
           .from('payment')
@@ -1012,7 +910,7 @@ export default function ShortOrders() {
             key={tab}
             onClick={() => {
               setActiveTab(tab);
-              setCurrentPage(1); // Reset to first page when tab changes
+              setCurrentPage(1);
             }}
             className={`pb-3 text-sm font-semibold transition-colors border-b-2 shrink-0 ${
               activeTab === tab
@@ -1154,7 +1052,6 @@ export default function ShortOrders() {
                           <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getStatusBadge(order.booking_status)} inline-block w-[120px] text-center`}>
                             {order.booking_status}
                           </span>
-                          {/* ✅ Refund badge now shows for both Rejected and Cancelled */}
                           {(order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') && order.refundStatus && (
                             <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getRefundStatusBadge(order.refundStatus)} inline-block w-[120px] text-center`}>
                               {order.refundStatus}
@@ -1166,7 +1063,6 @@ export default function ShortOrders() {
                         <div className="flex items-center justify-center gap-1.5 flex-nowrap whitespace-nowrap">
                           {order.booking_status === 'Pending' && (
                             <>
-                              {/* ✅ Updated to use the hook's openApprovalModal with 'shortorder' */}
                               <button
                                 onClick={() => openApprovalModal(order, 'shortorder')}
                                 className="bg-[#C1DEDC] border border-[#a8cfcc] text-slate-800 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-[#b8dad7] transition-colors"
@@ -1251,12 +1147,10 @@ export default function ShortOrders() {
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 text-left">
-              {/* --- Customer Selection with Mode Toggle --- */}
+              {/* Customer Selection */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Customer</label>
-                
                 {editingId ? (
-                  // Edit mode: show customer name (cannot change)
                   <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-700">
                     {customers.find(c => c.customer_id === formData.customer_id)?.first_name}{' '}
                     {customers.find(c => c.customer_id === formData.customer_id)?.last_name}
@@ -1264,7 +1158,6 @@ export default function ShortOrders() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {/* --- Mode Selector Buttons --- */}
                     <div className="flex gap-3">
                       <button
                         type="button"
@@ -1280,8 +1173,7 @@ export default function ShortOrders() {
                             : 'border-slate-300 text-slate-500 hover:bg-slate-50'
                         }`}
                       >
-                        <Users size={18} />
-                        Existing Customer
+                        <Users size={18} /> Existing Customer
                       </button>
                       <button
                         type="button"
@@ -1297,12 +1189,10 @@ export default function ShortOrders() {
                             : 'border-slate-300 text-slate-500 hover:bg-slate-50'
                         }`}
                       >
-                        <UserPlus size={18} />
-                        Walk-in / New Customer
+                        <UserPlus size={18} /> Walk-in / New Customer
                       </button>
                     </div>
 
-                    {/* --- Existing Customer Search --- */}
                     {customerMode === 'existing' && (
                       <div>
                         <div className="relative">
@@ -1320,7 +1210,6 @@ export default function ShortOrders() {
                               className="w-full border border-slate-300 rounded-lg pl-10 pr-3 py-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
                             />
                           </div>
-                          
                           {showCustomerList && (
                             <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                               {filteredCustomers.length > 0 ? (
@@ -1349,19 +1238,15 @@ export default function ShortOrders() {
                                     onClick={openWalkInFromSearch}
                                     className="inline-flex items-center gap-2 px-4 py-2 bg-[#008A45] text-white text-sm font-semibold rounded-lg hover:bg-[#007038] transition-colors"
                                   >
-                                    <UserPlus size={16} />
-                                    Create New Customer
+                                    <UserPlus size={16} /> Create New Customer
                                   </button>
                                 </div>
                               )}
                             </div>
                           )}
                         </div>
-                        
                         {!formData.customer_id && customerSearch === '' && (
-                          <p className="text-xs text-slate-400 mt-1">
-                            Type to search for an existing customer, or switch to "Walk-in / New Customer" above.
-                          </p>
+                          <p className="text-xs text-slate-400 mt-1">Type to search for an existing customer, or switch to "Walk-in / New Customer" above.</p>
                         )}
                         {formData.customer_id && (
                           <p className="text-xs text-green-600 mt-1 font-medium">
@@ -1371,7 +1256,6 @@ export default function ShortOrders() {
                       </div>
                     )}
 
-                    {/* --- Walk-in / New Customer Form --- */}
                     {customerMode === 'new' && (
                       <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
                         <div className="flex items-center justify-between">
@@ -1643,7 +1527,7 @@ export default function ShortOrders() {
         document.body
       )}
 
-      {/* ===== REJECTION REASON MODAL (with refund fields) ===== */}
+      {/* ===== REJECTION REASON MODAL (using hook's state and handlers) ===== */}
       {isRejectionModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
@@ -1666,7 +1550,6 @@ export default function ShortOrders() {
                 <p className="text-xs text-slate-400 mt-1">Optional, but recommended.</p>
               </div>
 
-              {/* Refund fields if applicable */}
               {showRejectionRefund && (
                 <div className="border-t border-slate-200 pt-3 mt-3">
                   <p className="text-xs font-bold text-slate-700 mb-2">

@@ -63,6 +63,10 @@ export default function BookingDetails() {
   const [refundModalFile, setRefundModalFile] = useState(null);
   const [isRefundSubmitting, setIsRefundSubmitting] = useState(false);
 
+  // --- Proof Image Modal state ---
+  const [isProofModalOpen, setIsProofModalOpen] = useState(false);
+  const [proofModalUrl, setProofModalUrl] = useState('');
+
   // --- FETCH DATA ---
   const fetchBooking = async () => {
     setLoading(true);
@@ -601,6 +605,41 @@ export default function BookingDetails() {
     }
   };
 
+  // --- Render helpers ---
+  const renderProof = (proofUrl) => {
+    if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
+      return <span className="text-xs text-slate-400 italic">None</span>;
+    }
+    const fullUrl = getProofUrl(proofUrl);
+    if (!fullUrl) {
+      return <span className="text-xs text-slate-400 italic">Invalid</span>;
+    }
+    return (
+      <button
+        onClick={() => {
+          setProofModalUrl(fullUrl);
+          setIsProofModalOpen(true);
+        }}
+        className="w-8 h-8 rounded border border-slate-200 overflow-hidden hover:shadow-md transition-shadow cursor-pointer flex items-center justify-center bg-slate-50"
+        title="Click to view proof"
+      >
+        <img
+          src={fullUrl}
+          alt="Payment proof"
+          className="w-full h-full object-cover"
+          onError={(e) => {
+            e.target.style.display = 'none';
+            const parent = e.target.parentElement;
+            const fallback = document.createElement('div');
+            fallback.className = 'w-full h-full flex items-center justify-center text-slate-400';
+            fallback.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>`;
+            parent.appendChild(fallback);
+          }}
+        />
+      </button>
+    );
+  };
+
   // --- RENDER ---
   if (loading) return <div className="p-12 text-center text-slate-500 font-medium">Loading...</div>;
   if (!booking) return <div className="p-12 text-center text-slate-500">Booking not found.</div>;
@@ -654,37 +693,6 @@ export default function BookingDetails() {
 
   const canCancel = booking.booking_status === 'Approved';
   const showAddRefund = (booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') && remainingRefundableAmount > 0;
-
-  const renderProof = (proofUrl) => {
-    if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
-      return <span className="text-xs text-slate-400 italic">None</span>;
-    }
-    const fullUrl = getProofUrl(proofUrl);
-    if (!fullUrl) {
-      return <span className="text-xs text-slate-400 italic">Invalid</span>;
-    }
-    return (
-      <button
-        onClick={() => window.open(fullUrl, '_blank')}
-        className="w-8 h-8 rounded border border-slate-200 overflow-hidden hover:shadow-md transition-shadow cursor-pointer flex items-center justify-center bg-slate-50"
-        title="Click to view proof"
-      >
-        <img
-          src={fullUrl}
-          alt="Payment proof"
-          className="w-full h-full object-cover"
-          onError={(e) => {
-            e.target.style.display = 'none';
-            const parent = e.target.parentElement;
-            const fallback = document.createElement('div');
-            fallback.className = 'w-full h-full flex items-center justify-center text-slate-400';
-            fallback.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>`;
-            parent.appendChild(fallback);
-          }}
-        />
-      </button>
-    );
-  };
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
@@ -1537,133 +1545,133 @@ export default function BookingDetails() {
         document.body
       )}
 
-{/* ===== CANCEL BOOKING MODAL ===== */}
-{isCancelModalOpen && createPortal(
-  <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
-    <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
-      <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
-        <h2 className="text-lg font-bold text-slate-900">Cancel Booking</h2>
-        <button
-          onClick={() => setIsCancelModalOpen(false)}
-          className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"
-        >
-          <X size={18} />
-        </button>
-      </div>
-      <div className="p-6 space-y-4">
-        <div className={`p-3 rounded-lg text-sm border ${eventDate && daysUntilEvent < 3 ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
-          <p className="font-bold">Event Date: {eventDate ? new Date(eventDate).toLocaleString() : 'N/A'}</p>
-          {eventDate && daysUntilEvent !== null && (
-            <p>{daysUntilEvent >= 0 ? `${daysUntilEvent} days until event` : 'Event has already passed'}</p>
-          )}
-          <p className="mt-1">Total paid: <span className="font-bold">₱{positivePayments.toLocaleString()}</span></p>
+      {/* ===== CANCEL BOOKING MODAL ===== */}
+      {isCancelModalOpen && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Cancel Booking</h2>
+              <button
+                onClick={() => setIsCancelModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className={`p-3 rounded-lg text-sm border ${eventDate && daysUntilEvent < 3 ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+                <p className="font-bold">Event Date: {eventDate ? new Date(eventDate).toLocaleString() : 'N/A'}</p>
+                {eventDate && daysUntilEvent !== null && (
+                  <p>{daysUntilEvent >= 0 ? `${daysUntilEvent} days until event` : 'Event has already passed'}</p>
+                )}
+                <p className="mt-1">Total paid: <span className="font-bold">₱{positivePayments.toLocaleString()}</span></p>
 
-          {positivePayments > 0 ? (
-            <>
-              {eventDate && daysUntilEvent !== null && daysUntilEvent < 3 && daysUntilEvent >= 0 && (
-                <p className="font-bold mt-1 text-red-600">⚠️ Cancellation is within 3 days – downpayment is NON‑REFUNDABLE per policy.</p>
-              )}
-              {eventDate && daysUntilEvent !== null && daysUntilEvent >= 3 && (
-                <p className="font-bold mt-1 text-green-700">✅ Cancellation is 3+ days before event – downpayment IS refundable.</p>
-              )}
-              {!isRefundable && downpaymentPaid > 0 && (
-                <p className="mt-1 text-xs text-red-600">Downpayment (₱{downpaymentPaid.toLocaleString()}) will be forfeited.</p>
-              )}
-              {isRefundable && downpaymentPaid > 0 && (
-                <p className="mt-1 text-xs text-green-600">Downpayment is refundable as per policy.</p>
-              )}
-            </>
-          ) : (
-            <p className="mt-1 text-xs text-slate-500">No payments have been made, so no refund is applicable.</p>
-          )}
-        </div>
+                {positivePayments > 0 ? (
+                  <>
+                    {eventDate && daysUntilEvent !== null && daysUntilEvent < 3 && daysUntilEvent >= 0 && (
+                      <p className="font-bold mt-1 text-red-600">⚠️ Cancellation is within 3 days – downpayment is NON‑REFUNDABLE per policy.</p>
+                    )}
+                    {eventDate && daysUntilEvent !== null && daysUntilEvent >= 3 && (
+                      <p className="font-bold mt-1 text-green-700">✅ Cancellation is 3+ days before event – downpayment IS refundable.</p>
+                    )}
+                    {!isRefundable && downpaymentPaid > 0 && (
+                      <p className="mt-1 text-xs text-red-600">Downpayment (₱{downpaymentPaid.toLocaleString()}) will be forfeited.</p>
+                    )}
+                    {isRefundable && downpaymentPaid > 0 && (
+                      <p className="mt-1 text-xs text-green-600">Downpayment is refundable as per policy.</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="mt-1 text-xs text-slate-500">No payments have been made, so no refund is applicable.</p>
+                )}
+              </div>
 
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Cancellation Reason *</label>
+                <textarea
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  rows="3"
+                  placeholder="e.g., Client cancelled, rescheduled, budget issues, etc."
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
+                  required
+                />
+              </div>
+
+{isRefundable && (() => {
+  const maxRefundable = positivePayments; // since it's refundable, all payments are refundable
+  return maxRefundable > 0 && (
+    <div className="border-t border-slate-200 pt-3 mt-3">
+      <p className="text-xs font-bold text-slate-700 mb-2">
+        Record Refund Details <span className="font-normal text-slate-400">(optional – leave blank to skip)</span>
+      </p>
+      <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">Cancellation Reason *</label>
-          <textarea
-            value={cancelReason}
-            onChange={(e) => setCancelReason(e.target.value)}
-            rows="3"
-            placeholder="e.g., Client cancelled, rescheduled, budget issues, etc."
-            className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
-            required
+          <label className="block text-xs font-semibold text-slate-600 mb-0.5">Refund Amount (₱)</label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={refundAmount}
+            onChange={(e) => setRefundAmount(e.target.value)}
+            placeholder="Enter amount (optional)"
+            className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
+          />
+          <p className="text-[10px] text-slate-400 mt-0.5">Max: ₱{positivePayments.toLocaleString()}</p>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-600 mb-0.5">Remarks</label>
+          <input
+            type="text"
+            value={refundRemarks}
+            onChange={(e) => setRefundRemarks(e.target.value)}
+            placeholder="Reason for refund"
+            className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
           />
         </div>
-
-        {(() => {
-          const maxRefundable = isRefundable ? positivePayments : Math.max(0, positivePayments - downpaymentPaid);
-          return maxRefundable > 0 && (
-            <div className="border-t border-slate-200 pt-3 mt-3">
-              <p className="text-xs font-bold text-slate-700 mb-2">
-                Record Refund Details <span className="font-normal text-slate-400">(optional – leave blank to skip)</span>
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-0.5">Refund Amount (₱)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={refundAmount}
-                    onChange={(e) => setRefundAmount(e.target.value)}
-                    placeholder="Enter amount (optional)"
-                    className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-0.5">Max: ₱{maxRefundable.toLocaleString()}</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-0.5">Remarks</label>
-                  <input
-                    type="text"
-                    value={refundRemarks}
-                    onChange={(e) => setRefundRemarks(e.target.value)}
-                    placeholder="Reason for refund"
-                    className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
-                  />
-                </div>
-              </div>
-              <div className="mt-2">
-                <label className="block text-xs font-semibold text-slate-600 mb-0.5">
-                  Receipt / Proof of Refund
-                  <span className="text-red-500 ml-1">*</span>
-                  <span className="font-normal text-slate-400 ml-1">(required if amount entered)</span>
-                </label>
-                <label className="border-2 border-dashed border-slate-300 rounded-lg p-2 flex items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center">
-                  <input type="file" onChange={(e) => setRefundFile(e.target.files[0])} accept="image/*" className="hidden" />
-                  <span className="text-xs text-slate-600">{refundFile ? refundFile.name : 'Upload Image (required for refund)'}</span>
-                </label>
-              </div>
-            </div>
-          );
-        })()}
-
-        {positivePayments > 0 && !isRefundable && downpaymentPaid > 0 && (
-          <div className="border-t border-slate-200 pt-3 mt-3 text-xs text-slate-500">
-            <p>⚠️ This booking is <strong>non‑refundable</strong> because the event is less than 3 days away. The downpayment of ₱{downpaymentPaid.toLocaleString()} will be forfeited.</p>
-          </div>
-        )}
-
-        <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
-          <button
-            type="button"
-            onClick={() => setIsCancelModalOpen(false)}
-            className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleCancelBooking}
-            disabled={isCancelling}
-            className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm disabled:opacity-50"
-          >
-            {isCancelling ? 'Processing...' : 'Confirm Cancellation'}
-          </button>
-        </div>
+      </div>
+      <div className="mt-2">
+        <label className="block text-xs font-semibold text-slate-600 mb-0.5">
+          Receipt / Proof of Refund
+          <span className="text-red-500 ml-1">*</span>
+          <span className="font-normal text-slate-400 ml-1">(required if amount entered)</span>
+        </label>
+        <label className="border-2 border-dashed border-slate-300 rounded-lg p-2 flex items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center">
+          <input type="file" onChange={(e) => setRefundFile(e.target.files[0])} accept="image/*" className="hidden" />
+          <span className="text-xs text-slate-600">{refundFile ? refundFile.name : 'Upload Image (required for refund)'}</span>
+        </label>
       </div>
     </div>
-  </div>,
-  document.body
-)}
+  );
+})()}
+
+              {positivePayments > 0 && !isRefundable && downpaymentPaid > 0 && (
+                <div className="border-t border-slate-200 pt-3 mt-3 text-xs text-slate-500">
+                  <p>⚠️ This booking is <strong>non‑refundable</strong> because the event is less than 3 days away. The downpayment of ₱{downpaymentPaid.toLocaleString()} will be forfeited.</p>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setIsCancelModalOpen(false)}
+                  className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCancelBooking}
+                  disabled={isCancelling}
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm disabled:opacity-50"
+                >
+                  {isCancelling ? 'Processing...' : 'Confirm Cancellation'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* ===== EDIT EQUIPMENT QUANTITY MODAL ===== */}
       {isEditEquipModalOpen && editingAssignment && createPortal(
@@ -1934,6 +1942,46 @@ export default function BookingDetails() {
                   {isApprovalSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ===== PROOF IMAGE MODAL ===== */}
+      {isProofModalOpen && proofModalUrl && createPortal(
+        <div
+          className="fixed inset-0 z-[99999] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setIsProofModalOpen(false)}
+        >
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center px-6 py-4 border-b border-slate-200">
+              <h3 className="text-lg font-bold text-slate-900">Payment Proof</h3>
+              <button
+                onClick={() => setIsProofModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-4 flex items-center justify-center max-h-[75vh] overflow-auto">
+              <img src={proofModalUrl} alt="Payment proof" className="max-w-full max-h-full object-contain rounded-lg" />
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-200">
+              <button
+                onClick={() => setIsProofModalOpen(false)}
+                className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"
+              >
+                Close
+              </button>
+              <a
+                href={proofModalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors"
+              >
+                Open in New Tab
+              </a>
             </div>
           </div>
         </div>,

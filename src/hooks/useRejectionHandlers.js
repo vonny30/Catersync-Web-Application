@@ -1,10 +1,12 @@
+// src/hooks/useRejectionHandlers.js
 import { useState } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 
-export function useRejectionHandlers({ booking, payments, fetchData }) {
+export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData }) {
   const { showConfirm } = useConfirm();
+
   const [isRejectionModalOpen, setIsRejectionModalOpen] = useState(false);
   const [rejectionBookingId, setRejectionBookingId] = useState(null);
   const [rejectionReason, setRejectionReason] = useState('');
@@ -15,19 +17,21 @@ export function useRejectionHandlers({ booking, payments, fetchData }) {
   const [rejectionMaxRefundable, setRejectionMaxRefundable] = useState(0);
 
   const openRejectionModal = async (id) => {
-    const b = booking; // the booking object (could be package or short order)
-    const positivePayments = payments
-      .filter(p => p.amount_paid > 0)
-      .reduce((sum, p) => sum + p.amount_paid, 0);
-    const downpaymentPayments = payments.filter(p => p.pay_status === 'Downpayment' && p.amount_paid > 0);
-    const totalDownpayment = downpaymentPayments.reduce((sum, p) => sum + p.amount_paid, 0);
-
-    let warningMessage = 'Are you sure you want to reject this booking? This will cancel it and cannot be undone.';
-    if (positivePayments > 0) {
-      const totalAmount = b.total_amount || 0;
-      const percentage = totalAmount > 0 ? (positivePayments / totalAmount) * 100 : 0;
-      warningMessage = `This booking has payments totaling ₱${positivePayments.toLocaleString()} (${percentage.toFixed(1)}% of total). Rejecting will keep the payments recorded. You may need to process refunds separately. Do you still want to reject?`;
+    const booking = getBooking(id);
+    if (!booking) {
+      toast.error('Booking not found.');
+      return;
     }
+
+    const { positivePayments = 0, downpaymentPaid = 0 } = getPaymentSummary(id) || {};
+    const totalAmount = booking.total_amount || 0;
+    const percentage = totalAmount > 0 ? (positivePayments / totalAmount) * 100 : 0;
+
+    let warningMessage = `Are you sure you want to reject this booking? This will cancel it and cannot be undone.`;
+    if (positivePayments > 0) {
+      warningMessage = `This booking has payments totaling ₱${positivePayments.toLocaleString()} (${percentage.toFixed(1)}% of total). Rejecting this booking will keep the payments recorded. You may need to process refunds separately. Do you still want to reject?`;
+    }
+
     const confirmed = await showConfirm({
       title: 'Reject Booking?',
       message: warningMessage,
@@ -37,7 +41,8 @@ export function useRejectionHandlers({ booking, payments, fetchData }) {
     });
     if (!confirmed) return;
 
-    const eventDate = b.event_datetime ? new Date(b.event_datetime) : null;
+    // Calculate refund eligibility
+    const eventDate = booking.event_datetime ? new Date(booking.event_datetime) : null;
     let isRefundable = false;
     if (eventDate) {
       const now = new Date();
@@ -50,7 +55,7 @@ export function useRejectionHandlers({ booking, payments, fetchData }) {
     if (isRefundable) {
       maxRefundable = positivePayments;
     } else {
-      maxRefundable = Math.max(0, positivePayments - totalDownpayment);
+      maxRefundable = Math.max(0, positivePayments - downpaymentPaid);
     }
 
     setRejectionBookingId(id);
@@ -66,8 +71,8 @@ export function useRejectionHandlers({ booking, payments, fetchData }) {
   const handleRejectConfirm = async () => {
     const id = rejectionBookingId;
     if (!id) return;
-    const b = booking; // the booking object
-    if (!b) return;
+    const booking = getBooking(id);
+    if (!booking) return;
 
     let enteredAmount = 0;
     let proofUrl = 'refund_placeholder.png';
@@ -103,15 +108,19 @@ export function useRejectionHandlers({ booking, payments, fetchData }) {
 
     try {
       const reasonText = rejectionReason.trim() || 'No reason provided';
-      let updatedNotes = b.notes ? `${b.notes}\n[REJECTION] ${reasonText}` : `[REJECTION] ${reasonText}`;
+      let updatedNotes = booking.notes
+        ? `${booking.notes}\n[REJECTION] ${reasonText}`
+        : `[REJECTION] ${reasonText}`;
 
       const { error } = await supabase
         .from('booking')
-        .update({ booking_status: 'Rejected', notes: updatedNotes })
+        .update({
+          booking_status: 'Rejected',
+          notes: updatedNotes,
+        })
         .eq('booking_id', id);
       if (error) throw error;
 
-      // Delete equipment and vehicle assignments
       await supabase.from('booking_equipment').delete().eq('booking_id', id);
       await supabase.from('vehicle_assign').delete().eq('booking_id', id);
 
@@ -125,10 +134,11 @@ export function useRejectionHandlers({ booking, payments, fetchData }) {
             pay_status: 'Refunded',
             pay_datetime: new Date().toISOString(),
             pay_proof: proofUrl,
-            customer_id: b.customer_id,
+            customer_id: booking.customer_id,
             remarks: rejectionRefundRemarks || 'Refund processed during rejection',
           }]);
         if (refundError) throw refundError;
+
         const refundNote = `[REFUND] Amount: ₱${enteredAmount.toFixed(2)}. ${rejectionRefundRemarks || ''}`;
         updatedNotes = updatedNotes + `\n${refundNote}`;
         await supabase
@@ -138,9 +148,9 @@ export function useRejectionHandlers({ booking, payments, fetchData }) {
       }
 
       toast.success('Booking rejected.');
-      fetchData();
+      if (fetchData) fetchData();
     } catch (error) {
-      console.error(error);
+      console.error('Rejection error:', error);
       toast.error('Failed to reject booking.');
     }
   };
@@ -148,7 +158,6 @@ export function useRejectionHandlers({ booking, payments, fetchData }) {
   return {
     isRejectionModalOpen,
     setIsRejectionModalOpen,
-    rejectionBookingId,
     rejectionReason,
     setRejectionReason,
     rejectionRefundAmount,

@@ -1,3 +1,4 @@
+// src/hooks/useApprovalHandlers.js
 import { useState } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -15,12 +16,53 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
     baseTotal: 0,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [approvalType, setApprovalType] = useState('package'); // ✅ store current type
+  const [approvalType, setApprovalType] = useState('package');
 
-  // ✅ Store the type when opening modal
-  const openApprovalModal = (booking, type = 'package') => {
+  // ✅ ROBUST base total computation – uses booking.package if available, else queries
+  const computeBaseTotal = async (booking) => {
+    // 1. If the booking already has a valid total, use it
+    if (booking.total_amount && booking.total_amount > 0) {
+      return booking.total_amount;
+    }
+
+    // 2. Try to compute from package (either preloaded or query)
+    let pkg = booking.package; // this might be preloaded in the booking object
+    if (!pkg && booking.package_id) {
+      // If not preloaded, fetch it
+      const { data, error } = await supabase
+        .from('package')
+        .select('pkg_price, pricing_type, max_pax, extra_pax_price')
+        .eq('package_id', booking.package_id)
+        .single();
+      if (!error && data) {
+        pkg = data;
+      }
+    }
+
+    if (pkg) {
+      const pax = booking.pax_count || 0;
+      if (pkg.pricing_type === 'per_pax') {
+        return (pkg.pkg_price || 0) * pax;
+      } else {
+        // fixed price
+        let total = pkg.pkg_price || 0;
+        if (pkg.max_pax && pax > pkg.max_pax) {
+          total += (pax - pkg.max_pax) * (pkg.extra_pax_price || 0);
+        }
+        return total;
+      }
+    }
+
+    // 3. Fallback – if all else fails, log a warning and return 0
+    console.warn('Could not compute base total for booking:', booking.booking_id);
+    toast.error('Unable to calculate total. Please enter it manually.');
+    return 0;
+  };
+
+  const openApprovalModal = async (booking, type = 'package') => {
     setApprovalType(type);
-    const baseTotal = booking.total_amount || 0;
+    const baseTotal = await computeBaseTotal(booking);
+
     const initData = {
       extraPax: 0,
       additionalFee: 0,
@@ -42,13 +84,11 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
     setApprovalData(prev => {
       const updated = { ...prev, [name]: numValue };
       let newTotal = updated.baseTotal;
-      // ✅ Use approvalType to decide how to calculate
       if (approvalType === 'package') {
         const pkgPrice = approvalBooking?.package?.pkg_price || 0;
         const extraPaxCost = (updated.extraPax || 0) * pkgPrice;
         newTotal = updated.baseTotal + extraPaxCost + (updated.additionalFee || 0);
       } else {
-        // Short order
         newTotal = updated.baseTotal + (updated.extraQuantity || 0) + (updated.extraDeliveryFee || 0) + (updated.additionalFee || 0);
       }
       return { ...updated, newTotal };
@@ -139,19 +179,16 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
         }
       }
 
-      // 3. Update booking – use approvalType
+      // 3. Update booking – compute new total properly
       let updatePayload = { booking_status: 'Approved' };
       if (approvalType === 'package') {
         const newPax = approvalBooking.pax_count + (approvalData.extraPax || 0);
         updatePayload.pax_count = newPax;
         updatePayload.total_amount = approvalData.newTotal;
-        // delivery_fee stays unchanged
       } else {
-        // Short order
         const newDeliveryFee = parseFloat(approvalBooking.delivery_fee || 0) + (approvalData.extraDeliveryFee || 0);
         updatePayload.total_amount = approvalData.newTotal;
         updatePayload.delivery_fee = newDeliveryFee;
-        // notes: add adjustment note
         const note = approvalBooking.notes ? `${approvalBooking.notes}\n[APPROVAL] Adjusted total: ₱${approvalData.newTotal}` : `[APPROVAL] Adjusted total: ₱${approvalData.newTotal}`;
         updatePayload.notes = note;
       }
@@ -171,10 +208,20 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
         }
       }
 
-      // 5. Update payments to Downpayment
+      // ✅ 5. Update payments – set to Fully Paid if already paid in full, else Downpayment
+      const { data: existingPayments, error: fetchPaymentsError } = await supabase
+        .from('payment')
+        .select('amount_paid')
+        .eq('booking_id', approvalBooking.booking_id);
+      if (fetchPaymentsError) throw fetchPaymentsError;
+
+      const paidTotal = existingPayments.reduce((sum, p) => sum + p.amount_paid, 0);
+      const newTotal = approvalData.newTotal;
+      const newStatus = (paidTotal >= newTotal && paidTotal > 0) ? 'Fully Paid' : 'Downpayment';
+
       const { error: updatePaymentsError } = await supabase
         .from('payment')
-        .update({ pay_status: 'Downpayment' })
+        .update({ pay_status: newStatus })
         .eq('booking_id', approvalBooking.booking_id);
       if (updatePaymentsError) throw updatePaymentsError;
 
@@ -193,7 +240,6 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
               confirmVariant: 'danger',
             });
             if (!override) {
-              // Rollback
               await supabase
                 .from('booking')
                 .update({ booking_status: 'Pending' })
@@ -215,7 +261,7 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
 
       setIsApprovalModalOpen(false);
       fetchData();
-      toast.success('Booking approved and payments set to Downpayment.');
+      toast.success(`Booking approved. Payments marked as ${newStatus}.`);
     } catch (error) {
       console.error(error);
       toast.error('Failed to approve booking.');
@@ -230,7 +276,7 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
     approvalBooking,
     approvalData,
     isSubmitting,
-    approvalType, // exposed if needed
+    approvalType,
     openApprovalModal,
     handleApprovalInputChange,
     handleFinalizeApproval,

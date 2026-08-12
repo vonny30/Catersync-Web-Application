@@ -11,7 +11,8 @@ import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { checkEquipmentCapacityForDate, allocateEquipmentForBooking } from '../utils/equipment';
 import { createWalkInCustomer } from '../utils/createWalkInCustomer';
-import { useApprovalHandlers } from '../hooks/useApprovalHandlers'; // ✅ NEW
+import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
+import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 
 export default function Bookings() {
   const navigate = useNavigate();
@@ -24,13 +25,11 @@ export default function Bookings() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBookings, setSelectedBookings] = useState([]);
 
-  // --- Pagination state ---
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [pageSize] = useState(10);
   const [totalPages, setTotalPages] = useState(1);
 
-  // --- Filter state ---
   const [filters, setFilters] = useState({
     dateFrom: '',
     dateTo: '',
@@ -41,10 +40,8 @@ export default function Bookings() {
   });
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
 
-  // Modal states for booking create/edit
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  // --- NEW: Customer mode selector: 'existing' or 'new' ---
   const [customerMode, setCustomerMode] = useState('existing');
   const [formData, setFormData] = useState({
     customer_id: '',
@@ -56,7 +53,6 @@ export default function Bookings() {
     motif_color: '',
     notes: '',
     total_amount: '',
-    delivery_fee: '0',
     menu_selections: {},
   });
   const [walkInData, setWalkInData] = useState({
@@ -68,7 +64,6 @@ export default function Bookings() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // --- Customer search state ---
   const [customerSearch, setCustomerSearch] = useState('');
   const [filteredCustomers, setFilteredCustomers] = useState([]);
   const [showCustomerList, setShowCustomerList] = useState(false);
@@ -76,30 +71,17 @@ export default function Bookings() {
   const [packageCategories, setPackageCategories] = useState([]);
   const [categoryMenuItems, setCategoryMenuItems] = useState({});
 
-  // --- Rejection Modal State ---
-  const [isRejectionModalOpen, setIsRejectionModalOpen] = useState(false);
-  const [rejectionBookingId, setRejectionBookingId] = useState(null);
-  const [rejectionReason, setRejectionReason] = useState('');
-  const [rejectionRefundAmount, setRejectionRefundAmount] = useState('');
-  const [rejectionRefundRemarks, setRejectionRefundRemarks] = useState('');
-  const [rejectionRefundFile, setRejectionRefundFile] = useState(null);
-  const [showRejectionRefund, setShowRejectionRefund] = useState(false);
-  const [rejectionMaxRefundable, setRejectionMaxRefundable] = useState(0);
-
-
-   // Helper: log technical error and show user-friendly toast
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
     console.error('Error:', error);
     toast.error(userMessage);
   };
 
-  // --- Auto-calculate total amount based on pricing type ---
+  // Auto-calculate total amount (no delivery fee)
   useEffect(() => {
     if (formData.package_id && formData.pax_count) {
       const selectedPkg = packages.find(p => p.package_id === formData.package_id);
       if (selectedPkg) {
         const pax = parseInt(formData.pax_count) || 0;
-        const deliveryFee = parseFloat(formData.delivery_fee) || 0;
         let baseTotal = 0;
 
         if (selectedPkg.pricing_type === 'per_pax') {
@@ -114,34 +96,29 @@ export default function Bookings() {
           }
         }
 
-        const total = baseTotal + deliveryFee;
         setFormData(prev => ({
           ...prev,
-          total_amount: total.toFixed(2),
+          total_amount: baseTotal.toFixed(2),
         }));
       }
     }
-  }, [formData.package_id, formData.pax_count, formData.delivery_fee, packages]);
+  }, [formData.package_id, formData.pax_count, packages]);
 
- // --- Fetch data with pagination + server-side filtering ---
   const fetchData = async () => {
     setLoading(true);
     try {
       const from = (currentPage - 1) * pageSize;
       const to = from + pageSize - 1;
 
-      // Build the query with server-side filters so pagination works correctly
       let query = supabase
         .from('booking')
         .select('*', { count: 'exact' })
         .eq('booking_type', 'Package');
 
-      // Apply status tab filter
       if (activeTab !== 'All') {
         query = query.eq('booking_status', activeTab);
       }
 
-      // Apply date range filters
       if (filters.dateFrom) {
         const fromDate = new Date(filters.dateFrom);
         fromDate.setHours(0, 0, 0, 0);
@@ -153,54 +130,46 @@ export default function Bookings() {
         query = query.lte('event_datetime', toDate.toISOString());
       }
 
-      // Apply customer filter
-      if (filters.customerId) {
-        query = query.eq('customer_id', filters.customerId);
-      }
+      if (filters.customerId) query = query.eq('customer_id', filters.customerId);
+      if (filters.packageId) query = query.eq('package_id', filters.packageId);
+      if (filters.venue) query = query.ilike('venue', `%${filters.venue}%`);
 
-      // Apply package filter
-      if (filters.packageId) {
-        query = query.eq('package_id', filters.packageId);
-      }
-
-      // Apply venue filter (contains)
-      if (filters.venue) {
-        query = query.ilike('venue', `%${filters.venue}%`);
-      }
-
-      // ============================================================
-      // 🔧 FIXED SEARCH – only searches customer name (no UUID ilike)
-      // ============================================================
-      if (searchTerm) {
-        const search = searchTerm.trim();
-        if (search) {
-          const encodedSearch = encodeURIComponent(search);
-          let customerIds = [];
-
-          try {
-            // Find customers whose first or last name matches the search
-            const { data: matchingCustomers } = await supabase
-              .from('customer')
-              .select('customer_id')
-              .or(
-                `first_name.ilike.%${encodedSearch}%,` +
-                `last_name.ilike.%${encodedSearch}%`
-              );
-            customerIds = (matchingCustomers || []).map(c => c.customer_id);
-          } catch (e) {
-            console.warn('Customer search failed:', e);
-          }
-
-          if (customerIds.length > 0) {
-            // Filter by matched customer IDs
-            query = query.in('customer_id', customerIds);
-          } else {
-            // No customer matches – add a condition that will never match
-            // so the result set is empty (search returns nothing).
-            query = query.eq('customer_id', '00000000-0000-0000-0000-000000000000');
-          }
-        }
-      }
+// --- SEARCH ---
+if (searchTerm) {
+  const search = searchTerm.trim();
+  if (search) {
+    // Split search into individual words
+    const parts = search.split(' ').filter(p => p.length > 0);
+    
+    // Build OR conditions for each part
+    const conditions = [];
+    parts.forEach(part => {
+      conditions.push(`first_name.ilike.%${part}%`);
+      conditions.push(`last_name.ilike.%${part}%`);
+    });
+    
+    const queryCondition = conditions.join(',');
+    
+    let customerIds = [];
+    try {
+      const { data: matchingCustomers } = await supabase
+        .from('customer')
+        .select('customer_id')
+        .or(queryCondition);
+      
+      customerIds = (matchingCustomers || []).map(c => c.customer_id);
+    } catch (e) {
+      console.warn('Customer search failed:', e);
+    }
+    
+    if (customerIds.length > 0) {
+      query = query.in('customer_id', customerIds);
+    } else {
+      // No matches – force empty result
+      query = query.eq('customer_id', '00000000-0000-0000-0000-000000000000');
+    }
+  }
+}
 
       query = query
         .order('status_order', { ascending: true })
@@ -209,7 +178,6 @@ export default function Bookings() {
         .range(from, to);
 
       const { data: bookingsData, count, error: bookingsError } = await query;
-
       if (bookingsError) throw bookingsError;
 
       setTotalCount(count || 0);
@@ -240,7 +208,6 @@ export default function Bookings() {
           packagesMap = Object.fromEntries(packagesData.map(p => [p.package_id, p]));
         }
 
-        // Fetch payments for these bookings
         let paymentsMap = {};
         if (bookingIds.length > 0) {
           const { data: paymentsData, error: paymentsError } = await supabase
@@ -249,7 +216,6 @@ export default function Bookings() {
             .in('booking_id', bookingIds)
             .not('amount_paid', 'eq', 0)
             .not('pay_status', 'eq', 'Pending');
-
           if (paymentsError) throw paymentsError;
 
           paymentsMap = {};
@@ -269,7 +235,6 @@ export default function Bookings() {
           }
         }
 
-        // Enrich bookings with payment summary and refund status
         const now = new Date();
         const enriched = bookingsData.map(booking => {
           const p = paymentsMap[booking.booking_id] || { positive: 0, refunded: 0, downpayment: 0 };
@@ -287,7 +252,6 @@ export default function Bookings() {
               daysUntilEvent = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
               isRefundable = daysUntilEvent >= 3;
             }
-
             if (positivePayments > 0) {
               if (totalRefunded >= positivePayments) {
                 refundStatus = 'Fully Refunded';
@@ -316,7 +280,6 @@ export default function Bookings() {
         setBookings([]);
       }
 
-      // Fetch customers and packages for dropdowns (including colors)
       const { data: customersList, error: customersListError } = await supabase
         .from('customer')
         .select('customer_id, first_name, last_name, contact_no, email_address')
@@ -341,7 +304,7 @@ export default function Bookings() {
     }
   };
 
-  // ✅ APPROVAL HANDLER HOOK – replaces local approval state
+  // Approval Hook
   const {
     isApprovalModalOpen,
     setIsApprovalModalOpen,
@@ -352,12 +315,40 @@ export default function Bookings() {
     handleApprovalInputChange,
     handleFinalizeApproval,
   } = useApprovalHandlers({
-    booking: null, // not used – hook stores its own booking when openApprovalModal is called
+    booking: null,
     payments: [],
     fetchData: fetchData,
   });
 
-  // --- Filter customers based on search ---
+  // Rejection Hook with callbacks
+  const getBooking = (id) => bookings.find(b => b.booking_id === id);
+  const getPaymentSummary = (id) => {
+    const b = getBooking(id);
+    return b ? { positivePayments: b.positivePayments, downpaymentPaid: b.downpaymentPaid } : { positivePayments: 0, downpaymentPaid: 0 };
+  };
+
+  const {
+    isRejectionModalOpen,
+    setIsRejectionModalOpen,
+    rejectionReason,
+    setRejectionReason,
+    rejectionRefundAmount,
+    setRejectionRefundAmount,
+    rejectionRefundRemarks,
+    setRejectionRefundRemarks,
+    rejectionRefundFile,
+    setRejectionRefundFile,
+    showRejectionRefund,
+    rejectionMaxRefundable,
+    openRejectionModal,
+    handleRejectConfirm,
+  } = useRejectionHandlers({
+    getBooking,
+    getPaymentSummary,
+    fetchData,
+  });
+
+  // Filter customers based on search
   useEffect(() => {
     if (customerSearch.trim() === '') {
       setFilteredCustomers(customers.slice(0, 10));
@@ -372,20 +363,37 @@ export default function Bookings() {
     setFilteredCustomers(filtered.slice(0, 15));
   }, [customerSearch, customers]);
 
-  // Re-fetch when page, tab, search, or filters change
   useEffect(() => {
     fetchData();
   }, [currentPage, activeTab, searchTerm, filters]);
 
-  // --- Pagination handlers ---
-  const goToPrevPage = () => {
-    if (currentPage > 1) setCurrentPage(currentPage - 1);
-  };
-  const goToNextPage = () => {
-    if (currentPage < totalPages) setCurrentPage(currentPage + 1);
-  };
+  const goToPrevPage = () => { if (currentPage > 1) setCurrentPage(currentPage - 1); };
+  const goToNextPage = () => { if (currentPage < totalPages) setCurrentPage(currentPage + 1); };
 
-  // --- Fetch package categories and menu items when package changes ---
+  // 5. ✅ REAL‑TIME SUBSCRIPTION (MUST be at top level, NOT inside fetchData)
+  useEffect(() => {
+    const subscription = supabase
+      .channel('booking-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'booking',
+          filter: `booking_type=eq.Package`,
+        },
+        () => {
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
+  }, []); // empty deps – subscribe once
+
+  // 6. Fetch package categories and menu items when package changes in modal
   useEffect(() => {
     if (!formData.package_id) {
       setPackageCategories([]);
@@ -397,10 +405,7 @@ export default function Bookings() {
       try {
         const { data: catData, error: catError } = await supabase
           .from('package_category')
-          .select(`
-            category_id,
-            category:category_id (category_id, category_name)
-          `)
+          .select(`category_id, category:category_id (category_id, category_name)`)
           .eq('package_id', formData.package_id);
         if (catError) throw catError;
 
@@ -431,7 +436,6 @@ export default function Bookings() {
     fetchPackageDetails();
   }, [formData.package_id]);
 
-  // --- Modal handlers ---
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -452,21 +456,18 @@ export default function Bookings() {
     }));
   };
 
-  // --- Customer selection ---
   const selectCustomer = (customer) => {
     setFormData(prev => ({ ...prev, customer_id: customer.customer_id }));
     setCustomerSearch(`${customer.first_name} ${customer.last_name}`);
     setShowCustomerList(false);
   };
 
-  // --- Mark booking as read and refresh the list ---
   const markAsRead = async (bookingId) => {
     try {
       await supabase
         .from('booking')
         .update({ is_read: true })
         .eq('booking_id', bookingId);
-      
       await fetchData();
     } catch (error) {
       console.warn('Failed to mark as read:', error);
@@ -488,16 +489,9 @@ export default function Bookings() {
       motif_color: '',
       notes: '',
       total_amount: '',
-      delivery_fee: '0',
       menu_selections: {},
     });
-    setWalkInData({
-      first_name: '',
-      last_name: '',
-      contact_no: '',
-      email_address: '',
-      cus_address: '',
-    });
+    setWalkInData({ first_name: '', last_name: '', contact_no: '', email_address: '', cus_address: '' });
     setPackageCategories([]);
     setCategoryMenuItems({});
     setIsModalOpen(true);
@@ -518,16 +512,9 @@ export default function Bookings() {
       motif_color: booking.motif_color || '',
       notes: booking.notes || '',
       total_amount: booking.total_amount?.toString() || '',
-      delivery_fee: booking.delivery_fee?.toString() || '0',
       menu_selections: booking.menu_selections || {},
     });
-    setWalkInData({
-      first_name: '',
-      last_name: '',
-      contact_no: '',
-      email_address: '',
-      cus_address: '',
-    });
+    setWalkInData({ first_name: '', last_name: '', contact_no: '', email_address: '', cus_address: '' });
     setIsModalOpen(true);
   };
 
@@ -547,22 +534,14 @@ export default function Bookings() {
       motif_color: '',
       notes: '',
       total_amount: '',
-      delivery_fee: '0',
       menu_selections: {},
     });
-    setWalkInData({
-      first_name: '',
-      last_name: '',
-      contact_no: '',
-      email_address: '',
-      cus_address: '',
-    });
+    setWalkInData({ first_name: '', last_name: '', contact_no: '', email_address: '', cus_address: '' });
     setPackageCategories([]);
     setCategoryMenuItems({});
     setIsSubmitting(false);
   };
 
-  // --- Filter Modal handlers ---
   const openFilterModal = () => setIsFilterModalOpen(true);
   const closeFilterModal = () => setIsFilterModalOpen(false);
   const handleFilterChange = (e) => {
@@ -571,38 +550,26 @@ export default function Bookings() {
   };
   const applyFilters = () => {
     setIsFilterModalOpen(false);
-    setCurrentPage(1); // Reset to first page when filters change
+    setCurrentPage(1);
   };
   const clearFilters = () => {
-    setFilters({
-      dateFrom: '',
-      dateTo: '',
-      customerId: '',
-      packageId: '',
-      venue: '',
-      status: '',
-    });
-    setCurrentPage(1); // Reset to first page
+    setFilters({ dateFrom: '', dateTo: '', customerId: '', packageId: '', venue: '', status: '' });
+    setCurrentPage(1);
   };
 
-  // --- CRUD Operations ---
+  // CRUD Submit
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
 
-    // ✅ Define eventDateTimeISO early
     const eventDateTimeISO = formData.event_datetime ? new Date(formData.event_datetime).toISOString() : null;
 
-    // --- CUSTOMER VALIDATION ---
     if (!editingId) {
-      // For existing customer mode: customer_id must be selected
       if (customerMode === 'existing' && !formData.customer_id) {
         toast.error('Please select an existing customer.');
         setIsSubmitting(false);
         return;
       }
-
-      // For walk-in/new customer mode: require all fields
       if (customerMode === 'new') {
         if (!walkInData.first_name || !walkInData.last_name || !walkInData.contact_no || !walkInData.email_address) {
           toast.error('Please fill in all customer details for walk-in customer.');
@@ -614,7 +581,6 @@ export default function Bookings() {
           setIsSubmitting(false);
           return;
         }
-        // Validate contact number: 11 digits, numeric only
         const phoneRegex = /^[0-9]{11}$/;
         if (!phoneRegex.test(walkInData.contact_no)) {
           toast.error('Contact number must be exactly 11 digits (numbers only).');
@@ -630,14 +596,11 @@ export default function Bookings() {
       }
     }
 
-    // 1. Package validation
     if (!formData.package_id) {
       toast.error('Please select a package for this booking.');
       setIsSubmitting(false);
       return;
     }
-
-    // 2. Required fields validation (date, venue, pax)
     if (!formData.event_datetime) {
       toast.error('Please select an event date and time.');
       setIsSubmitting(false);
@@ -654,7 +617,6 @@ export default function Bookings() {
       return;
     }
 
-    // 3. Minimum pax validation based on selected package
     const selectedPackage = packages.find(p => p.package_id === formData.package_id);
     if (selectedPackage && parseInt(formData.pax_count) < selectedPackage.minimum_pax) {
       toast.error(`Minimum pax for this package is ${selectedPackage.minimum_pax}.`);
@@ -662,7 +624,6 @@ export default function Bookings() {
       return;
     }
 
-    // 4. Menu selections validation
     const requiredCategories = packageCategories.map(c => c.category_id);
     const selectedCategories = Object.keys(formData.menu_selections);
     const missing = requiredCategories.filter(c => !selectedCategories.includes(c));
@@ -672,13 +633,11 @@ export default function Bookings() {
       return;
     }
 
-    // ✅ TRAPPING: Check event date proximity (reminder only)
     if (formData.event_datetime) {
       const eventDate = new Date(formData.event_datetime);
       const now = new Date();
       const diffTime = eventDate.getTime() - now.getTime();
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
       if (diffDays < 0) {
         const proceed = await showConfirm({
           title: '⚠️ Event Date is in the Past',
@@ -691,9 +650,7 @@ export default function Bookings() {
           setIsSubmitting(false);
           return;
         }
-      }
-      
-      if (diffDays >= 0 && diffDays < 3) {
+      } else if (diffDays >= 0 && diffDays < 3) {
         const proceed = await showConfirm({
           title: '⚠️ Booking is Very Soon',
           message: `This event is ${diffDays} day${diffDays !== 1 ? 's' : ''} away (within 2 days). Please confirm if you still want to proceed with this booking.`,
@@ -711,7 +668,6 @@ export default function Bookings() {
     try {
       let customerId = formData.customer_id;
 
-      // If walk-in/new customer, create customer account first
       if (customerMode === 'new') {
         try {
           customerId = await createWalkInCustomer(walkInData);
@@ -727,13 +683,12 @@ export default function Bookings() {
         }
       }
 
-      // 5. Duplicate check: same customer, same DATE (ignoring time) – with warning
+      // ✅ DUPLICATE CHECK – only active bookings (not Rejected or Cancelled)
       const eventDate = new Date(formData.event_datetime);
       const startOfDay = new Date(eventDate);
       startOfDay.setHours(0, 0, 0, 0);
       const endOfDay = new Date(eventDate);
       endOfDay.setHours(23, 59, 59, 999);
-
       const startISO = startOfDay.toISOString();
       const endISO = endOfDay.toISOString();
 
@@ -742,19 +697,18 @@ export default function Bookings() {
         .select('booking_id, venue, pax_count, booking_status, event_datetime, package_id')
         .eq('customer_id', customerId)
         .gte('event_datetime', startISO)
-        .lte('event_datetime', endISO);
+        .lte('event_datetime', endISO)
+        .not('booking_status', 'in', '("Rejected","Cancelled")');
 
       if (editingId) {
         dupQuery = dupQuery.neq('booking_id', editingId);
       }
 
       const { data: duplicates, error: dupError } = await dupQuery;
-
       if (dupError) {
         console.error('Duplicate check error:', dupError);
       } else if (duplicates && duplicates.length > 0) {
         const existing = duplicates[0];
-
         const { data: customerData } = await supabase
           .from('customer')
           .select('first_name, last_name')
@@ -771,26 +725,24 @@ export default function Bookings() {
           if (pkgData) packageName = pkgData.pkg_name;
         }
 
-        const customerName = customerData 
+        const customerName = customerData
           ? `${customerData.first_name} ${customerData.last_name}`
           : 'Unknown Customer';
 
-        const eventDateStr = existing.event_datetime 
-          ? new Date(existing.event_datetime).toLocaleString() 
-          : 'Unknown Date';
+        const existingTime = existing.event_datetime
+          ? new Date(existing.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          : 'Unknown Time';
         const venue = existing.venue || 'N/A';
         const pax = existing.pax_count || 0;
         const status = existing.booking_status || 'Unknown';
         const count = duplicates.length;
 
         let message = `⚠️ Duplicate Booking Found\n\n`;
-        if (count > 1) {
-          message += `Found ${count} bookings on this date. Showing the first one:\n\n`;
-        }
+        if (count > 1) message += `Found ${count} bookings on this date. Showing the first one:\n\n`;
         message +=
           `Customer  : ${customerName}\n` +
           `Date      : ${new Date(eventDate).toLocaleDateString()}\n` +
-          `Time      : ${new Date(existing.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}\n` +
+          `Time      : ${existingTime}\n` +
           `Package   : ${packageName}\n` +
           `Venue     : ${venue}\n` +
           `Pax       : ${pax}\n` +
@@ -804,14 +756,13 @@ export default function Bookings() {
           cancelLabel: 'Cancel',
           confirmVariant: 'warning',
         });
-
         if (!proceed) {
           setIsSubmitting(false);
           return;
         }
       }
 
-      // Build payload
+      // Build payload (no delivery_fee)
       const payload = {
         customer_id: customerId,
         package_id: formData.package_id,
@@ -822,11 +773,8 @@ export default function Bookings() {
         motif_color: formData.motif_color || null,
         notes: formData.notes || null,
         total_amount: parseFloat(formData.total_amount) || 0,
-        delivery_fee: parseFloat(formData.delivery_fee) || 0,
         booking_status: editingId ? undefined : 'Pending',
         menu_selections: formData.menu_selections,
-        // Only set these fields when creating a NEW booking.
-        // Editing must NOT reset is_read or book_datetime.
         ...(editingId
           ? {}
           : {
@@ -852,8 +800,6 @@ export default function Bookings() {
           .insert([payload])
           .select();
         if (error) throw error;
-        
-        // 🚫 REMOVED: placeholder ₱0 Pending payment insertion – no longer needed
 
         if (customerMode === 'new') await new Promise(resolve => setTimeout(resolve, 500));
         toast.success('Booking created successfully!');
@@ -877,10 +823,8 @@ export default function Bookings() {
     }
   };
 
-  // ❌ REMOVED local approval functions (openApprovalModal, handleApprovalInputChange, handleFinalizeApproval)
-  // They are now provided by the useApprovalHandlers hook.
+  // ❌ Local rejection functions removed – using hook
 
-  // --- Mark as Completed ---
   const handleMarkCompleted = async (id) => {
     const booking = bookings.find(b => b.booking_id === id);
     const confirmed = await showConfirm({
@@ -898,8 +842,6 @@ export default function Bookings() {
         .eq('booking_id', id);
       if (error) throw error;
 
-      // ✅ Only mark payments as Fully Paid if the booking is actually fully settled.
-      // Do NOT overwrite payment records for bookings still carrying a balance.
       if (booking && booking.positivePayments >= (booking.total_amount || 0)) {
         const { error: updatePaymentsError } = await supabase
           .from('payment')
@@ -916,149 +858,6 @@ export default function Bookings() {
     }
   };
 
-  // --- NEW: Rejection flow with reason and refund modal ---
-  const openRejectionModal = async (id) => {
-    const booking = bookings.find(b => b.booking_id === id);
-    if (!booking) return;
-
-    const positivePayments = booking.positivePayments || 0;
-    const downpaymentPaid = booking.downpaymentPaid || 0;
-
-    let warningMessage = 'Are you sure you want to reject this booking? This will cancel it and cannot be undone.';
-    if (positivePayments > 0) {
-      const totalAmount = booking.total_amount || 0;
-      const percentage = totalAmount > 0 ? (positivePayments / totalAmount) * 100 : 0;
-      warningMessage = `This booking has payments totaling ₱${positivePayments.toLocaleString()} (${percentage.toFixed(1)}% of total). Rejecting this booking will keep the payments recorded. You may need to process refunds separately. Do you still want to reject?`;
-    }
-    const confirmed = await showConfirm({
-      title: 'Reject Booking?',
-      message: warningMessage,
-      confirmLabel: 'Yes, Continue',
-      cancelLabel: 'Cancel',
-      confirmVariant: 'danger',
-    });
-    if (!confirmed) return;
-
-    const eventDate = booking.event_datetime ? new Date(booking.event_datetime) : null;
-    let isRefundable = false;
-    if (eventDate) {
-      const now = new Date();
-      const diffTime = eventDate.getTime() - now.getTime();
-      const daysUntilEvent = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      isRefundable = daysUntilEvent >= 3;
-    }
-
-    // Max refundable = all paid if >=3 days, otherwise only the excess above downpayment
-    let maxRefundable = 0;
-    if (isRefundable) {
-      maxRefundable = positivePayments;
-    } else {
-      maxRefundable = Math.max(0, positivePayments - downpaymentPaid);
-    }
-
-    setRejectionBookingId(id);
-    setRejectionMaxRefundable(maxRefundable);
-    setShowRejectionRefund(maxRefundable > 0);
-    setRejectionReason('');
-    setRejectionRefundAmount('');
-    setRejectionRefundRemarks('');
-    setRejectionRefundFile(null);
-    setIsRejectionModalOpen(true);
-  };
-
-  const handleRejectConfirm = async () => {
-    const id = rejectionBookingId;
-    if (!id) return;
-    const booking = bookings.find(b => b.booking_id === id);
-    if (!booking) return;
-
-    // ✅ VALIDATE REFUND FIRST – before the booking is marked Rejected.
-    // This prevents the booking from being rejected but the refund failing.
-    let enteredAmount = 0;
-    let proofUrl = 'refund_placeholder.png';
-
-    if (showRejectionRefund) {
-      enteredAmount = parseFloat(rejectionRefundAmount) || 0;
-      if (enteredAmount > 0) {
-        if (enteredAmount > rejectionMaxRefundable) {
-          toast.error(`Refund amount cannot exceed ₱${rejectionMaxRefundable.toLocaleString()}.`);
-          return; // Modal stays open
-        }
-        if (!rejectionRefundFile) {
-          toast.error('Please upload a proof of refund receipt.');
-          return; // Modal stays open
-        }
-        // Upload proof first (before any state changes)
-        const fileExt = rejectionRefundFile.name.split('.').pop();
-        const fileName = `refunds/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-        const { error: uploadError } = await supabase.storage
-          .from('images')
-          .upload(fileName, rejectionRefundFile);
-        if (uploadError) {
-          toast.error('Failed to upload refund proof. Please try again.');
-          return; // Modal stays open
-        }
-        const { data: publicUrlData } = supabase.storage
-          .from('images')
-          .getPublicUrl(fileName);
-        proofUrl = publicUrlData.publicUrl;
-      }
-    }
-
-    // Only close the modal once validation/upload succeeded
-    setIsRejectionModalOpen(false);
-
-    try {
-      const reasonText = rejectionReason.trim() || 'No reason provided';
-      let updatedNotes = booking.notes
-        ? `${booking.notes}\n[REJECTION] ${reasonText}`
-        : `[REJECTION] ${reasonText}`;
-
-      const { error } = await supabase
-        .from('booking')
-        .update({
-          booking_status: 'Rejected',
-          notes: updatedNotes,
-        })
-        .eq('booking_id', id);
-      if (error) throw error;
-
-      // Delete equipment and vehicle assignments
-      await supabase.from('booking_equipment').delete().eq('booking_id', id);
-      await supabase.from('vehicle_assign').delete().eq('booking_id', id);
-
-      // Process refund if requested and amount > 0
-      if (showRejectionRefund && enteredAmount > 0) {
-        const { error: refundError } = await supabase
-          .from('payment')
-          .insert([{
-            booking_id: id,
-            amount_paid: -enteredAmount,
-            pay_method: 'Refund',
-            pay_status: 'Refunded',
-            pay_datetime: new Date().toISOString(),
-            pay_proof: proofUrl,
-            customer_id: booking.customer_id,
-            remarks: rejectionRefundRemarks || 'Refund processed during rejection',
-          }]);
-        if (refundError) throw refundError;
-
-        const refundNote = `[REFUND] Amount: ₱${enteredAmount.toFixed(2)}. ${rejectionRefundRemarks || ''}`;
-        updatedNotes = updatedNotes + `\n${refundNote}`;
-        await supabase
-          .from('booking')
-          .update({ notes: updatedNotes })
-          .eq('booking_id', id);
-      }
-
-      toast.success('Booking rejected.');
-      fetchData();
-    } catch (error) {
-      handleError(error, 'Failed to reject booking.');
-    }
-  };
-
-  // --- Delete ---
   const handleDelete = async (id) => {
     const confirmed = await showConfirm({
       title: 'Delete Booking?',
@@ -1091,7 +890,6 @@ export default function Bookings() {
     }
   };
 
-  // --- Multi‑select handlers ---
   const toggleSelectBooking = (bookingId) => {
     setSelectedBookings(prev =>
       prev.includes(bookingId)
@@ -1110,7 +908,6 @@ export default function Bookings() {
 
   const handleBulkDelete = async () => {
     if (selectedBookings.length === 0) return;
-
     const confirmed = await showConfirm({
       title: 'Delete Selected Bookings?',
       message: `You are about to delete ${selectedBookings.length} booking(s). This action cannot be undone and will also delete all associated payments, equipment, and vehicle assignments.`,
@@ -1141,9 +938,7 @@ export default function Bookings() {
     }
   };
 
-  // --- Filter logic (now only used for tab highlighting and filter button display) ---
   const tabs = ['All', 'Pending', 'Approved', 'Completed', 'Rejected', 'Cancelled'];
-
   const hasActiveFilters = filters.dateFrom || filters.dateTo || filters.customerId || filters.packageId || filters.venue;
 
   const getStatusBadge = (status) => {
@@ -1157,7 +952,6 @@ export default function Bookings() {
     return map[status] || 'bg-slate-100 text-slate-600';
   };
 
-  // Helper to get refund status label and styling
   const getRefundStatusBadge = (status) => {
     if (!status) return null;
     const map = {
@@ -1192,7 +986,7 @@ export default function Bookings() {
             key={tab}
             onClick={() => {
               setActiveTab(tab);
-              setCurrentPage(1); // Reset to first page when tab changes
+              setCurrentPage(1);
             }}
             className={`pb-3 text-sm font-semibold transition-colors border-b-2 shrink-0 ${
               activeTab === tab
@@ -1286,8 +1080,8 @@ export default function Bookings() {
                 <tr><td colSpan="10" className="p-6 text-center text-slate-500 italic">No package bookings found.</td></tr>
               ) : (
                 bookings.map((booking) => (
-                  <tr 
-                    key={booking.booking_id} 
+                  <tr
+                    key={booking.booking_id}
                     className={`hover:bg-slate-50 transition-colors ${!booking.is_read ? 'font-bold' : ''}`}
                     onClick={() => {
                       if (!booking.is_read) {
@@ -1347,7 +1141,6 @@ export default function Bookings() {
                       <div className="flex items-center justify-center gap-1.5 flex-nowrap whitespace-nowrap">
                         {booking.booking_status === 'Pending' && (
                           <>
-                            {/* ✅ Updated to use the hook's openApprovalModal */}
                             <button
                               onClick={() => openApprovalModal(booking)}
                               className="bg-[#C1DEDC] border border-[#a8cfcc] text-slate-800 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-[#b8dad7] transition-colors"
@@ -1422,7 +1215,7 @@ export default function Bookings() {
         </div>
       </div>
 
-      {/* NEW/EDIT BOOKING MODAL */}
+      {/* NEW/EDIT BOOKING MODAL (delivery fee removed) */}
       {isModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
@@ -1433,12 +1226,10 @@ export default function Bookings() {
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 text-left">
-              {/* --- Customer Selection with Mode Toggle --- */}
+              {/* Customer Selection */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Customer</label>
-                
                 {editingId ? (
-                  // Edit mode: show customer name (cannot change)
                   <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-700">
                     {customers.find(c => c.customer_id === formData.customer_id)?.first_name}{' '}
                     {customers.find(c => c.customer_id === formData.customer_id)?.last_name}
@@ -1446,7 +1237,6 @@ export default function Bookings() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {/* --- Mode Selector Buttons --- */}
                     <div className="flex gap-3">
                       <button
                         type="button"
@@ -1462,8 +1252,7 @@ export default function Bookings() {
                             : 'border-slate-300 text-slate-500 hover:bg-slate-50'
                         }`}
                       >
-                        <Users size={18} />
-                        Existing Customer
+                        <Users size={18} /> Existing Customer
                       </button>
                       <button
                         type="button"
@@ -1479,12 +1268,10 @@ export default function Bookings() {
                             : 'border-slate-300 text-slate-500 hover:bg-slate-50'
                         }`}
                       >
-                        <UserPlus size={18} />
-                        Walk-in / New Customer
+                        <UserPlus size={18} /> Walk-in / New Customer
                       </button>
                     </div>
 
-                    {/* --- Existing Customer Search --- */}
                     {customerMode === 'existing' && (
                       <div>
                         <div className="relative">
@@ -1502,7 +1289,6 @@ export default function Bookings() {
                               className="w-full border border-slate-300 rounded-lg pl-10 pr-3 py-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
                             />
                           </div>
-                          
                           {showCustomerList && (
                             <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                               {filteredCustomers.length > 0 ? (
@@ -1530,7 +1316,6 @@ export default function Bookings() {
                                     type="button"
                                     onClick={() => {
                                       setCustomerMode('new');
-                                      // Auto-fill: if search contains '@', put in email, else split name
                                       const search = customerSearch.trim();
                                       if (search.includes('@')) {
                                         setWalkInData(prev => ({ ...prev, email_address: search }));
@@ -1545,19 +1330,15 @@ export default function Bookings() {
                                     }}
                                     className="inline-flex items-center gap-2 px-4 py-2 bg-[#008A45] text-white text-sm font-semibold rounded-lg hover:bg-[#007038] transition-colors"
                                   >
-                                    <UserPlus size={16} />
-                                    Create New Customer
+                                    <UserPlus size={16} /> Create New Customer
                                   </button>
                                 </div>
                               )}
                             </div>
                           )}
                         </div>
-                        
                         {!formData.customer_id && customerSearch === '' && (
-                          <p className="text-xs text-slate-400 mt-1">
-                            Type to search for an existing customer, or switch to "Walk-in / New Customer" above.
-                          </p>
+                          <p className="text-xs text-slate-400 mt-1">Type to search for an existing customer, or switch to "Walk-in / New Customer" above.</p>
                         )}
                         {formData.customer_id && (
                           <p className="text-xs text-green-600 mt-1 font-medium">
@@ -1567,7 +1348,6 @@ export default function Bookings() {
                       </div>
                     )}
 
-                    {/* --- Walk-in / New Customer Form --- */}
                     {customerMode === 'new' && (
                       <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
                         <div className="flex items-center justify-between">
@@ -1734,7 +1514,7 @@ export default function Bookings() {
                 />
               </div>
 
-              {/* Pax, Motif Color, Delivery Fee, Total Amount */}
+              {/* Pax, Motif Color, Total Amount (NO delivery fee) */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Pax Count *</label>
@@ -1800,18 +1580,7 @@ export default function Bookings() {
                     );
                   })()}
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Delivery Fee</label>
-                  <input
-                    type="number"
-                    name="delivery_fee"
-                    value={formData.delivery_fee}
-                    onChange={handleInputChange}
-                    placeholder="0.00"
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
-                  />
-                </div>
-                <div>
+                <div className="col-span-2">
                   <label className="block text-xs font-bold text-slate-700 mb-1">Total Amount (editable)</label>
                   <input
                     type="number"
@@ -1840,9 +1609,7 @@ export default function Bookings() {
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-                <button type="button" onClick={closeModal} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">
-                  Cancel
-                </button>
+                <button type="button" onClick={closeModal} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">Cancel</button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
@@ -1857,7 +1624,7 @@ export default function Bookings() {
         document.body
       )}
 
-      {/* APPROVAL MODAL – Using the hook's state and handlers */}
+      {/* APPROVAL MODAL – using hook */}
       {isApprovalModalOpen && approvalBooking && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
@@ -1938,6 +1705,94 @@ export default function Bookings() {
                   className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
                 >
                   {isApprovalSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* REJECTION MODAL – using hook's state and handlers */}
+      {isRejectionModalOpen && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Rejection Reason</h2>
+              <button onClick={() => setIsRejectionModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Reason for Rejection</label>
+                <textarea
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  rows="3"
+                  placeholder="e.g., Incomplete details, client requested cancellation, etc."
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
+                />
+                <p className="text-xs text-slate-400 mt-1">Optional, but recommended.</p>
+              </div>
+
+              {showRejectionRefund && (
+                <div className="border-t border-slate-200 pt-3 mt-3">
+                  <p className="text-xs font-bold text-slate-700 mb-2">
+                    Process Refund <span className="font-normal text-slate-400">(optional – leave blank to skip)</span>
+                  </p>
+                  <p className="text-xs text-slate-500 mb-2">Max refundable: ₱{rejectionMaxRefundable.toLocaleString()}</p>
+                  <p className="text-xs text-red-500 mb-2">* Proof of refund is required if you enter an amount.</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Refund Amount (₱)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={rejectionRefundAmount}
+                        onChange={(e) => setRejectionRefundAmount(e.target.value)}
+                        placeholder="Enter amount (optional)"
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Remarks</label>
+                      <input
+                        type="text"
+                        value={rejectionRefundRemarks}
+                        onChange={(e) => setRejectionRefundRemarks(e.target.value)}
+                        placeholder="Reason for refund"
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <label className="block text-xs font-semibold text-slate-600 mb-0.5">
+                      Receipt / Proof of Refund <span className="text-red-500">*</span>
+                      <span className="font-normal text-slate-400 ml-1">(required if amount entered)</span>
+                    </label>
+                    <label className="border-2 border-dashed border-slate-300 rounded-lg p-2 flex items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center">
+                      <input type="file" onChange={(e) => setRejectionRefundFile(e.target.files[0])} accept="image/*" className="hidden" />
+                      <span className="text-xs text-slate-600">{rejectionRefundFile ? rejectionRefundFile.name : 'Upload Image (required for refund)'}</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setIsRejectionModalOpen(false)}
+                  className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRejectConfirm}
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm"
+                >
+                  Confirm Rejection
                 </button>
               </div>
             </div>
@@ -2046,95 +1901,6 @@ export default function Bookings() {
                   className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors"
                 >
                   Apply Filters
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* ===== REJECTION REASON MODAL (with refund fields) ===== */}
-      {isRejectionModalOpen && createPortal(
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
-            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
-              <h2 className="text-lg font-bold text-slate-900">Rejection Reason</h2>
-              <button onClick={() => setIsRejectionModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Reason for Rejection</label>
-                <textarea
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  rows="3"
-                  placeholder="e.g., Incomplete details, client requested cancellation, etc."
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
-                />
-                <p className="text-xs text-slate-400 mt-1">Optional, but recommended.</p>
-              </div>
-
-              {/* Refund fields if applicable */}
-              {showRejectionRefund && (
-                <div className="border-t border-slate-200 pt-3 mt-3">
-                  <p className="text-xs font-bold text-slate-700 mb-2">
-                    Process Refund <span className="font-normal text-slate-400">(optional – leave blank to skip)</span>
-                  </p>
-                  <p className="text-xs text-slate-500 mb-2">Max refundable: ₱{rejectionMaxRefundable.toLocaleString()}</p>
-                  <p className="text-xs text-red-500 mb-2">* Proof of refund is required if you enter an amount.</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Refund Amount (₱)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={rejectionRefundAmount}
-                        onChange={(e) => setRejectionRefundAmount(e.target.value)}
-                        placeholder="Enter amount (optional)"
-                        className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Remarks</label>
-                      <input
-                        type="text"
-                        value={rejectionRefundRemarks}
-                        onChange={(e) => setRejectionRefundRemarks(e.target.value)}
-                        placeholder="Reason for refund"
-                        className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-2">
-                    <label className="block text-xs font-semibold text-slate-600 mb-0.5">
-                      Receipt / Proof of Refund <span className="text-red-500">*</span>
-                      <span className="font-normal text-slate-400 ml-1">(required if amount entered)</span>
-                    </label>
-                    <label className="border-2 border-dashed border-slate-300 rounded-lg p-2 flex items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center">
-                      <input type="file" onChange={(e) => setRejectionRefundFile(e.target.files[0])} accept="image/*" className="hidden" />
-                      <span className="text-xs text-slate-600">{rejectionRefundFile ? rejectionRefundFile.name : 'Upload Image (required for refund)'}</span>
-                    </label>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setIsRejectionModalOpen(false)}
-                  className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleRejectConfirm}
-                  className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm"
-                >
-                  Confirm Rejection
                 </button>
               </div>
             </div>

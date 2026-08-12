@@ -434,6 +434,23 @@ export default function Equipment() {
       return;
     }
 
+    const eventDate = selectedBooking?.event_datetime ? new Date(selectedBooking.event_datetime) : null;
+if (eventDate) {
+  for (const item of assignmentQueue) {
+    const conflict = assignments.some(a =>
+      a.equipment_id === item.equipment_id &&
+      a.booking?.event_datetime &&
+      new Date(a.booking.event_datetime).toDateString() === eventDate.toDateString() &&
+      a.booking_id !== assignFormData.booking_id &&
+      !a.returned
+    );
+    if (conflict) {
+      const equip = equipmentList.find(e => e.equipment_id === item.equipment_id);
+      toast.error(`"${equip?.eqm_name || 'Equipment'}" is already assigned to another event on ${eventDate.toLocaleDateString()}.`);
+      return;
+    }
+  }
+}
     setIsSubmitting(true);
 
     try {

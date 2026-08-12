@@ -25,7 +25,8 @@ export default function ForgotPassword() {
       setSubmitted(true);
       toast.success('Password reset link sent to your email!');
     } catch (error) {
-      toast.error(error.message || 'Failed to send reset email.');
+      console.error('Reset error:', error);
+      toast.error('Something went wrong. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -66,6 +67,7 @@ export default function ForgotPassword() {
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full border border-slate-300 rounded-md p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
                   required
+                  placeholder="Enter your email"
                 />
               </div>
               <button

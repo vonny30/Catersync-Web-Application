@@ -12,7 +12,7 @@ export default function ResetPassword() {
   const [isValidToken, setIsValidToken] = useState(false);
 
   useEffect(() => {
-    // Check for recovery token in URL hash (Supabase default) or query string
+    // Check for recovery token in URL hash (Supabase default)
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
     const accessToken = hashParams.get('access_token');
     const type = hashParams.get('type');
@@ -20,12 +20,13 @@ export default function ResetPassword() {
     if (accessToken && type === 'recovery') {
       setIsValidToken(true);
     } else {
+      // Also check query params as fallback
       const queryParams = new URLSearchParams(window.location.search);
       const token = queryParams.get('token');
       if (token) {
         setIsValidToken(true);
       } else {
-        toast.error('Invalid or missing reset token. Please request a new link.');
+        toast.error('Invalid or missing reset link. Please request a new one.');
         navigate('/forgot-password');
       }
     }
@@ -52,7 +53,8 @@ export default function ResetPassword() {
       await supabase.auth.signOut();
       navigate('/login');
     } catch (error) {
-      toast.error(error.message || 'Failed to update password.');
+      console.error('Reset error:', error);
+      toast.error('Something went wrong. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -84,6 +86,7 @@ export default function ResetPassword() {
                   className="w-full border border-slate-300 rounded-md p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
                   required
                   minLength="6"
+                  placeholder="Enter new password (min 6 characters)"
                 />
               </div>
               <div>
@@ -94,6 +97,7 @@ export default function ResetPassword() {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="w-full border border-slate-300 rounded-md p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
                   required
+                  placeholder="Confirm your new password"
                 />
               </div>
               <button

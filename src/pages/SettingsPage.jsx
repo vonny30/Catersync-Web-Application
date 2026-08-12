@@ -1,9 +1,8 @@
-// pages/SettingsPage.jsx
+// src/pages/SettingsPage.jsx
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Building2, Lock, Bell, Save, User, Mail, Phone, 
-  AlertCircle, CheckCircle 
+  Building2, Lock, Save, User, Mail, Phone
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -27,12 +26,7 @@ export default function SettingsPage() {
     confirmPassword: '',
   });
 
-  const [notifications, setNotifications] = useState({
-    newBooking: true,
-    orderUpdates: true,
-    paymentAlerts: true,
-    marketing: false,
-  });
+  const [userId, setUserId] = useState(null);
 
   const handleError = (error, userMessage = 'Something went wrong.') => {
     console.error('Error:', error);
@@ -44,10 +38,11 @@ export default function SettingsPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { navigate('/login'); return; }
+      setUserId(user.id);
 
       const { data: manager, error } = await supabase
         .from('manager')
-        .select('first_name, last_name, contact_no, email') // now includes email
+        .select('first_name, last_name, contact_no, email')
         .eq('user_id', user.id)
         .single();
 
@@ -70,6 +65,7 @@ export default function SettingsPage() {
     fetchManagerProfile();
   }, [navigate]);
 
+  // --- Profile Update ---
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
     setIsSaving(true);
@@ -95,7 +91,7 @@ export default function SettingsPage() {
     }
   };
 
-  // --- UPDATED: updates both Auth and manager table ---
+  // --- Email Update ---
   const handleEmailUpdate = async () => {
     const newEmail = managerData.email.trim();
     if (!newEmail) {
@@ -112,20 +108,17 @@ export default function SettingsPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // 1. Update Auth (login) email
       const { error: authError } = await supabase.auth.updateUser({
         email: newEmail,
       });
       if (authError) throw authError;
 
-      // 2. Update manager.email (if column exists)
       const { error: managerError } = await supabase
         .from('manager')
         .update({ email: newEmail })
         .eq('user_id', user.id);
 
       if (managerError) {
-        // If column doesn't exist yet, ignore – but we added it.
         console.warn('Manager email update failed:', managerError);
       }
 
@@ -141,9 +134,11 @@ export default function SettingsPage() {
     }
   };
 
+  // --- Password Update (with current password verification) ---
   const handlePasswordUpdate = async (e) => {
     e.preventDefault();
     setIsSaving(true);
+
     if (passwordForm.newPassword.length < 6) {
       toast.error('New password must be at least 6 characters.');
       setIsSaving(false);
@@ -154,11 +149,28 @@ export default function SettingsPage() {
       setIsSaving(false);
       return;
     }
+
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      // 1. Verify current password
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: passwordForm.currentPassword,
+      });
+      if (signInError) {
+        toast.error('Current password is incorrect.');
+        setIsSaving(false);
+        return;
+      }
+
+      // 2. Update to new password
       const { error } = await supabase.auth.updateUser({
         password: passwordForm.newPassword,
       });
       if (error) throw error;
+
       toast.success('Password updated successfully!');
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
     } catch (error) {
@@ -168,21 +180,16 @@ export default function SettingsPage() {
     }
   };
 
-  const handleNotificationSave = () => {
-    toast.success('Notification preferences saved!');
-  };
-
   const tabs = [
     { id: 'general', label: 'Business Profile', icon: Building2 },
     { id: 'security', label: 'Security', icon: Lock },
-    { id: 'notifications', label: 'Notifications', icon: Bell },
   ];
 
   return (
     <div className="max-w-5xl mx-auto animate-in fade-in duration-200">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
-        <p className="text-sm text-slate-500 mt-1">Manage your business profile, security, and system preferences.</p>
+        <p className="text-sm text-slate-500 mt-1">Manage your business profile and security.</p>
       </div>
 
       <div className="border-b border-slate-200 mb-8">
@@ -267,7 +274,6 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                {/* Email field with Update button */}
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-700">Email Address</label>
                   <div className="flex gap-2">
@@ -364,69 +370,6 @@ export default function SettingsPage() {
               </button>
             </div>
           </form>
-        )}
-
-        {activeTab === 'notifications' && (
-          <div className="p-6 md:p-8">
-            <h2 className="text-lg font-bold text-slate-900 mb-2">Email Notifications</h2>
-            <p className="text-sm text-slate-500 mb-6">Choose what updates you want to receive via email.</p>
-            <div className="space-y-4 mb-8 max-w-2xl">
-              <div className="flex items-center justify-between p-4 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">New Bookings</h3>
-                  <p className="text-xs text-slate-500 mt-1">Get notified when a new catering package is booked.</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    checked={notifications.newBooking} 
-                    onChange={(e) => setNotifications({...notifications, newBooking: e.target.checked})}
-                    className="sr-only peer" 
-                  />
-                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#008A45]"></div>
-                </label>
-              </div>
-              <div className="flex items-center justify-between p-4 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">Short Order Updates</h3>
-                  <p className="text-xs text-slate-500 mt-1">Receive alerts for new or cancelled short orders.</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    checked={notifications.orderUpdates} 
-                    onChange={(e) => setNotifications({...notifications, orderUpdates: e.target.checked})}
-                    className="sr-only peer" 
-                  />
-                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#008A45]"></div>
-                </label>
-              </div>
-              <div className="flex items-center justify-between p-4 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">Payment Alerts</h3>
-                  <p className="text-xs text-slate-500 mt-1">Get an email when a client completes a payment.</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    checked={notifications.paymentAlerts} 
-                    onChange={(e) => setNotifications({...notifications, paymentAlerts: e.target.checked})}
-                    className="sr-only peer" 
-                  />
-                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#008A45]"></div>
-                </label>
-              </div>
-            </div>
-            <div className="pt-6 border-t border-slate-100 flex justify-end">
-              <button 
-                onClick={handleNotificationSave}
-                className="bg-[#008A45] hover:bg-[#007038] text-white px-5 py-2.5 rounded-lg font-medium text-sm transition-colors flex items-center gap-2 shadow-sm"
-              >
-                <Save size={18} />
-                Save Preferences
-              </button>
-            </div>
-          </div>
         )}
 
       </div>
