@@ -8,11 +8,11 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isManager, setIsManager] = useState(false);
-  const isCreatingWalkIn = useRef(false); // ✅ safe ref for walk‑in creation
+  const isCreatingWalkIn = useRef(false);
+  let timeoutId = null; // for safety timeout
 
   const checkManager = async (authUser) => {
     try {
-      // Skip manager check if we are in the middle of walk‑in creation
       if (isCreatingWalkIn.current) {
         setLoading(false);
         return;
@@ -37,20 +37,40 @@ export const AuthProvider = ({ children }) => {
       console.error('Error checking manager status:', error);
       setUser(null);
       setIsManager(false);
+      // Sign out to clear invalid session
+      await supabase.auth.signOut();
     } finally {
       setLoading(false);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
     }
   };
 
   useEffect(() => {
     const getSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        await checkManager(session.user);
-      } else {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          await checkManager(session.user);
+        } else {
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('Session error:', error);
         setLoading(false);
       }
     };
+
+    // ⏱️ Safety timeout: force loading to false after 5 seconds
+    timeoutId = setTimeout(() => {
+      if (loading) {
+        console.warn('Auth loading timeout – forcing loading to false');
+        setLoading(false);
+        if (timeoutId) clearTimeout(timeoutId);
+      }
+    }, 5000);
 
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
@@ -68,10 +88,10 @@ export const AuthProvider = ({ children }) => {
 
     return () => {
       listener?.subscription.unsubscribe();
+      if (timeoutId) clearTimeout(timeoutId);
     };
   }, []);
 
-  // ✅ Method to safely perform walk‑in creation – sets the ref, runs callback, then clears it
   const withWalkInCreation = async (callback) => {
     isCreatingWalkIn.current = true;
     try {
@@ -91,11 +111,12 @@ export const AuthProvider = ({ children }) => {
     await supabase.auth.signOut();
     setUser(null);
     setIsManager(false);
+    setLoading(false);
   };
 
   return (
     <AuthContext.Provider value={{ user, loading, isManager, login, logout, withWalkInCreation }}>
-      {!loading && children}
+      {children}
     </AuthContext.Provider>
   );
 };

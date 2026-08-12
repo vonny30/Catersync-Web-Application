@@ -1,7 +1,7 @@
 // src/App.jsx
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ErrorProvider } from './contexts/ErrorContext';
 import { ConfirmProvider } from './contexts/ConfirmContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -20,19 +20,24 @@ import Reports from './pages/Reports';
 import PackagesAndMenus from './pages/PackagesAndMenus';
 import SettingsPage from './pages/SettingsPage';
 import Login from './pages/Login';
-import ForgotPassword from './pages/ForgotPassword';   // ✅ NEW
-import ResetPassword from './pages/ResetPassword';     // ✅ NEW
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
+import LoadingScreen from './components/LoadingScreen';
 
 function AppContent() {
   const { confirmState } = useConfirm();
+  const { loading } = useAuth();
+
+  // Show loading screen while auth is being checked
+  if (loading) {
+    return <LoadingScreen />;
+  }
 
   return (
     <>
       <Toaster
         position="bottom-right"
-        containerStyle={{
-          zIndex: 999999,
-        }}
+        containerStyle={{ zIndex: 999999 }}
         toastOptions={{
           duration: 4000,
           style: {
@@ -61,8 +66,8 @@ function AppContent() {
       <Routes>
         <Route path="/" element={<Login />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />     {/* ✅ NEW */}
-        <Route path="/reset-password" element={<ResetPassword />} />       {/* ✅ NEW */}
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route
           path="/app"
           element={
