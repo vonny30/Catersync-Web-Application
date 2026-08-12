@@ -6,6 +6,8 @@ import { Calendar as CalendarIcon, Clock, CheckCircle, TrendingUp, ChevronLeft, 
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
+import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -18,7 +20,7 @@ export default function Dashboard() {
     revenueThisMonth: 0,
   });
   const [todayEvents, setTodayEvents] = useState([]);
-  const [pendingBookings, setPendingBookings] = useState([]);
+  const [pendingItems, setPendingItems] = useState([]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [calendarDays, setCalendarDays] = useState([]);
   const [eventDates, setEventDates] = useState({});
@@ -31,8 +33,9 @@ export default function Dashboard() {
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
   const [statsModalData, setStatsModalData] = useState([]);
   const [statsModalTitle, setStatsModalTitle] = useState('');
-  const [statsModalType, setStatsModalType] = useState(''); // 'today', 'pending', 'upcoming', 'revenue'
+  const [statsModalType, setStatsModalType] = useState('');
 
+  // --- Helper ---
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
     console.error('Error:', error);
     toast.error(userMessage);
@@ -49,6 +52,7 @@ export default function Dashboard() {
       const startOfMonthStr = startOfMonth.toISOString().split('T')[0];
       const endOfMonthStr = endOfMonth.toISOString().split('T')[0];
 
+      // --- Calendar events (Package only) ---
       const { data: monthBookings, error: monthError } = await supabase
         .from('booking')
         .select('event_datetime, booking_status')
@@ -69,6 +73,7 @@ export default function Dashboard() {
       });
       setEventDates(eventMap);
 
+      // --- Today's Events (Package only) ---
       const { data: todayData, error: todayError } = await supabase
         .from('booking')
         .select(`
@@ -90,7 +95,8 @@ export default function Dashboard() {
       setTodayEvents(todayData || []);
       setStats(prev => ({ ...prev, todayEvents: todayData?.length || 0 }));
 
-      const { data: pendingData, error: pendingError } = await supabase
+      // --- Pending Package Bookings ---
+      const { data: pendingPackages, error: pendingPackageError } = await supabase
         .from('booking')
         .select(`
           booking_id,
@@ -99,17 +105,41 @@ export default function Dashboard() {
           pax_count,
           event_datetime,
           booking_status,
+          booking_type,
           customer:customer_id (first_name, last_name)
         `)
         .eq('booking_type', 'Package')
         .eq('booking_status', 'Pending')
-        .order('event_datetime', { ascending: true })
-        .limit(5);
+        .order('event_datetime', { ascending: true });
 
-      if (pendingError) throw pendingError;
-      setPendingBookings(pendingData || []);
-      setStats(prev => ({ ...prev, pendingBookings: pendingData?.length || 0 }));
+      if (pendingPackageError) throw pendingPackageError;
 
+      // --- Pending Short Orders ---
+      const { data: pendingShortOrders, error: pendingShortError } = await supabase
+        .from('booking')
+        .select(`
+          booking_id,
+          booking_number,
+          venue,
+          pax_count,
+          event_datetime,
+          booking_status,
+          booking_type,
+          customer:customer_id (first_name, last_name)
+        `)
+        .eq('booking_type', 'Short Order')
+        .eq('booking_status', 'Pending')
+        .order('event_datetime', { ascending: true });
+
+      if (pendingShortError) throw pendingShortError;
+
+      // Combine and sort by event_datetime
+      const combined = [...(pendingPackages || []), ...(pendingShortOrders || [])];
+      combined.sort((a, b) => new Date(a.event_datetime) - new Date(b.event_datetime));
+      setPendingItems(combined);
+      setStats(prev => ({ ...prev, pendingBookings: combined.length }));
+
+      // --- Upcoming Events (Package only) ---
       const { data: upcomingData, error: upcomingError } = await supabase
         .from('booking')
         .select('booking_id')
@@ -121,6 +151,7 @@ export default function Dashboard() {
       if (upcomingError) throw upcomingError;
       setStats(prev => ({ ...prev, upcomingEvents: upcomingData?.length || 0 }));
 
+      // --- Revenue This Month (all payments) ---
       const { data: revenueData, error: revenueError } = await supabase
         .from('payment')
         .select('amount_paid')
@@ -138,12 +169,50 @@ export default function Dashboard() {
     }
   };
 
+  // --- Approval & Rejection hooks (MUST be AFTER fetchDashboardData is defined) ---
+  const {
+    isApprovalModalOpen,
+    setIsApprovalModalOpen,
+    approvalBooking,
+    approvalData,
+    isSubmitting: isApprovalSubmitting,
+    openApprovalModal,
+    handleApprovalInputChange,
+    handleFinalizeApproval,
+  } = useApprovalHandlers({
+    booking: null,
+    payments: [],
+    fetchData: fetchDashboardData,
+  });
+
+  const {
+    isRejectionModalOpen,
+    setIsRejectionModalOpen,
+    rejectionReason,
+    setRejectionReason,
+    rejectionRefundAmount,
+    setRejectionRefundAmount,
+    rejectionRefundRemarks,
+    setRejectionRefundRemarks,
+    rejectionRefundFile,
+    setRejectionRefundFile,
+    showRejectionRefund,
+    rejectionMaxRefundable,
+    openRejectionModal,
+    handleRejectConfirm,
+  } = useRejectionHandlers({
+    booking: null,
+    payments: [],
+    fetchData: fetchDashboardData,
+  });
+
   useEffect(() => {
     fetchDashboardData();
     const interval = setInterval(fetchDashboardData, 60000);
     return () => clearInterval(interval);
   }, []);
 
+  // --- Calendar generation ---
   useEffect(() => {
     generateCalendar(currentMonth);
   }, [currentMonth, eventDates]);
@@ -212,42 +281,6 @@ export default function Dashboard() {
     setShowDateModal(true);
   };
 
-  const handleApprove = async (id) => {
-    try {
-      const { error } = await supabase
-        .from('booking')
-        .update({ booking_status: 'Approved' })
-        .eq('booking_id', id);
-      if (error) throw error;
-      toast.success('Booking approved successfully!');
-      fetchDashboardData();
-    } catch (error) {
-      handleError(error, 'Failed to approve booking.');
-    }
-  };
-
-  const handleReject = async (id) => {
-    const confirmed = await showConfirm({
-      title: 'Reject Booking?',
-      message: 'Are you sure you want to reject this booking? This will cancel it and cannot be undone.',
-      confirmLabel: 'Reject',
-      confirmVariant: 'danger',
-    });
-    if (!confirmed) return;
-
-    try {
-      const { error } = await supabase
-        .from('booking')
-        .update({ booking_status: 'Rejected' })
-        .eq('booking_id', id);
-      if (error) throw error;
-      toast.success('Booking rejected.');
-      fetchDashboardData();
-    } catch (error) {
-      handleError(error, 'Failed to reject booking.');
-    }
-  };
-
   const formatTime = (dateStr) => {
     if (!dateStr) return 'N/A';
     return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -272,15 +305,15 @@ export default function Dashboard() {
 
   const getBookingRef = (booking) => {
     if (booking.booking_number) return booking.booking_number;
-    return `BKG-${booking.booking_id.slice(0, 8)}`;
+    const prefix = booking.booking_type === 'Short Order' ? 'SO' : 'BKG';
+    return `${prefix}-${booking.booking_id.slice(0, 8)}`;
   };
 
-  // --- Stats Card Click Handlers (Open Modal) ---
+  // --- Stats Card Click Handlers ---
   const handleTodayEventsClick = async () => {
     try {
       const today = new Date();
       const todayStr = today.toISOString().split('T')[0];
-      
       const { data, error } = await supabase
         .from('booking')
         .select(`
@@ -297,7 +330,6 @@ export default function Dashboard() {
         .gte('event_datetime', `${todayStr} 00:00:00`)
         .lt('event_datetime', `${todayStr} 23:59:59`)
         .order('event_datetime', { ascending: true });
-
       if (error) throw error;
       setStatsModalData(data || []);
       setStatsModalTitle("Today's Events");
@@ -319,19 +351,18 @@ export default function Dashboard() {
           pax_count,
           event_datetime,
           booking_status,
+          booking_type,
           customer:customer_id (first_name, last_name)
         `)
-        .eq('booking_type', 'Package')
         .eq('booking_status', 'Pending')
         .order('event_datetime', { ascending: true });
-
       if (error) throw error;
       setStatsModalData(data || []);
-      setStatsModalTitle('Pending Bookings');
+      setStatsModalTitle('Pending Orders (All Types)');
       setStatsModalType('pending');
       setIsStatsModalOpen(true);
     } catch (error) {
-      handleError(error, 'Failed to load pending bookings.');
+      handleError(error, 'Failed to load pending orders.');
     }
   };
 
@@ -341,7 +372,6 @@ export default function Dashboard() {
       const todayStr = today.toISOString().split('T')[0];
       const futureDate = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
       const futureStr = futureDate.toISOString().split('T')[0];
-
       const { data, error } = await supabase
         .from('booking')
         .select(`
@@ -358,7 +388,6 @@ export default function Dashboard() {
         .gte('event_datetime', `${todayStr} 00:00:00`)
         .lt('event_datetime', `${futureStr} 00:00:00`)
         .order('event_datetime', { ascending: true });
-
       if (error) throw error;
       setStatsModalData(data || []);
       setStatsModalTitle('Upcoming Events (7 days)');
@@ -376,8 +405,6 @@ export default function Dashboard() {
       const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
       const startOfMonthStr = startOfMonth.toISOString().split('T')[0];
       const endOfMonthStr = endOfMonth.toISOString().split('T')[0];
-
-      // Get all payments for this month with booking details
       const { data, error } = await supabase
         .from('payment')
         .select(`
@@ -397,7 +424,6 @@ export default function Dashboard() {
         .gte('pay_datetime', startOfMonthStr)
         .lte('pay_datetime', endOfMonthStr)
         .order('pay_datetime', { ascending: false });
-
       if (error) throw error;
       setStatsModalData(data || []);
       setStatsModalTitle(`Revenue This Month (${today.toLocaleString('default', { month: 'long', year: 'numeric' })})`);
@@ -408,21 +434,33 @@ export default function Dashboard() {
     }
   };
 
-  // --- Close Stats Modal ---
   const closeStatsModal = () => {
     setIsStatsModalOpen(false);
     setStatsModalData([]);
   };
 
-  // --- Handle row click in stats modal ---
   const handleStatsRowClick = (item) => {
     if (item.booking_id) {
-      navigate(`/app/bookings/${item.booking_id}`);
+      const route = item.booking_type === 'Short Order' ? '/app/orders' : '/app/bookings';
+      navigate(`${route}/${item.booking_id}`);
     } else if (item.booking?.booking_id) {
-      navigate(`/app/bookings/${item.booking.booking_id}`);
+      const route = item.booking.booking_type === 'Short Order' ? '/app/orders' : '/app/bookings';
+      navigate(`${route}/${item.booking.booking_id}`);
     }
   };
 
+  const getStatusBadge = (status) => {
+    const map = {
+      Pending: 'bg-amber-50 border-amber-200 text-amber-700',
+      Approved: 'bg-[#EAF3F2] border-[#C1DEDC] text-slate-800',
+      Completed: 'bg-blue-50 border-blue-200 text-blue-700',
+      Rejected: 'bg-red-50 border-red-200 text-red-700',
+      Cancelled: 'bg-slate-100 border-slate-300 text-slate-600',
+    };
+    return map[status] || 'bg-slate-100 text-slate-600';
+  };
+
+  // --- RENDER ---
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -450,7 +488,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Stat Cards - Clickable */}
+      {/* Stat Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {/* Today's Events */}
         <button
@@ -466,7 +504,7 @@ export default function Dashboard() {
           <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
         </button>
 
-        {/* Pending Bookings */}
+        {/* Pending Orders (combined) */}
         <button
           onClick={handlePendingBookingsClick}
           className="bg-[#EEF7F6] border border-slate-200 rounded-xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:border-amber-500 transition-all cursor-pointer group relative"
@@ -475,7 +513,8 @@ export default function Dashboard() {
             <Clock size={20} className="text-slate-700 group-hover:text-amber-500 transition-colors" />
           </div>
           <span className="text-3xl font-bold text-slate-900 mb-1 group-hover:text-amber-600 transition-colors">{stats.pendingBookings}</span>
-          <span className="text-sm font-medium text-slate-600">Pending Bookings</span>
+          <span className="text-sm font-medium text-slate-600">Pending Orders</span>
+          <span className="text-[10px] text-slate-400">(Packages + Short Orders)</span>
           <ArrowRight size={14} className="absolute top-3 right-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
           <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
         </button>
@@ -568,10 +607,10 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* RIGHT: Pending Bookings */}
+        {/* RIGHT: Pending Orders (combined) */}
         <div className="bg-[#F8F9FA] border border-slate-200 rounded-xl p-6 shadow-sm h-fit">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-bold text-slate-900">Pending Bookings</h2>
+            <h2 className="text-xl font-bold text-slate-900">Pending Orders</h2>
             <button
               onClick={() => navigate('/app/bookings')}
               className="text-sm font-semibold text-slate-900 underline decoration-2 underline-offset-4 hover:text-[#008A45] transition-colors"
@@ -579,57 +618,68 @@ export default function Dashboard() {
               View All
             </button>
           </div>
-          
+
           <div className="space-y-4">
-            {pendingBookings.length === 0 ? (
-              <p className="text-sm text-slate-500 italic text-center py-8">No pending bookings.</p>
+            {pendingItems.length === 0 ? (
+              <p className="text-sm text-slate-500 italic text-center py-8">No pending orders.</p>
             ) : (
-              pendingBookings.map((booking) => (
-                <div key={booking.booking_id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h4
-                        onClick={() => navigate(`/app/bookings/${booking.booking_id}`)}
-                        className="font-bold text-slate-900 text-sm cursor-pointer hover:text-[#008A45] transition-colors"
-                      >
-                        {getClientName(booking)}
-                      </h4>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        {formatDate(booking.event_datetime)} · {booking.pax_count || 0} pax
-                      </p>
+              pendingItems.map((item) => {
+                const isShortOrder = item.booking_type === 'Short Order';
+                const detailPath = isShortOrder ? '/app/orders' : '/app/bookings';
+
+                return (
+                  <div key={item.booking_id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4
+                            onClick={() => navigate(`${detailPath}/${item.booking_id}`)}
+                            className="font-bold text-slate-900 text-sm cursor-pointer hover:text-[#008A45] transition-colors"
+                          >
+                            {getClientName(item)}
+                          </h4>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isShortOrder ? 'bg-purple-100 text-purple-700 border border-purple-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
+                            {isShortOrder ? 'Short Order' : 'Package'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {formatDate(item.event_datetime)} · {item.venue || 'No venue'}
+                          {!isShortOrder && ` · ${item.pax_count || 0} pax`}
+                        </p>
+                      </div>
+                      <span className="bg-amber-50 border border-amber-200 text-amber-700 text-xs px-3 py-1 rounded-full font-medium">
+                        Pending
+                      </span>
                     </div>
-                    <span className="bg-amber-50 border border-amber-200 text-amber-700 text-xs px-3 py-1 rounded-full font-medium">
-                      Pending
-                    </span>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => openApprovalModal(item, isShortOrder ? 'shortorder' : 'package')}
+                        className="flex-1 bg-[#D1E8E6] text-slate-800 font-semibold text-sm py-2 rounded-lg flex justify-center items-center gap-2 hover:bg-[#b8dad7] transition-colors"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => openRejectionModal(item.booking_id)}
+                        className="flex-1 bg-red-50 border border-red-200 text-red-700 font-semibold text-sm py-2 rounded-lg hover:bg-red-100 transition-colors"
+                      >
+                        <svg className="w-4 h-4 inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        Reject
+                      </button>
+                      <button
+                        onClick={() => navigate(`${detailPath}/${item.booking_id}`)}
+                        className="flex-1 bg-white border border-slate-300 text-slate-800 font-semibold text-sm py-2 rounded-lg hover:bg-slate-50 transition-colors"
+                      >
+                        View Details
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => handleApprove(booking.booking_id)}
-                      className="flex-1 bg-[#D1E8E6] text-slate-800 font-semibold text-sm py-2 rounded-lg flex justify-center items-center gap-2 hover:bg-[#b8dad7] transition-colors"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                      Approve
-                    </button>
-                    <button
-                      onClick={() => handleReject(booking.booking_id)}
-                      className="flex-1 bg-red-50 border border-red-200 text-red-700 font-semibold text-sm py-2 rounded-lg hover:bg-red-100 transition-colors"
-                    >
-                      <svg className="w-4 h-4 inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                      Reject
-                    </button>
-                    <button
-                      onClick={() => navigate(`/app/bookings/${booking.booking_id}`)}
-                      className="flex-1 bg-white border border-slate-300 text-slate-800 font-semibold text-sm py-2 rounded-lg hover:bg-slate-50 transition-colors"
-                    >
-                      View Details
-                    </button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
@@ -684,9 +734,7 @@ export default function Dashboard() {
         document.body
       )}
 
-      {/* ========================================================= */}
-      {/* STATS DETAIL MODAL - Clickable Cards with clickable rows */}
-      {/* ========================================================= */}
+      {/* STATS DETAIL MODAL */}
       {isStatsModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-150">
           <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden">
@@ -702,7 +750,6 @@ export default function Dashboard() {
                 <X size={18} />
               </button>
             </div>
-
             <div className="p-6 overflow-y-auto flex-1">
               {statsModalData.length === 0 ? (
                 <div className="text-center py-10 text-slate-500">No records found for this category.</div>
@@ -713,8 +760,9 @@ export default function Dashboard() {
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
-                          <th className="p-3">Booking Ref</th>
+                          <th className="p-3">Ref</th>
                           <th className="p-3">Customer</th>
+                          <th className="p-3">Type</th>
                           <th className="p-3">Venue</th>
                           <th className="p-3 text-center">Pax</th>
                           <th className="p-3">Event Date</th>
@@ -723,49 +771,53 @@ export default function Dashboard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-sm">
-                        {statsModalData.map((item) => (
-                          <tr 
-                            key={item.booking_id} 
-                            className="hover:bg-slate-50 transition-colors cursor-pointer"
-                            onClick={() => navigate(`/app/bookings/${item.booking_id}`)}
-                          >
-                            <td className="p-3 font-mono text-xs font-semibold text-slate-800">
-                              {getBookingRef(item)}
-                            </td>
-                            <td className="p-3 font-medium text-slate-900">{getClientName(item)}</td>
-                            <td className="p-3 text-slate-600">{item.venue || 'N/A'}</td>
-                            <td className="p-3 text-center font-semibold">{item.pax_count || 0}</td>
-                            <td className="p-3 text-slate-600 text-xs">
-                              {item.event_datetime ? new Date(item.event_datetime).toLocaleString() : 'N/A'}
-                            </td>
-                            <td className="p-3 text-center">
-                              <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                                item.booking_status === 'Approved' ? 'bg-green-100 text-green-700' :
-                                item.booking_status === 'Pending' ? 'bg-amber-100 text-amber-700' :
-                                item.booking_status === 'Completed' ? 'bg-blue-100 text-blue-700' :
-                                'bg-slate-100 text-slate-600'
-                              }`}>
-                                {item.booking_status}
-                              </span>
-                            </td>
-                            <td className="p-3 text-center">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  navigate(`/app/bookings/${item.booking_id}`);
-                                }}
-                                className="text-[#008A45] hover:text-[#007038] transition-colors flex items-center gap-1 mx-auto text-xs font-medium"
-                              >
-                                <Eye size={14} /> View
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
+                        {statsModalData.map((item) => {
+                          const isShortOrder = item.booking_type === 'Short Order';
+                          const detailPath = isShortOrder ? '/app/orders' : '/app/bookings';
+                          return (
+                            <tr
+                              key={item.booking_id}
+                              className="hover:bg-slate-50 transition-colors cursor-pointer"
+                              onClick={() => navigate(`${detailPath}/${item.booking_id}`)}
+                            >
+                              <td className="p-3 font-mono text-xs font-semibold text-slate-800">
+                                {getBookingRef(item)}
+                              </td>
+                              <td className="p-3 font-medium text-slate-900">{getClientName(item)}</td>
+                              <td className="p-3">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isShortOrder ? 'bg-purple-100 text-purple-700 border border-purple-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
+                                  {isShortOrder ? 'Short Order' : 'Package'}
+                                </span>
+                              </td>
+                              <td className="p-3 text-slate-600">{item.venue || 'N/A'}</td>
+                              <td className="p-3 text-center font-semibold">{item.pax_count || 0}</td>
+                              <td className="p-3 text-slate-600 text-xs">
+                                {item.event_datetime ? new Date(item.event_datetime).toLocaleString() : 'N/A'}
+                              </td>
+                              <td className="p-3 text-center">
+                                <span className={`px-2 py-1 rounded-full text-xs font-bold ${getStatusBadge(item.booking_status)}`}>
+                                  {item.booking_status}
+                                </span>
+                              </td>
+                              <td className="p-3 text-center">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigate(`${detailPath}/${item.booking_id}`);
+                                  }}
+                                  className="text-[#008A45] hover:text-[#007038] transition-colors flex items-center gap-1 mx-auto text-xs font-medium"
+                                >
+                                  <Eye size={14} /> View
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                       <tfoot className="bg-slate-50 border-t-2 border-slate-200">
                         <tr>
-                          <td colSpan="7" className="p-3 text-right font-bold text-slate-700">
-                            Total: {statsModalData.length} booking(s)
+                          <td colSpan="8" className="p-3 text-right font-bold text-slate-700">
+                            Total: {statsModalData.length} record(s)
                           </td>
                         </tr>
                       </tfoot>
@@ -790,16 +842,18 @@ export default function Dashboard() {
                       <tbody className="divide-y divide-slate-100 text-sm">
                         {statsModalData.map((payment) => {
                           const booking = payment.booking;
-                          const customerName = booking?.customer 
-                            ? `${booking.customer.first_name} ${booking.customer.last_name}` 
+                          const customerName = booking?.customer
+                            ? `${booking.customer.first_name} ${booking.customer.last_name}`
                             : 'Unknown';
+                          const isShortOrder = booking?.booking_type === 'Short Order';
+                          const detailPath = isShortOrder ? '/app/orders' : '/app/bookings';
                           return (
-                            <tr 
-                              key={payment.payment_id} 
+                            <tr
+                              key={payment.payment_id}
                               className="hover:bg-slate-50 transition-colors cursor-pointer"
                               onClick={() => {
                                 if (booking?.booking_id) {
-                                  navigate(`/app/bookings/${booking.booking_id}`);
+                                  navigate(`${detailPath}/${booking.booking_id}`);
                                 }
                               }}
                             >
@@ -816,11 +870,7 @@ export default function Dashboard() {
                                 {payment.pay_datetime ? new Date(payment.pay_datetime).toLocaleString() : 'N/A'}
                               </td>
                               <td className="p-3 text-center">
-                                <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                                  payment.pay_status === 'Fully Paid' ? 'bg-green-100 text-green-700' :
-                                  payment.pay_status === 'Downpayment' ? 'bg-amber-100 text-amber-700' :
-                                  'bg-slate-100 text-slate-600'
-                                }`}>
+                                <span className={`px-2 py-1 rounded-full text-xs font-bold ${payment.pay_status === 'Fully Paid' ? 'bg-green-100 text-green-700' : payment.pay_status === 'Downpayment' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
                                   {payment.pay_status || 'N/A'}
                                 </span>
                               </td>
@@ -829,7 +879,7 @@ export default function Dashboard() {
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     if (booking?.booking_id) {
-                                      navigate(`/app/bookings/${booking.booking_id}`);
+                                      navigate(`${detailPath}/${booking.booking_id}`);
                                     }
                                   }}
                                   className="text-[#008A45] hover:text-[#007038] transition-colors flex items-center gap-1 mx-auto text-xs font-medium"
@@ -855,7 +905,6 @@ export default function Dashboard() {
                 </>
               )}
             </div>
-
             <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-200 shrink-0">
               <button
                 onClick={closeStatsModal}
@@ -863,6 +912,236 @@ export default function Dashboard() {
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ===== APPROVAL MODAL ===== */}
+      {isApprovalModalOpen && approvalBooking && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
+              <h2 className="text-lg font-bold text-slate-900">
+                {approvalBooking.booking_type === 'Short Order' ? 'Approve Short Order – Adjust Fees' : 'Approve Booking – Adjust Fees'}
+              </h2>
+              <button
+                onClick={() => setIsApprovalModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto space-y-6 text-left">
+              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-sm">
+                <div className="grid grid-cols-2 gap-2">
+                  <span className="font-medium text-slate-600">Customer:</span>
+                  <span className="font-bold text-slate-900">
+                    {approvalBooking.customer?.first_name} {approvalBooking.customer?.last_name}
+                  </span>
+                  <span className="font-medium text-slate-600">Type:</span>
+                  <span className="font-bold text-slate-900">{approvalBooking.booking_type}</span>
+                  <span className="font-medium text-slate-600">Venue:</span>
+                  <span className="font-bold text-slate-900">{approvalBooking.venue || 'N/A'}</span>
+                  <span className="font-medium text-slate-600">Current Total:</span>
+                  <span className="font-bold text-slate-900">₱{approvalBooking.total_amount?.toLocaleString() || '0'}</span>
+                </div>
+                {approvalBooking.booking_type === 'Package' && (
+                  <p className="text-xs text-slate-500 mt-2">* Adjust extra pax or add fees below.</p>
+                )}
+                {approvalBooking.booking_type === 'Short Order' && (
+                  <p className="text-xs text-slate-500 mt-2">* Short order pricing is per tray. You can add extra fees below.</p>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                {approvalBooking.booking_type === 'Package' ? (
+                  <>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Extra Pax (additional headcount)</label>
+                      <input
+                        type="number"
+                        name="extraPax"
+                        min="0"
+                        value={approvalData.extraPax}
+                        onChange={handleApprovalInputChange}
+                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                      />
+                      <p className="text-xs text-slate-400 mt-1">Each extra pax costs ₱{approvalBooking.package?.pkg_price || 0} (package price per pax).</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons, extra services)</label>
+                      <input
+                        type="number"
+                        name="additionalFee"
+                        min="0"
+                        step="0.01"
+                        value={approvalData.additionalFee}
+                        onChange={handleApprovalInputChange}
+                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                        placeholder="e.g. 2000"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Extra Quantity Fee (additional trays / items)</label>
+                      <input
+                        type="number"
+                        name="extraQuantity"
+                        min="0"
+                        step="0.01"
+                        value={approvalData.extraQuantity}
+                        onChange={handleApprovalInputChange}
+                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                        placeholder="e.g. 1000"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Additional Delivery Fee</label>
+                      <input
+                        type="number"
+                        name="extraDeliveryFee"
+                        min="0"
+                        step="0.01"
+                        value={approvalData.extraDeliveryFee}
+                        onChange={handleApprovalInputChange}
+                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                        placeholder="e.g. 500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons)</label>
+                      <input
+                        type="number"
+                        name="additionalFee"
+                        min="0"
+                        step="0.01"
+                        value={approvalData.additionalFee}
+                        onChange={handleApprovalInputChange}
+                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                        placeholder="e.g. 2000"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="bg-[#EAF3F2] border border-[#d2e8e5] rounded-lg p-4 flex justify-between items-center">
+                <span className="font-bold text-slate-800">New Total:</span>
+                <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+              </div>
+              <div className="text-sm text-slate-500">
+                <p>Down payment (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
+                <p className="text-xs mt-1">* Down payment is required to secure the order (non-refundable within 3 days of event).</p>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setIsApprovalModalOpen(false)}
+                  className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleFinalizeApproval}
+                  disabled={isApprovalSubmitting}
+                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                >
+                  {isApprovalSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ===== REJECTION REASON MODAL ===== */}
+      {isRejectionModalOpen && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Rejection Reason</h2>
+              <button onClick={() => setIsRejectionModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Reason for Rejection</label>
+                <textarea
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  rows="3"
+                  placeholder="e.g., Incomplete details, client requested cancellation, etc."
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
+                />
+                <p className="text-xs text-slate-400 mt-1">Optional, but recommended.</p>
+              </div>
+
+              {showRejectionRefund && (
+                <div className="border-t border-slate-200 pt-3 mt-3">
+                  <p className="text-xs font-bold text-slate-700 mb-2">
+                    Process Refund <span className="font-normal text-slate-400">(optional – leave blank to skip)</span>
+                  </p>
+                  <p className="text-xs text-slate-500 mb-2">Max refundable: ₱{rejectionMaxRefundable.toLocaleString()}</p>
+                  <p className="text-xs text-red-500 mb-2">* Proof of refund is required if you enter an amount.</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Refund Amount (₱)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={rejectionRefundAmount}
+                        onChange={(e) => setRejectionRefundAmount(e.target.value)}
+                        placeholder="Enter amount (optional)"
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Remarks</label>
+                      <input
+                        type="text"
+                        value={rejectionRefundRemarks}
+                        onChange={(e) => setRejectionRefundRemarks(e.target.value)}
+                        placeholder="Reason for refund"
+                        className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <label className="block text-xs font-semibold text-slate-600 mb-0.5">
+                      Receipt / Proof of Refund <span className="text-red-500">*</span>
+                      <span className="font-normal text-slate-400 ml-1">(required if amount entered)</span>
+                    </label>
+                    <label className="border-2 border-dashed border-slate-300 rounded-lg p-2 flex items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center">
+                      <input type="file" onChange={(e) => setRejectionRefundFile(e.target.files[0])} accept="image/*" className="hidden" />
+                      <span className="text-xs text-slate-600">{rejectionRefundFile ? rejectionRefundFile.name : 'Upload Image (required for refund)'}</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setIsRejectionModalOpen(false)}
+                  className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRejectConfirm}
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm"
+                >
+                  Confirm Rejection
+                </button>
+              </div>
             </div>
           </div>
         </div>,

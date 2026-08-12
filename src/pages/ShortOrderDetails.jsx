@@ -1159,85 +1159,133 @@ export default function ShortOrderDetails() {
         document.body
       )}
 
-      {/* ===== CANCEL ORDER MODAL ===== */}
-      {isCancelModalOpen && createPortal(
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
-            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
-              <h2 className="text-lg font-bold text-slate-900">Cancel Short Order</h2>
-              <button onClick={() => setIsCancelModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className={`p-3 rounded-lg text-sm border ${eventDate && daysUntilEvent < 3 ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
-                <p className="font-bold">Event Date: {eventDate ? new Date(eventDate).toLocaleString() : 'N/A'}</p>
-                {eventDate && daysUntilEvent !== null && (
-                  <p>{daysUntilEvent >= 0 ? `${daysUntilEvent} days until event` : 'Event has already passed'}</p>
-                )}
-                {eventDate && daysUntilEvent !== null && daysUntilEvent < 3 && daysUntilEvent >= 0 && (
-                  <p className="font-bold mt-1 text-red-600">⚠️ Cancellation is within 3 days – downpayment is NON-REFUNDABLE per policy.</p>
-                )}
-                {eventDate && daysUntilEvent !== null && daysUntilEvent >= 3 && (
-                  <p className="font-bold mt-1 text-green-700">✅ Cancellation is 3+ days before event – downpayment IS refundable.</p>
-                )}
-                {positivePayments > 0 && (
-                  <p className="mt-1">Total paid: <span className="font-bold">₱{positivePayments.toLocaleString()}</span></p>
-                )}
-                {positivePayments > 0 && !isRefundable && (
-                  <p className="mt-1 text-xs text-red-600">Downpayment (₱{downpaymentPaid.toLocaleString()}) will be forfeited.</p>
-                )}
-              </div>
+{/* ===== CANCEL ORDER MODAL ===== */}
+{isCancelModalOpen && createPortal(
+  <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+    <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
+      <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
+        <h2 className="text-lg font-bold text-slate-900">Cancel Short Order</h2>
+        <button
+          onClick={() => setIsCancelModalOpen(false)}
+          className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"
+        >
+          <X size={18} />
+        </button>
+      </div>
+      <div className="p-6 space-y-4">
+        <div className={`p-3 rounded-lg text-sm border ${eventDate && daysUntilEvent < 3 ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+          <p className="font-bold">Event Date: {eventDate ? new Date(eventDate).toLocaleString() : 'N/A'}</p>
+          {eventDate && daysUntilEvent !== null && (
+            <p>{daysUntilEvent >= 0 ? `${daysUntilEvent} days until event` : 'Event has already passed'}</p>
+          )}
+          <p className="mt-1">Total paid: <span className="font-bold">₱{positivePayments.toLocaleString()}</span></p>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Cancellation Reason *</label>
-                <textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} rows="3" placeholder="e.g., Client cancelled, rescheduled, budget issues, etc." className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none" required />
-              </div>
-
-              {(() => {
-                const maxRefundable = isRefundable ? positivePayments : Math.max(0, positivePayments - downpaymentPaid);
-                return maxRefundable > 0 && (
-                  <div className="border-t border-slate-200 pt-3 mt-3">
-                    <p className="text-xs font-bold text-slate-700 mb-2">Record Refund Details <span className="font-normal text-slate-400">(optional – leave blank to skip)</span></p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-0.5">Refund Amount (₱)</label>
-                        <input type="number" min="0" step="0.01" value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} placeholder="Enter amount (optional)" className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none" />
-                        <p className="text-[10px] text-slate-400 mt-0.5">Max: ₱{maxRefundable.toLocaleString()}</p>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-0.5">Remarks</label>
-                        <input type="text" value={refundRemarks} onChange={(e) => setRefundRemarks(e.target.value)} placeholder="Reason for refund" className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none" />
-                      </div>
-                    </div>
-                    <div className="mt-2">
-                      <label className="block text-xs font-semibold text-slate-600 mb-0.5">Receipt / Proof of Refund <span className="text-red-500">*</span><span className="font-normal text-slate-400 ml-1">(required if amount entered)</span></label>
-                      <label className="border-2 border-dashed border-slate-300 rounded-lg p-2 flex items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center">
-                        <input type="file" onChange={(e) => setRefundFile(e.target.files[0])} accept="image/*" className="hidden" />
-                        <span className="text-xs text-slate-600">{refundFile ? refundFile.name : 'Upload Image (required for refund)'}</span>
-                      </label>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {positivePayments > 0 && !isRefundable && downpaymentPaid > 0 && (
-                <div className="border-t border-slate-200 pt-3 mt-3 text-xs text-slate-500">
-                  <p>⚠️ This order is <strong>non‑refundable</strong> because the event is less than 3 days away. The downpayment of ₱{downpaymentPaid.toLocaleString()} will be forfeited.</p>
-                </div>
+          {positivePayments > 0 ? (
+            <>
+              {eventDate && daysUntilEvent !== null && daysUntilEvent < 3 && daysUntilEvent >= 0 && (
+                <p className="font-bold mt-1 text-red-600">⚠️ Cancellation is within 3 days – downpayment is NON‑REFUNDABLE per policy.</p>
               )}
+              {eventDate && daysUntilEvent !== null && daysUntilEvent >= 3 && (
+                <p className="font-bold mt-1 text-green-700">✅ Cancellation is 3+ days before event – downpayment IS refundable.</p>
+              )}
+              {!isRefundable && downpaymentPaid > 0 && (
+                <p className="mt-1 text-xs text-red-600">Downpayment (₱{downpaymentPaid.toLocaleString()}) will be forfeited.</p>
+              )}
+              {isRefundable && downpaymentPaid > 0 && (
+                <p className="mt-1 text-xs text-green-600">Downpayment is refundable as per policy.</p>
+              )}
+            </>
+          ) : (
+            <p className="mt-1 text-xs text-slate-500">No payments have been made, so no refund is applicable.</p>
+          )}
+        </div>
 
-              <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
-                <button type="button" onClick={() => setIsCancelModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors">Cancel</button>
-                <button onClick={handleCancelBooking} disabled={isCancelling} className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm disabled:opacity-50">
-                  {isCancelling ? 'Processing...' : 'Confirm Cancellation'}
-                </button>
+        <div>
+          <label className="block text-xs font-bold text-slate-700 mb-1">Cancellation Reason *</label>
+          <textarea
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.target.value)}
+            rows="3"
+            placeholder="e.g., Client cancelled, rescheduled, budget issues, etc."
+            className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
+            required
+          />
+        </div>
+
+        {(() => {
+          const maxRefundable = isRefundable ? positivePayments : Math.max(0, positivePayments - downpaymentPaid);
+          return maxRefundable > 0 && (
+            <div className="border-t border-slate-200 pt-3 mt-3">
+              <p className="text-xs font-bold text-slate-700 mb-2">
+                Record Refund Details <span className="font-normal text-slate-400">(optional – leave blank to skip)</span>
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-0.5">Refund Amount (₱)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={refundAmount}
+                    onChange={(e) => setRefundAmount(e.target.value)}
+                    placeholder="Enter amount (optional)"
+                    className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-0.5">Max: ₱{maxRefundable.toLocaleString()}</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-0.5">Remarks</label>
+                  <input
+                    type="text"
+                    value={refundRemarks}
+                    onChange={(e) => setRefundRemarks(e.target.value)}
+                    placeholder="Reason for refund"
+                    className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
+                  />
+                </div>
+              </div>
+              <div className="mt-2">
+                <label className="block text-xs font-semibold text-slate-600 mb-0.5">
+                  Receipt / Proof of Refund
+                  <span className="text-red-500 ml-1">*</span>
+                  <span className="font-normal text-slate-400 ml-1">(required if amount entered)</span>
+                </label>
+                <label className="border-2 border-dashed border-slate-300 rounded-lg p-2 flex items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center">
+                  <input type="file" onChange={(e) => setRefundFile(e.target.files[0])} accept="image/*" className="hidden" />
+                  <span className="text-xs text-slate-600">{refundFile ? refundFile.name : 'Upload Image (required for refund)'}</span>
+                </label>
               </div>
             </div>
+          );
+        })()}
+
+        {positivePayments > 0 && !isRefundable && downpaymentPaid > 0 && (
+          <div className="border-t border-slate-200 pt-3 mt-3 text-xs text-slate-500">
+            <p>⚠️ This order is <strong>non‑refundable</strong> because the event is less than 3 days away. The downpayment of ₱{downpaymentPaid.toLocaleString()} will be forfeited.</p>
           </div>
-        </div>,
-        document.body
-      )}
+        )}
+
+        <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
+          <button
+            type="button"
+            onClick={() => setIsCancelModalOpen(false)}
+            className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleCancelBooking}
+            disabled={isCancelling}
+            className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm disabled:opacity-50"
+          >
+            {isCancelling ? 'Processing...' : 'Confirm Cancellation'}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>,
+  document.body
+)}
 
       {/* ===== REJECTION REASON MODAL ===== */}
       {isRejectionModalOpen && createPortal(

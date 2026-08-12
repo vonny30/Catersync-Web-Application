@@ -1,20 +1,22 @@
 // src/pages/Payments.jsx
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom'; // ✅ Added for navigation
+import { useNavigate } from 'react-router-dom';
 import { Search, Upload, X, Image as ImageIcon, Edit, Trash2, Check, DollarSign, RefreshCw, Eye } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 
 export default function Payments() {
-  const navigate = useNavigate(); // ✅ Initialize navigation
+  const navigate = useNavigate();
   const { showConfirm } = useConfirm();
+
   // --- STATE ---
   const [payments, setPayments] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('All');
+  const [typeFilter, setTypeFilter] = useState('All'); // 'All', 'Package', 'Short Order'
   const tabs = ['All', 'Downpayment', 'Full Payment'];
 
   // --- MODAL STATE ---
@@ -31,6 +33,16 @@ export default function Payments() {
   const [totalCollected, setTotalCollected] = useState(0);
   const [pendingBalance, setPendingBalance] = useState(0);
   const [fullyPaidCount, setFullyPaidCount] = useState(0);
+
+  // --- SUMMARY DETAIL MODAL STATE ---
+  const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
+  const [summaryModalData, setSummaryModalData] = useState([]);
+  const [summaryModalTitle, setSummaryModalTitle] = useState('');
+  const [summaryModalType, setSummaryModalType] = useState(''); // 'collected', 'pending', 'fullypaid'
+
+  // --- PAYMENT DETAIL MODAL STATE ---
+  const [isPaymentDetailModalOpen, setIsPaymentDetailModalOpen] = useState(false);
+  const [selectedPaymentDetail, setSelectedPaymentDetail] = useState(null);
 
   const initialFormState = {
     booking_id: '',
@@ -71,6 +83,7 @@ export default function Payments() {
   const fetchData = async () => {
     setLoading(true);
     try {
+      // Fetch payments with booking details (including booking_status and booking_type)
       const { data: paymentsData, error: paymentsError } = await supabase
         .from('payment')
         .select(`
@@ -78,11 +91,11 @@ export default function Payments() {
           booking:booking_id (
             booking_id,
             booking_type,
+            booking_status,
             customer:customer_id (first_name, last_name),
             venue,
             event_datetime,
-            total_amount,
-            booking_status
+            total_amount
           )
         `)
         .neq('pay_status', 'Pending')
@@ -91,28 +104,35 @@ export default function Payments() {
       if (paymentsError) throw paymentsError;
       setPayments(paymentsData || []);
 
+      // Fetch active bookings (exclude Rejected, Cancelled, Completed for pending balance)
       const { data: bookingsData, error: bookingsError } = await supabase
         .from('booking')
         .select(`
           booking_id,
           booking_type,
+          booking_status,
           customer:customer_id (first_name, last_name, customer_id),
           total_amount,
           venue,
-          event_datetime,
-          booking_status
+          event_datetime
         `)
-        .not('booking_status', 'in', '("Completed","Rejected")')
+        .not('booking_status', 'in', '("Completed","Rejected","Cancelled")')
         .order('event_datetime');
 
       if (bookingsError) throw bookingsError;
       setBookings(bookingsData || []);
 
-      const collected = paymentsData.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+      // Calculate Net Collected: only from bookings that are NOT Rejected or Cancelled
+      const activePayments = paymentsData.filter(p => {
+        const status = p.booking?.booking_status;
+        return status !== 'Rejected' && status !== 'Cancelled';
+      });
+      const collected = activePayments.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
       setTotalCollected(collected);
 
+      // For fully paid count and pending balance, we consider only active bookings
       const bookingTotals = {};
-      paymentsData.forEach(p => {
+      activePayments.forEach(p => {
         if (p.booking_id) {
           if (!bookingTotals[p.booking_id]) bookingTotals[p.booking_id] = 0;
           bookingTotals[p.booking_id] += p.amount_paid || 0;
@@ -144,11 +164,23 @@ export default function Payments() {
     fetchData();
   }, []);
 
-  // --- FILTER LOGIC ---
+  // --- FILTER LOGIC (status + type) ---
   const filteredPayments = payments.filter(p => {
-    if (activeTab === 'All') return true;
-    if (activeTab === 'Downpayment') return p.pay_status === 'Downpayment';
-    if (activeTab === 'Full Payment') return p.pay_status === 'Fully Paid';
+    // Status filter
+    if (activeTab === 'All') {
+      // pass
+    } else if (activeTab === 'Downpayment') {
+      if (p.pay_status !== 'Downpayment') return false;
+    } else if (activeTab === 'Full Payment') {
+      if (p.pay_status !== 'Fully Paid') return false;
+    }
+
+    // Type filter
+    if (typeFilter !== 'All') {
+      const bookingType = p.booking?.booking_type;
+      if (typeFilter === 'Package' && bookingType !== 'Package') return false;
+      if (typeFilter === 'Short Order' && bookingType !== 'Short Order') return false;
+    }
     return true;
   });
 
@@ -224,7 +256,7 @@ export default function Payments() {
   const totalPaidForSelected = getTotalPaidForBooking(formData.booking_id);
   const isFirstPaymentForSelected = totalPaidForSelected === 0;
 
-  // --- Filter bookings for dropdown ---
+  // --- Filter bookings for dropdown (only those with remaining balance > 0) ---
   const filteredBookings = bookings.filter(b => {
     if (formData.booking_id && b.booking_id === formData.booking_id) return true;
 
@@ -314,14 +346,12 @@ export default function Payments() {
 
     const status = formData.pay_status;
 
-    if (status === 'Downpayment') {
-      if (isFirstPayment) {
-        const requiredMin = totalAmount * 0.5;
-        if (amount < requiredMin) {
-          toast.error(`First payment (Downpayment) must be at least 50% of total (₱${requiredMin.toLocaleString()}).`);
-          setIsSubmitting(false);
-          return;
-        }
+    if (status === 'Downpayment' && isFirstPayment) {
+      const requiredMin = totalAmount * 0.5;
+      if (amount < requiredMin) {
+        toast.error(`First payment (Downpayment) must be at least 50% of total (₱${requiredMin.toLocaleString()}).`);
+        setIsSubmitting(false);
+        return;
       }
     } else if (status === 'Fully Paid') {
       if (isFirstPayment) {
@@ -342,7 +372,7 @@ export default function Payments() {
     let finalPayStatus = status;
     const isAmountEqualRemaining = Math.abs(amount - remainingBalance) < 0.01;
 
-    if (status === 'Downpayment' && isAmountEqualRemaining && !isFirstPayment) {
+    if (status === 'Downpayment' && isAmountEqualRemaining) {
       const confirm = await showConfirm({
         title: 'Full Payment?',
         message: `This payment amount (₱${amount.toLocaleString()}) equals the remaining balance. Would you like to mark it as Fully Paid instead?`,
@@ -466,6 +496,18 @@ export default function Payments() {
     return map[status] || 'bg-slate-100 text-slate-600';
   };
 
+  // --- Status badge (no warning icon) ---
+  const getOrderStatusBadge = (status) => {
+    const map = {
+      'Pending': 'bg-amber-100 text-amber-800 border-amber-200',
+      'Approved': 'bg-green-100 text-green-800 border-green-200',
+      'Completed': 'bg-blue-100 text-blue-800 border-blue-200',
+      'Rejected': 'bg-red-100 text-red-800 border-red-200',
+      'Cancelled': 'bg-slate-200 text-slate-700 border-slate-300',
+    };
+    return map[status] || 'bg-slate-100 text-slate-600 border-slate-200';
+  };
+
   const renderProof = (proofUrl) => {
     if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
       return <span className="text-xs text-slate-400 italic">None</span>;
@@ -501,18 +543,93 @@ export default function Payments() {
 
   const isRefund = (payment) => payment.amount_paid < 0;
 
-  // --- Row click handler: navigate to booking or short order details ---
+  // --- Row click handler: open payment detail modal ---
   const handleRowClick = (payment) => {
-    if (!payment.booking) return;
-    const bookingType = payment.booking.booking_type;
-    const bookingId = payment.booking.booking_id;
-    if (bookingType === 'Short Order') {
-      navigate(`/app/orders/${bookingId}`);
-    } else {
-      navigate(`/app/bookings/${bookingId}`);
+    setSelectedPaymentDetail(payment);
+    setIsPaymentDetailModalOpen(true);
+  };
+
+  // --- Summary Card Click Handlers (updated text) ---
+  const handleCollectedClick = () => {
+    const data = payments
+      .filter(p => {
+        const status = p.booking?.booking_status;
+        return p.amount_paid > 0 && status !== 'Rejected' && status !== 'Cancelled';
+      })
+      .map(p => ({
+        ...p,
+        clientName: getClientName(p),
+        bookingRef: getBookingRef(p),
+      }));
+    setSummaryModalData(data);
+    setSummaryModalTitle('Net Collected – Detailed Payments (active orders only)');
+    setSummaryModalType('collected');
+    setIsSummaryModalOpen(true);
+  };
+
+  const handlePendingClick = () => {
+    const data = bookings.map(b => {
+      const paid = payments
+        .filter(p => p.booking_id === b.booking_id)
+        .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+      const remaining = Math.max(0, (b.total_amount || 0) - paid);
+      return {
+        ...b,
+        remaining,
+        paid,
+        clientName: b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown',
+        bookingRef: b.booking_type === 'Short Order' ? `SO-${b.booking_id.slice(0, 8)}` : `BKG-${b.booking_id.slice(0, 8)}`,
+      };
+    }).filter(b => b.remaining > 0);
+    setSummaryModalData(data);
+    setSummaryModalTitle('Pending Balance – Orders with Outstanding Amount');
+    setSummaryModalType('pending');
+    setIsSummaryModalOpen(true);
+  };
+
+  const handleFullyPaidClick = () => {
+    const data = bookings.map(b => {
+      const paid = payments
+        .filter(p => p.booking_id === b.booking_id)
+        .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+      const remaining = Math.max(0, (b.total_amount || 0) - paid);
+      return {
+        ...b,
+        remaining,
+        paid,
+        clientName: b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown',
+        bookingRef: b.booking_type === 'Short Order' ? `SO-${b.booking_id.slice(0, 8)}` : `BKG-${b.booking_id.slice(0, 8)}`,
+      };
+    }).filter(b => b.remaining === 0 && b.paid > 0);
+    setSummaryModalData(data);
+    setSummaryModalTitle('Fully Paid Orders');
+    setSummaryModalType('fullypaid');
+    setIsSummaryModalOpen(true);
+  };
+
+  const closeSummaryModal = () => {
+    setIsSummaryModalOpen(false);
+    setSummaryModalData([]);
+  };
+
+  const handleSummaryRowClick = (item) => {
+    if (item.booking_id) {
+      const type = item.booking_type || (item.booking?.booking_type);
+      const id = item.booking_id || item.booking?.booking_id;
+      if (type === 'Short Order') {
+        navigate(`/app/orders/${id}`);
+      } else {
+        navigate(`/app/bookings/${id}`);
+      }
     }
   };
 
+  const closePaymentDetailModal = () => {
+    setIsPaymentDetailModalOpen(false);
+    setSelectedPaymentDetail(null);
+  };
+
+  // --- RENDER ---
   return (
     <div className="space-y-6 relative">
       {/* PAGE HEADER */}
@@ -539,52 +656,79 @@ export default function Payments() {
 
       {/* SUMMARY CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5">
+        <button
+          onClick={handleCollectedClick}
+          className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-left hover:shadow-md hover:border-[#008A45] transition-all cursor-pointer group"
+        >
           <p className="text-xs font-semibold text-slate-600 mb-1">Net Collected</p>
           <h3 className="text-3xl font-extrabold text-slate-900">₱{totalCollected.toLocaleString()}</h3>
-          <p className="text-xs text-slate-500 mt-2">After refunds</p>
-        </div>
-        <div className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5">
+          <p className="text-xs text-slate-500 mt-2">After refunds (active orders only)</p>
+          <span className="text-[10px] text-slate-400 group-hover:text-[#008A45] transition-colors">Click to view details</span>
+        </button>
+        <button
+          onClick={handlePendingClick}
+          className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-left hover:shadow-md hover:border-amber-500 transition-all cursor-pointer group"
+        >
           <p className="text-xs font-semibold text-slate-600 mb-1">Pending Balance</p>
           <h3 className="text-3xl font-extrabold text-slate-900">₱{pendingBalance.toLocaleString()}</h3>
-          <p className="text-xs text-slate-500 mt-2">Outstanding from all bookings</p>
-        </div>
-        <div className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5">
+          <p className="text-xs text-slate-500 mt-2">Outstanding from active orders</p>
+          <span className="text-[10px] text-slate-400 group-hover:text-amber-600 transition-colors">Click to view details</span>
+        </button>
+        <button
+          onClick={handleFullyPaidClick}
+          className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-left hover:shadow-md hover:border-emerald-500 transition-all cursor-pointer group"
+        >
           <p className="text-xs font-semibold text-slate-600 mb-1">Fully Paid</p>
           <h3 className="text-3xl font-extrabold text-slate-900">{fullyPaidCount}</h3>
-          <p className="text-xs text-slate-500 mt-2">Bookings fully paid</p>
+          <p className="text-xs text-slate-500 mt-2">Active orders fully paid</p>
+          <span className="text-[10px] text-slate-400 group-hover:text-emerald-600 transition-colors">Click to view details</span>
+        </button>
+      </div>
+
+      {/* TABS + TYPE FILTER */}
+      <div className="flex flex-wrap items-center gap-4 border-b border-slate-200 pb-2">
+        <div className="flex space-x-6 overflow-x-auto flex-1">
+          {tabs.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`pb-3 text-sm font-semibold transition-colors border-b-2 shrink-0 ${
+                activeTab === tab
+                  ? 'border-[#008A45] text-slate-900'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 pb-1">
+          <span className="text-xs font-medium text-slate-500">Type:</span>
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+          >
+            <option value="All">All</option>
+            <option value="Package">Packages</option>
+            <option value="Short Order">Short Orders</option>
+          </select>
         </div>
       </div>
 
-      {/* TABS */}
-      <div className="flex space-x-6 border-b border-slate-200 overflow-x-auto">
-        {tabs.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`pb-3 text-sm font-semibold transition-colors border-b-2 shrink-0 ${
-              activeTab === tab
-                ? 'border-[#008A45] text-slate-900'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-
-      {/* PAYMENTS TABLE – rows are clickable and navigate to details */}
+      {/* PAYMENTS TABLE */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
                 <th className="p-4 font-bold">Client</th>
-                <th className="p-4 font-bold">Booking Ref</th>
+                <th className="p-4 font-bold">Order Ref</th>
+                <th className="p-4 font-bold">Status</th>
                 <th className="p-4 font-bold">Type</th>
                 <th className="p-4 font-bold">Method</th>
                 <th className="p-4 font-bold">Amount</th>
-                <th className="p-4 font-bold">Status</th>
+                <th className="p-4 font-bold">Payment Status</th>
                 <th className="p-4 font-bold">Date</th>
                 <th className="p-4 font-bold text-center">Proof</th>
                 <th className="p-4 font-bold text-right">Actions</th>
@@ -592,23 +736,32 @@ export default function Payments() {
             </thead>
             <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
               {loading ? (
-                <tr><td colSpan="9" className="p-6 text-center text-slate-400">Loading payments...</td></tr>
+                <tr><td colSpan="10" className="p-6 text-center text-slate-400">Loading payments...</td></tr>
               ) : filteredPayments.length === 0 ? (
-                <tr><td colSpan="9" className="p-6 text-center text-slate-500 italic">No payments found.</td></tr>
+                <tr><td colSpan="10" className="p-6 text-center text-slate-500 italic">No payments found.</td></tr>
               ) : (
                 filteredPayments.map((payment) => {
                   const refund = isRefund(payment);
+                  const orderStatus = payment.booking?.booking_status || 'Unknown';
+                  const isCancelledOrRejected = orderStatus === 'Rejected' || orderStatus === 'Cancelled';
                   return (
                     <tr
                       key={payment.payment_id}
-                      className={`hover:bg-slate-50 transition-colors cursor-pointer ${refund ? 'bg-red-50/50' : ''}`}
+                      className={`hover:bg-slate-50 transition-colors cursor-pointer ${refund ? 'bg-red-50/50' : ''} ${isCancelledOrRejected ? 'opacity-70' : ''}`}
                       onClick={() => handleRowClick(payment)}
                     >
                       <td className="p-4">
                         <p className="font-bold text-slate-900">{getClientName(payment)}</p>
                       </td>
                       <td className="p-4 text-slate-600">{getBookingRef(payment)}</td>
-                      <td className="p-4 text-slate-600">{refund ? 'Refund' : (payment.pay_status === 'Fully Paid' ? 'Full Payment' : payment.pay_status)}</td>
+                      <td className="p-4">
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium border ${getOrderStatusBadge(orderStatus)}`}>
+                          {orderStatus}
+                        </span>
+                      </td>
+                      <td className="p-4 text-slate-600">
+                        {payment.booking?.booking_type === 'Short Order' ? 'Short Order' : 'Package'}
+                      </td>
                       <td className="p-4 font-medium text-slate-700">{payment.pay_method || 'N/A'}</td>
                       <td className={`p-4 font-bold ${refund ? 'text-red-600' : 'text-slate-900'}`}>
                         {refund ? '-' : ''}₱{Math.abs(payment.amount_paid || 0).toLocaleString()}
@@ -651,8 +804,269 @@ export default function Payments() {
         </div>
       </div>
 
+      {/* ===== PAYMENT DETAIL MODAL ===== */}
+      {isPaymentDetailModalOpen && selectedPaymentDetail && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0 bg-white">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Payment Details</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {getBookingRef(selectedPaymentDetail)} – {getClientName(selectedPaymentDetail)}
+                </p>
+              </div>
+              <button
+                onClick={closePaymentDetailModal}
+                className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 space-y-6">
+              {/* Payment summary */}
+              <div className="grid grid-cols-2 gap-4 text-sm bg-slate-50 p-4 rounded-lg border border-slate-200">
+                <div>
+                  <span className="font-medium text-slate-500">Amount</span>
+                  <p className={`font-bold text-lg ${selectedPaymentDetail.amount_paid < 0 ? 'text-red-600' : 'text-slate-900'}`}>
+                    {selectedPaymentDetail.amount_paid < 0 ? '-' : ''}₱{Math.abs(selectedPaymentDetail.amount_paid).toLocaleString()}
+                  </p>
+                </div>
+                <div>
+                  <span className="font-medium text-slate-500">Payment Status</span>
+                  <p>
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadge(selectedPaymentDetail.pay_status)}`}>
+                      {selectedPaymentDetail.pay_status}
+                    </span>
+                  </p>
+                </div>
+                <div>
+                  <span className="font-medium text-slate-500">Method</span>
+                  <p className="font-semibold">{selectedPaymentDetail.pay_method || 'N/A'}</p>
+                </div>
+                <div>
+                  <span className="font-medium text-slate-500">Date</span>
+                  <p>{selectedPaymentDetail.pay_datetime ? new Date(selectedPaymentDetail.pay_datetime).toLocaleString() : 'N/A'}</p>
+                </div>
+                <div className="col-span-2">
+                  <span className="font-medium text-slate-500">Order</span>
+                  <p>
+                    <span className="font-semibold">{getBookingRef(selectedPaymentDetail)}</span>
+                    <span className={`ml-2 inline-block px-2 py-0.5 rounded-full text-xs font-medium border ${getOrderStatusBadge(selectedPaymentDetail.booking?.booking_status)}`}>
+                      {selectedPaymentDetail.booking?.booking_status || 'Unknown'}
+                    </span>
+                    <span className="ml-2 text-xs text-slate-500">({selectedPaymentDetail.booking?.booking_type || 'Package'})</span>
+                  </p>
+                  <p className="text-xs text-slate-500">{selectedPaymentDetail.booking?.venue || 'No venue'}</p>
+                  <p className="text-xs text-slate-500">Event: {selectedPaymentDetail.booking?.event_datetime ? new Date(selectedPaymentDetail.booking.event_datetime).toLocaleString() : 'N/A'}</p>
+                </div>
+                {selectedPaymentDetail.remarks && (
+                  <div className="col-span-2">
+                    <span className="font-medium text-slate-500">Remarks</span>
+                    <p className="text-slate-700">{selectedPaymentDetail.remarks}</p>
+                  </div>
+                )}
+                <div className="col-span-2">
+                  <span className="font-medium text-slate-500">Proof of Payment</span>
+                  <div className="mt-2">
+                    {renderProof(selectedPaymentDetail.pay_proof)}
+                    {selectedPaymentDetail.pay_proof && selectedPaymentDetail.pay_proof !== 'placeholder.png' && selectedPaymentDetail.pay_proof !== 'refund_placeholder.png' && (
+                      <a
+                        href={getProofUrl(selectedPaymentDetail.pay_proof)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ml-2 text-xs text-[#008A45] underline"
+                      >
+                        View full image
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Other payments for the same order */}
+              {selectedPaymentDetail.booking_id && (
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 mb-3">Other payments for this order</h3>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {payments
+                      .filter(p => p.booking_id === selectedPaymentDetail.booking_id && p.payment_id !== selectedPaymentDetail.payment_id)
+                      .map(p => (
+                        <div key={p.payment_id} className="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg px-4 py-2 text-sm">
+                          <span>{p.pay_status} – ₱{Math.abs(p.amount_paid).toLocaleString()}</span>
+                          <span className="text-slate-500">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleDateString() : ''}</span>
+                        </div>
+                      ))}
+                    {payments.filter(p => p.booking_id === selectedPaymentDetail.booking_id && p.payment_id !== selectedPaymentDetail.payment_id).length === 0 && (
+                      <p className="text-xs text-slate-400 italic">No other payments recorded.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-200 shrink-0">
+              <button
+                onClick={closePaymentDetailModal}
+                className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ===== SUMMARY DETAIL MODAL ===== */}
+      {isSummaryModalOpen && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-xl shadow-2xl max-w-5xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0 bg-white">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">{summaryModalTitle}</h2>
+                <p className="text-xs text-slate-500 mt-0.5">{summaryModalData.length} record(s) found</p>
+              </div>
+              <button
+                onClick={closeSummaryModal}
+                className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1">
+              {summaryModalData.length === 0 ? (
+                <div className="text-center py-10 text-slate-500">No records found.</div>
+              ) : (
+                <>
+                  {/* Collected & Fully Paid – show payment list */}
+                  {(summaryModalType === 'collected' || summaryModalType === 'fullypaid') && (
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
+                          <th className="p-3">Order Ref</th>
+                          <th className="p-3">Client</th>
+                          <th className="p-3">Type</th>
+                          <th className="p-3">Method</th>
+                          <th className="p-3 text-right">Amount</th>
+                          <th className="p-3">Payment Status</th>
+                          <th className="p-3">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-sm">
+                        {summaryModalData.map((item, idx) => (
+                          <tr
+                            key={idx}
+                            className="hover:bg-slate-50 transition-colors cursor-pointer"
+                            onClick={() => handleSummaryRowClick(item)}
+                          >
+                            <td className="p-3 font-mono text-xs font-semibold text-slate-800">
+                              {item.bookingRef || getBookingRef(item)}
+                            </td>
+                            <td className="p-3 font-medium text-slate-900">
+                              {item.clientName || getClientName(item)}
+                            </td>
+                            <td className="p-3">
+                              {item.booking_type === 'Short Order' ? (
+                                <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-100 text-purple-700 border border-purple-200 rounded-full">Short Order</span>
+                              ) : (
+                                <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-700 border border-blue-200 rounded-full">Package</span>
+                              )}
+                            </td>
+                            <td className="p-3">{item.pay_method || 'N/A'}</td>
+                            <td className="p-3 text-right font-bold text-emerald-600">
+                              ₱{(item.amount_paid || 0).toLocaleString()}
+                            </td>
+                            <td className="p-3">
+                              <span className={`px-2 py-1 rounded-full text-xs font-bold ${getStatusBadge(item.pay_status)}`}>
+                                {item.pay_status}
+                              </span>
+                            </td>
+                            <td className="p-3 text-slate-600 text-xs">
+                              {item.pay_datetime ? new Date(item.pay_datetime).toLocaleDateString() : 'N/A'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-slate-50 border-t-2 border-slate-200">
+                        <tr>
+                          <td colSpan="4" className="p-3 text-right font-bold text-slate-700">Total:</td>
+                          <td className="p-3 text-right font-bold text-emerald-700">
+                            ₱{summaryModalData.reduce((sum, p) => sum + (p.amount_paid || 0), 0).toLocaleString()}
+                          </td>
+                          <td colSpan="2"></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  )}
+
+                  {/* Pending Balance – show order list with remaining */}
+                  {summaryModalType === 'pending' && (
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
+                          <th className="p-3">Order Ref</th>
+                          <th className="p-3">Client</th>
+                          <th className="p-3">Type</th>
+                          <th className="p-3 text-right">Total</th>
+                          <th className="p-3 text-right">Paid</th>
+                          <th className="p-3 text-right">Remaining</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-sm">
+                        {summaryModalData.map((item, idx) => (
+                          <tr
+                            key={idx}
+                            className="hover:bg-slate-50 transition-colors cursor-pointer"
+                            onClick={() => handleSummaryRowClick(item)}
+                          >
+                            <td className="p-3 font-mono text-xs font-semibold text-slate-800">
+                              {item.bookingRef || getBookingRef(item)}
+                            </td>
+                            <td className="p-3 font-medium text-slate-900">{item.clientName}</td>
+                            <td className="p-3">
+                              {item.booking_type === 'Short Order' ? (
+                                <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-100 text-purple-700 border border-purple-200 rounded-full">Short Order</span>
+                              ) : (
+                                <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-700 border border-blue-200 rounded-full">Package</span>
+                              )}
+                            </td>
+                            <td className="p-3 text-right font-semibold">₱{(item.total_amount || 0).toLocaleString()}</td>
+                            <td className="p-3 text-right font-semibold text-emerald-600">₱{(item.paid || 0).toLocaleString()}</td>
+                            <td className="p-3 text-right font-bold text-red-600">₱{(item.remaining || 0).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-slate-50 border-t-2 border-slate-200">
+                        <tr>
+                          <td colSpan="5" className="p-3 text-right font-bold text-slate-700">Total Pending:</td>
+                          <td className="p-3 text-right font-bold text-red-600">
+                            ₱{summaryModalData.reduce((sum, b) => sum + (b.remaining || 0), 0).toLocaleString()}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-200 shrink-0">
+              <button
+                onClick={closeSummaryModal}
+                className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
       {/* ========================================================= */}
-      {/* RECORD / EDIT PAYMENT MODAL (unchanged) */}
+      {/* RECORD / EDIT PAYMENT MODAL (unchanged, with Downpayment/Fully Paid only) */}
       {/* ========================================================= */}
       {isModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
@@ -673,18 +1087,16 @@ export default function Payments() {
               {/* Booking Selection with Search */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Select Booking</label>
-                
                 <div className="relative mb-2">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                   <input
                     type="text"
-                    placeholder="Search by customer name or booking ID..."
+                    placeholder="Search by customer name or order ID..."
                     value={bookingSearchTerm}
                     onChange={(e) => setBookingSearchTerm(e.target.value)}
                     className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
                   />
                 </div>
-
                 <select
                   name="booking_id"
                   value={formData.booking_id}
@@ -692,7 +1104,7 @@ export default function Payments() {
                   required
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
                 >
-                  <option value="">-- Select Booking --</option>
+                  <option value="">-- Select Order --</option>
                   {filteredBookings.map((b) => {
                     const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
                     const paid = payments
@@ -706,7 +1118,7 @@ export default function Payments() {
                     );
                   })}
                   {filteredBookings.length === 0 && bookings.length > 0 && (
-                    <option disabled>No matching bookings found</option>
+                    <option disabled>No matching orders found</option>
                   )}
                 </select>
                 <p className="text-xs text-slate-400 mt-1">Type to filter the list above</p>
@@ -715,7 +1127,7 @@ export default function Payments() {
               {/* Booking Details Preview */}
               {selectedBooking && (
                 <div className="bg-[#F8F9FA] border border-slate-200 rounded-lg p-4 space-y-2 text-sm">
-                  <h4 className="font-bold text-slate-900 text-sm mb-2">Booking Details</h4>
+                  <h4 className="font-bold text-slate-900 text-sm mb-2">Order Details</h4>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
                     <span className="text-slate-600 font-medium">Customer:</span>
                     <span className="text-slate-900 font-semibold">
@@ -805,7 +1217,7 @@ export default function Payments() {
                     ) : null;
                   })()}
                 </div>
-                
+
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Payment Status</label>
                   <select
