@@ -86,23 +86,8 @@ export default function Bookings() {
   const [showRejectionRefund, setShowRejectionRefund] = useState(false);
   const [rejectionMaxRefundable, setRejectionMaxRefundable] = useState(0);
 
-  // ✅ APPROVAL HANDLER HOOK – replaces local approval state
-  const {
-    isApprovalModalOpen,
-    setIsApprovalModalOpen,
-    approvalBooking,
-    approvalData,
-    isSubmitting: isApprovalSubmitting,
-    openApprovalModal,
-    handleApprovalInputChange,
-    handleFinalizeApproval,
-  } = useApprovalHandlers({
-    booking: null, // not used – hook stores its own booking when openApprovalModal is called
-    payments: [],
-    fetchData: fetchData,
-  });
 
-  // Helper: log technical error and show user-friendly toast
+   // Helper: log technical error and show user-friendly toast
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
     console.error('Error:', error);
     toast.error(userMessage);
@@ -138,7 +123,7 @@ export default function Bookings() {
     }
   }, [formData.package_id, formData.pax_count, formData.delivery_fee, packages]);
 
-  // --- Fetch data with pagination + server-side filtering ---
+ // --- Fetch data with pagination + server-side filtering ---
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -355,6 +340,22 @@ export default function Bookings() {
       setLoading(false);
     }
   };
+
+  // ✅ APPROVAL HANDLER HOOK – replaces local approval state
+  const {
+    isApprovalModalOpen,
+    setIsApprovalModalOpen,
+    approvalBooking,
+    approvalData,
+    isSubmitting: isApprovalSubmitting,
+    openApprovalModal,
+    handleApprovalInputChange,
+    handleFinalizeApproval,
+  } = useApprovalHandlers({
+    booking: null, // not used – hook stores its own booking when openApprovalModal is called
+    payments: [],
+    fetchData: fetchData,
+  });
 
   // --- Filter customers based on search ---
   useEffect(() => {

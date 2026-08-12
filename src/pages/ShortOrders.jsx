@@ -10,6 +10,7 @@ import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { createWalkInCustomer } from '../utils/createWalkInCustomer';
+import { useApprovalHandlers } from '../hooks/useApprovalHandlers'; // ✅ NEW
 
 export default function ShortOrders() {
   const navigate = useNavigate();
@@ -73,17 +74,6 @@ export default function ShortOrders() {
   const [filteredCustomers, setFilteredCustomers] = useState([]);
   const [showCustomerList, setShowCustomerList] = useState(false);
 
-  // --- APPROVAL MODAL ---
-  const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
-  const [approvalOrder, setApprovalOrder] = useState(null);
-  const [approvalData, setApprovalData] = useState({
-    extraQuantity: 0,
-    additionalFee: 0,
-    extraDeliveryFee: 0,
-    newTotal: 0,
-    baseTotal: 0,
-  });
-
   // --- REJECTION MODAL STATE ---
   const [isRejectionModalOpen, setIsRejectionModalOpen] = useState(false);
   const [rejectionOrderId, setRejectionOrderId] = useState(null);
@@ -100,84 +90,83 @@ export default function ShortOrders() {
     toast.error(userMessage);
   };
 
-// --- FETCH DATA (with pagination) ---
-const fetchData = async () => {
-  setLoading(true);
-  try {
-    const from = (currentPage - 1) * pageSize;
-    const to = from + pageSize - 1;
+  // --- FETCH DATA (with pagination) ---
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const from = (currentPage - 1) * pageSize;
+      const to = from + pageSize - 1;
 
-    let query = supabase
-      .from('booking')
-      .select('*, customer:customer_id (first_name, last_name, contact_no)', { count: 'exact' })
-      .eq('booking_type', 'Short Order');
+      let query = supabase
+        .from('booking')
+        .select('*, customer:customer_id (first_name, last_name, contact_no)', { count: 'exact' })
+        .eq('booking_type', 'Short Order');
 
-    if (activeTab !== 'All') {
-      query = query.eq('booking_status', activeTab);
-    }
+      if (activeTab !== 'All') {
+        query = query.eq('booking_status', activeTab);
+      }
 
-    // Apply date range filters
-    if (filters.dateFrom) {
-      const fromDate = new Date(filters.dateFrom);
-      fromDate.setHours(0, 0, 0, 0);
-      query = query.gte('event_datetime', fromDate.toISOString());
-    }
-    if (filters.dateTo) {
-      const toDate = new Date(filters.dateTo);
-      toDate.setHours(23, 59, 59, 999);
-      query = query.lte('event_datetime', toDate.toISOString());
-    }
+      // Apply date range filters
+      if (filters.dateFrom) {
+        const fromDate = new Date(filters.dateFrom);
+        fromDate.setHours(0, 0, 0, 0);
+        query = query.gte('event_datetime', fromDate.toISOString());
+      }
+      if (filters.dateTo) {
+        const toDate = new Date(filters.dateTo);
+        toDate.setHours(23, 59, 59, 999);
+        query = query.lte('event_datetime', toDate.toISOString());
+      }
 
-    // Apply customer filter
-    if (filters.customerId) {
-      query = query.eq('customer_id', filters.customerId);
-    }
+      // Apply customer filter
+      if (filters.customerId) {
+        query = query.eq('customer_id', filters.customerId);
+      }
 
-    // Apply venue filter (contains)
-    if (filters.venue) {
-      query = query.ilike('venue', `%${filters.venue}%`);
-    }
+      // Apply venue filter (contains)
+      if (filters.venue) {
+        query = query.ilike('venue', `%${filters.venue}%`);
+      }
 
-    // ============================================================
-    // 🔧 FIXED SEARCH – only searches customer name (no UUID ilike)
-    // ============================================================
-    if (searchTerm) {
-      const search = searchTerm.trim();
-      if (search) {
-        const encodedSearch = encodeURIComponent(search);
-        let customerIds = [];
+      // ============================================================
+      // 🔧 FIXED SEARCH – only searches customer name (no UUID ilike)
+      // ============================================================
+      if (searchTerm) {
+        const search = searchTerm.trim();
+        if (search) {
+          const encodedSearch = encodeURIComponent(search);
+          let customerIds = [];
 
-        try {
-          const { data: matchingCustomers } = await supabase
-            .from('customer')
-            .select('customer_id')
-            .or(
-              `first_name.ilike.%${encodedSearch}%,` +
-              `last_name.ilike.%${encodedSearch}%`
-            );
-          customerIds = (matchingCustomers || []).map(c => c.customer_id);
-        } catch (e) {
-          console.warn('Customer search failed:', e);
-        }
+          try {
+            const { data: matchingCustomers } = await supabase
+              .from('customer')
+              .select('customer_id')
+              .or(
+                `first_name.ilike.%${encodedSearch}%,` +
+                `last_name.ilike.%${encodedSearch}%`
+              );
+            customerIds = (matchingCustomers || []).map(c => c.customer_id);
+          } catch (e) {
+            console.warn('Customer search failed:', e);
+          }
 
-        if (customerIds.length > 0) {
-          query = query.in('customer_id', customerIds);
-        } else {
-          // No matches – force empty result
-          query = query.eq('customer_id', '00000000-0000-0000-0000-000000000000');
+          if (customerIds.length > 0) {
+            query = query.in('customer_id', customerIds);
+          } else {
+            // No matches – force empty result
+            query = query.eq('customer_id', '00000000-0000-0000-0000-000000000000');
+          }
         }
       }
-    }
 
-    query = query
-      .order('status_order', { ascending: true })   // 👈 Add this line first
-      .order('is_read', { ascending: true })
-      .order('book_datetime', { ascending: false })
-      .range(from, to);
+      query = query
+        .order('status_order', { ascending: true })
+        .order('is_read', { ascending: true })
+        .order('book_datetime', { ascending: false })
+        .range(from, to);
 
-    const { data: ordersData, count, error: ordersError } = await query;
-    if (ordersError) throw ordersError;
-
+      const { data: ordersData, count, error: ordersError } = await query;
+      if (ordersError) throw ordersError;
 
       setTotalCount(count || 0);
       setTotalPages(Math.ceil((count || 0) / pageSize));
@@ -209,7 +198,7 @@ const fetchData = async () => {
         const enriched = ordersData.map(order => {
           const p = paymentMap[order.booking_id] || { positive: 0, refunded: 0, downpayment: 0 };
           let refundStatus = null;
-            if (order.booking_status === 'Rejected' && p.positive > 0 || order.booking_status === 'Cancelled' && p.positive > 0) {
+          if (order.booking_status === 'Rejected' && p.positive > 0 || order.booking_status === 'Cancelled' && p.positive > 0) {
             const eventDate = order.event_datetime ? new Date(order.event_datetime) : null;
             let isRefundable = false;
             if (eventDate) {
@@ -248,6 +237,7 @@ const fetchData = async () => {
         .order('menu_name');
       if (menuError) throw menuError;
       setMenuItems(menuData || []);
+
     } catch (error) {
       handleError(error, 'Unable to load short orders. Please refresh the page.');
       setOrders([]);
@@ -255,6 +245,22 @@ const fetchData = async () => {
       setLoading(false);
     }
   };
+
+  // ✅ NOW the hook can safely reference fetchData
+  const {
+    isApprovalModalOpen,
+    setIsApprovalModalOpen,
+    approvalBooking: approvalOrder,
+    approvalData,
+    isSubmitting: isApprovalSubmitting,
+    openApprovalModal,
+    handleApprovalInputChange,
+    handleFinalizeApproval,
+  } = useApprovalHandlers({
+    booking: null,
+    payments: [],
+    fetchData: fetchData,
+  });
 
   useEffect(() => {
     fetchData();
@@ -672,145 +678,7 @@ const fetchData = async () => {
     }
   };
 
-  // --- APPROVAL LOGIC ---
-  const openApprovalModal = (order) => {
-    setApprovalOrder(order);
-    setApprovalData({
-      extraQuantity: 0,
-      additionalFee: 0,
-      extraDeliveryFee: 0,
-      newTotal: order.total_amount || 0,
-      baseTotal: order.total_amount || 0,
-    });
-    setIsApprovalModalOpen(true);
-  };
-
-  const handleApprovalInputChange = (e) => {
-    const { name, value } = e.target;
-    const numValue = parseFloat(value) || 0;
-    setApprovalData(prev => {
-      const updated = { ...prev, [name]: numValue };
-      const newTotal = updated.baseTotal + updated.extraQuantity + updated.additionalFee + updated.extraDeliveryFee;
-      return { ...updated, newTotal };
-    });
-  };
-
-  const handleFinalizeApproval = async () => {
-    if (!approvalOrder) return;
-    setIsSubmitting(true);
-    try {
-      // 1. Check 50% payment – warning only
-      const { data: payments, error: paymentsError } = await supabase
-        .from('payment')
-        .select('amount_paid')
-        .eq('booking_id', approvalOrder.booking_id);
-      if (paymentsError) throw paymentsError;
-      const totalPaid = payments.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-      const required = approvalData.newTotal * 0.5;
-      if (totalPaid < required) {
-        const proceed = await showConfirm({
-          title: '⚠️ Insufficient Downpayment',
-          message: `Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}).\n\nApproving this order may leave an unpaid balance.\nDo you still want to approve?`,
-          confirmLabel: 'Yes, Approve',
-          cancelLabel: 'Cancel',
-          confirmVariant: 'warning',
-        });
-        if (!proceed) {
-          setIsSubmitting(false);
-          return;
-        }
-      }
-
-      // 2. Conflict check for other approved events on same day
-      const eventDate = approvalOrder.event_datetime ? new Date(approvalOrder.event_datetime) : null;
-      if (eventDate) {
-        const now = new Date();
-        const diffDays = Math.ceil((eventDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        if (diffDays < 0) {
-          const proceed = await showConfirm({
-            title: '⚠️ Event Date is in the Past',
-            message: `This event is ${Math.abs(diffDays)} days ago. Approving a past event may affect reports. Do you still want to approve?`,
-            confirmLabel: 'Yes, Approve Anyway',
-            cancelLabel: 'Cancel Approval',
-            confirmVariant: 'warning',
-          });
-          if (!proceed) {
-            setIsSubmitting(false);
-            return;
-          }
-        }
-
-        const startOfDay = new Date(eventDate);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(eventDate);
-        endOfDay.setHours(23, 59, 59, 999);
-        const startISO = startOfDay.toISOString();
-        const endISO = endOfDay.toISOString();
-
-        const { data: otherEvents, error: conflictError } = await supabase
-          .from('booking')
-          .select(`
-            booking_id,
-            booking_type,
-            venue,
-            event_datetime,
-            customer:customer_id (first_name, last_name)
-          `)
-          .eq('booking_status', 'Approved')
-          .neq('booking_id', approvalOrder.booking_id)
-          .gte('event_datetime', startISO)
-          .lte('event_datetime', endISO);
-
-        if (conflictError) throw conflictError;
-
-        if (otherEvents && otherEvents.length > 0) {
-          const list = otherEvents.map(e => {
-            const cust = e.customer ? `${e.customer.first_name} ${e.customer.last_name}` : 'Unknown';
-            const time = e.event_datetime ? new Date(e.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-            const type = e.booking_type === 'Short Order' ? 'Short Order' : 'Package';
-            return `• ${cust} (${type}) at ${e.venue || 'N/A'} – ${time}`;
-          }).join('\n');
-          const proceed = await showConfirm({
-            title: '⚠️ Existing Events on This Date',
-            message: `The following events are already approved on ${eventDate.toLocaleDateString()}:\n\n${list}\n\nDo you still want to approve this order?`,
-            confirmLabel: 'Approve Anyway',
-            cancelLabel: 'Cancel',
-            confirmVariant: 'warning',
-          });
-          if (!proceed) return;
-        }
-      }
-
-      // 3. Update order
-      const newTotal = approvalData.newTotal;
-      const newDeliveryFee = parseFloat(approvalOrder.delivery_fee || 0) + approvalData.extraDeliveryFee;
-      const { error: updateError } = await supabase
-        .from('booking')
-        .update({
-          booking_status: 'Approved',
-          total_amount: newTotal,
-          delivery_fee: newDeliveryFee,
-          notes: approvalOrder.notes ? `${approvalOrder.notes}\n[APPROVAL] Adjusted total: ₱${newTotal}` : `[APPROVAL] Adjusted total: ₱${newTotal}`,
-        })
-        .eq('booking_id', approvalOrder.booking_id);
-      if (updateError) throw updateError;
-
-      // 4. Update payments to Downpayment
-      const { error: updatePaymentsError } = await supabase
-        .from('payment')
-        .update({ pay_status: 'Downpayment' })
-        .eq('booking_id', approvalOrder.booking_id);
-      if (updatePaymentsError) throw updatePaymentsError;
-
-      setIsApprovalModalOpen(false);
-      fetchData();
-      toast.success('Short order approved and payments set to Downpayment.');
-    } catch (error) {
-      handleError(error, 'Failed to approve order.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  // ❌ REMOVED local approval functions – now provided by the hook.
 
   // --- REJECTION FLOW (with reason and refund modal) ---
   const openRejectionModal = async (id) => {
@@ -1298,8 +1166,9 @@ const fetchData = async () => {
                         <div className="flex items-center justify-center gap-1.5 flex-nowrap whitespace-nowrap">
                           {order.booking_status === 'Pending' && (
                             <>
+                              {/* ✅ Updated to use the hook's openApprovalModal with 'shortorder' */}
                               <button
-                                onClick={() => openApprovalModal(order)}
+                                onClick={() => openApprovalModal(order, 'shortorder')}
                                 className="bg-[#C1DEDC] border border-[#a8cfcc] text-slate-800 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-[#b8dad7] transition-colors"
                               >
                                 <Check size={14} /> Approve
@@ -1713,7 +1582,7 @@ const fetchData = async () => {
         document.body
       )}
 
-      {/* ===== APPROVAL MODAL ===== */}
+      {/* ===== APPROVAL MODAL – Using the hook's state and handlers ===== */}
       {isApprovalModalOpen && approvalOrder && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
@@ -1764,8 +1633,8 @@ const fetchData = async () => {
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
                 <button type="button" onClick={() => setIsApprovalModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">Cancel</button>
-                <button onClick={handleFinalizeApproval} disabled={isSubmitting} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50">
-                  {isSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}
+                <button onClick={handleFinalizeApproval} disabled={isApprovalSubmitting} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50">
+                  {isApprovalSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}
                 </button>
               </div>
             </div>
