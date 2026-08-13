@@ -18,22 +18,15 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // ✅ On mount: load saved email if rememberMe was true
+  // ✅ Load saved email if rememberMe was previously true
   useEffect(() => {
     const savedEmail = localStorage.getItem('rememberedEmail');
     const rememberMe = localStorage.getItem('rememberMe') === 'true';
-    
-    console.log('Login mount: savedEmail =', savedEmail, 'rememberMe =', rememberMe);
-    
     if (savedEmail && rememberMe) {
-      setFormData(prev => ({ 
-        ...prev, 
-        email: savedEmail, 
-        rememberMe: true 
-      }));
+      setFormData(prev => ({ ...prev, email: savedEmail, rememberMe: true }));
     }
 
-    // ✅ If already logged in, redirect immediately and replace history
+    // ✅ If already logged in, redirect immediately
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
@@ -43,8 +36,9 @@ export default function Login() {
           .eq('user_id', session.user.id)
           .maybeSingle();
         if (manager) {
+          // 🔒 ULTIMATE FIX: replace the entire history and redirect
           window.history.replaceState(null, '', '/app');
-          navigate('/app', { replace: true });
+          window.location.replace('/app');
         }
       }
     };
@@ -146,20 +140,19 @@ export default function Login() {
         return;
       }
 
-      // ✅ Save rememberMe preference and email
+      // ✅ Store rememberMe preference and email
       localStorage.setItem('rememberMe', String(formData.rememberMe));
       if (formData.rememberMe) {
         localStorage.setItem('rememberedEmail', email);
-        console.log('✅ Email saved for Remember Me:', email);
       } else {
         localStorage.removeItem('rememberedEmail');
       }
 
       toast.success('Welcome back!');
 
-      // ✅ Replace history completely so back button can't go back to login
+      // 🔒 ULTIMATE FIX: replace the entire history and redirect
       window.history.replaceState(null, '', '/app');
-      navigate('/app', { replace: true });
+      window.location.replace('/app');
 
     } catch (error) {
       console.error('Login error:', error.message);
@@ -197,8 +190,11 @@ export default function Login() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1">Email</label>
+              <label htmlFor="email" className="block text-xs font-semibold text-slate-500 mb-1">
+                Email
+              </label>
               <input
+                id="email"
                 type="email"
                 name="email"
                 value={formData.email}
@@ -211,9 +207,12 @@ export default function Login() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1">Password</label>
+              <label htmlFor="password" className="block text-xs font-semibold text-slate-500 mb-1">
+                Password
+              </label>
               <div className="relative">
                 <input
+                  id="password"
                   type={showPassword ? 'text' : 'password'}
                   name="password"
                   value={formData.password}
