@@ -146,7 +146,11 @@ export default function ShortOrderDetails() {
     fetchDropdownData();
   }, [id]);
 
-  // --- Hooks: Payment, Approval, Rejection, Cancellation ---
+  // ============================================================
+  // HOOKS: Payment, Approval, Rejection, Cancellation
+  // ============================================================
+
+  // --- Payment Handlers ---
   const {
     isPaymentModalOpen,
     setIsPaymentModalOpen,
@@ -169,6 +173,7 @@ export default function ShortOrderDetails() {
     setEditPaymentFormData,
     setEditSelectedFile,
     getProofUrl,
+    setPaymentFormData,
   } = usePaymentHandlers({
     bookingId: id,
     payments,
@@ -193,7 +198,21 @@ export default function ShortOrderDetails() {
     fetchData: fetchOrder,
   });
 
-  // Rejection Handlers
+  // --- Rejection Handlers (with wrapper functions) ---
+  const getOrderBooking = (bookingId) => (bookingId === order?.booking_id ? order : null);
+  const getPaymentSummary = (bookingId) => {
+    if (bookingId === order?.booking_id) {
+      const positivePayments = payments
+        .filter(p => p.amount_paid > 0)
+        .reduce((sum, p) => sum + p.amount_paid, 0);
+      const downpaymentPaid = payments
+        .filter(p => p.pay_status === 'Downpayment' && p.amount_paid > 0)
+        .reduce((sum, p) => sum + p.amount_paid, 0);
+      return { positivePayments, downpaymentPaid };
+    }
+    return { positivePayments: 0, downpaymentPaid: 0 };
+  };
+
   const {
     isRejectionModalOpen,
     setIsRejectionModalOpen,
@@ -210,8 +229,8 @@ export default function ShortOrderDetails() {
     openRejectionModal,
     handleRejectConfirm,
   } = useRejectionHandlers({
-    booking: order,
-    payments,
+    getBooking: getOrderBooking,
+    getPaymentSummary,
     fetchData: fetchOrder,
   });
 
@@ -275,15 +294,35 @@ export default function ShortOrderDetails() {
       return;
     }
 
+    // --- FILE VALIDATION for refund ---
+    const file = refundModalFile;
+    const maxSize = 5 * 1024 * 1024;
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Invalid file type. Please upload a JPEG, PNG, WebP, or GIF image.');
+      return;
+    }
+    if (file.size > maxSize) {
+      toast.error(`File is too large. Maximum size is 5 MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)} MB.`);
+      return;
+    }
+
     setIsRefundSubmitting(true);
     try {
       let proofUrl = 'refund_placeholder.png';
-      const fileExt = refundModalFile.name.split('.').pop();
+      const fileExt = file.name.split('.').pop();
       const fileName = `refunds/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
       const { error: uploadError } = await supabase.storage
         .from('images')
-        .upload(fileName, refundModalFile);
-      if (uploadError) throw uploadError;
+        .upload(fileName, file);
+      if (uploadError) {
+        let msg = 'Failed to upload refund proof.';
+        if (uploadError.message?.includes('bucket not found')) msg = 'Storage bucket is not configured.';
+        else if (uploadError.message?.includes('permission')) msg = 'Permission denied.';
+        else if (uploadError.message?.includes('too large')) msg = 'File exceeds storage limit.';
+        else if (uploadError.message?.includes('duplicate')) msg = 'A file with this name already exists.';
+        throw new Error(msg);
+      }
       const { data: publicUrlData } = supabase.storage
         .from('images')
         .getPublicUrl(fileName);
@@ -315,7 +354,7 @@ export default function ShortOrderDetails() {
       toast.success('Refund recorded successfully.');
     } catch (error) {
       console.error(error);
-      toast.error('Failed to record refund.');
+      toast.error(error.message || 'Failed to record refund.');
     } finally {
       setIsRefundSubmitting(false);
     }
@@ -625,6 +664,13 @@ export default function ShortOrderDetails() {
             Non-Refundable
           </span>
         )}
+
+        {/* ✅ NEW: Show balance remaining for completed orders */}
+{order.booking_status === 'Completed' && positivePayments < (order.total_amount || 0) && (
+  <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-amber-50 border-amber-200 text-amber-700">
+    ⚠️ Balance Remaining
+  </span>
+)}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -1306,9 +1352,9 @@ export default function ShortOrderDetails() {
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Reason for Rejection</label>
-                <textarea value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} rows="3" placeholder="e.g., Incomplete details, client requested cancellation, etc." className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none" />
-                <p className="text-xs text-slate-400 mt-1">Optional, but recommended.</p>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Reason for Rejection *</label>
+                <textarea value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} rows="3" placeholder="e.g., Incomplete details, client requested cancellation, etc." className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none" required />
+                <p className="text-xs text-slate-400 mt-1">Reason is required.</p>
               </div>
 
               {showRejectionRefund && (

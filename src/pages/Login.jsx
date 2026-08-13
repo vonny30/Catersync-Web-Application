@@ -1,7 +1,7 @@
 // src/pages/Login.jsx
 import { useState, useEffect } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 
@@ -18,23 +18,34 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Detect if user came from dashboard via back button
+  // ✅ Load saved email if rememberMe was previously true
   useEffect(() => {
-    const handleBackToLogin = async () => {
-      // Check if we have a flag indicating the dashboard was visited
-      const wasOnDashboard = sessionStorage.getItem('wasOnDashboard') === 'true';
-      if (wasOnDashboard) {
-        // Clear the flag so it doesn't trigger again
-        sessionStorage.removeItem('wasOnDashboard');
-        // Sign out the user
-        await supabase.auth.signOut();
-        toast('You have been logged out.', { duration: 3000 });
-        // Reload to ensure state is clean (optional)
-        // window.location.reload();
+    const savedEmail = localStorage.getItem('rememberedEmail');
+    const rememberMe = localStorage.getItem('rememberMe') === 'true';
+    if (savedEmail && rememberMe) {
+      setFormData(prev => ({ ...prev, email: savedEmail, rememberMe: true }));
+    }
+
+    // ✅ If already logged in, redirect immediately and replace history
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data: manager } = await supabase
+          .from('manager')
+          .select('manager_id')
+          .eq('user_id', session.user.id)
+          .maybeSingle();
+        if (manager) {
+          window.history.replaceState(null, '', '/app');
+          navigate('/app', { replace: true });
+        }
       }
     };
-    handleBackToLogin();
-  }, []);
+    checkSession();
+
+    // ✅ Prevent back button from showing login page after logout
+    window.history.replaceState(null, '', window.location.href);
+  }, [navigate]);
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -50,14 +61,66 @@ export default function Login() {
     setIsLoading(true);
     setErrorMsg('');
 
+    const email = formData.email.trim();
+    const password = formData.password.trim();
+
+    if (!email) {
+      setErrorMsg('Please enter your email address.');
+      setIsLoading(false);
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setErrorMsg('Please enter a valid email address (e.g., name@domain.com).');
+      setIsLoading(false);
+      return;
+    }
+
+    if (!password) {
+      setErrorMsg('Please enter your password.');
+      setIsLoading(false);
+      return;
+    }
+
+    if (password.length < 6) {
+      setErrorMsg('Password must be at least 6 characters.');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: formData.email,
-        password: formData.password,
+        email: email,
+        password: password,
       });
 
       if (error) {
-        setErrorMsg('Invalid email or password. Please try again.');
+        let userMessage = 'Something went wrong. Please try again.';
+
+        switch (error.message) {
+          case 'Invalid login credentials':
+            userMessage = 'Invalid email or password. Please try again.';
+            break;
+          case 'Email not confirmed':
+            userMessage = 'Please confirm your email address before logging in. Check your inbox.';
+            break;
+          case 'User not found':
+            userMessage = 'No account found with this email address.';
+            break;
+          case 'Invalid email':
+          case 'Invalid password':
+            userMessage = 'Invalid email or password. Please try again.';
+            break;
+          case 'Network request failed':
+          case 'Failed to fetch':
+            userMessage = 'Network connection issue. Please check your internet and try again.';
+            break;
+          default:
+            console.error('Login error details:', error.message);
+            userMessage = 'Something went wrong. Please try again.';
+        }
+
+        setErrorMsg(userMessage);
         setIsLoading(false);
         return;
       }
@@ -76,11 +139,20 @@ export default function Login() {
         return;
       }
 
-      // Store rememberMe preference
+      // ✅ Store rememberMe preference and email
       localStorage.setItem('rememberMe', String(formData.rememberMe));
+      if (formData.rememberMe) {
+        localStorage.setItem('rememberedEmail', email);
+      } else {
+        localStorage.removeItem('rememberedEmail');
+      }
 
       toast.success('Welcome back!');
-      navigate('/app');
+
+      // ✅ Replace history completely so back button can't go back to login
+      window.history.replaceState(null, '', '/app');
+      navigate('/app', { replace: true });
+
     } catch (error) {
       console.error('Login error:', error.message);
       setErrorMsg('Something went wrong. Please try again.');
@@ -126,6 +198,7 @@ export default function Login() {
                 className="w-full border border-slate-300 rounded-md p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
                 required
                 placeholder="Enter your email"
+                disabled={isLoading}
               />
             </div>
 
@@ -140,12 +213,14 @@ export default function Login() {
                   className="w-full border border-slate-300 rounded-md p-2.5 pr-10 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
                   required
                   placeholder="Enter your password"
+                  disabled={isLoading}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
                   aria-label="Toggle password visibility"
+                  disabled={isLoading}
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
@@ -160,10 +235,10 @@ export default function Login() {
                   checked={formData.rememberMe}
                   onChange={handleInputChange}
                   className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
+                  disabled={isLoading}
                 />
                 <span className="text-xs font-medium text-slate-500">Remember me</span>
               </label>
-              {/* Forgot password link removed */}
             </div>
 
             <div className="pt-4 flex justify-center">

@@ -31,6 +31,7 @@ export default function BookingDetails() {
   const [packages, setPackages] = useState([]);
   const [packageCategories, setPackageCategories] = useState([]);
   const [categoryMenuItems, setCategoryMenuItems] = useState({});
+  const [selectedPackageInfo, setSelectedPackageInfo] = useState(null); // ✅ NEW: store package pricing
   const [editFormData, setEditFormData] = useState({
     customer_id: '',
     package_id: '',
@@ -203,6 +204,7 @@ export default function BookingDetails() {
     setEditPaymentFormData,
     setEditSelectedFile,
     getProofUrl,
+    setPaymentFormData,
   } = usePaymentHandlers({
     bookingId: id,
     payments,
@@ -227,7 +229,21 @@ export default function BookingDetails() {
     fetchData: fetchBooking,
   });
 
-  // --- Rejection Handlers ---
+  // --- Rejection Handlers (with wrapper functions) ---
+  const getBooking = (bookingId) => (bookingId === booking?.booking_id ? booking : null);
+  const getPaymentSummary = (bookingId) => {
+    if (bookingId === booking?.booking_id) {
+      const positivePayments = payments
+        .filter(p => p.amount_paid > 0)
+        .reduce((sum, p) => sum + p.amount_paid, 0);
+      const downpaymentPaid = payments
+        .filter(p => p.pay_status === 'Downpayment' && p.amount_paid > 0)
+        .reduce((sum, p) => sum + p.amount_paid, 0);
+      return { positivePayments, downpaymentPaid };
+    }
+    return { positivePayments: 0, downpaymentPaid: 0 };
+  };
+
   const {
     isRejectionModalOpen,
     setIsRejectionModalOpen,
@@ -244,8 +260,8 @@ export default function BookingDetails() {
     openRejectionModal,
     handleRejectConfirm,
   } = useRejectionHandlers({
-    booking,
-    payments,
+    getBooking,
+    getPaymentSummary,
     fetchData: fetchBooking,
   });
 
@@ -309,15 +325,35 @@ export default function BookingDetails() {
       return;
     }
 
+    // --- FILE VALIDATION for refund ---
+    const file = refundModalFile;
+    const maxSize = 5 * 1024 * 1024;
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Invalid file type. Please upload a JPEG, PNG, WebP, or GIF image.');
+      return;
+    }
+    if (file.size > maxSize) {
+      toast.error(`File is too large. Maximum size is 5 MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)} MB.`);
+      return;
+    }
+
     setIsRefundSubmitting(true);
     try {
       let proofUrl = 'refund_placeholder.png';
-      const fileExt = refundModalFile.name.split('.').pop();
+      const fileExt = file.name.split('.').pop();
       const fileName = `refunds/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
       const { error: uploadError } = await supabase.storage
         .from('images')
-        .upload(fileName, refundModalFile);
-      if (uploadError) throw uploadError;
+        .upload(fileName, file);
+      if (uploadError) {
+        let msg = 'Failed to upload refund proof.';
+        if (uploadError.message?.includes('bucket not found')) msg = 'Storage bucket is not configured.';
+        else if (uploadError.message?.includes('permission')) msg = 'Permission denied.';
+        else if (uploadError.message?.includes('too large')) msg = 'File exceeds storage limit.';
+        else if (uploadError.message?.includes('duplicate')) msg = 'A file with this name already exists.';
+        throw new Error(msg);
+      }
       const { data: publicUrlData } = supabase.storage
         .from('images')
         .getPublicUrl(fileName);
@@ -349,7 +385,7 @@ export default function BookingDetails() {
       toast.success('Refund recorded successfully.');
     } catch (error) {
       console.error(error);
-      toast.error('Failed to record refund.');
+      toast.error(error.message || 'Failed to record refund.');
     } finally {
       setIsRefundSubmitting(false);
     }
@@ -401,17 +437,33 @@ export default function BookingDetails() {
       delivery_fee: booking.delivery_fee?.toString() || '0',
       menu_selections: booking.menu_selections || {},
     });
+    // Fetch package info for the current package
     if (booking.package_id) {
       fetchPackageDetails(booking.package_id);
     } else {
       setPackageCategories([]);
       setCategoryMenuItems({});
+      setSelectedPackageInfo(null);
     }
     setIsEditModalOpen(true);
   };
 
+  // --- Fetch package categories, menu items, and pricing ---
   const fetchPackageDetails = async (packageId) => {
     try {
+      // 1. Fetch package pricing
+      const { data: pkgData, error: pkgError } = await supabase
+        .from('package')
+        .select('pkg_price, pricing_type, max_pax, extra_pax_price, minimum_pax')
+        .eq('package_id', packageId)
+        .maybeSingle();
+      if (!pkgError && pkgData) {
+        setSelectedPackageInfo(pkgData);
+      } else {
+        setSelectedPackageInfo(null);
+      }
+
+      // 2. Fetch categories and menu items
       const { data: catData, error: catError } = await supabase
         .from('package_category')
         .select(`category_id, category:category_id (category_id, category_name)`)
@@ -437,13 +489,62 @@ export default function BookingDetails() {
       setCategoryMenuItems(menuItemsMap);
     } catch (error) {
       console.error('Error fetching package details:', error);
-      toast.error('Unable to load menu items for this package.');
+      toast.error('Unable to load package details.');
     }
   };
+
+  // --- Recalculate total based on selected package info and pax ---
+  const recalcTotal = () => {
+    const pkg = selectedPackageInfo;
+    const pax = parseInt(editFormData.pax_count) || 0;
+    const deliveryFee = parseFloat(editFormData.delivery_fee) || 0;
+
+    if (!pkg) {
+      // No package selected, keep existing total
+      return;
+    }
+
+    let total = 0;
+    if (pkg.pricing_type === 'per_pax') {
+      total = (pkg.pkg_price || 0) * pax;
+    } else {
+      // fixed pricing
+      total = pkg.pkg_price || 0;
+      if (pkg.max_pax && pax > pkg.max_pax) {
+        total += (pax - pkg.max_pax) * (pkg.extra_pax_price || 0);
+      }
+    }
+    total += deliveryFee;
+
+    setEditFormData(prev => ({
+      ...prev,
+      total_amount: total.toFixed(2),
+    }));
+  };
+
+  // Effect to recalc total when package info, pax, or delivery fee changes
+  useEffect(() => {
+    if (isEditModalOpen) {
+      recalcTotal();
+    }
+  }, [selectedPackageInfo, editFormData.pax_count, editFormData.delivery_fee, isEditModalOpen]);
 
   const handleEditInputChange = (e) => {
     const { name, value } = e.target;
     setEditFormData(prev => ({ ...prev, [name]: value }));
+    // If package changes, reset menu selections and fetch new package details
+    if (name === 'package_id') {
+      // Reset menu selections
+      setEditFormData(prev => ({ ...prev, menu_selections: {} }));
+      // Fetch package details
+      if (value) {
+        fetchPackageDetails(value);
+      } else {
+        setPackageCategories([]);
+        setCategoryMenuItems({});
+        setSelectedPackageInfo(null);
+      }
+    }
   };
 
   const handleMenuSelectionChange = (categoryId, menuItemId) => {
@@ -457,10 +558,14 @@ export default function BookingDetails() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      if (editFormData.package_id !== booking.package_id) {
+      const oldPackageId = booking.package_id;
+      const newPackageId = editFormData.package_id;
+      const packageChanged = newPackageId && newPackageId !== oldPackageId;
+
+      if (packageChanged) {
         const shouldContinue = await showConfirm({
           title: 'Package Changed',
-          message: 'You have changed the package. Equipment assignments may need to be updated manually after saving. Continue?',
+          message: 'You have changed the package. Equipment assignments will be re‑allocated based on the new package. Continue?',
           confirmLabel: 'Continue',
           confirmVariant: 'warning',
         });
@@ -483,11 +588,27 @@ export default function BookingDetails() {
         delivery_fee: parseFloat(editFormData.delivery_fee) || 0,
         menu_selections: editFormData.menu_selections,
       };
+
       const { error } = await supabase
         .from('booking')
         .update(payload)
         .eq('booking_id', id);
       if (error) throw error;
+
+      // --- Re‑allocate equipment if package changed ---
+      if (packageChanged && newPackageId) {
+        // Delete existing equipment assignments for this booking
+        await supabase.from('booking_equipment').delete().eq('booking_id', id);
+        // Allocate new equipment based on the new package
+        try {
+          await allocateEquipmentForBooking(id, newPackageId, parseInt(editFormData.pax_count) || 0);
+          toast.success('Equipment re‑allocated successfully.');
+        } catch (allocError) {
+          console.warn('Equipment re‑allocation warning:', allocError);
+          toast.warning('Equipment re‑allocation had issues: ' + allocError.message);
+        }
+      }
+
       setIsEditModalOpen(false);
       toast.success('Booking updated successfully!');
       fetchBooking();
@@ -679,7 +800,6 @@ export default function BookingDetails() {
     }
   }
 
-  // --- Compute refund status for badges and summary ---
   let refundStatus = null;
   if (positivePayments > 0 && (booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled')) {
     if (totalRefunded >= positivePayments) {
@@ -785,6 +905,13 @@ export default function BookingDetails() {
             Non-Refundable
           </span>
         )}
+
+        {/* ✅ NEW: Show balance remaining for completed bookings */}
+{booking.booking_status === 'Completed' && positivePayments < (booking.total_amount || 0) && (
+  <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-amber-50 border-amber-200 text-amber-700">
+    Balance Remaining
+  </span>
+)}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -1091,10 +1218,7 @@ export default function BookingDetails() {
                 <select
                   name="package_id"
                   value={editFormData.package_id}
-                  onChange={(e) => {
-                    handleEditInputChange(e);
-                    fetchPackageDetails(e.target.value);
-                  }}
+                  onChange={handleEditInputChange}
                   required
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
                 >
@@ -1106,7 +1230,7 @@ export default function BookingDetails() {
                   ))}
                 </select>
                 {editFormData.package_id !== booking.package_id && (
-                  <p className="text-xs text-amber-600 mt-1">⚠️ Changing package may require manual equipment reallocation.</p>
+                  <p className="text-xs text-amber-600 mt-1">⚠️ Changing package will re‑allocate equipment and reset menu selections.</p>
                 )}
               </div>
 
@@ -1716,15 +1840,16 @@ export default function BookingDetails() {
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Reason for Rejection</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Reason for Rejection *</label>
                 <textarea
                   value={rejectionReason}
                   onChange={(e) => setRejectionReason(e.target.value)}
                   rows="3"
                   placeholder="e.g., Incomplete details, client requested cancellation, etc."
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
+                  required
                 />
-                <p className="text-xs text-slate-400 mt-1">Optional, but recommended.</p>
+                <p className="text-xs text-slate-400 mt-1">Reason is required.</p>
               </div>
 
               {showRejectionRefund && (

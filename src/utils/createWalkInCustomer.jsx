@@ -1,20 +1,42 @@
-// src/utils/createWalkInCustomer.js
+// src/utils/createWalkInCustomer.jsx
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 
-/**
- * Creates a new customer account (Auth + customer table) for walk‑in bookings.
- * Handles duplicates by email, name+phone, and restores the manager session afterwards.
- * @param {Object} walkInData - { first_name, last_name, contact_no, email_address, cus_address }
- * @returns {Promise<string>} - The new customer_id (or existing one if duplicate).
- */
 export async function createWalkInCustomer(walkInData) {
-  // ✅ CRITICAL: Set the global flag BEFORE calling signUp
-  // This prevents AuthContext from logging out the manager
-  window.isCreatingWalkIn = true;
+  // Initialize counter if not exists
+  if (typeof window._pendingWalkInCount === 'undefined') {
+    window._pendingWalkInCount = 0;
+  }
+
+  // Increment before starting the creation
+  window._pendingWalkInCount++;
 
   try {
-    // Save current session to restore after auth sign-up
+    // Strict validation
+    const trimmedFirstName = walkInData.first_name?.trim();
+    const trimmedLastName = walkInData.last_name?.trim();
+    const trimmedContact = walkInData.contact_no?.trim();
+    const trimmedEmail = walkInData.email_address?.trim();
+    const trimmedAddress = walkInData.cus_address?.trim();
+
+    if (!trimmedFirstName || !trimmedLastName) {
+      throw new Error('First name and last name are required.');
+    }
+    if (!trimmedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      throw new Error('Please enter a valid email address (e.g., user@domain.com).');
+    }
+    if (!trimmedContact || !/^09\d{9}$/.test(trimmedContact)) {
+      throw new Error(
+        'Contact number must be a valid 11‑digit Philippine mobile number starting with 09 (e.g., 09123456789).'
+      );
+    }
+
+    walkInData.first_name = trimmedFirstName;
+    walkInData.last_name = trimmedLastName;
+    walkInData.contact_no = trimmedContact;
+    walkInData.email_address = trimmedEmail;
+    walkInData.cus_address = trimmedAddress || 'N/A';
+
     const { data: { session: currentSession } } = await supabase.auth.getSession();
     if (!currentSession) {
       throw new Error('You must be logged in as a manager to create walk‑in customers.');
@@ -28,7 +50,10 @@ export async function createWalkInCustomer(walkInData) {
       .maybeSingle();
 
     if (existingByEmail) {
-      toast(`Customer already exists: ${existingByEmail.first_name} ${existingByEmail.last_name}. Reusing existing profile.`, { icon: 'ℹ️' });
+      toast(
+        `Customer already exists: ${existingByEmail.first_name} ${existingByEmail.last_name}. Reusing existing profile.`,
+        { icon: 'ℹ️' }
+      );
       return existingByEmail.customer_id;
     }
 
@@ -42,7 +67,10 @@ export async function createWalkInCustomer(walkInData) {
       .maybeSingle();
 
     if (existingByNamePhone) {
-      toast(`Customer with same name and phone already exists. Reusing existing profile.`, { icon: 'ℹ️' });
+      toast(
+        `Customer with same name and phone already exists. Reusing existing profile.`,
+        { icon: 'ℹ️' }
+      );
       return existingByNamePhone.customer_id;
     }
 
@@ -61,8 +89,8 @@ export async function createWalkInCustomer(walkInData) {
       counter++;
     }
 
-    // ✅ 4. Create Supabase Auth user with the fixed default password
-    const defaultPassword = 'password123';
+    // 4. Create Supabase Auth user (temporary password)
+    const defaultPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: walkInData.email_address,
       password: defaultPassword,
@@ -84,27 +112,28 @@ export async function createWalkInCustomer(walkInData) {
       throw new Error(authError.message || 'Failed to create auth account.');
     }
 
-    // 5. Insert into customer table (⚠️ NO PASSWORD COLUMN)
+    // 5. Insert into customer table
     const { data: newCustomer, error: customerError } = await supabase
       .from('customer')
-      .insert([{
-        first_name: walkInData.first_name,
-        last_name: walkInData.last_name,
-        contact_no: walkInData.contact_no,
-        email_address: walkInData.email_address,
-        cus_address: walkInData.cus_address || 'N/A',
-        username: username,
-        account_status: 'Active',
-        user_id: authData.user?.id,
-        // password column DOES NOT exist – removed per security fix
-      }])
+      .insert([
+        {
+          first_name: walkInData.first_name,
+          last_name: walkInData.last_name,
+          contact_no: walkInData.contact_no,
+          email_address: walkInData.email_address,
+          cus_address: walkInData.cus_address,
+          username: username,
+          account_status: 'Active',
+          user_id: authData.user?.id,
+        },
+      ])
       .select()
       .single();
 
     if (customerError) throw customerError;
 
-    // 6. Restore manager session (the sign-up may have switched the session)
-    await new Promise(resolve => setTimeout(resolve, 300));
+    // 6. Restore manager session
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
     if (currentSession) {
       const { error: restoreError } = await supabase.auth.setSession({
@@ -112,21 +141,27 @@ export async function createWalkInCustomer(walkInData) {
         refresh_token: currentSession.refresh_token,
       });
       if (restoreError) {
-        // Fallback: try refresh
         await supabase.auth.refreshSession();
       }
     }
 
-    // 7. Notify success
-    toast.success(`Customer account created! Default password: password123 (they can reset it via email)`);
+    // ✅ CRITICAL: Wait for auth events to settle while counter is still > 0
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    toast.success(
+      `Customer account created! Temporary password: ${defaultPassword} (they can reset it via email)`
+    );
 
     return newCustomer.customer_id;
-
   } catch (error) {
     console.error('Error creating walk-in customer:', error);
     throw new Error(error.message || 'Failed to create customer account. Please try again.');
   } finally {
-    // ✅ CRITICAL: Always clear the flag when done
-    window.isCreatingWalkIn = false;
+    // Decrement counter with a tiny delay to catch any late events
+    setTimeout(() => {
+      if (window._pendingWalkInCount > 0) {
+        window._pendingWalkInCount--;
+      }
+    }, 50);
   }
 }

@@ -1,7 +1,7 @@
 // src/pages/Equipment.jsx
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Edit, Trash2, X, CheckCircle, Settings, ClipboardList, RefreshCw, Undo2, Calendar, MapPin, Users, Clock } from 'lucide-react';
+import { Plus, Edit, Trash2, X, CheckCircle, Settings, ClipboardList, RefreshCw, Undo2, Calendar, MapPin, Users, Clock, Search } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -28,6 +28,11 @@ export default function Equipment() {
   const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState(false);
   const [equipmentModalData, setEquipmentModalData] = useState([]);
   const [equipmentModalTitle, setEquipmentModalTitle] = useState('');
+
+  // --- NEW: Booking Search State for Assign Modal ---
+  const [bookingSearchTerm, setBookingSearchTerm] = useState('');
+  const [filteredBookings, setFilteredBookings] = useState([]);
+  const [showBookingDropdown, setShowBookingDropdown] = useState(false);
 
   const [addFormData, setAddFormData] = useState({
     equipmentName: '',
@@ -61,6 +66,13 @@ export default function Equipment() {
   const [tempEquipId, setTempEquipId] = useState('');
   const [tempQuantity, setTempQuantity] = useState(1);
 
+  // --- Helper: generate structured booking reference ---
+  const getBookingRef = (booking) => {
+    if (booking.booking_number) return booking.booking_number;
+    const prefix = booking.booking_type === 'Short Order' ? 'SO' : 'BKG';
+    return `${prefix}-${booking.booking_id.slice(0, 8)}`;
+  };
+
   // --- Error handler ---
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
     console.error('Error:', error);
@@ -78,6 +90,7 @@ export default function Equipment() {
       if (equipError) throw equipError;
       setEquipmentList(equipData || []);
 
+      // Fetch bookings (approved/pending packages)
       const { data: bookingData, error: bookingError } = await supabase
         .from('booking')
         .select(`
@@ -96,6 +109,7 @@ export default function Equipment() {
         .order('event_datetime', { ascending: true });
       if (bookingError) throw bookingError;
       setBookings(bookingData || []);
+      setFilteredBookings(bookingData || []);
 
       // Fetch assignments with the new assignment_number
       const { data: assignData, error: assignError } = await supabase
@@ -125,6 +139,21 @@ export default function Equipment() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  // --- Filter bookings when search term changes ---
+  useEffect(() => {
+    if (!bookingSearchTerm.trim()) {
+      setFilteredBookings(bookings);
+      return;
+    }
+    const term = bookingSearchTerm.toLowerCase();
+    const filtered = bookings.filter(b => {
+      const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}`.toLowerCase() : '';
+      const ref = getBookingRef(b).toLowerCase();
+      return customerName.includes(term) || ref.includes(term);
+    });
+    setFilteredBookings(filtered);
+  }, [bookingSearchTerm, bookings]);
 
   // --- FETCH USAGE ---
   const fetchEquipmentUsage = async (equipmentId) => {
@@ -435,22 +464,22 @@ export default function Equipment() {
     }
 
     const eventDate = selectedBooking?.event_datetime ? new Date(selectedBooking.event_datetime) : null;
-if (eventDate) {
-  for (const item of assignmentQueue) {
-    const conflict = assignments.some(a =>
-      a.equipment_id === item.equipment_id &&
-      a.booking?.event_datetime &&
-      new Date(a.booking.event_datetime).toDateString() === eventDate.toDateString() &&
-      a.booking_id !== assignFormData.booking_id &&
-      !a.returned
-    );
-    if (conflict) {
-      const equip = equipmentList.find(e => e.equipment_id === item.equipment_id);
-      toast.error(`"${equip?.eqm_name || 'Equipment'}" is already assigned to another event on ${eventDate.toLocaleDateString()}.`);
-      return;
+    if (eventDate) {
+      for (const item of assignmentQueue) {
+        const conflict = assignments.some(a =>
+          a.equipment_id === item.equipment_id &&
+          a.booking?.event_datetime &&
+          new Date(a.booking.event_datetime).toDateString() === eventDate.toDateString() &&
+          a.booking_id !== assignFormData.booking_id &&
+          !a.returned
+        );
+        if (conflict) {
+          const equip = equipmentList.find(e => e.equipment_id === item.equipment_id);
+          toast.error(`"${equip?.eqm_name || 'Equipment'}" is already assigned to another event on ${eventDate.toLocaleDateString()}.`);
+          return;
+        }
+      }
     }
-  }
-}
     setIsSubmitting(true);
 
     try {
@@ -485,6 +514,8 @@ if (eventDate) {
       setAssignmentQueue([]);
       setIsAssignModalOpen(false);
       setAssignFormData({ booking_id: '', notes: '' });
+      setBookingSearchTerm('');
+      setShowBookingDropdown(false);
       toast.success(`Successfully assigned ${itemsToAssign.length} equipment item(s).`);
       await fetchData();
     } catch (error) {
@@ -560,7 +591,7 @@ if (eventDate) {
             <Settings size={16} /> Add Stock
           </button>
           <button
-            onClick={() => { setAssignmentQueue([]); setIsAssignModalOpen(true); }}
+            onClick={() => { setAssignmentQueue([]); setBookingSearchTerm(''); setShowBookingDropdown(false); setIsAssignModalOpen(true); }}
             className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-sm cursor-pointer"
           >
             <ClipboardList size={16} /> Assign Equipment
@@ -618,7 +649,7 @@ if (eventDate) {
         </button>
       </div>
 
-      {/* Equipment Table - removed emoji icons */}
+      {/* Equipment Table */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800">
           Equipment Inventory
@@ -711,7 +742,7 @@ if (eventDate) {
         </div>
       </div>
 
-      {/* Active Assignments Table - now using assignment_number */}
+      {/* Active Assignments Table - now using structured booking ref */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800 flex justify-between items-center">
           <span>Active Equipment Assignments</span>
@@ -756,11 +787,12 @@ if (eventDate) {
                     statusColor = 'bg-blue-50 border-blue-200 text-blue-700';
                   }
 
-                  // Use assignment_number if available, else fallback to a short ID
                   const assignmentDisplay = assign.assignment_number || `EQP-${assign.assignment_id.slice(0, 6)}`;
-                  
-                  // Booking reference: use booking_number if available, else fallback
-                  const bookingRef = assign.booking?.booking_number || (assign.booking?.booking_id ? `BKG-${assign.booking.booking_id.slice(0, 8)}` : 'N/A');
+                  // Use structured booking ref
+                  const bookingRef = assign.booking?.booking_number || 
+                    (assign.booking?.booking_id ? 
+                      (assign.booking.booking_type === 'Short Order' ? 'SO' : 'BKG') + '-' + assign.booking.booking_id.slice(0, 8) 
+                      : 'N/A');
 
                   return (
                     <tr key={assign.assignment_id} className="hover:bg-slate-50 transition-colors">
@@ -798,9 +830,10 @@ if (eventDate) {
       </div>
 
       {/* ========================================================= */}
-      {/* MODALS – unchanged except removing icons inside where needed */}
+      {/* MODALS */}
       {/* ========================================================= */}
-      {/* ADD EQUIPMENT MODAL */}
+
+      {/* ADD EQUIPMENT MODAL - unchanged */}
       {isAddModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
@@ -938,7 +971,7 @@ if (eventDate) {
         document.body
       )}
 
-      {/* EDIT EQUIPMENT MODAL - similar to add, but we keep it unchanged except for fields */}
+      {/* EDIT EQUIPMENT MODAL - unchanged */}
       {isEditModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden">
@@ -1007,7 +1040,7 @@ if (eventDate) {
         document.body
       )}
 
-      {/* ASSIGN EQUIPMENT MODAL - unchanged (assignment_number will be auto-generated) */}
+      {/* ASSIGN EQUIPMENT MODAL - with Searchable Booking Dropdown */}
       {isAssignModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
@@ -1020,6 +1053,8 @@ if (eventDate) {
                 onClick={() => {
                   setIsAssignModalOpen(false);
                   setAssignmentQueue([]);
+                  setBookingSearchTerm('');
+                  setShowBookingDropdown(false);
                 }}
                 className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors cursor-pointer"
               >
@@ -1027,28 +1062,61 @@ if (eventDate) {
               </button>
             </div>
             <form onSubmit={handleAssignSubmit} className="p-6 overflow-y-auto space-y-5 text-left">
-              {/* Booking Selection */}
+              {/* Booking Selection - Searchable Dropdown */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Select Booking</label>
-                <select
-                  name="booking_id"
-                  value={assignFormData.booking_id}
-                  onChange={handleAssignInputChange}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none font-medium text-slate-800"
-                  required
-                >
-                  <option value="">Select approved booking...</option>
-                  {bookings.map((b) => {
-                    const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
-                    const date = b.event_datetime ? new Date(b.event_datetime).toLocaleDateString() : 'No date';
-                    return (
-                      <option key={b.booking_id} value={b.booking_id}>
-                        {b.booking_number || b.booking_id.slice(0, 8)} - {customerName} ({date})
-                      </option>
-                    );
-                  })}
-                  {bookings.length === 0 && <option disabled>No approved bookings available</option>}
-                </select>
+                <div className="relative">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input
+                      type="text"
+                      placeholder="Search by customer name or booking ref..."
+                      value={bookingSearchTerm}
+                      onChange={(e) => {
+                        setBookingSearchTerm(e.target.value);
+                        setShowBookingDropdown(true);
+                      }}
+                      onFocus={() => setShowBookingDropdown(true)}
+                      className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
+                    />
+                  </div>
+                  {showBookingDropdown && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                      {filteredBookings.length === 0 ? (
+                        <div className="p-3 text-sm text-slate-500 text-center">No bookings found.</div>
+                      ) : (
+                        filteredBookings.map((b) => {
+                          const ref = getBookingRef(b);
+                          const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
+                          const eventDate = b.event_datetime ? new Date(b.event_datetime).toLocaleDateString() : 'No date';
+                          return (
+                            <button
+                              key={b.booking_id}
+                              type="button"
+                              onClick={() => {
+                                setAssignFormData(prev => ({ ...prev, booking_id: b.booking_id }));
+                                setBookingSearchTerm(`${ref} - ${customerName}`);
+                                setShowBookingDropdown(false);
+                                // Auto-suggest not needed for equipment
+                              }}
+                              className="w-full text-left px-4 py-2.5 hover:bg-slate-50 border-b border-slate-100 last:border-0 transition-colors"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs font-bold text-slate-800">{ref}</span>
+                                <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-700 border border-blue-200 rounded-full">
+                                  Package
+                                </span>
+                              </div>
+                              <div className="text-sm font-medium text-slate-900">{customerName}</div>
+                              <div className="text-xs text-slate-500">{eventDate} · {b.venue || 'No venue'}</div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-slate-400 mt-1">Type to search, then click a booking to select.</p>
               </div>
 
               {/* Booking Details Preview */}
@@ -1070,6 +1138,13 @@ if (eventDate) {
                       <span className="text-slate-600">Customer:</span>
                       <span className="font-semibold text-slate-900">
                         {selectedBooking.customer ? `${selectedBooking.customer.first_name} ${selectedBooking.customer.last_name}` : 'Unknown'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 col-span-2">
+                      <span className="text-slate-600 font-medium">Ref:</span>
+                      <span className="font-mono text-xs font-bold text-slate-800">{getBookingRef(selectedBooking)}</span>
+                      <span className="ml-2 text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-700 border border-blue-200 rounded-full">
+                        Package
                       </span>
                     </div>
                     <div className="flex items-center gap-2 col-span-2">
@@ -1196,6 +1271,8 @@ if (eventDate) {
                   onClick={() => {
                     setIsAssignModalOpen(false);
                     setAssignmentQueue([]);
+                    setBookingSearchTerm('');
+                    setShowBookingDropdown(false);
                   }}
                   className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors cursor-pointer"
                 >
@@ -1237,12 +1314,16 @@ if (eventDate) {
                     const customerName = booking?.customer 
                       ? `${booking.customer.first_name} ${booking.customer.last_name}` 
                       : 'Unknown';
+                    const bookingRef = booking?.booking_number || 
+                      (booking?.booking_id ? 
+                        (booking.booking_type === 'Short Order' ? 'SO' : 'BKG') + '-' + booking.booking_id.slice(0, 8) 
+                        : 'N/A');
                     return (
                       <div key={record.assignment_id} className={`border rounded-lg p-3 flex justify-between items-center ${record.returned ? 'bg-slate-50 border-slate-200' : 'bg-amber-50 border-amber-200'}`}>
                         <div>
                           <p className="font-bold text-slate-900 text-sm">{customerName}</p>
                           <p className="text-xs text-slate-500">{booking?.venue || 'No venue'} · {booking?.event_datetime ? new Date(booking.event_datetime).toLocaleDateString() : 'N/A'}</p>
-                          <p className="text-xs text-slate-500">Booking: {booking?.booking_number || booking?.booking_id?.slice(0, 8) || 'N/A'} · Quantity: <span className="font-bold text-[#008A45]">{record.quantity}</span></p>
+                          <p className="text-xs text-slate-500">Booking: {bookingRef} · Quantity: <span className="font-bold text-[#008A45]">{record.quantity}</span></p>
                         </div>
                         <div className="text-right">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${record.returned ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
@@ -1260,7 +1341,7 @@ if (eventDate) {
         document.body
       )}
 
-      {/* EQUIPMENT DETAIL MODAL (Clickable Cards) */}
+      {/* EQUIPMENT DETAIL MODAL (Clickable Cards) - unchanged */}
       {isEquipmentModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-150">
           <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden">

@@ -1,7 +1,7 @@
 // src/pages/Vehicles.jsx
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Edit, Trash2, X, Truck, Car, Settings, Calendar, MapPin, Users, Clock, RefreshCw, Undo2 } from 'lucide-react';
+import { Plus, Edit, Trash2, X, Truck, Car, Settings, Calendar, MapPin, Users, Clock, RefreshCw, Undo2, ClipboardList, Search } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -25,6 +25,11 @@ export default function Vehicles() {
   const [statsModalData, setStatsModalData] = useState([]);
   const [statsModalTitle, setStatsModalTitle] = useState('');
 
+  // --- Vehicle Usage Modal State ---
+  const [isVehicleUsageModalOpen, setIsVehicleUsageModalOpen] = useState(false);
+  const [selectedVehicleForUsage, setSelectedVehicleForUsage] = useState(null);
+  const [vehicleUsageAssignments, setVehicleUsageAssignments] = useState([]);
+
   // --- FORM STATES ---
   const [newVehicleForm, setNewVehicleForm] = useState({
     plate_number: '',
@@ -47,6 +52,11 @@ export default function Vehicles() {
 
   // --- MULTIPLE VEHICLE SELECTION ---
   const [selectedVehicleIds, setSelectedVehicleIds] = useState([]);
+
+  // --- NEW: Booking Search State ---
+  const [bookingSearchTerm, setBookingSearchTerm] = useState('');
+  const [filteredBookings, setFilteredBookings] = useState([]);
+  const [showBookingDropdown, setShowBookingDropdown] = useState(false);
 
   // --- Helper: Log technical error and show user-friendly toast ---
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
@@ -142,12 +152,13 @@ export default function Vehicles() {
     }
   };
 
-  const fetchBookings = async () => {
+  const fetchBookings = async (search = '') => {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('booking')
         .select(`
           booking_id,
+          booking_number,
           booking_type,
           booking_status,
           event_datetime,
@@ -158,9 +169,27 @@ export default function Vehicles() {
         `)
         .eq('booking_status', 'Approved')
         .order('event_datetime', { ascending: false });
-      if (!error) setBookings(data || []);
+
+      if (search.trim()) {
+        const term = search.trim();
+        // Search by customer name or booking number or booking_id (partial)
+        query = query.or(
+          `customer.first_name.ilike.%${term}%,` +
+          `customer.last_name.ilike.%${term}%,` +
+          `booking_number.ilike.%${term}%,` +
+          `booking_id.ilike.%${term}%`
+        );
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      setBookings(data || []);
+      // Also update filtered list
+      setFilteredBookings(data || []);
     } catch (error) {
       console.error('Error fetching bookings for assignment:', error);
+      setBookings([]);
+      setFilteredBookings([]);
     }
   };
 
@@ -168,6 +197,28 @@ export default function Vehicles() {
     fetchVehicles();
     fetchBookings();
   }, []);
+
+  // --- Update filtered bookings when search term changes ---
+  useEffect(() => {
+    if (!bookingSearchTerm.trim()) {
+      setFilteredBookings(bookings);
+      return;
+    }
+    const term = bookingSearchTerm.toLowerCase();
+    const filtered = bookings.filter(b => {
+      const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}`.toLowerCase() : '';
+      const ref = getBookingRef(b).toLowerCase();
+      return customerName.includes(term) || ref.includes(term);
+    });
+    setFilteredBookings(filtered);
+  }, [bookingSearchTerm, bookings]);
+
+  // --- Helper to generate a structured booking reference ---
+  const getBookingRef = (booking) => {
+    if (booking.booking_number) return booking.booking_number;
+    const prefix = booking.booking_type === 'Short Order' ? 'SO' : 'BKG';
+    return `${prefix}-${booking.booking_id.slice(0, 8)}`;
+  };
 
   // --- HANDLERS ---
   const handleNewVehicleChange = (e) => {
@@ -185,24 +236,23 @@ export default function Vehicles() {
     setAssignForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  // --- When booking is selected, auto-suggest dispatch time ---
-  const handleBookingSelect = (e) => {
-    const bookingId = e.target.value;
+  // --- When booking is selected from search dropdown ---
+  const handleBookingSelect = (bookingId) => {
+    const selected = bookings.find(b => b.booking_id === bookingId);
+    if (!selected) return;
     setAssignForm(prev => ({ ...prev, booking_id: bookingId }));
+    setBookingSearchTerm(`${getBookingRef(selected)} - ${selected.customer?.first_name || ''} ${selected.customer?.last_name || ''}`);
+    setShowBookingDropdown(false);
 
-    if (bookingId) {
-      const selectedBooking = bookings.find(b => b.booking_id === bookingId);
-      if (selectedBooking && selectedBooking.event_datetime) {
-        const eventDate = new Date(selectedBooking.event_datetime);
-        const dispatchDate = new Date(eventDate.getTime() - 2 * 60 * 60 * 1000);
-        if (dispatchDate < new Date()) {
-          dispatchDate.setTime(Date.now());
-        }
-        const formatted = dispatchDate.toISOString().slice(0, 16);
-        setAssignForm(prev => ({ ...prev, dispatch_datetime: formatted }));
+    // Auto-suggest dispatch time
+    if (selected.event_datetime) {
+      const eventDate = new Date(selected.event_datetime);
+      const dispatchDate = new Date(eventDate.getTime() - 2 * 60 * 60 * 1000);
+      if (dispatchDate < new Date()) {
+        dispatchDate.setTime(Date.now());
       }
-    } else {
-      setAssignForm(prev => ({ ...prev, dispatch_datetime: '' }));
+      const formatted = dispatchDate.toISOString().slice(0, 16);
+      setAssignForm(prev => ({ ...prev, dispatch_datetime: formatted }));
     }
     setSelectedVehicleIds([]);
   };
@@ -219,11 +269,24 @@ export default function Vehicles() {
   // --- Get selected booking details ---
   const selectedBooking = bookings.find(b => b.booking_id === assignForm.booking_id);
 
-  // --- ADD VEHICLE ---
+  // --- ADD VEHICLE (FIXED: modal closes, input validation) ---
   const handleAddVehicle = async (e) => {
     e.preventDefault();
-    if (!newVehicleForm.plate_number) {
+
+    // ✅ Trim and validate plate number
+    const plate = newVehicleForm.plate_number.trim();
+    if (!plate) {
       toast.error('Plate number is required.');
+      return;
+    }
+    if (plate.length < 3) {
+      toast.error('Plate number must be at least 3 characters.');
+      return;
+    }
+
+    // ✅ Validate vehicle type (though select ensures it)
+    if (!newVehicleForm.vehicle_type) {
+      toast.error('Please select a vehicle type.');
       return;
     }
 
@@ -232,14 +295,16 @@ export default function Vehicles() {
       const { error } = await supabase
         .from('vehicle')
         .insert([{
-          plate_number: newVehicleForm.plate_number,
+          plate_number: plate,
           vehicle_type: newVehicleForm.vehicle_type,
           vehicle_status: 'Available',
         }]);
 
       if (error) throw error;
 
+      // ✅ Reset form and close modal
       setNewVehicleForm({ plate_number: '', vehicle_type: 'Car', vehicle_status: 'Available' });
+      setIsManageFleetModalOpen(false);   // <-- CLOSE MODAL
       toast.success('Vehicle added successfully!');
       await fetchVehicles();
     } catch (error) {
@@ -437,6 +502,8 @@ export default function Vehicles() {
       setIsAssignModalOpen(false);
       setAssignForm({ booking_id: '', dispatch_datetime: '', assignment_status: 'Scheduled' });
       setSelectedVehicleIds([]);
+      setBookingSearchTerm('');
+      setShowBookingDropdown(false);
       toast.success(`Successfully assigned ${inserts.length} vehicle(s).`);
       await fetchVehicles();
     } catch (error) {
@@ -452,6 +519,32 @@ export default function Vehicles() {
     setStatsModalData(filtered);
     setStatsModalTitle(title);
     setIsStatsModalOpen(true);
+  };
+
+  // --- View Vehicle Usage ---
+  const handleViewVehicleUsage = async (vehicle) => {
+    setSelectedVehicleForUsage(vehicle);
+    try {
+      const { data, error } = await supabase
+        .from('vehicle_assign')
+        .select(`
+          *,
+          booking:booking_id (
+            booking_id,
+            booking_number,
+            event_datetime,
+            venue,
+            customer:customer_id (first_name, last_name)
+          )
+        `)
+        .eq('vehicle_id', vehicle.vehicle_id)
+        .order('dispatch_datetime', { ascending: false });
+      if (error) throw error;
+      setVehicleUsageAssignments(data || []);
+      setIsVehicleUsageModalOpen(true);
+    } catch (error) {
+      handleError(error, 'Failed to load vehicle usage.');
+    }
   };
 
   // --- CALCULATED STATS ---
@@ -479,7 +572,7 @@ export default function Vehicles() {
             <Settings size={16} /> Manage Fleet
           </button>
           <button
-            onClick={() => { setSelectedVehicleIds([]); setIsAssignModalOpen(true); }}
+            onClick={() => { setSelectedVehicleIds([]); setBookingSearchTerm(''); setShowBookingDropdown(false); setIsAssignModalOpen(true); }}
             className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-sm cursor-pointer"
           >
             <Plus size={16} /> Assign Vehicle
@@ -550,7 +643,7 @@ export default function Vehicles() {
                 <th className="p-4 font-bold">Type</th>
                 <th className="p-4 font-bold">Status</th>
                 <th className="p-4 font-bold">Details</th>
-                <th className="p-4 font-bold text-center">Assignments</th>
+                <th className="p-4 font-bold text-center">Usage</th>
                 <th className="p-4 font-bold text-right">Actions</th>
               </tr>
             </thead>
@@ -593,8 +686,14 @@ export default function Vehicles() {
                     <td className="p-4 text-slate-600 text-xs">
                       {vehicle.statusNote || '–'}
                     </td>
-                    <td className="p-4 text-center font-semibold">
-                      {vehicle.totalAssigns || 0}
+                    <td className="p-4 text-center">
+                      <button
+                        onClick={() => handleViewVehicleUsage(vehicle)}
+                        className="text-blue-500 hover:text-blue-700 transition-colors text-xs font-medium flex items-center gap-1 mx-auto"
+                      >
+                        <ClipboardList size={14} />
+                        {vehicle.totalAssigns > 0 ? `${vehicle.totalAssigns} active` : 'No usage'}
+                      </button>
                     </td>
                     <td className="p-4 text-right">
                       <div className="flex items-center justify-end gap-3">
@@ -655,10 +754,14 @@ export default function Vehicles() {
                     today.setHours(0, 0, 0, 0);
                     const eventDate = assign.booking?.event_datetime ? new Date(assign.booking.event_datetime) : null;
                     const isToday = eventDate && eventDate.toDateString() === today.toDateString();
+                    const bookingRef = assign.booking?.booking_number || 
+                      (assign.booking?.booking_id ? 
+                        (assign.booking.booking_type === 'Short Order' ? 'SO' : 'BKG') + '-' + assign.booking.booking_id.slice(0, 8) 
+                        : 'N/A');
                     return (
                       <tr key={assign.assignment_id} className="hover:bg-slate-50 transition-colors">
                         <td className="p-4 font-bold text-slate-900">{vehicle?.plate_number || 'Unknown'}</td>
-                        <td className="p-4 text-slate-600">{assign.booking_id?.slice(0, 8) || 'N/A'}</td>
+                        <td className="p-4 font-mono text-xs font-semibold text-slate-800">{bookingRef}</td>
                         <td className="p-4">
                           {assign.booking?.customer?.first_name} {assign.booking?.customer?.last_name}
                         </td>
@@ -722,15 +825,17 @@ export default function Vehicles() {
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
                   required
                 />
+                <p className="text-xs text-slate-400 mt-1">Minimum 3 characters, no leading/trailing spaces.</p>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Vehicle Type</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Vehicle Type *</label>
                 <select
                   name="vehicle_type"
                   value={newVehicleForm.vehicle_type}
                   onChange={handleNewVehicleChange}
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                  required
                 >
                   <option value="Car">Car</option>
                   <option value="Motorcycle">Motorcycle</option>
@@ -843,7 +948,7 @@ export default function Vehicles() {
       )}
 
       {/* ========================================================= */}
-      {/* 3. ASSIGN VEHICLE MODAL - Multiple Vehicle Selection */}
+      {/* 3. ASSIGN VEHICLE MODAL - with Searchable Booking Dropdown */}
       {/* ========================================================= */}
       {isAssignModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
@@ -854,7 +959,7 @@ export default function Vehicles() {
                 <p className="text-xs text-slate-500">Deploy multiple vehicles to an event</p>
               </div>
               <button
-                onClick={() => { setIsAssignModalOpen(false); setSelectedVehicleIds([]); }}
+                onClick={() => { setIsAssignModalOpen(false); setSelectedVehicleIds([]); setBookingSearchTerm(''); setShowBookingDropdown(false); }}
                 className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors cursor-pointer"
               >
                 <X size={18} />
@@ -862,27 +967,57 @@ export default function Vehicles() {
             </div>
 
             <form onSubmit={handleAssignSubmit} className="p-6 overflow-y-auto space-y-5 text-left">
-              {/* Booking Selection */}
+              {/* Booking Selection - Searchable Dropdown */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Select Booking</label>
-                <select
-                  name="booking_id"
-                  value={assignForm.booking_id}
-                  onChange={handleBookingSelect}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white font-semibold text-slate-800 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                  required
-                >
-                  <option value="">-- Choose a booking --</option>
-                  {bookings.map((b) => {
-                    const name = b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
-                    const date = b.event_datetime ? new Date(b.event_datetime).toLocaleDateString() : '';
-                    return (
-                      <option key={b.booking_id} value={b.booking_id}>
-                        {b.booking_id.slice(0, 8)} – {name} ({date})
-                      </option>
-                    );
-                  })}
-                </select>
+                <div className="relative">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input
+                      type="text"
+                      placeholder="Search by customer name or booking ref..."
+                      value={bookingSearchTerm}
+                      onChange={(e) => {
+                        setBookingSearchTerm(e.target.value);
+                        setShowBookingDropdown(true);
+                      }}
+                      onFocus={() => setShowBookingDropdown(true)}
+                      className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
+                    />
+                  </div>
+                  {showBookingDropdown && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                      {filteredBookings.length === 0 ? (
+                        <div className="p-3 text-sm text-slate-500 text-center">No bookings found.</div>
+                      ) : (
+                        filteredBookings.map((b) => {
+                          const ref = getBookingRef(b);
+                          const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
+                          const eventDate = b.event_datetime ? new Date(b.event_datetime).toLocaleDateString() : 'No date';
+                          const isShortOrder = b.booking_type === 'Short Order';
+                          return (
+                            <button
+                              key={b.booking_id}
+                              type="button"
+                              onClick={() => handleBookingSelect(b.booking_id)}
+                              className="w-full text-left px-4 py-2.5 hover:bg-slate-50 border-b border-slate-100 last:border-0 transition-colors"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs font-bold text-slate-800">{ref}</span>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isShortOrder ? 'bg-purple-100 text-purple-700 border border-purple-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
+                                  {isShortOrder ? 'Short Order' : 'Package'}
+                                </span>
+                              </div>
+                              <div className="text-sm font-medium text-slate-900">{customerName}</div>
+                              <div className="text-xs text-slate-500">{eventDate} · {b.venue || 'No venue'}</div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-slate-400 mt-1">Type to search, then click a booking to select.</p>
               </div>
 
               {/* Booking Details Preview */}
@@ -890,7 +1025,7 @@ export default function Vehicles() {
                 <div className="bg-[#F8F9FA] border border-slate-200 rounded-lg p-4 space-y-3">
                   <div className="flex justify-between items-start">
                     <h4 className="font-bold text-slate-900 text-sm">Booking Details</h4>
-                    <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 border border-green-200">
+                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${selectedBooking.booking_status === 'Approved' ? 'bg-green-100 text-green-700 border border-green-200' : 'bg-amber-100 text-amber-700 border border-amber-200'}`}>
                       {selectedBooking.booking_status}
                     </span>
                   </div>
@@ -900,6 +1035,13 @@ export default function Vehicles() {
                       <span className="text-slate-600">Customer:</span>
                       <span className="font-semibold text-slate-900">
                         {selectedBooking.customer ? `${selectedBooking.customer.first_name} ${selectedBooking.customer.last_name}` : 'Unknown'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 col-span-2">
+                      <span className="text-slate-600 font-medium">Ref:</span>
+                      <span className="font-mono text-xs font-bold text-slate-800">{getBookingRef(selectedBooking)}</span>
+                      <span className={`ml-2 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${selectedBooking.booking_type === 'Short Order' ? 'bg-purple-100 text-purple-700 border border-purple-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
+                        {selectedBooking.booking_type || 'Package'}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 col-span-2">
@@ -918,10 +1060,6 @@ export default function Vehicles() {
                       <Users size={14} className="text-slate-400" />
                       <span className="text-slate-600">Pax:</span>
                       <span className="font-semibold text-slate-900">{selectedBooking.pax_count || 0}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-slate-600">Type:</span>
-                      <span className="font-semibold text-slate-900">{selectedBooking.booking_type || 'Package'}</span>
                     </div>
                     {selectedBooking.notes && (
                       <div className="col-span-2 text-xs text-slate-500 border-t border-slate-200 pt-2 mt-1">
@@ -996,7 +1134,7 @@ export default function Vehicles() {
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
                 <button
                   type="button"
-                  onClick={() => { setIsAssignModalOpen(false); setSelectedVehicleIds([]); }}
+                  onClick={() => { setIsAssignModalOpen(false); setSelectedVehicleIds([]); setBookingSearchTerm(''); setShowBookingDropdown(false); }}
                   className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors cursor-pointer"
                 >
                   Cancel
@@ -1096,6 +1234,52 @@ export default function Vehicles() {
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ========================================================= */}
+      {/* VEHICLE USAGE MODAL */}
+      {/* ========================================================= */}
+      {isVehicleUsageModalOpen && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex justify-between items-center px-6 py-4 border-b border-slate-200 shrink-0">
+              <h3 className="text-lg font-bold text-slate-900">
+                Vehicle Usage: {selectedVehicleForUsage?.plate_number}
+              </h3>
+              <button onClick={() => setIsVehicleUsageModalOpen(false)} className="text-slate-400 hover:text-slate-600 border border-slate-300 rounded-md p-1 transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto flex-1">
+              {vehicleUsageAssignments.length === 0 ? (
+                <p className="text-sm text-slate-500 italic text-center py-8">No usage records found.</p>
+              ) : (
+                <div className="space-y-3">
+                  {vehicleUsageAssignments.map(assign => {
+                    const booking = assign.booking;
+                    const customerName = booking?.customer ? `${booking.customer.first_name} ${booking.customer.last_name}` : 'Unknown';
+                    return (
+                      <div key={assign.assignment_id} className={`border rounded-lg p-3 flex justify-between items-center ${assign.assignment_status === 'Completed' ? 'bg-slate-50 border-slate-200' : 'bg-amber-50 border-amber-200'}`}>
+                        <div>
+                          <p className="font-bold text-slate-900 text-sm">{customerName}</p>
+                          <p className="text-xs text-slate-500">{booking?.venue || 'No venue'} · {booking?.event_datetime ? new Date(booking.event_datetime).toLocaleDateString() : 'N/A'}</p>
+                          <p className="text-xs text-slate-500">Booking: {booking?.booking_number || (booking?.booking_id ? (booking.booking_type === 'Short Order' ? 'SO' : 'BKG') + '-' + booking.booking_id.slice(0, 8) : 'N/A')}</p>
+                          <p className="text-xs text-slate-500">Dispatch: {assign.dispatch_datetime ? new Date(assign.dispatch_datetime).toLocaleString() : 'N/A'}</p>
+                        </div>
+                        <div className="text-right">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${assign.assignment_status === 'Completed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {assign.assignment_status === 'Completed' ? '✅ Returned' : '📌 Active'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>,

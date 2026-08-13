@@ -3,6 +3,17 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  Cell,
+} from 'recharts';
 
 export default function Reports() {
   // --- UI STATE ---
@@ -30,6 +41,9 @@ export default function Reports() {
   const [equipmentUtilizationData, setEquipmentUtilizationData] = useState([]);
   const [bookingSummaryData, setBookingSummaryData] = useState([]);
 
+  // --- Colors for charts ---
+  const COLORS = ['#008A45', '#2d9b5e', '#5cb885', '#8cd4a8', '#b5e8ca', '#d4f0e0'];
+
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
     console.error('Error:', error);
     toast.error(userMessage);
@@ -50,6 +64,7 @@ export default function Reports() {
       const currentMonthLabel = now.toLocaleString('default', { month: 'long', year: 'numeric' });
 
       // ========== FINANCIAL SUMMARY ==========
+      // Only include bookings that are not Rejected/Cancelled
       const { data: bookings, error: bookingsError } = await supabase
         .from('booking')
         .select(`
@@ -128,7 +143,7 @@ export default function Reports() {
         _outstandingBreakdown: outstandingBreakdown,
       });
 
-      // ========== MONTHLY REVENUE ==========
+      // ========== MONTHLY REVENUE (Net Collected) ==========
       const monthMap = {};
       payments.forEach(p => {
         if (!validBookingIds.has(p.booking_id)) return;
@@ -143,13 +158,13 @@ export default function Reports() {
       const monthlyData = monthOrder
         .filter(m => monthMap[m] && monthMap[m] > 0)
         .map((month, index) => ({
-          id: index,
           month,
           revenue: monthMap[month],
         }));
       setMonthlyRevenueData(monthlyData);
 
       // ========== MENU PERFORMANCE ==========
+      // Packages
       const { data: packageBookings, error: pkgError } = await supabase
         .from('booking')
         .select(`
@@ -170,7 +185,7 @@ export default function Reports() {
         if (!packageMap[pkgId]) {
           packageMap[pkgId] = {
             name: b.package?.pkg_name || 'Unknown',
-            pricing_type: b.package?.pricing_type || 'per_pax',
+            type: 'Package',
             orders: 0,
             revenue: 0,
           };
@@ -179,19 +194,103 @@ export default function Reports() {
         packageMap[pkgId].revenue += b.total_amount || 0;
       });
 
-      const maxOrders = Math.max(...Object.values(packageMap).map(p => p.orders), 1);
-      const menuPerf = Object.entries(packageMap).map(([, data], index) => {
-        const performance = Math.round((data.orders / maxOrders) * 100);
-        return {
-          id: `PKG-${index + 1}`,
-          name: data.name,
-          pricing_type: data.pricing_type,
-          performance,
-          totalOrders: data.orders,
-          revenueGenerated: data.revenue,
-          status: performance < 10 ? 'warning' : 'good',
-        };
+      // Short Order Menu Items
+      const { data: shortOrderBookings, error: soError } = await supabase
+        .from('booking')
+        .select(`
+          booking_id,
+          total_amount,
+          menu_selections,
+          booking_status
+        `)
+        .eq('booking_type', 'Short Order')
+        .not('booking_status', 'in', '("Rejected","Cancelled")');
+
+      if (soError) throw soError;
+
+      const menuItemMap = {};
+
+      for (const so of shortOrderBookings) {
+        let selections = [];
+        try {
+          if (so.menu_selections) {
+            if (typeof so.menu_selections === 'string') {
+              selections = JSON.parse(so.menu_selections);
+            } else if (Array.isArray(so.menu_selections)) {
+              selections = so.menu_selections;
+            }
+          }
+        } catch (e) {
+          selections = [];
+        }
+
+        const menuItemIds = selections.map(s => s.menu_item_id);
+        let menuItemsMap = {};
+        if (menuItemIds.length > 0) {
+          const { data: menuData, error: menuError } = await supabase
+            .from('menu_item')
+            .select('menu_item_id, menu_name, menu_price')
+            .in('menu_item_id', menuItemIds);
+          if (!menuError && menuData) {
+            menuItemsMap = Object.fromEntries(menuData.map(m => [m.menu_item_id, m]));
+          }
+        }
+
+        selections.forEach(sel => {
+          const itemId = sel.menu_item_id;
+          const qty = sel.quantity || 1;
+          const menuItem = menuItemsMap[itemId];
+          const price = menuItem?.menu_price || 0;
+          const name = menuItem?.menu_name || 'Unknown Item';
+
+          if (!menuItemMap[itemId]) {
+            menuItemMap[itemId] = {
+              name,
+              type: 'Menu Item',
+              orders: 0,
+              quantity: 0,
+              revenue: 0,
+            };
+          }
+          menuItemMap[itemId].orders += 1;
+          menuItemMap[itemId].quantity += qty;
+          menuItemMap[itemId].revenue += price * qty;
+        });
+      }
+
+      // Combine
+      const combinedMenuPerf = [];
+
+      Object.values(packageMap).forEach(pkg => {
+        combinedMenuPerf.push({
+          ...pkg,
+          quantity: pkg.orders,
+        });
       });
+
+      Object.values(menuItemMap).forEach(item => {
+        combinedMenuPerf.push({
+          name: item.name,
+          type: 'Menu Item',
+          orders: item.orders,
+          quantity: item.quantity,
+          revenue: item.revenue,
+        });
+      });
+
+      combinedMenuPerf.sort((a, b) => b.revenue - a.revenue);
+
+      const maxRevenue = combinedMenuPerf.length > 0 ? Math.max(...combinedMenuPerf.map(d => d.revenue)) : 1;
+      const menuPerf = combinedMenuPerf.map((item, index) => ({
+        id: `PERF-${index + 1}`,
+        name: item.name,
+        type: item.type,
+        performance: Math.round((item.revenue / maxRevenue) * 100),
+        totalOrders: item.orders,
+        quantity: item.quantity || item.orders,
+        revenueGenerated: item.revenue,
+        status: item.revenue < maxRevenue * 0.1 ? 'warning' : 'good',
+      }));
       setMenuPerformanceData(menuPerf);
 
       // ========== EQUIPMENT UTILIZATION ==========
@@ -214,9 +313,9 @@ export default function Reports() {
       });
 
       const utilData = equipment.map(eq => {
-        const total = eq.quantity_available + (deployedMap[eq.equipment_id] || 0);
         const deployed = deployedMap[eq.equipment_id] || 0;
         const available = eq.quantity_available;
+        const total = available + deployed;
         return {
           id: eq.equipment_id,
           name: eq.eqm_name,
@@ -228,17 +327,17 @@ export default function Reports() {
       });
       setEquipmentUtilizationData(utilData);
 
-      // ========== BOOKING SUMMARY ==========
-      const { data: allBookings, error: allError } = await supabase
+      // ========== BOOKING SUMMARY – ONLY COMPLETED ==========
+      const { data: completedBookings, error: allError } = await supabase
         .from('booking')
         .select('booking_id, event_datetime, total_amount, booking_status, booking_type, package_id, package:package_id (pkg_name)')
-        .not('booking_status', 'in', '("Rejected","Cancelled")')
+        .eq('booking_status', 'Completed')
         .not('event_datetime', 'is', null);
 
       if (allError) throw allError;
 
       const monthGroup = {};
-      allBookings.forEach(b => {
+      completedBookings.forEach(b => {
         const date = new Date(b.event_datetime);
         const monthKey = date.toLocaleString('default', { month: 'short', year: 'numeric' });
         if (!monthGroup[monthKey]) {
@@ -345,6 +444,7 @@ export default function Reports() {
         <p className="text-sm text-slate-500">
           Financial performance and operational summaries – includes both Packages and Short Orders.
           <span className="block text-xs text-slate-400 mt-1">Excludes Rejected and Cancelled bookings.</span>
+          <span className="block text-xs text-slate-400 mt-1">Booking Summary shows only <strong>Completed</strong> events.</span>
         </p>
       </div>
 
@@ -411,83 +511,49 @@ export default function Reports() {
                 </button>
               </div>
 
-              {/* ✅ SIMPLIFIED MONTHLY REVENUE – HORIZONTAL BARS */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="bg-[#f8fafa] border border-slate-200 rounded-xl p-6">
-                  <h3 className="text-base font-bold text-slate-900 mb-4">Monthly Revenue</h3>
-                  {monthlyRevenueData.length === 0 ? (
-                    <div className="h-48 flex items-center justify-center text-slate-400 text-sm">
-                      No payment data available.
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {monthlyRevenueData.map((item) => {
-                        const maxRevenue = Math.max(...monthlyRevenueData.map(d => d.revenue), 1);
-                        const percentage = Math.max((item.revenue / maxRevenue) * 100, 5);
-                        return (
-                          <div key={item.id} className="flex items-center gap-3">
-                            <div className="w-12 text-sm font-bold text-slate-700 text-right">
-                              {item.month}
-                            </div>
-                            <div className="flex-1">
-                              <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
-                                <div
-                                  className="h-full rounded-full bg-[#008A45] transition-all duration-500"
-                                  style={{ width: `${percentage}%` }}
-                                />
-                              </div>
-                            </div>
-                            <div className="w-20 text-sm font-semibold text-slate-800 text-right">
-                              {formatCurrency(item.revenue)}
-                            </div>
-                          </div>
-                        );
-                      })}
-                      <div className="mt-2 text-xs text-slate-500 text-right">
-                        Bar length shows relative revenue (100% = highest month)
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* MENU PERFORMANCE MINI */}
-                <div className="bg-[#f8fafa] border border-slate-200 rounded-xl p-6">
-                  <h3 className="text-base font-bold text-slate-900 mb-6">Menu Performance</h3>
-                  {menuPerformanceData.length === 0 ? (
-                    <div className="h-48 flex items-center justify-center text-slate-400 text-sm">No package data available.</div>
-                  ) : (
-                    <div className="space-y-5">
-                      {menuPerformanceData.slice(0, 4).map((pkg) => (
-                        <div key={pkg.id}>
-                          <div className="flex justify-between text-xs font-bold mb-1">
-                            <span className="text-slate-800">{pkg.name}</span>
-                            <span className="text-slate-600">{pkg.performance}%</span>
-                          </div>
-                          <div className="w-full bg-slate-200 rounded-full h-2">
-                            <div className={`h-2 rounded-full ${pkg.status === 'warning' ? 'bg-red-500' : 'bg-[#008A45]'}`} style={{ width: `${pkg.performance}%` }}></div>
-                          </div>
-                          {pkg.status === 'warning' && (
-                            <p className="text-[11px] text-red-500 font-semibold mt-1">*Below 10% threshold</p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+              {/* MONTHLY REVENUE – Net Collected Bar Chart */}
+              <div className="bg-[#f8fafa] border border-slate-200 rounded-xl p-6">
+                <h3 className="text-base font-bold text-slate-900 mb-4">Monthly Revenue (Net Collected)</h3>
+                {monthlyRevenueData.length === 0 ? (
+                  <div className="h-64 flex items-center justify-center text-slate-400 text-sm">
+                    No payment data available.
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={monthlyRevenueData} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="month" />
+                      <YAxis tickFormatter={(value) => `₱${value.toLocaleString()}`} />
+                      <Tooltip
+                        formatter={(value) => [`₱${value.toLocaleString()}`, 'Collected']}
+                        labelFormatter={(label) => `Month: ${label}`}
+                      />
+                      <Legend />
+                      <Bar dataKey="revenue" fill="#008A45" radius={[4, 4, 0, 0]}>
+                        {monthlyRevenueData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+                <div className="mt-2 text-xs text-slate-500 text-right">
+                  Bar shows total payments received per month (net collected)
                 </div>
               </div>
 
-              {/* BOOKING SUMMARY MINI */}
+              {/* BOOKING SUMMARY MINI – quick view (still shows all, but the full tab shows only Completed) */}
               <div className="bg-[#f8fafa] border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-                <div className="p-4 border-b border-slate-200"><h3 className="text-base font-bold text-slate-900">Monthly Booking Summary</h3></div>
+                <div className="p-4 border-b border-slate-200"><h3 className="text-base font-bold text-slate-900">Monthly Booking Summary (All Active)</h3></div>
                 {bookingSummaryData.length === 0 ? (
-                  <div className="p-8 text-center text-slate-400 text-sm">No booking data available.</div>
+                  <div className="p-8 text-center text-slate-400 text-sm">No completed bookings yet.</div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-[#EAF3F2] text-slate-800 text-xs font-bold border-b border-slate-200">
                           <th className="p-4">Month</th>
-                          <th className="p-4">Bookings</th>
+                          <th className="p-4">Completed Bookings</th>
                           <th className="p-4">Revenue</th>
                           <th className="p-4">Top Package</th>
                         </tr>
@@ -515,47 +581,50 @@ export default function Reports() {
           {activeTab === 'Menu Performance' && (
             <div className="bg-[#f8fafa] border border-slate-200 rounded-xl shadow-sm overflow-hidden">
               <div className="p-5 border-b border-slate-200">
-                <h3 className="text-base font-bold text-slate-900">Comprehensive Package Performance Analytics</h3>
+                <h3 className="text-base font-bold text-slate-900">Comprehensive Menu Performance – Packages & Short Order Items</h3>
+                <p className="text-xs text-slate-500 mt-1">Performance is based on total revenue generated (relative to highest performer).</p>
               </div>
               {menuPerformanceData.length === 0 ? (
-                <div className="p-8 text-center text-slate-400 text-sm">No package data available.</div>
+                <div className="p-8 text-center text-slate-400 text-sm">No performance data available.</div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-[#EAF3F2] text-slate-800 text-xs font-bold border-b border-slate-200">
-                        <th className="p-4">Package Name</th>
-                        <th className="p-4">Pricing Type</th>
+                        <th className="p-4">Name</th>
+                        <th className="p-4">Type</th>
                         <th className="p-4">Popularity Metric</th>
-                        <th className="p-4">Total Orders Filled</th>
-                        <th className="p-4">Gross Revenue Share</th>
+                        <th className="p-4">Total Orders / Qty</th>
+                        <th className="p-4">Gross Revenue</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 text-sm">
-                      {menuPerformanceData.map((pkg) => (
-                        <tr key={pkg.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="p-4 font-bold text-slate-900">{pkg.name}</td>
+                      {menuPerformanceData.map((item) => (
+                        <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="p-4 font-bold text-slate-900">{item.name}</td>
                           <td className="p-4">
-                            {pkg.pricing_type === 'fixed' ? (
-                              <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full border border-purple-200 whitespace-nowrap">
-                                Fixed
+                            {item.type === 'Package' ? (
+                              <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full border border-blue-200 whitespace-nowrap">
+                                Package
                               </span>
                             ) : (
-                              <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full border border-blue-200 whitespace-nowrap">
-                                Per Pax
+                              <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full border border-purple-200 whitespace-nowrap">
+                                Menu Item
                               </span>
                             )}
                           </td>
                           <td className="p-4 w-1/3">
                             <div className="flex items-center gap-3">
-                              <span className="text-xs font-semibold text-slate-600 w-8">{pkg.performance}%</span>
+                              <span className="text-xs font-semibold text-slate-600 w-8">{item.performance}%</span>
                               <div className="w-full bg-slate-200 rounded-full h-2 max-w-xs">
-                                <div className={`h-2 rounded-full ${pkg.status === 'warning' ? 'bg-red-500' : 'bg-[#008A45]'}`} style={{ width: `${pkg.performance}%` }}></div>
+                                <div className={`h-2 rounded-full ${item.status === 'warning' ? 'bg-red-500' : 'bg-[#008A45]'}`} style={{ width: `${item.performance}%` }}></div>
                               </div>
                             </div>
                           </td>
-                          <td className="p-4 font-medium text-slate-700">{pkg.totalOrders} Orders</td>
-                          <td className="p-4 font-bold text-emerald-700">{formatCurrency(pkg.revenueGenerated)}</td>
+                          <td className="p-4 font-medium text-slate-700">
+                            {item.type === 'Menu Item' ? `${item.quantity} trays` : `${item.totalOrders} orders`}
+                          </td>
+                          <td className="p-4 font-bold text-emerald-700">{formatCurrency(item.revenueGenerated)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -619,31 +688,32 @@ export default function Reports() {
           )}
 
           {/* ========================================================= */}
-          {/* BOOKING SUMMARY TAB */}
+          {/* BOOKING SUMMARY TAB – Only Completed */}
           {/* ========================================================= */}
           {activeTab === 'Booking Summary' && (
             <div className="bg-[#f8fafa] border border-slate-200 rounded-xl shadow-sm overflow-hidden">
               <div className="p-5 border-b border-slate-200">
-                <h3 className="text-base font-bold text-slate-900">Historical Booking Performance Table</h3>
+                <h3 className="text-base font-bold text-slate-900">Historical Booking Summary – Completed Events Only</h3>
+                <p className="text-xs text-slate-500 mt-1">Includes only bookings that have been marked as Completed.</p>
               </div>
               {bookingSummaryData.length === 0 ? (
-                <div className="p-8 text-center text-slate-400 text-sm">No booking data available.</div>
+                <div className="p-8 text-center text-slate-400 text-sm">No completed bookings found.</div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-[#EAF3F2] text-slate-800 text-xs font-bold border-b border-slate-200">
                         <th className="p-4">Accounting Month</th>
-                        <th className="p-4">Total Successful Bookings</th>
-                        <th className="p-4">Gross Contract Value</th>
-                        <th className="p-4">Top Revenue Package</th>
+                        <th className="p-4">Total Completed Bookings</th>
+                        <th className="p-4">Gross Revenue</th>
+                        <th className="p-4">Top Package</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 text-sm">
                       {bookingSummaryData.map((row) => (
                         <tr key={row.id} className="hover:bg-slate-50 transition-colors">
                           <td className="p-4 font-bold text-slate-900">{row.month}</td>
-                          <td className="p-4 text-slate-700 font-medium">{row.bookings} Confirmed Events</td>
+                          <td className="p-4 text-slate-700 font-medium">{row.bookings} Completed</td>
                           <td className="p-4 font-bold text-slate-900">{formatCurrency(row.revenue)}</td>
                           <td className="p-4"><span className="px-2.5 py-1 bg-slate-200 text-slate-800 font-semibold text-xs rounded-full">{row.topPackage}</span></td>
                         </tr>
@@ -658,7 +728,7 @@ export default function Reports() {
         </div>
       )}
 
-      {/* DETAIL BREAKDOWN MODAL – using createPortal and consistent styling */}
+      {/* DETAIL BREAKDOWN MODAL – unchanged */}
       {detailModal.open && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-150">
           <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden">

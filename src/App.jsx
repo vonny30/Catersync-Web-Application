@@ -1,5 +1,5 @@
 // src/App.jsx
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ErrorProvider } from './contexts/ErrorContext';
@@ -28,7 +28,6 @@ function AppContent() {
   const { confirmState } = useConfirm();
   const { loading } = useAuth();
 
-  // Show loading screen while auth is being checked
   if (loading) {
     return <LoadingScreen />;
   }
@@ -69,7 +68,7 @@ function AppContent() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route
-          path="/app"
+          path="/app/*"
           element={
             <ProtectedRoute>
               <ManagerLayout />
@@ -88,6 +87,8 @@ function AppContent() {
           <Route path="packages-menu" element={<PackagesAndMenus />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
+        {/* ✅ Catch-all: redirect to login */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
       <ConfirmModal

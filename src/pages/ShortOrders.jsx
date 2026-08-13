@@ -717,38 +717,73 @@ export default function ShortOrders() {
   // ❌ REMOVED local approval functions – now provided by the hook.
   // ❌ REMOVED local rejection functions – now provided by the hook.
 
-  const handleMarkCompleted = async (id) => {
-    const order = orders.find(o => o.booking_id === id);
-    const confirmed = await showConfirm({
-      title: 'Mark as Completed?',
-      message: 'Are you sure you want to mark this order as completed?',
-      confirmLabel: 'Complete',
-      confirmVariant: 'success',
+ const handleMarkCompleted = async (id) => {
+  const order = orders.find(o => o.booking_id === id);
+  if (!order) {
+    toast.error('Order not found.');
+    return;
+  }
+
+  const totalAmount = order.total_amount || 0;
+  const totalPaid = order.positivePayments || 0;
+  const remainingBalance = Math.max(0, totalAmount - totalPaid);
+  const isFullyPaid = remainingBalance <= 0;
+
+  // ✅ Show warning if there's a remaining balance
+  if (!isFullyPaid) {
+    const proceed = await showConfirm({
+      title: '⚠️ Outstanding Balance',
+      message: `This order has a remaining balance of ₱${remainingBalance.toLocaleString()}.\n\nMarking it as "Completed" will close the order, but the balance will remain unpaid.\n\nDo you still want to proceed?`,
+      confirmLabel: 'Yes, Complete Anyway',
+      cancelLabel: 'Cancel',
+      confirmVariant: 'warning',
     });
-    if (!confirmed) return;
+    if (!proceed) return;
+  }
 
-    try {
-      const { error } = await supabase
-        .from('booking')
-        .update({ booking_status: 'Completed' })
+  const confirmed = await showConfirm({
+    title: 'Mark as Completed?',
+    message: `Are you sure you want to mark this order as completed?\n\n${!isFullyPaid ? `⚠️ Remaining balance: ₱${remainingBalance.toLocaleString()}` : '✅ All payments are settled.'}`,
+    confirmLabel: 'Complete',
+    confirmVariant: 'success',
+  });
+  if (!confirmed) return;
+
+  try {
+    // 1. Update booking status
+    const { error } = await supabase
+      .from('booking')
+      .update({ booking_status: 'Completed' })
+      .eq('booking_id', id);
+    if (error) throw error;
+
+    // 2. Auto-complete all vehicle assignments for this booking
+    const { error: vehicleReturnError } = await supabase
+      .from('vehicle_assign')
+      .update({ assignment_status: 'Completed' })
+      .eq('booking_id', id);
+    if (vehicleReturnError) throw vehicleReturnError;
+
+    // 3. Update payments to Fully Paid if fully paid
+    if (isFullyPaid && totalPaid > 0) {
+      const { error: updatePaymentsError } = await supabase
+        .from('payment')
+        .update({ pay_status: 'Fully Paid' })
         .eq('booking_id', id);
-      if (error) throw error;
-
-      if (order && order.positivePayments >= (order.total_amount || 0)) {
-        const { error: updatePaymentsError } = await supabase
-          .from('payment')
-          .update({ pay_status: 'Fully Paid' })
-          .eq('booking_id', id);
-        if (updatePaymentsError) throw updatePaymentsError;
-        toast.success('Order marked completed. All payments set to Fully Paid.');
-      } else {
-        toast.success('Order marked completed. Note: payments were left unchanged (balance remains).');
-      }
-      fetchData();
-    } catch (error) {
-      handleError(error, 'Failed to update status.');
+      if (updatePaymentsError) throw updatePaymentsError;
+      toast.success('Order marked completed. All payments set to Fully Paid.');
+    } else if (!isFullyPaid) {
+      toast.warning(`Order marked completed. ⚠️ Remaining balance: ₱${remainingBalance.toLocaleString()}`);
+    } else {
+      toast.success('Order marked completed successfully.');
     }
-  };
+
+    // 4. Refresh data
+    fetchData();
+  } catch (error) {
+    handleError(error, 'Failed to complete order.');
+  }
+};
 
   const handleDelete = async (id) => {
     const confirmed = await showConfirm({
@@ -1047,18 +1082,23 @@ export default function ShortOrders() {
                       <td className="p-4 font-medium">{order.venue || 'N/A'}</td>
                       <td className="p-4 text-center font-semibold">{totalTrays}</td>
                       <td className="p-4 font-bold text-slate-900 text-right">₱{order.total_amount?.toLocaleString() || '0'}</td>
-                      <td className="p-4">
-                        <div className="flex flex-col items-center gap-1">
-                          <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getStatusBadge(order.booking_status)} inline-block w-[120px] text-center`}>
-                            {order.booking_status}
-                          </span>
-                          {(order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') && order.refundStatus && (
-                            <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getRefundStatusBadge(order.refundStatus)} inline-block w-[120px] text-center`}>
-                              {order.refundStatus}
-                            </span>
-                          )}
-                        </div>
-                      </td>
+                  <td className="p-4">
+  <div className="flex flex-col items-center gap-1">
+    <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getStatusBadge(order.booking_status)} inline-block w-[120px] text-center`}>
+      {order.booking_status}
+    </span>
+    {order.booking_status === 'Completed' && order.positivePayments < (order.total_amount || 0) && (
+      <span className="px-3 py-1.5 rounded-full text-xs font-bold border bg-amber-50 border-amber-200 text-amber-700 inline-block w-[120px] text-center">
+        Balance Remaining
+      </span>
+    )}
+    {(order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') && order.refundStatus && (
+      <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getRefundStatusBadge(order.refundStatus)} inline-block w-[120px] text-center`}>
+        {order.refundStatus}
+      </span>
+    )}
+  </div>
+</td>
                       <td className="p-4" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1.5 flex-nowrap whitespace-nowrap">
                           {order.booking_status === 'Pending' && (

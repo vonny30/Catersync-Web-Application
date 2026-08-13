@@ -104,10 +104,29 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       setIsPaymentSubmitting(false);
       return;
     }
+
+    // --- FILE VALIDATION (NEW) ---
     if (!selectedFile && (paymentFormData.pay_proof === 'placeholder.png' || !paymentFormData.pay_proof)) {
       toast.error('Please upload a proof of payment image.');
       setIsPaymentSubmitting(false);
       return;
+    }
+
+    if (selectedFile) {
+      const file = selectedFile;
+      const maxSize = 5 * 1024 * 1024; // 5 MB
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+      if (!allowedTypes.includes(file.type)) {
+        toast.error('Invalid file type. Please upload a JPEG, PNG, WebP, or GIF image.');
+        setIsPaymentSubmitting(false);
+        return;
+      }
+      if (file.size > maxSize) {
+        toast.error(`File is too large. Maximum size is 5 MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)} MB.`);
+        setIsPaymentSubmitting(false);
+        return;
+      }
     }
 
     const status = paymentFormData.pay_status;
@@ -138,7 +157,6 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     const isAmountEqualRemaining = Math.abs(amount - remainingBalance) < 0.01;
     const isAmountEqualTotal = Math.abs(amount - totalAmount) < 0.01;
 
-    // ✅ NEW: First payment equals full total → ask to mark as Fully Paid
     if (status === 'Downpayment' && isFirstPayment && isAmountEqualTotal) {
       const confirm = await showConfirm({
         title: 'Full Payment?',
@@ -153,7 +171,6 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       }
     }
 
-    // Existing: subsequent payment equals remaining balance → ask to mark as Fully Paid
     if (status === 'Downpayment' && isAmountEqualRemaining && !isFirstPayment) {
       const confirm = await showConfirm({
         title: 'Full Payment?',
@@ -172,13 +189,28 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       let proofUrl = 'placeholder.png';
       if (selectedFile) {
         setUploading(true);
-        const fileExt = selectedFile.name.split('.').pop();
+        const file = selectedFile;
+        const fileExt = file.name.split('.').pop();
         const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
         const filePath = `payments/${fileName}`;
         const { error: uploadError } = await supabase.storage
           .from('images')
-          .upload(filePath, selectedFile);
-        if (uploadError) throw uploadError;
+          .upload(filePath, file);
+
+        if (uploadError) {
+          let msg = 'Failed to upload proof image.';
+          if (uploadError.message?.includes('bucket not found')) {
+            msg = 'Storage bucket is not configured. Please contact support.';
+          } else if (uploadError.message?.includes('permission')) {
+            msg = 'Permission denied. Please check your storage policies.';
+          } else if (uploadError.message?.includes('too large')) {
+            msg = 'File exceeds the storage limit. Please compress your image.';
+          } else if (uploadError.message?.includes('duplicate')) {
+            msg = 'A file with this name already exists. Please rename and try again.';
+          }
+          throw new Error(msg);
+        }
+
         const { data: publicUrlData } = supabase.storage
           .from('images')
           .getPublicUrl(filePath);
@@ -204,7 +236,7 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       toast.success(finalPayStatus === 'Fully Paid' ? 'Payment recorded and marked as Fully Paid!' : 'Payment recorded successfully!');
     } catch (error) {
       console.error(error);
-      toast.error('Failed to record payment.');
+      toast.error(error.message || 'Failed to record payment.');
     } finally {
       setIsPaymentSubmitting(false);
       setUploading(false);
@@ -243,13 +275,32 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       setIsPaymentSubmitting(false);
       return;
     }
-    if (!editSelectedFile && (editPaymentFormData.pay_proof === 'placeholder.png' || !editPaymentFormData.pay_proof)) {
+
+    // --- FILE VALIDATION FOR EDIT (NEW) ---
+    // If a new file is selected, validate it; otherwise, keep existing proof
+    if (editSelectedFile) {
+      const file = editSelectedFile;
+      const maxSize = 5 * 1024 * 1024;
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+      if (!allowedTypes.includes(file.type)) {
+        toast.error('Invalid file type. Please upload a JPEG, PNG, WebP, or GIF image.');
+        setIsPaymentSubmitting(false);
+        return;
+      }
+      if (file.size > maxSize) {
+        toast.error(`File is too large. Maximum size is 5 MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)} MB.`);
+        setIsPaymentSubmitting(false);
+        return;
+      }
+    } else if (!editPaymentFormData.pay_proof || editPaymentFormData.pay_proof === 'placeholder.png') {
+      // If no new file and existing proof is missing or placeholder, require upload
       toast.error('Please upload a proof of payment image.');
       setIsPaymentSubmitting(false);
       return;
     }
 
-    // ✅ Check if editing would exceed remaining balance (for non-refund payments)
+    // Check if editing would exceed remaining balance
     const positivePayments = payments
       .filter(p => p.amount_paid > 0 && p.payment_id !== editingPayment.payment_id)
       .reduce((sum, p) => sum + p.amount_paid, 0);
@@ -260,29 +311,42 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       return;
     }
 
-    // Inside handleEditPaymentSubmit
-const totalAmount = booking.total_amount || 0; // you need to get the booking total (available from props)
-const existingPayments = payments.filter(p => p.booking_id === bookingId && p.amount_paid > 0 && p.payment_id !== editingPayment.payment_id);
-const totalPaid = existingPayments.reduce((sum, p) => sum + p.amount_paid, 0);
-const isFirstPayment = totalPaid === 0;
+    const existingPayments = payments.filter(p => p.booking_id === bookingId && p.amount_paid > 0 && p.payment_id !== editingPayment.payment_id);
+    const totalPaid = existingPayments.reduce((sum, p) => sum + p.amount_paid, 0);
+    const isFirstPayment = totalPaid === 0;
 
-if (isFirstPayment && editPaymentFormData.pay_status === 'Downpayment' && amount < totalAmount * 0.5) {
-  toast.error(`First payment must be at least 50% of total (₱${(totalAmount * 0.5).toLocaleString()}).`);
-  setIsPaymentSubmitting(false);
-  return;
-}
+    if (isFirstPayment && editPaymentFormData.pay_status === 'Downpayment' && amount < totalAmount * 0.5) {
+      toast.error(`First payment must be at least 50% of total (₱${(totalAmount * 0.5).toLocaleString()}).`);
+      setIsPaymentSubmitting(false);
+      return;
+    }
 
     try {
       let proofUrl = editPaymentFormData.pay_proof;
       if (editSelectedFile) {
         setUploading(true);
-        const fileExt = editSelectedFile.name.split('.').pop();
+        const file = editSelectedFile;
+        const fileExt = file.name.split('.').pop();
         const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
         const filePath = `payments/${fileName}`;
         const { error: uploadError } = await supabase.storage
           .from('images')
-          .upload(filePath, editSelectedFile);
-        if (uploadError) throw uploadError;
+          .upload(filePath, file);
+
+        if (uploadError) {
+          let msg = 'Failed to upload proof image.';
+          if (uploadError.message?.includes('bucket not found')) {
+            msg = 'Storage bucket is not configured. Please contact support.';
+          } else if (uploadError.message?.includes('permission')) {
+            msg = 'Permission denied. Please check your storage policies.';
+          } else if (uploadError.message?.includes('too large')) {
+            msg = 'File exceeds the storage limit. Please compress your image.';
+          } else if (uploadError.message?.includes('duplicate')) {
+            msg = 'A file with this name already exists. Please rename and try again.';
+          }
+          throw new Error(msg);
+        }
+
         const { data: publicUrlData } = supabase.storage
           .from('images')
           .getPublicUrl(filePath);
@@ -306,7 +370,7 @@ if (isFirstPayment && editPaymentFormData.pay_status === 'Downpayment' && amount
       toast.success('Payment updated successfully.');
     } catch (error) {
       console.error(error);
-      toast.error('Failed to update payment.');
+      toast.error(error.message || 'Failed to update payment.');
     } finally {
       setIsPaymentSubmitting(false);
       setUploading(false);
@@ -360,6 +424,9 @@ if (isFirstPayment && editPaymentFormData.pay_status === 'Downpayment' && amount
     handleDeletePayment,
     setEditPaymentFormData,
     setEditSelectedFile,
+
+    // Expose setPaymentFormData so method buttons work
+    setPaymentFormData,
 
     // Helper
     getProofUrl,

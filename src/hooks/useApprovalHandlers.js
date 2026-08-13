@@ -14,11 +14,13 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
     additionalFee: 0,
     newTotal: 0,
     baseTotal: 0,
+    extraQuantity: 0,
+    extraDeliveryFee: 0,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [approvalType, setApprovalType] = useState('package');
 
-  // ✅ ROBUST base total computation – uses booking.package if available, else queries
+  // --- ROBUST base total computation ---
   const computeBaseTotal = async (booking) => {
     // 1. If the booking already has a valid total, use it
     if (booking.total_amount && booking.total_amount > 0) {
@@ -26,23 +28,31 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
     }
 
     // 2. Try to compute from package (either preloaded or query)
-    let pkg = booking.package; // this might be preloaded in the booking object
+    let pkg = booking.package;
+    
+    // If not preloaded and we have a package_id, fetch it
     if (!pkg && booking.package_id) {
-      // If not preloaded, fetch it
-      const { data, error } = await supabase
-        .from('package')
-        .select('pkg_price, pricing_type, max_pax, extra_pax_price')
-        .eq('package_id', booking.package_id)
-        .single();
-      if (!error && data) {
-        pkg = data;
+      try {
+        const { data, error } = await supabase
+          .from('package')
+          .select('pkg_price, pricing_type, max_pax, extra_pax_price, minimum_pax')
+          .eq('package_id', booking.package_id)
+          .single();
+        if (!error && data) {
+          pkg = data;
+          // Attach to booking for future use
+          booking.package = data;
+        }
+      } catch (fetchError) {
+        console.warn('Failed to fetch package data:', fetchError);
       }
     }
 
     if (pkg) {
       const pax = booking.pax_count || 0;
       if (pkg.pricing_type === 'per_pax') {
-        return (pkg.pkg_price || 0) * pax;
+        const basePrice = pkg.pkg_price || 0;
+        return basePrice * pax;
       } else {
         // fixed price
         let total = pkg.pkg_price || 0;
@@ -53,9 +63,13 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
       }
     }
 
-    // 3. Fallback – if all else fails, log a warning and return 0
+    // 3. Fallback – use booking's total_amount
+    if (booking.total_amount && booking.total_amount > 0) {
+      return booking.total_amount;
+    }
+
+    // 4. Last resort – log warning and return 0
     console.warn('Could not compute base total for booking:', booking.booking_id);
-    toast.error('Unable to calculate total. Please enter it manually.');
     return 0;
   };
 
@@ -68,15 +82,15 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
       additionalFee: 0,
       newTotal: baseTotal,
       baseTotal: baseTotal,
+      extraQuantity: 0,
+      extraDeliveryFee: 0,
     };
-    if (type === 'shortorder') {
-      initData.extraQuantity = 0;
-      initData.extraDeliveryFee = 0;
-    }
+
     setApprovalBooking(booking);
     setApprovalData(initData);
     setIsApprovalModalOpen(true);
   };
+
 
   const handleApprovalInputChange = (e) => {
     const { name, value } = e.target;
@@ -89,6 +103,7 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
         const extraPaxCost = (updated.extraPax || 0) * pkgPrice;
         newTotal = updated.baseTotal + extraPaxCost + (updated.additionalFee || 0);
       } else {
+        // ✅ Now extraQuantity and extraDeliveryFee are guaranteed to exist
         newTotal = updated.baseTotal + (updated.extraQuantity || 0) + (updated.extraDeliveryFee || 0) + (updated.additionalFee || 0);
       }
       return { ...updated, newTotal };

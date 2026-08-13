@@ -95,7 +95,7 @@ export default function Dashboard() {
       setTodayEvents(todayData || []);
       setStats(prev => ({ ...prev, todayEvents: todayData?.length || 0 }));
 
-      // --- Pending Package Bookings ---
+      // --- Pending Package Bookings (with package data) ---
       const { data: pendingPackages, error: pendingPackageError } = await supabase
         .from('booking')
         .select(`
@@ -106,7 +106,10 @@ export default function Dashboard() {
           event_datetime,
           booking_status,
           booking_type,
-          customer:customer_id (first_name, last_name)
+          total_amount,
+          notes,
+          customer:customer_id (first_name, last_name),
+          package:package_id (pkg_name, pkg_price, pricing_type, max_pax, extra_pax_price, minimum_pax)
         `)
         .eq('booking_type', 'Package')
         .eq('booking_status', 'Pending')
@@ -125,6 +128,9 @@ export default function Dashboard() {
           event_datetime,
           booking_status,
           booking_type,
+          total_amount,
+          notes,
+          delivery_fee,
           customer:customer_id (first_name, last_name)
         `)
         .eq('booking_type', 'Short Order')
@@ -169,7 +175,16 @@ export default function Dashboard() {
     }
   };
 
-  // --- Approval & Rejection hooks (MUST be AFTER fetchDashboardData is defined) ---
+  // --- Helper functions for hooks ---
+  const getBooking = (bookingId) => {
+    return pendingItems.find(item => item.booking_id === bookingId) || null;
+  };
+
+  const getPaymentSummary = (bookingId) => {
+    return { positivePayments: 0, downpaymentPaid: 0 };
+  };
+
+  // --- Approval & Rejection hooks ---
   const {
     isApprovalModalOpen,
     setIsApprovalModalOpen,
@@ -201,11 +216,12 @@ export default function Dashboard() {
     openRejectionModal,
     handleRejectConfirm,
   } = useRejectionHandlers({
-    booking: null,
-    payments: [],
+    getBooking,
+    getPaymentSummary,
     fetchData: fetchDashboardData,
   });
 
+  // ... REST OF THE FILE REMAINS THE SAME (calendar, handlers, render) ...
   useEffect(() => {
     fetchDashboardData();
     const interval = setInterval(fetchDashboardData, 60000);
@@ -1072,15 +1088,16 @@ export default function Dashboard() {
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Reason for Rejection</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Reason for Rejection *</label>
                 <textarea
                   value={rejectionReason}
                   onChange={(e) => setRejectionReason(e.target.value)}
                   rows="3"
                   placeholder="e.g., Incomplete details, client requested cancellation, etc."
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
+                  required
                 />
-                <p className="text-xs text-slate-400 mt-1">Optional, but recommended.</p>
+                <p className="text-xs text-slate-400 mt-1">Reason is required.</p>
               </div>
 
               {showRejectionRefund && (

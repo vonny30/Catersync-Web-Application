@@ -693,12 +693,13 @@ if (searchTerm) {
       const endISO = endOfDay.toISOString();
 
       let dupQuery = supabase
-        .from('booking')
-        .select('booking_id, venue, pax_count, booking_status, event_datetime, package_id')
-        .eq('customer_id', customerId)
-        .gte('event_datetime', startISO)
-        .lte('event_datetime', endISO)
-        .not('booking_status', 'in', '("Rejected","Cancelled")');
+      .from('booking')
+      .select('booking_id, venue, pax_count, booking_status, event_datetime, package_id')
+      .eq('customer_id', customerId)
+      .eq('booking_type', 'Package')        // <-- ADD THIS LINE
+      .gte('event_datetime', startISO)
+      .lte('event_datetime', endISO)
+      .not('booking_status', 'in', '("Rejected","Cancelled")');
 
       if (editingId) {
         dupQuery = dupQuery.neq('booking_id', editingId);
@@ -825,38 +826,83 @@ if (searchTerm) {
 
   // ❌ Local rejection functions removed – using hook
 
-  const handleMarkCompleted = async (id) => {
-    const booking = bookings.find(b => b.booking_id === id);
-    const confirmed = await showConfirm({
-      title: 'Mark as Completed?',
-      message: 'Are you sure you want to mark this booking as completed?',
-      confirmLabel: 'Complete',
-      confirmVariant: 'success',
+const handleMarkCompleted = async (id) => {
+  const booking = bookings.find(b => b.booking_id === id);
+  if (!booking) {
+    toast.error('Booking not found.');
+    return;
+  }
+
+  const totalAmount = booking.total_amount || 0;
+  const totalPaid = booking.positivePayments || 0;
+  const remainingBalance = Math.max(0, totalAmount - totalPaid);
+  const isFullyPaid = remainingBalance <= 0;
+
+  // ✅ Show warning if there's a remaining balance
+  if (!isFullyPaid) {
+    const proceed = await showConfirm({
+      title: '⚠️ Outstanding Balance',
+      message: `This booking has a remaining balance of ₱${remainingBalance.toLocaleString()}.\n\nMarking it as "Completed" will close the order, but the balance will remain unpaid.\n\nDo you still want to proceed?`,
+      confirmLabel: 'Yes, Complete Anyway',
+      cancelLabel: 'Cancel',
+      confirmVariant: 'warning',
     });
-    if (!confirmed) return;
+    if (!proceed) return;
+  }
 
-    try {
-      const { error } = await supabase
-        .from('booking')
-        .update({ booking_status: 'Completed' })
+  const confirmed = await showConfirm({
+    title: 'Mark as Completed?',
+    message: `Are you sure you want to mark this booking as completed?\n\n${!isFullyPaid ? `⚠️ Remaining balance: ₱${remainingBalance.toLocaleString()}` : '✅ All payments are settled.'}`,
+    confirmLabel: 'Complete',
+    confirmVariant: 'success',
+  });
+  if (!confirmed) return;
+
+  try {
+    // 1. Update booking status
+    const { error } = await supabase
+      .from('booking')
+      .update({ booking_status: 'Completed' })
+      .eq('booking_id', id);
+    if (error) throw error;
+
+    // 2. Auto-return all equipment for this booking
+    const { error: equipReturnError } = await supabase
+      .from('booking_equipment')
+      .update({
+        returned: true,
+        returned_at: new Date().toISOString()
+      })
+      .eq('booking_id', id);
+    if (equipReturnError) throw equipReturnError;
+
+    // 3. Auto-complete all vehicle assignments for this booking
+    const { error: vehicleReturnError } = await supabase
+      .from('vehicle_assign')
+      .update({ assignment_status: 'Completed' })
+      .eq('booking_id', id);
+    if (vehicleReturnError) throw vehicleReturnError;
+
+    // 4. Update payments to Fully Paid if fully paid
+    if (isFullyPaid && totalPaid > 0) {
+      const { error: updatePaymentsError } = await supabase
+        .from('payment')
+        .update({ pay_status: 'Fully Paid' })
         .eq('booking_id', id);
-      if (error) throw error;
-
-      if (booking && booking.positivePayments >= (booking.total_amount || 0)) {
-        const { error: updatePaymentsError } = await supabase
-          .from('payment')
-          .update({ pay_status: 'Fully Paid' })
-          .eq('booking_id', id);
-        if (updatePaymentsError) throw updatePaymentsError;
-        toast.success('Booking marked completed. All payments set to Fully Paid.');
-      } else {
-        toast.success('Booking marked completed. Note: payments were left unchanged (balance remains).');
-      }
-      fetchData();
-    } catch (error) {
-      handleError(error, 'Failed to update status.');
+      if (updatePaymentsError) throw updatePaymentsError;
+      toast.success('Booking marked completed. All payments set to Fully Paid.');
+    } else if (!isFullyPaid) {
+      toast.warning(`Booking marked completed. ⚠️ Remaining balance: ₱${remainingBalance.toLocaleString()}`);
+    } else {
+      toast.success('Booking marked completed successfully.');
     }
-  };
+
+    // 5. Refresh data
+    fetchData();
+  } catch (error) {
+    handleError(error, 'Failed to complete booking.');
+  }
+};
 
   const handleDelete = async (id) => {
     const confirmed = await showConfirm({
@@ -1125,18 +1171,23 @@ if (searchTerm) {
                     <td className="p-4 text-center">{booking.pax_count || 0}</td>
                     <td className="p-4 font-medium">{booking.package?.pkg_name || 'N/A'}</td>
                     <td className="p-4 font-bold text-slate-900 text-right">₱{booking.total_amount?.toLocaleString() || '0'}</td>
-                    <td className="p-4">
-                      <div className="flex flex-col items-center gap-1">
-                        <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getStatusBadge(booking.booking_status)} inline-block w-[120px] text-center`}>
-                          {booking.booking_status}
-                        </span>
-                        {(booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') && booking.refundStatus && (
-                          <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getRefundStatusBadge(booking.refundStatus)} inline-block w-[120px] text-center`}>
-                            {booking.refundStatus}
-                          </span>
-                        )}
-                      </div>
-                    </td>
+                 <td className="p-4">
+  <div className="flex flex-col items-center gap-1">
+    <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getStatusBadge(booking.booking_status)} inline-block w-[120px] text-center`}>
+      {booking.booking_status}
+    </span>
+    {booking.booking_status === 'Completed' && booking.positivePayments < (booking.total_amount || 0) && (
+      <span className="px-3 py-1.5 rounded-full text-xs font-bold border bg-amber-50 border-amber-200 text-amber-700 inline-block w-[120px] text-center">
+        Balance Remaining
+      </span>
+    )}
+    {(booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') && booking.refundStatus && (
+      <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getRefundStatusBadge(booking.refundStatus)} inline-block w-[120px] text-center`}>
+        {booking.refundStatus}
+      </span>
+    )}
+  </div>
+</td>
                     <td className="p-4" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-1.5 flex-nowrap whitespace-nowrap">
                         {booking.booking_status === 'Pending' && (

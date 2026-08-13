@@ -524,25 +524,50 @@ export default function PackagesAndMenus() {
       let uploadedImageUrl = null;
 
       // Upload image if a new file is selected
-      if (formData.imageFile) {
-        try {
-          const fileExt = formData.imageFile.name.split('.').pop();
-          const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-          const filePath = `${modalType === 'Package' ? 'packages' : 'menu'}/${fileName}`;
-          const { error: uploadError } = await supabase.storage
-            .from('images')
-            .upload(filePath, formData.imageFile);
-          if (uploadError) throw uploadError;
-          const { data: publicUrlData } = supabase.storage
-            .from('images')
-            .getPublicUrl(filePath);
-          uploadedImageUrl = publicUrlData.publicUrl;
-        } catch (uploadErr) {
-          handleError(uploadErr, 'Failed to upload image. Please try again.');
-          setIsSubmitting(false);
-          return;
-        }
-      }
+if (formData.imageFile) {
+  // --- FILE VALIDATION ---
+  const file = formData.imageFile;
+  const maxSize = 5 * 1024 * 1024; // 5 MB
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+  if (!allowedTypes.includes(file.type)) {
+    toast.error('Invalid file type. Please upload a JPEG, PNG, WebP, or GIF image.');
+    setIsSubmitting(false);
+    return;
+  }
+  if (file.size > maxSize) {
+    toast.error(`File is too large. Maximum size is 5 MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)} MB.`);
+    setIsSubmitting(false);
+    return;
+  }
+
+  try {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+    const filePath = `${modalType === 'Package' ? 'packages' : 'menu'}/${fileName}`;
+    const { error: uploadError } = await supabase.storage
+      .from('images')
+      .upload(filePath, file);
+
+    if (uploadError) {
+      let msg = 'Failed to upload image.';
+      if (uploadError.message?.includes('bucket not found')) msg = 'Storage bucket is not configured.';
+      else if (uploadError.message?.includes('permission')) msg = 'Permission denied.';
+      else if (uploadError.message?.includes('too large')) msg = 'File exceeds storage limit.';
+      else if (uploadError.message?.includes('duplicate')) msg = 'A file with this name already exists.';
+      throw new Error(msg);
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from('images')
+      .getPublicUrl(filePath);
+    uploadedImageUrl = publicUrlData.publicUrl;
+  } catch (uploadErr) {
+    toast.error(uploadErr.message || 'Failed to upload image. Please try again.');
+    setIsSubmitting(false);
+    return;
+  }
+}
 
       if (modalType === 'Package') {
         const packageData = {

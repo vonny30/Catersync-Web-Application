@@ -16,6 +16,7 @@ export const AuthProvider = ({ children }) => {
   const logoutTimeoutRef = useRef(null);
   const lastActivityRef = useRef(Date.now());
   const isInactiveLogoutRef = useRef(false);
+  const isManualLogout = useRef(false);
 
   const INACTIVITY_TIMEOUT = 30 * 60 * 1000;
 
@@ -40,8 +41,7 @@ export const AuthProvider = ({ children }) => {
       const elapsed = now - lastActivityRef.current;
       if (elapsed >= INACTIVITY_TIMEOUT) {
         isInactiveLogoutRef.current = true;
-        toast.error('You have been logged out due to inactivity.', { duration: 4000 });
-        logout();
+        logout(true);
         return;
       }
       inactivityTimerRef.current = setTimeout(checkInactivity, 30000);
@@ -131,17 +131,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Handle tab/browser close (only when rememberMe is false)
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      const rememberMe = localStorage.getItem('rememberMe') === 'true';
-      if (!rememberMe && user) {
-        supabase.auth.signOut();
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [user]);
+  // ✅ REMOVED the beforeunload listener – page reload now keeps the session
 
   // Main session initialisation
   useEffect(() => {
@@ -166,15 +156,28 @@ export const AuthProvider = ({ children }) => {
 
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        // ✅ Guard: ignore auth events if there are pending walk‑in creations (counter)
+        if (window._pendingWalkInCount > 0) {
+          console.log(`Skipping auth event (${event}) – ${window._pendingWalkInCount} pending walk‑in creation(s).`);
+          return;
+        }
+
         console.log('Auth event:', event);
 
         if (event === 'SIGNED_OUT') {
-          if (user && !isInactiveLogoutRef.current) {
-            toast.error('Session expired. Please log in again.', { duration: 4000 });
-          }
-          isInactiveLogoutRef.current = false;
           clearInactivityTimer();
           if (logoutTimeoutRef.current) clearTimeout(logoutTimeoutRef.current);
+          
+          if (isInactiveLogoutRef.current) {
+            toast.error('You have been logged out due to inactivity.', { duration: 4000 });
+            isInactiveLogoutRef.current = false;
+          } else if (isManualLogout.current) {
+            toast.success('Logged out successfully');
+            isManualLogout.current = false;
+          } else {
+            toast.error('Session expired. Please log in again.', { duration: 4000 });
+          }
+
           logoutTimeoutRef.current = setTimeout(() => {
             setUser(null);
             setIsManager(false);
@@ -238,13 +241,16 @@ export const AuthProvider = ({ children }) => {
     return data;
   };
 
-  const logout = async () => {
+  const logout = async (fromInactivity = false) => {
     clearInactivityTimer();
+    isManualLogout.current = !fromInactivity;
+    if (fromInactivity) {
+      isInactiveLogoutRef.current = true;
+    }
+    // ✅ Clear both storage types to ensure no leftover session
+    localStorage.removeItem('supabase.auth.token');
+    sessionStorage.removeItem('supabase.auth.token');
     await supabase.auth.signOut();
-    setUser(null);
-    setIsManager(false);
-    setLoading(false);
-    toast.success('Logged out successfully');
   };
 
   return (

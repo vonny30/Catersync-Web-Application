@@ -7,10 +7,29 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 console.log("Supabase URL is:", supabaseUrl);
 console.log("Supabase Key is:", supabaseKey ? "Found!" : "Missing!");
 
-// ✅ Use localStorage for session persistence
+// ✅ Custom storage – uses localStorage if "rememberMe" is true, else sessionStorage
+const customStorage = {
+  getItem: (key) => {
+    const useLocal = localStorage.getItem('rememberMe') === 'true';
+    const storage = useLocal ? localStorage : sessionStorage;
+    return storage.getItem(key);
+  },
+  setItem: (key, value) => {
+    const useLocal = localStorage.getItem('rememberMe') === 'true';
+    const storage = useLocal ? localStorage : sessionStorage;
+    storage.setItem(key, value);
+  },
+  removeItem: (key) => {
+    // Remove from both to be safe
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  },
+};
+
+// ✅ Use the custom storage adapter
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
-    storage: localStorage,
+    storage: customStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,

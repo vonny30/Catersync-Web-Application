@@ -74,6 +74,12 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
     const booking = getBooking(id);
     if (!booking) return;
 
+    // --- ✅ VALIDATE: Rejection reason is required ---
+    if (!rejectionReason || rejectionReason.trim() === '') {
+      toast.error('Please provide a reason for rejection.');
+      return;
+    }
+
     let enteredAmount = 0;
     let proofUrl = 'refund_placeholder.png';
 
@@ -88,13 +94,29 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
           toast.error('Please upload a proof of refund receipt.');
           return;
         }
-        const fileExt = rejectionRefundFile.name.split('.').pop();
+        const file = rejectionRefundFile;
+        const maxSize = 5 * 1024 * 1024;
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+        if (!allowedTypes.includes(file.type)) {
+          toast.error('Invalid file type. Please upload a JPEG, PNG, WebP, or GIF image.');
+          return;
+        }
+        if (file.size > maxSize) {
+          toast.error(`File is too large. Maximum size is 5 MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)} MB.`);
+          return;
+        }
+        const fileExt = file.name.split('.').pop();
         const fileName = `refunds/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
         const { error: uploadError } = await supabase.storage
           .from('images')
-          .upload(fileName, rejectionRefundFile);
+          .upload(fileName, file);
         if (uploadError) {
-          toast.error('Failed to upload refund proof. Please try again.');
+          let msg = 'Failed to upload refund proof.';
+          if (uploadError.message?.includes('bucket not found')) msg = 'Storage bucket is not configured.';
+          else if (uploadError.message?.includes('permission')) msg = 'Permission denied.';
+          else if (uploadError.message?.includes('too large')) msg = 'File exceeds storage limit.';
+          else if (uploadError.message?.includes('duplicate')) msg = 'A file with this name already exists.';
+          toast.error(msg);
           return;
         }
         const { data: publicUrlData } = supabase.storage
@@ -107,7 +129,7 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
     setIsRejectionModalOpen(false);
 
     try {
-      const reasonText = rejectionReason.trim() || 'No reason provided';
+      const reasonText = rejectionReason.trim();
       let updatedNotes = booking.notes
         ? `${booking.notes}\n[REJECTION] ${reasonText}`
         : `[REJECTION] ${reasonText}`;
