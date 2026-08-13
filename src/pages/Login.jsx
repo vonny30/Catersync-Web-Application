@@ -18,12 +18,19 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // ✅ Load saved email if rememberMe was previously true
+  // ✅ On mount: load saved email if rememberMe was true
   useEffect(() => {
     const savedEmail = localStorage.getItem('rememberedEmail');
     const rememberMe = localStorage.getItem('rememberMe') === 'true';
+    
+    console.log('Login mount: savedEmail =', savedEmail, 'rememberMe =', rememberMe);
+    
     if (savedEmail && rememberMe) {
-      setFormData(prev => ({ ...prev, email: savedEmail, rememberMe: true }));
+      setFormData(prev => ({ 
+        ...prev, 
+        email: savedEmail, 
+        rememberMe: true 
+      }));
     }
 
     // ✅ If already logged in, redirect immediately and replace history
@@ -139,10 +146,11 @@ export default function Login() {
         return;
       }
 
-      // ✅ Store rememberMe preference and email
+      // ✅ Save rememberMe preference and email
       localStorage.setItem('rememberMe', String(formData.rememberMe));
       if (formData.rememberMe) {
         localStorage.setItem('rememberedEmail', email);
+        console.log('✅ Email saved for Remember Me:', email);
       } else {
         localStorage.removeItem('rememberedEmail');
       }

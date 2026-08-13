@@ -7,7 +7,7 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 console.log("Supabase URL is:", supabaseUrl);
 console.log("Supabase Key is:", supabaseKey ? "Found!" : "Missing!");
 
-// ✅ Custom storage – uses localStorage if "rememberMe" is true, else sessionStorage
+// In supabase.js
 const customStorage = {
   getItem: (key) => {
     const useLocal = localStorage.getItem('rememberMe') === 'true';
@@ -20,12 +20,10 @@ const customStorage = {
     storage.setItem(key, value);
   },
   removeItem: (key) => {
-    // Remove from both to be safe
     localStorage.removeItem(key);
     sessionStorage.removeItem(key);
   },
 };
-
 // ✅ Use the custom storage adapter
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
