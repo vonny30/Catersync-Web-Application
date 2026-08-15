@@ -3,10 +3,12 @@ import { useState, useEffect } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
+import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
 export default function Login() {
   const navigate = useNavigate();
+  const { isManager, loading: authLoading } = useAuth();
 
   const [formData, setFormData] = useState({
     email: '',
@@ -18,7 +20,6 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // ✅ Load saved email if rememberMe was previously true
   useEffect(() => {
     const savedEmail = localStorage.getItem('rememberedEmail');
     const rememberMe = localStorage.getItem('rememberMe') === 'true';
@@ -26,7 +27,6 @@ export default function Login() {
       setFormData(prev => ({ ...prev, email: savedEmail, rememberMe: true }));
     }
 
-    // ✅ If already logged in, redirect immediately
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
@@ -36,7 +36,6 @@ export default function Login() {
           .eq('user_id', session.user.id)
           .maybeSingle();
         if (manager) {
-          // 🔒 ULTIMATE FIX: replace the entire history and redirect
           window.history.replaceState(null, '', '/app');
           window.location.replace('/app');
         }
@@ -44,9 +43,16 @@ export default function Login() {
     };
     checkSession();
 
-    // ✅ Prevent back button from showing login page after logout
     window.history.replaceState(null, '', window.location.href);
   }, [navigate]);
+
+  // Once AuthContext confirms this is a fully-authenticated manager
+  // (password verified, session lock claimed), move into the app.
+  useEffect(() => {
+    if (!authLoading && isManager) {
+      navigate('/app');
+    }
+  }, [authLoading, isManager, navigate]);
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -83,42 +89,23 @@ export default function Login() {
       return;
     }
 
-    if (password.length < 6) {
-      setErrorMsg('Password must be at least 6 characters.');
-      setIsLoading(false);
-      return;
-    }
-
-    try {
+ try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email: email,
         password: password,
       });
 
+      // 1. ROBUST ERROR CHECKING (No strict switch statements)
       if (error) {
-        let userMessage = 'Something went wrong. Please try again.';
+        let userMessage = 'Invalid email or password. Please try again.';
+        const errorMessage = error.message?.toLowerCase() || '';
 
-        switch (error.message) {
-          case 'Invalid login credentials':
-            userMessage = 'Invalid email or password. Please try again.';
-            break;
-          case 'Email not confirmed':
-            userMessage = 'Please confirm your email address before logging in. Check your inbox.';
-            break;
-          case 'User not found':
-            userMessage = 'No account found with this email address.';
-            break;
-          case 'Invalid email':
-          case 'Invalid password':
-            userMessage = 'Invalid email or password. Please try again.';
-            break;
-          case 'Network request failed':
-          case 'Failed to fetch':
-            userMessage = 'Network connection issue. Please check your internet and try again.';
-            break;
-          default:
-            console.error('Login error details:', error.message);
-            userMessage = 'Something went wrong. Please try again.';
+        if (errorMessage.includes('email not confirmed')) {
+          userMessage = 'Please confirm your email address before logging in. Check your inbox.';
+        } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
+          userMessage = 'Network connection issue. Please check your internet and try again.';
+        } else if (errorMessage.includes('rate limit')) {
+          userMessage = 'Too many login attempts. Please wait a moment and try again.';
         }
 
         setErrorMsg(userMessage);
@@ -126,7 +113,9 @@ export default function Login() {
         return;
       }
 
-      // Check if user exists in manager table
+      // 2. MANAGER VERIFICATION (fast local check; AuthContext independently
+      // verifies this too before granting access, and also handles the
+      // single-active-session claim)
       const { data: managerData, error: managerError } = await supabase
         .from('manager')
         .select('manager_id')
@@ -135,12 +124,15 @@ export default function Login() {
 
       if (managerError || !managerData) {
         await supabase.auth.signOut();
-        setErrorMsg('Invalid email or password. Please try again.');
+        toast.error('Access denied. This login page is restricted to authorized manager accounts only.', {
+          duration: 6000
+        });
         setIsLoading(false);
         return;
       }
 
-      // ✅ Store rememberMe preference and email
+      // 3. Remember-me + hand off to AuthContext (which is reacting to the
+      // SIGNED_IN event right now and will flip `isManager` once it's done).
       localStorage.setItem('rememberMe', String(formData.rememberMe));
       if (formData.rememberMe) {
         localStorage.setItem('rememberedEmail', email);
@@ -149,15 +141,11 @@ export default function Login() {
       }
 
       toast.success('Welcome back!');
-
-      // 🔒 ULTIMATE FIX: replace the entire history and redirect
-      window.history.replaceState(null, '', '/app');
-      window.location.replace('/app');
+      setIsLoading(false);
 
     } catch (error) {
       console.error('Login error:', error.message);
       setErrorMsg('Something went wrong. Please try again.');
-    } finally {
       setIsLoading(false);
     }
   };
@@ -226,7 +214,8 @@ export default function Login() {
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
-                  aria-label="Toggle password visibility"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  title={showPassword ? 'Hide password' : 'Show password'}
                   disabled={isLoading}
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}

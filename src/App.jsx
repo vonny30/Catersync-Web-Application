@@ -26,38 +26,47 @@ import LoadingScreen from './components/LoadingScreen';
 
 function AppContent() {
   const { confirmState } = useConfirm();
-  const { loading } = useAuth();
+  const { initializing } = useAuth();
 
-  if (loading) {
+  if (initializing) {
     return <LoadingScreen />;
   }
 
   return (
     <>
       <Toaster
-        position="bottom-right"
-        containerStyle={{ zIndex: 999999 }}
+        position="top-center"
+        containerStyle={{ zIndex: 999999, top: 24 }}
         toastOptions={{
           duration: 4000,
           style: {
-            background: '#363636',
+            background: '#1f2937',
             color: '#fff',
-            padding: '16px',
-            borderRadius: '8px',
-            fontSize: '14px',
+            padding: '18px 24px',
+            borderRadius: '10px',
+            fontSize: '16px',
+            fontWeight: 500,
+            maxWidth: '560px',
+            boxShadow: '0 10px 40px -5px rgba(0, 0, 0, 0.4)',
           },
           success: {
-            duration: 3000,
+            duration: 3500,
             iconTheme: {
               primary: '#008A45',
               secondary: '#fff',
             },
+            style: {
+              border: '2px solid #008A45',
+            },
           },
           error: {
-            duration: 5000,
+            duration: 5500,
             iconTheme: {
               primary: '#ef4444',
               secondary: '#fff',
+            },
+            style: {
+              border: '2px solid #ef4444',
             },
           },
         }}

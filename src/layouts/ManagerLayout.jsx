@@ -75,8 +75,9 @@ export default function ManagerLayout() {
 
   const handleLogout = async () => {
     try {
+      // AuthContext's own SIGNED_OUT handler already shows the
+      // "Logged out successfully" toast — don't show a second one here.
       await logout();
-      toast.success('Logged out successfully');
     } catch (error) {
       toast.error('Failed to log out');
     }

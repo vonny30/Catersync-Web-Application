@@ -1,0 +1,190 @@
+// src/pages/Reports/FinancialTab.jsx
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell,
+} from 'recharts';
+import { formatCurrency, formatDate, cardColorClasses } from './helpers';
+
+const COLORS = ['#008A45', '#2d9b5e', '#5cb885', '#8cd4a8', '#b5e8ca', '#d4f0e0'];
+
+export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
+  const { financialSummary, monthlyRevenueData, paymentMethodData, refunds, totalRefunded, bookingSummaryData } = derived;
+
+  return (
+    <>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <button
+          onClick={() => onCardClick('revenue')}
+          className={`rounded-xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 border ${cardColorClasses('green')}`}
+        >
+          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Total Revenue</p>
+          <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.totalRevenue)}</h3>
+          <p className="text-xs text-slate-500 font-medium mt-2">Selected period</p>
+          <p className="text-[10px] text-emerald-600 font-semibold mt-2 opacity-0 hover:opacity-100 transition-opacity">Click to view breakdown →</p>
+        </button>
+        <button
+          onClick={() => onCardClick('collected')}
+          className={`rounded-xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 border ${cardColorClasses('teal')}`}
+        >
+          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Collected</p>
+          <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.collected)}</h3>
+          <p className="text-xs text-slate-500 font-medium mt-2">All payments received</p>
+          <p className="text-[10px] text-emerald-600 font-semibold mt-2 opacity-0 hover:opacity-100 transition-opacity">Click to view breakdown →</p>
+        </button>
+        <button
+          onClick={() => onCardClick('outstanding')}
+          className={`rounded-xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 border ${cardColorClasses('amber')}`}
+        >
+          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Outstanding</p>
+          <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.outstanding)}</h3>
+          <p className="text-xs text-slate-500 font-medium mt-2">Remaining balances</p>
+          <p className="text-[10px] text-emerald-600 font-semibold mt-2 opacity-0 hover:opacity-100 transition-opacity">Click to view breakdown →</p>
+        </button>
+      </div>
+
+      <div className="bg-[#f8fafa] border border-slate-200 rounded-xl p-6">
+        <h3 className="text-base font-bold text-slate-900 mb-4">Monthly Revenue (Net Collected)</h3>
+        {monthlyRevenueData.length === 0 ? (
+          <div className="h-64 flex items-center justify-center text-slate-400 text-sm">No payment data available.</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={monthlyRevenueData} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="month" />
+              <YAxis tickFormatter={(value) => `₱${value.toLocaleString()}`} />
+              <Tooltip formatter={(value) => [`₱${value.toLocaleString()}`, 'Collected']} labelFormatter={(label) => `Month: ${label}`} />
+              <Legend />
+              <Bar dataKey="revenue" fill="#008A45" radius={[4, 4, 0, 0]}>
+                {monthlyRevenueData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+        <div className="mt-2 text-xs text-slate-500 text-right">Bar shows total payments received per month (net collected)</div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-[#f8fafa] border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-slate-200"><h3 className="text-base font-bold text-slate-900">Payment Methods</h3></div>
+          {paymentMethodData.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-sm">No payments in this period.</div>
+          ) : (
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-[#EAF3F2] text-slate-800 text-xs font-bold border-b border-slate-200">
+                  <th className="p-3">Method</th>
+                  <th className="p-3">Payments</th>
+                  <th className="p-3 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 text-sm">
+                {paymentMethodData.map((m) => (
+                  <tr
+                    key={m.method}
+                    onClick={() => onOpenDetail({
+                      title: m.method,
+                      description: 'From the payment table: payments with this pay_method in the selected period.',
+                      fields: [
+                        { label: 'Total collected', value: formatCurrency(m.total), emphasis: true },
+                        { label: 'Number of payments', value: m.count },
+                      ],
+                    })}
+                    className="hover:bg-slate-50 cursor-pointer"
+                  >
+                    <td className="p-3 font-bold text-slate-900">{m.method}</td>
+                    <td className="p-3 text-slate-600">{m.count}</td>
+                    <td className="p-3 text-right font-semibold text-emerald-700">{formatCurrency(m.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="bg-[#f8fafa] border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+            <h3 className="text-base font-bold text-slate-900">Refunds</h3>
+            <span className="text-xs font-bold text-red-600">{formatCurrency(totalRefunded)} total</span>
+          </div>
+          {refunds.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-sm">No refunds in this period.</div>
+          ) : (
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-[#EAF3F2] text-slate-800 text-xs font-bold border-b border-slate-200">
+                  <th className="p-3">Date</th>
+                  <th className="p-3">Method</th>
+                  <th className="p-3 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 text-sm">
+                {refunds.map((r) => (
+                  <tr
+                    key={r.payment_id}
+                    onClick={() => onOpenDetail({
+                      title: 'Refund',
+                      description: `From the payment table: a negative amount_paid entry recorded ${formatDate(r.pay_datetime)}.`,
+                      badge: { label: 'Refund', variant: 'danger' },
+                      fields: [
+                        { label: 'Amount refunded', value: formatCurrency(Math.abs(r.amount_paid)), emphasis: true },
+                        { label: 'Method', value: r.pay_method || 'Unspecified' },
+                      ],
+                    })}
+                    className="hover:bg-slate-50 cursor-pointer"
+                  >
+                    <td className="p-3 text-slate-600">{formatDate(r.pay_datetime)}</td>
+                    <td className="p-3 text-slate-600">{r.pay_method || 'Unspecified'}</td>
+                    <td className="p-3 text-right font-semibold text-red-600">{formatCurrency(Math.abs(r.amount_paid))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-[#f8fafa] border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="p-4 border-b border-slate-200"><h3 className="text-base font-bold text-slate-900">Monthly Booking Summary (Completed)</h3></div>
+        {bookingSummaryData.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 text-sm">No completed bookings yet.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-[#EAF3F2] text-slate-800 text-xs font-bold border-b border-slate-200">
+                  <th className="p-4">Month</th>
+                  <th className="p-4">Completed Bookings</th>
+                  <th className="p-4">Revenue</th>
+                  <th className="p-4">Top Package</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 text-xs sm:text-sm">
+                {bookingSummaryData.slice(0, 3).map((row) => (
+                  <tr
+                    key={row.id}
+                    onClick={() => onOpenDetail({
+                      title: row.month,
+                      description: 'From the booking table: rows with booking_status = "Completed" and an event date in this month.',
+                      fields: [
+                        { label: 'Completed bookings', value: row.bookings, emphasis: true },
+                        { label: 'Revenue', value: formatCurrency(row.revenue) },
+                        { label: 'Top package', value: row.topPackage },
+                      ],
+                    })}
+                    className="hover:bg-slate-50 cursor-pointer"
+                  >
+                    <td className="p-4 font-bold text-slate-900">{row.month}</td>
+                    <td className="p-4">{row.bookings}</td>
+                    <td className="p-4 font-semibold text-slate-900">{formatCurrency(row.revenue)}</td>
+                    <td className="p-4">{row.topPackage}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}

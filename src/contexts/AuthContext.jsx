@@ -2,12 +2,24 @@
 import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
+import {
+  claimManagerSession,
+  verifyOrReclaimManagerSession,
+  releaseManagerSessionClaim,
+  releaseManagerSessionClaimBeacon,
+  subscribeManagerSession,
+} from '../utils/managerSession';
 
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  // True only until the very first session check (app boot) resolves.
+  // This is what gates the full-screen LoadingScreen — later auth events
+  // (login submit, background token refresh) toggle `loading` without
+  // blanking the whole app, so the UI doesn't flicker/reload mid-flow.
+  const [initializing, setInitializing] = useState(true);
   const [isManager, setIsManager] = useState(false);
   const isCreatingWalkIn = useRef(false);
   const inactivityTimerRef = useRef(null);
@@ -17,6 +29,22 @@ export const AuthProvider = ({ children }) => {
   const lastActivityRef = useRef(Date.now());
   const isInactiveLogoutRef = useRef(false);
   const isManualLogout = useRef(false);
+  const isKickedRef = useRef(false);
+  // Set when a page deliberately signs the manager out after already
+  // explaining why (e.g. password/email changed) — suppresses the generic
+  // logout toast so we don't show a second, redundant/confusing message.
+  const isSilentLogoutRef = useRef(false);
+  // Every logout-related toast shares this id so react-hot-toast replaces
+  // the previous one instead of stacking duplicates if more than one
+  // auth event fires in quick succession (e.g. during a password change).
+  const AUTH_TOAST_ID = 'auth-status';
+
+  // Latest session (for the access token used by the tab-close beacon).
+  const sessionRef = useRef(null);
+  // Identifies which manager / tab-session this browser tab currently owns.
+  const managerIdRef = useRef(null);
+  const tabSessionIdRef = useRef(null);
+  const realtimeUnsubRef = useRef(null);
 
   const INACTIVITY_TIMEOUT = 30 * 60 * 1000;
 
@@ -60,6 +88,22 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const teardownSessionLock = () => {
+    if (realtimeUnsubRef.current) {
+      realtimeUnsubRef.current();
+      realtimeUnsubRef.current = null;
+    }
+    managerIdRef.current = null;
+    tabSessionIdRef.current = null;
+  };
+
+  const handleKicked = () => {
+    if (isKickedRef.current) return; // already handling
+    isKickedRef.current = true;
+    teardownSessionLock();
+    supabase.auth.signOut();
+  };
+
   useEffect(() => {
     const activityEvents = [
       'mousedown', 'mousemove', 'keydown', 'keyup',
@@ -68,15 +112,50 @@ export const AuthProvider = ({ children }) => {
     activityEvents.forEach(event => {
       window.addEventListener(event, updateActivity, { passive: true });
     });
+
+    // ✅ Back button interception: triggers logout ONLY if returning to login page
+    const handlePopState = () => {
+      const isGoingToLogin = window.location.pathname === '/' || window.location.pathname === '/login';
+      if (user && isGoingToLogin) {
+        logout(false);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    // Best-effort: release this tab's claim on the account when the tab is
+    // closed or refreshed, so a plain reload doesn't leave a stale lock
+    // (verifyOrReclaimManagerSession silently reclaims it on the next load
+    // if nobody else has logged in during the gap — refresh keeps working).
+    // event.persisted means the page is going into the back/forward cache,
+    // not actually closing, so skip the release in that case.
+    const handlePageHide = (event) => {
+      if (event.persisted) return;
+      if (managerIdRef.current && tabSessionIdRef.current && sessionRef.current?.access_token) {
+        releaseManagerSessionClaimBeacon(
+          managerIdRef.current,
+          tabSessionIdRef.current,
+          sessionRef.current.access_token
+        );
+      }
+    };
+    window.addEventListener('pagehide', handlePageHide);
+
     return () => {
       activityEvents.forEach(event => {
         window.removeEventListener(event, updateActivity);
       });
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('pagehide', handlePageHide);
       clearInactivityTimer();
     };
   }, [user]);
 
-  const checkManager = async (authUser, isRetry = false) => {
+  // isFreshSignIn === true means "this call is completing an actual login"
+  // — in that case we CLAIM the session, kicking out whatever device/tab
+  // was previously logged in as this manager. Any other call (page load,
+  // token refresh) only verifies/reclaims, never steals.
+  const checkManager = async (authUser, isRetry = false, isFreshSignIn = false) => {
     try {
       const { data: manager, error } = await supabase
         .from('manager')
@@ -91,19 +170,39 @@ export const AuthProvider = ({ children }) => {
         throw error;
       }
 
-      if (manager) {
-        setUser(authUser);
-        setIsManager(true);
-        retryCount.current = 0;
-        const rememberMe = localStorage.getItem('rememberMe') === 'true';
-        if (!rememberMe) resetInactivityTimer();
-        return true;
-      } else {
+      if (!manager) {
         await supabase.auth.signOut();
         setUser(null);
         setIsManager(false);
         return false;
       }
+
+      // --- Single active session enforcement ---
+      let lockResult;
+      if (isFreshSignIn) {
+        const tabSessionId = await claimManagerSession(manager.manager_id);
+        lockResult = { status: 'claimed', tabSessionId };
+      } else {
+        lockResult = await verifyOrReclaimManagerSession(manager.manager_id);
+      }
+
+      if (lockResult.status === 'kicked') {
+        isKickedRef.current = true;
+        await supabase.auth.signOut();
+        return false;
+      }
+
+      teardownSessionLock();
+      managerIdRef.current = manager.manager_id;
+      tabSessionIdRef.current = lockResult.tabSessionId;
+      realtimeUnsubRef.current = subscribeManagerSession(manager.manager_id, handleKicked);
+
+      setUser(authUser);
+      setIsManager(true);
+      retryCount.current = 0;
+      const rememberMe = localStorage.getItem('rememberMe') === 'true';
+      if (!rememberMe) resetInactivityTimer();
+      return true;
     } catch (error) {
       console.error('Manager check error:', error);
 
@@ -118,7 +217,7 @@ export const AuthProvider = ({ children }) => {
         retryCount.current++;
         console.log(`Retrying manager check (attempt ${retryCount.current})...`);
         await new Promise(resolve => setTimeout(resolve, 1500));
-        return checkManager(authUser, true);
+        return checkManager(authUser, true, isFreshSignIn);
       }
 
       if (!isRetry) {
@@ -131,14 +230,13 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // ✅ REMOVED the beforeunload listener – page reload now keeps the session
-
   // Main session initialisation
   useEffect(() => {
     const initSession = async () => {
       setLoading(true);
       try {
         const { data: { session } } = await supabase.auth.getSession();
+        sessionRef.current = session;
         if (session?.user) {
           await checkManager(session.user);
         } else {
@@ -151,31 +249,47 @@ export const AuthProvider = ({ children }) => {
         setIsManager(false);
       } finally {
         setLoading(false);
+        setInitializing(false);
       }
     };
 
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        // ✅ Guard: ignore auth events if there are pending walk‑in creations (counter)
         if (window._pendingWalkInCount > 0) {
           console.log(`Skipping auth event (${event}) – ${window._pendingWalkInCount} pending walk‑in creation(s).`);
           return;
         }
 
         console.log('Auth event:', event);
+        sessionRef.current = session;
 
-        if (event === 'SIGNED_OUT') {
+if (event === 'SIGNED_OUT') {
           clearInactivityTimer();
+          teardownSessionLock();
           if (logoutTimeoutRef.current) clearTimeout(logoutTimeoutRef.current);
-          
-          if (isInactiveLogoutRef.current) {
-            toast.error('You have been logged out due to inactivity.', { duration: 4000 });
+
+          if (isSilentLogoutRef.current) {
+            // A page already explained why (e.g. "password updated,
+            // you've been logged out for security") — don't pile on
+            // another toast on top of it.
+            isSilentLogoutRef.current = false;
+          } else if (isInactiveLogoutRef.current) {
+            toast.error('You were logged out after being inactive for a while.', { id: AUTH_TOAST_ID, duration: 4000 });
             isInactiveLogoutRef.current = false;
           } else if (isManualLogout.current) {
-            toast.success('Logged out successfully');
+            toast.success('Logged out successfully', { id: AUTH_TOAST_ID });
             isManualLogout.current = false;
+          } else if (isKickedRef.current) {
+            toast.error('This account was just logged in from another device or tab, so you were logged out here.', { id: AUTH_TOAST_ID, duration: 6000 });
+            isKickedRef.current = false;
           } else {
-            toast.error('Session expired. Please log in again.', { duration: 4000 });
+            // Only show this if they're not already on the login page —
+            // avoids toast spam when we force a logout during email/password
+            // updates. Plain-language wording, not "session expired".
+            const isLoginPage = window.location.pathname === '/' || window.location.pathname === '/login';
+            if (!isLoginPage) {
+              toast.error('You were logged out. Please log in again.', { id: AUTH_TOAST_ID, duration: 4000 });
+            }
           }
 
           logoutTimeoutRef.current = setTimeout(() => {
@@ -187,11 +301,12 @@ export const AuthProvider = ({ children }) => {
         }
 
         if (event === 'TOKEN_REFRESHED') {
+          // Silent background refresh — re-verify without toggling the
+          // loading flag, so it doesn't disrupt whatever the manager is
+          // doing on screen.
           retryCount.current = 0;
           if (session?.user) {
-            setLoading(true);
             await checkManager(session.user);
-            setLoading(false);
           }
           return;
         }
@@ -199,20 +314,17 @@ export const AuthProvider = ({ children }) => {
         if (event === 'SIGNED_IN') {
           if (session?.user) {
             setLoading(true);
-            await checkManager(session.user);
+            await checkManager(session.user, false, true);
             setLoading(false);
           }
           return;
         }
 
         if (session?.user) {
-          setLoading(true);
           await checkManager(session.user);
-          setLoading(false);
         } else {
           setUser(null);
           setIsManager(false);
-          setLoading(false);
         }
       }
     );
@@ -223,6 +335,7 @@ export const AuthProvider = ({ children }) => {
       listener?.subscription.unsubscribe();
       if (logoutTimeoutRef.current) clearTimeout(logoutTimeoutRef.current);
       clearInactivityTimer();
+      teardownSessionLock();
     };
   }, []);
 
@@ -241,20 +354,32 @@ export const AuthProvider = ({ children }) => {
     return data;
   };
 
-  const logout = async (fromInactivity = false) => {
+  // `options.silent` is for pages that already told the manager why
+  // they're being logged out (e.g. right after a password/email change) —
+  // it skips the generic logout toast entirely instead of showing a
+  // second, redundant one.
+  const logout = async (fromInactivity = false, options = {}) => {
+    const { silent = false } = options;
     clearInactivityTimer();
-    isManualLogout.current = !fromInactivity;
-    if (fromInactivity) {
-      isInactiveLogoutRef.current = true;
+    if (silent) {
+      isSilentLogoutRef.current = true;
+    } else {
+      isManualLogout.current = !fromInactivity;
+      if (fromInactivity) {
+        isInactiveLogoutRef.current = true;
+      }
     }
-    // ✅ Clear both storage types to ensure no leftover session
+    if (managerIdRef.current && tabSessionIdRef.current) {
+      await releaseManagerSessionClaim(managerIdRef.current, tabSessionIdRef.current);
+    }
+    teardownSessionLock();
     localStorage.removeItem('supabase.auth.token');
     sessionStorage.removeItem('supabase.auth.token');
     await supabase.auth.signOut();
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, isManager, login, logout, withWalkInCreation }}>
+    <AuthContext.Provider value={{ user, loading, initializing, isManager, login, logout, withWalkInCreation }}>
       {children}
     </AuthContext.Provider>
   );
