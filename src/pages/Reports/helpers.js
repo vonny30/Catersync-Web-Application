@@ -70,38 +70,50 @@ export function isWithinRange(dateValue, start, end) {
   return true;
 }
 
-// Shared card color palette so stat cards across every tab look like the
-// same family as the original Financial cards, instead of flat gray boxes.
-// Each entry supplies the resting background/border and a slightly deeper
-// hover state, matching the Financial tab's existing button-card pattern.
+// Shared card color palette so stat cards across every Reports tab share the
+// same white-card-with-accent look as the Dashboard stat cards and the rest
+// of the app, instead of each tab having its own flat pastel-filled boxes.
+// Each entry supplies a colored left accent border and a matching value
+// color; the card itself stays white for consistent contrast against the
+// page's slate-50 shell.
 export const CARD_COLORS = {
   green: {
-    bg: 'bg-[#EAF3F2]', border: 'border-[#d2e8e5]',
-    hoverBorder: 'hover:border-emerald-300', hoverBg: 'hover:bg-[#dcefed]',
+    bg: 'bg-white', border: 'border-slate-200 border-l-4 border-l-[#008A45]',
+    hoverBorder: 'hover:border-slate-300', hoverBg: 'hover:bg-slate-50',
+    value: 'text-[#008A45]',
   },
   blue: {
-    bg: 'bg-blue-50', border: 'border-blue-200',
-    hoverBorder: 'hover:border-blue-300', hoverBg: 'hover:bg-blue-100',
+    bg: 'bg-white', border: 'border-slate-200 border-l-4 border-l-blue-500',
+    hoverBorder: 'hover:border-slate-300', hoverBg: 'hover:bg-slate-50',
+    value: 'text-blue-600',
   },
   amber: {
-    bg: 'bg-amber-50', border: 'border-amber-200',
-    hoverBorder: 'hover:border-amber-300', hoverBg: 'hover:bg-amber-100',
+    bg: 'bg-white', border: 'border-slate-200 border-l-4 border-l-amber-500',
+    hoverBorder: 'hover:border-slate-300', hoverBg: 'hover:bg-slate-50',
+    value: 'text-amber-600',
   },
   red: {
-    bg: 'bg-red-50', border: 'border-red-200',
-    hoverBorder: 'hover:border-red-300', hoverBg: 'hover:bg-red-100',
+    bg: 'bg-white', border: 'border-slate-200 border-l-4 border-l-red-500',
+    hoverBorder: 'hover:border-slate-300', hoverBg: 'hover:bg-slate-50',
+    value: 'text-red-600',
   },
   purple: {
-    bg: 'bg-purple-50', border: 'border-purple-200',
-    hoverBorder: 'hover:border-purple-300', hoverBg: 'hover:bg-purple-100',
+    bg: 'bg-white', border: 'border-slate-200 border-l-4 border-l-violet-500',
+    hoverBorder: 'hover:border-slate-300', hoverBg: 'hover:bg-slate-50',
+    value: 'text-violet-600',
   },
   teal: {
-    bg: 'bg-teal-50', border: 'border-teal-200',
-    hoverBorder: 'hover:border-teal-300', hoverBg: 'hover:bg-teal-100',
+    bg: 'bg-white', border: 'border-slate-200 border-l-4 border-l-teal-600',
+    hoverBorder: 'hover:border-slate-300', hoverBg: 'hover:bg-slate-50',
+    value: 'text-teal-700',
   },
 };
 
 export function cardColorClasses(color = 'green') {
   const c = CARD_COLORS[color] || CARD_COLORS.green;
   return `${c.bg} ${c.border} ${c.hoverBorder} ${c.hoverBg}`;
+}
+
+export function cardValueClass(color = 'green') {
+  return (CARD_COLORS[color] || CARD_COLORS.green).value;
 }

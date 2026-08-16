@@ -13,7 +13,8 @@ import {
   Menu as MenuIcon,
   Settings,
   LogOut,
-  ChevronRight,
+  ChevronDown,
+  User,
   X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -21,14 +22,11 @@ import toast from 'react-hot-toast';
 const styles = {
   wrapper: 'flex flex-col h-screen bg-slate-50 font-sans overflow-hidden',
   header:
-    'bg-[#008A45] text-white h-16 flex items-center justify-between px-4 md:px-6 z-20 w-full shrink-0 relative',
-  logoContainer: 'flex items-center gap-3',
-  logoBadge:
-    'bg-white rounded-full w-9 h-9 flex items-center justify-center text-[#008A45] font-bold text-xs',
+    'bg-gradient-to-r from-[#00753b] to-[#009c4d] text-white h-16 flex items-center justify-between px-4 md:px-6 z-20 w-full shrink-0 relative shadow-md',
   profileMenu:
-    'flex items-center gap-3 cursor-pointer hover:bg-white/10 px-3 py-1.5 rounded-lg transition-colors',
+    'flex items-center gap-2.5 cursor-pointer hover:bg-white/10 pl-2 pr-3 py-1.5 rounded-full transition-colors border border-white/0 hover:border-white/20',
   profileAvatar:
-    'w-8 h-8 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center overflow-hidden border-2 border-white',
+    'w-8 h-8 rounded-full bg-white text-[#008A45] flex items-center justify-center overflow-hidden shadow-sm',
   mainContainer: 'flex flex-1 overflow-hidden relative z-0',
   sidebarDesktop:
     'w-64 bg-white border-r border-slate-200 flex flex-col justify-between shrink-0 hidden md:flex relative z-10',
@@ -36,7 +34,7 @@ const styles = {
     'fixed inset-y-0 left-0 w-64 bg-white border-r border-slate-200 flex flex-col z-50 transform transition-transform duration-300 ease-in-out md:hidden shadow-2xl',
   sidebarOpen: 'translate-x-0',
   sidebarClosed: '-translate-x-full',
-  navItem: 'flex items-center gap-3 px-4 py-3 rounded-lg text-sm transition-all duration-200',
+  navItem: 'relative flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm transition-all duration-200',
   contentWindow: 'flex-1 overflow-y-auto bg-transparent p-4 md:p-8',
 };
 
@@ -99,12 +97,9 @@ export default function ManagerLayout() {
           onClick={isMobile ? closeSidebar : undefined}
           className={`${styles.navItem} ${activeStyles}`}
         >
+          {isActive && <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-full bg-[#008A45]" />}
           <Icon size={18} className={isActive ? 'text-[#008A45]' : 'text-slate-400'} />
           {link.name}
-          <ChevronRight
-            size={16}
-            className={`ml-auto ${isActive ? 'text-[#008A45]' : 'text-slate-300'}`}
-          />
         </Link>
       );
     });
@@ -120,6 +115,7 @@ export default function ManagerLayout() {
             : 'text-slate-600 font-medium hover:bg-slate-50 hover:text-slate-900'
         }`}
       >
+        {isSettingsActive && <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-full bg-[#008A45]" />}
         <Settings size={18} className={isSettingsActive ? 'text-[#008A45]' : 'text-slate-400'} />
         Settings
       </Link>
@@ -132,9 +128,9 @@ export default function ManagerLayout() {
           handleLogout();
           if (isMobile) closeSidebar();
         }}
-        className={`${styles.navItem} text-slate-600 font-medium hover:bg-slate-50 hover:text-slate-900 w-full text-left`}
+        className={`${styles.navItem} group text-slate-600 font-medium hover:bg-red-50 hover:text-red-600 w-full text-left`}
       >
-        <LogOut size={18} className="text-slate-400" /> Sign Out
+        <LogOut size={18} className="text-slate-400 group-hover:text-red-500" /> Sign Out
       </button>
     );
 
@@ -161,12 +157,12 @@ export default function ManagerLayout() {
           >
             <MenuIcon size={24} />
           </button>
-          <Link to="/app" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-            <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-white/30 flex-shrink-0">
-              <img 
-                src="/logo.svg" 
-                alt="Catersync" 
-                className="w-full h-full object-cover" 
+          <Link to="/app" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
+            <div className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-white/40 flex-shrink-0 bg-white/10">
+              <img
+                src="/logo.svg"
+                alt="Catersync"
+                className="w-full h-full object-cover"
               />
             </div>
             <h1 className="text-xl font-bold tracking-wide">Catersync</h1>
@@ -179,34 +175,34 @@ export default function ManagerLayout() {
             onClick={() => setIsProfileOpen(!isProfileOpen)}
           >
             <div className={styles.profileAvatar}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2m8-10a4 4 0 100-8 4 4 0 000 8z"
-                />
-              </svg>
+              <User size={16} strokeWidth={2.5} />
             </div>
             <span className="font-semibold text-sm hidden sm:inline">Manager</span>
-            <span className="text-xs hidden sm:inline">
-              {isProfileOpen ? '▲' : '▼'}
-            </span>
+            <ChevronDown
+              size={15}
+              className={`hidden sm:inline transition-transform duration-200 ${isProfileOpen ? 'rotate-180' : ''}`}
+            />
           </div>
 
           {isProfileOpen && (
-            <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50">
-              <div className="px-4 py-2 border-b border-slate-100">
-                <p className="text-sm font-semibold text-slate-900 truncate">
-                  {user?.email || 'Owner'}
-                </p>
-                <p className="text-xs text-slate-500">Manager</p>
+            <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-50 animate-in fade-in zoom-in-95 duration-150 origin-top-right">
+              <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-[#EAF3F2] text-[#008A45] flex items-center justify-center shrink-0">
+                  <User size={16} strokeWidth={2.5} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900 truncate">
+                    {user?.email || 'Owner'}
+                  </p>
+                  <p className="text-xs text-slate-500">Manager</p>
+                </div>
               </div>
               <Link
                 to="/app/settings"
                 className="flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                 onClick={() => setIsProfileOpen(false)}
               >
-                <Settings size={16} />
+                <Settings size={16} className="text-slate-400" />
                 Profile Settings
               </Link>
               <button
@@ -235,17 +231,19 @@ export default function ManagerLayout() {
           }`}
         >
           {/* Header – compact */}
-          <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 shrink-0">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0 bg-gradient-to-r from-[#00753b] to-[#009c4d]">
             <div className="flex items-center gap-3">
-              <div className={styles.logoBadge}>CS</div>
-              <span className="font-bold text-slate-900">Catersync</span>
+              <div className="w-8 h-8 rounded-full overflow-hidden ring-2 ring-white/40 bg-white/10">
+                <img src="/logo.svg" alt="Catersync" className="w-full h-full object-cover" />
+              </div>
+              <span className="font-bold text-white">Catersync</span>
             </div>
             <button
               onClick={closeSidebar}
-              className="p-1 rounded-lg hover:bg-slate-100 transition-colors"
+              className="p-1 rounded-lg hover:bg-white/10 transition-colors"
               aria-label="Close menu"
             >
-              <X size={20} className="text-slate-500" />
+              <X size={20} className="text-white" />
             </button>
           </div>
 

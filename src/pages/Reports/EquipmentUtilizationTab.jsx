@@ -24,7 +24,7 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
               { label: 'Total units', value: totalUnits },
             ],
           })}
-          className={`border rounded-xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('blue')}`}
+          className={`border rounded-2xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('blue')}`}
         >
           <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Utilization</p>
           <h3 className="text-2xl font-extrabold text-slate-900">{utilizationRate}%</h3>
@@ -36,7 +36,7 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
             description: 'From the equipment table: units currently in good condition and not deployed to a booking.',
             fields: [{ label: 'Available units', value: totalAvailable, emphasis: true }],
           })}
-          className={`border rounded-xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('green')}`}
+          className={`border rounded-2xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('green')}`}
         >
           <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Available</p>
           <h3 className="text-2xl font-extrabold text-slate-900">{totalAvailable}</h3>
@@ -49,7 +49,7 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
             badge: totalDamaged > 0 ? { label: 'Needs attention', variant: 'warning' } : { label: 'None reported', variant: 'good' },
             fields: [{ label: 'Damaged units', value: totalDamaged, emphasis: true }],
           })}
-          className={`border rounded-xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('red')}`}
+          className={`border rounded-2xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('red')}`}
         >
           <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Damaged</p>
           <h3 className="text-2xl font-extrabold text-slate-900">{totalDamaged}</h3>
@@ -61,7 +61,7 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
             description: 'From the equipment table: units currently set aside for maintenance (equipment.maintenance_quantity).',
             fields: [{ label: 'In maintenance', value: totalMaintenance, emphasis: true }],
           })}
-          className={`border rounded-xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('amber')}`}
+          className={`border rounded-2xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('amber')}`}
         >
           <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">In Maintenance</p>
           <h3 className="text-2xl font-extrabold text-slate-900">{totalMaintenance}</h3>
@@ -69,7 +69,7 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
         </button>
       </div>
 
-      <div className="bg-[#f8fafa] border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
         <div className="p-5 border-b border-slate-200">
           <h3 className="text-base font-bold text-slate-900">Equipment by Type</h3>
           <p className="text-xs text-slate-500 mt-1">Live snapshot of current inventory status — not affected by the date range above.</p>

@@ -5,7 +5,7 @@ export default function BookingSummaryTab({ derived, onOpenDetail }) {
   const { bookingSummaryData } = derived;
 
   return (
-    <div className="bg-[#f8fafa] border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
       <div className="p-5 border-b border-slate-200">
         <h3 className="text-base font-bold text-slate-900">Historical Booking Summary – Completed Events Only</h3>
         <p className="text-xs text-slate-500 mt-1">Includes only bookings that have been marked as Completed, within the selected period.</p>

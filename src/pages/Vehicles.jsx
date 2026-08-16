@@ -592,7 +592,7 @@ export default function Vehicles() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <button
           onClick={() => handleStatsCardClick(() => true, 'All Vehicles')}
-          className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-left hover:shadow-md hover:border-[#008A45] transition-all cursor-pointer group"
+          className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-2xl p-5 text-left shadow-sm hover:shadow-md transition-all cursor-pointer group"
         >
           <p className="text-xs font-semibold text-slate-600 mb-1">Total Fleet</p>
           <h3 className="text-3xl font-extrabold text-slate-900">{vehicles.length}</h3>
@@ -604,7 +604,7 @@ export default function Vehicles() {
 
         <button
           onClick={() => handleStatsCardClick(v => v.displayStatus === 'Available', 'Available Vehicles')}
-          className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-left hover:shadow-md hover:border-emerald-500 transition-all cursor-pointer group"
+          className="bg-white border border-slate-200 border-l-4 border-l-emerald-500 rounded-2xl p-5 text-left shadow-sm hover:shadow-md transition-all cursor-pointer group"
         >
           <p className="text-xs font-semibold text-slate-600 mb-1">Available Now</p>
           <h3 className="text-3xl font-extrabold text-slate-900">{availableCount}</h3>
@@ -613,7 +613,7 @@ export default function Vehicles() {
 
         <button
           onClick={() => handleStatsCardClick(v => v.displayStatus === 'Deployed Today', 'Deployed Today')}
-          className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-left hover:shadow-md hover:border-amber-500 transition-all cursor-pointer group"
+          className="bg-white border border-slate-200 border-l-4 border-l-amber-500 rounded-2xl p-5 text-left shadow-sm hover:shadow-md transition-all cursor-pointer group"
         >
           <p className="text-xs font-semibold text-slate-600 mb-1">Deployed Today</p>
           <h3 className="text-3xl font-extrabold text-[#008A45]">{deployedTodayCount}</h3>
@@ -622,7 +622,7 @@ export default function Vehicles() {
 
         <button
           onClick={() => handleStatsCardClick(v => v.displayStatus === 'Upcoming' || v.displayStatus === 'Scheduled', 'Upcoming Assignments')}
-          className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-left hover:shadow-md hover:border-blue-500 transition-all cursor-pointer group"
+          className="bg-white border border-slate-200 border-l-4 border-l-blue-500 rounded-2xl p-5 text-left shadow-sm hover:shadow-md transition-all cursor-pointer group"
         >
           <p className="text-xs font-semibold text-slate-600 mb-1">Active Assignments</p>
           <h3 className="text-3xl font-extrabold text-slate-900">{activeAssignmentsCount}</h3>
@@ -631,7 +631,7 @@ export default function Vehicles() {
       </div>
 
       {/* VEHICLE TABLE */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800 flex justify-between items-center">
           <span>Fleet Inventory</span>
           <span className="text-xs font-normal text-slate-500">Status is based on active assignments (completed assignments are ignored)</span>
@@ -723,7 +723,7 @@ export default function Vehicles() {
       </div>
 
       {/* ACTIVE ASSIGNMENTS TABLE */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800 flex justify-between items-center">
           <span>Active Vehicle Assignments</span>
           <span className="text-xs font-normal text-slate-500">{activeAssignmentsCount} active</span>

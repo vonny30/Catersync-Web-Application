@@ -7,7 +7,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
 
   return (
     <div className="space-y-6">
-      <div className="bg-[#f8fafa] border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
         <div className="p-5 border-b border-slate-200">
           <h3 className="text-base font-bold text-slate-900">Comprehensive Menu Performance – Packages & Short Order Items</h3>
           <p className="text-xs text-slate-500 mt-1">Performance is based on total revenue generated (relative to highest performer).</p>
@@ -72,7 +72,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
         )}
       </div>
 
-      <div className="bg-[#f8fafa] border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
         <div className="p-5 border-b border-slate-200">
           <h3 className="text-base font-bold text-slate-900">Category Popularity</h3>
           <p className="text-xs text-slate-500 mt-1">How often each food category appears across package bookings in this period.</p>

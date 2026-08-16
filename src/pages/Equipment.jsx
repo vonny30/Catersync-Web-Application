@@ -666,7 +666,7 @@ export default function Equipment() {
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
         <button
           onClick={() => handleEquipmentCardClick(() => true, 'All Equipment')}
-          className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-center hover:shadow-md hover:border-[#008A45] transition-all cursor-pointer group"
+          className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
         >
           <p className="text-xs font-semibold text-slate-600 mb-1">Total Items</p>
           <h3 className="text-3xl font-extrabold text-slate-900">{totalItems}</h3>
@@ -674,7 +674,7 @@ export default function Equipment() {
         </button>
         <button
           onClick={() => handleEquipmentCardClick(eq => eq.quantity_available > 0, 'Available Equipment')}
-          className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-center hover:shadow-md hover:border-emerald-500 transition-all cursor-pointer group"
+          className="bg-white border border-slate-200 border-l-4 border-l-emerald-500 rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
         >
           <p className="text-xs font-semibold text-slate-600 mb-1">Available</p>
           <h3 className="text-3xl font-extrabold text-emerald-700">{availableItems}</h3>
@@ -682,7 +682,7 @@ export default function Equipment() {
         </button>
         <button
           onClick={() => handleEquipmentCardClick(eq => (eq.damaged_quantity || 0) > 0, 'Damaged Equipment')}
-          className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-center hover:shadow-md hover:border-red-500 transition-all cursor-pointer group"
+          className="bg-white border border-slate-200 border-l-4 border-l-red-500 rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
         >
           <p className="text-xs font-semibold text-slate-600 mb-1">Damaged</p>
           <h3 className="text-3xl font-extrabold text-red-600">{damagedItems}</h3>
@@ -690,7 +690,7 @@ export default function Equipment() {
         </button>
         <button
           onClick={() => handleEquipmentCardClick(eq => (eq.maintenance_quantity || 0) > 0, 'Under Maintenance Equipment')}
-          className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-center hover:shadow-md hover:border-amber-500 transition-all cursor-pointer group"
+          className="bg-white border border-slate-200 border-l-4 border-l-amber-500 rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
         >
           <p className="text-xs font-semibold text-slate-600 mb-1">Maintenance</p>
           <h3 className="text-3xl font-extrabold text-amber-600">{maintenanceItems}</h3>
@@ -698,7 +698,7 @@ export default function Equipment() {
         </button>
         <button
           onClick={() => handleEquipmentCardClick(eq => eq.quantity_available > 0, 'Active Assignments')}
-          className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-center hover:shadow-md hover:border-emerald-500 transition-all cursor-pointer group"
+          className="bg-white border border-slate-200 border-l-4 border-l-teal-600 rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
         >
           <p className="text-xs font-semibold text-slate-600 mb-1">Deployed Today</p>
           <h3 className="text-3xl font-extrabold text-[#008A45]">{deployedToday}</h3>
@@ -707,7 +707,7 @@ export default function Equipment() {
       </div>
 
       {/* Equipment Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800">
           Equipment Inventory
         </div>
@@ -801,7 +801,7 @@ export default function Equipment() {
       </div>
 
       {/* Active Assignments Table - now using structured booking ref */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800 flex justify-between items-center">
           <span>Active Equipment Assignments</span>
           <span className="text-xs font-normal text-slate-500">{activeAssignments} active</span>

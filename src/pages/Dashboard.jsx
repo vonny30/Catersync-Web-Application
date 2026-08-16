@@ -490,7 +490,7 @@ export default function Dashboard() {
         </h1>
         <button
           onClick={fetchDashboardData}
-          className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:border-[#008A45] hover:text-[#008A45] shadow-sm transition-colors"
         >
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
         </button>
@@ -510,87 +510,90 @@ export default function Dashboard() {
         {/* Today's Events */}
         <button
           onClick={handleTodayEventsClick}
-          className="bg-[#EEF7F6] border border-slate-200 rounded-xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:border-[#008A45] transition-all cursor-pointer group relative"
+          className="relative overflow-hidden bg-white border border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-[#008A45]/40 transition-all cursor-pointer group"
         >
-          <div className="w-10 h-10 border border-slate-300 rounded-full flex items-center justify-center mb-3 group-hover:border-[#008A45] transition-colors">
-            <CalendarIcon size={20} className="text-slate-700 group-hover:text-[#008A45] transition-colors" />
+          <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#008A45]" />
+          <div className="w-11 h-11 rounded-full bg-[#008A45] flex items-center justify-center mb-3 shadow-sm">
+            <CalendarIcon size={20} className="text-white" />
           </div>
-          <span className="text-3xl font-bold text-slate-900 mb-1 group-hover:text-[#008A45] transition-colors">{stats.todayEvents}</span>
+          <span className="text-3xl font-extrabold text-slate-900 mb-1">{stats.todayEvents}</span>
           <span className="text-sm font-medium text-slate-600">Today's Events</span>
-          <ArrowRight size={14} className="absolute top-3 right-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+          <ArrowRight size={14} className="absolute top-3 right-3 text-[#008A45] opacity-0 group-hover:opacity-100 transition-opacity" />
           <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
         </button>
 
         {/* Pending Orders (combined) */}
         <button
           onClick={handlePendingBookingsClick}
-          className="bg-[#EEF7F6] border border-slate-200 rounded-xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:border-amber-500 transition-all cursor-pointer group relative"
+          className="relative overflow-hidden bg-white border border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-[#008A45]/40 transition-all cursor-pointer group"
         >
-          <div className="w-10 h-10 border border-slate-300 rounded-full flex items-center justify-center mb-3 group-hover:border-amber-500 transition-colors">
-            <Clock size={20} className="text-slate-700 group-hover:text-amber-500 transition-colors" />
+          <div className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-600" />
+          <div className="w-11 h-11 rounded-full bg-emerald-600 flex items-center justify-center mb-3 shadow-sm">
+            <Clock size={20} className="text-white" />
           </div>
-          <span className="text-3xl font-bold text-slate-900 mb-1 group-hover:text-amber-600 transition-colors">{stats.pendingBookings}</span>
+          <span className="text-3xl font-extrabold text-slate-900 mb-1">{stats.pendingBookings}</span>
           <span className="text-sm font-medium text-slate-600">Pending Orders</span>
           <span className="text-[10px] text-slate-400">(Packages + Short Orders)</span>
-          <ArrowRight size={14} className="absolute top-3 right-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+          <ArrowRight size={14} className="absolute top-3 right-3 text-[#008A45] opacity-0 group-hover:opacity-100 transition-opacity" />
           <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
         </button>
 
         {/* Upcoming Events */}
         <button
           onClick={handleUpcomingEventsClick}
-          className="bg-[#EEF7F6] border border-slate-200 rounded-xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:border-blue-500 transition-all cursor-pointer group relative"
+          className="relative overflow-hidden bg-white border border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-[#008A45]/40 transition-all cursor-pointer group"
         >
-          <div className="w-10 h-10 border border-slate-300 rounded-full flex items-center justify-center mb-3 group-hover:border-blue-500 transition-colors">
-            <CheckCircle size={20} className="text-slate-700 group-hover:text-blue-500 transition-colors" />
+          <div className="absolute left-0 top-0 bottom-0 w-1 bg-teal-600" />
+          <div className="w-11 h-11 rounded-full bg-teal-600 flex items-center justify-center mb-3 shadow-sm">
+            <CheckCircle size={20} className="text-white" />
           </div>
-          <span className="text-3xl font-bold text-slate-900 mb-1 group-hover:text-blue-600 transition-colors">{stats.upcomingEvents}</span>
+          <span className="text-3xl font-extrabold text-slate-900 mb-1">{stats.upcomingEvents}</span>
           <span className="text-sm font-medium text-slate-600">Upcoming Events (7 days)</span>
-          <ArrowRight size={14} className="absolute top-3 right-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+          <ArrowRight size={14} className="absolute top-3 right-3 text-[#008A45] opacity-0 group-hover:opacity-100 transition-opacity" />
           <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
         </button>
 
         {/* Revenue This Month */}
         <button
           onClick={handleRevenueClick}
-          className="bg-[#EEF7F6] border border-slate-200 rounded-xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:border-emerald-500 transition-all cursor-pointer group relative"
+          className="relative overflow-hidden bg-white border border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-[#008A45]/40 transition-all cursor-pointer group"
         >
-          <div className="w-10 h-10 border border-slate-300 rounded-full flex items-center justify-center mb-3 group-hover:border-emerald-500 transition-colors">
-            <TrendingUp size={20} className="text-slate-700 group-hover:text-emerald-500 transition-colors" />
+          <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#006634]" />
+          <div className="w-11 h-11 rounded-full bg-[#006634] flex items-center justify-center mb-3 shadow-sm">
+            <TrendingUp size={20} className="text-white" />
           </div>
-          <span className="text-3xl font-bold text-slate-900 mb-1 group-hover:text-emerald-600 transition-colors">
+          <span className="text-3xl font-extrabold text-slate-900 mb-1">
             ₱{stats.revenueThisMonth.toLocaleString()}
           </span>
           <span className="text-sm font-medium text-slate-600">Revenue This Month</span>
-          <ArrowRight size={14} className="absolute top-3 right-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+          <ArrowRight size={14} className="absolute top-3 right-3 text-[#008A45] opacity-0 group-hover:opacity-100 transition-opacity" />
           <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
         </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* LEFT: Calendar & Today's Events */}
-        <div className="bg-[#F8F9FA] border border-slate-200 rounded-xl p-6 shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           <div className="mb-6 border-b border-slate-200 pb-6">
             <div className="flex justify-between items-center mb-4 px-2">
-              <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-slate-200 rounded transition-colors">
+              <button onClick={() => changeMonth(-1)} className="p-1.5 hover:bg-[#EAF3F2] hover:text-[#008A45] rounded-lg transition-colors">
                 <ChevronLeft size={20} className="text-slate-600" />
               </button>
               <h3 className="font-bold text-slate-900 text-sm">{monthName}</h3>
-              <button onClick={() => changeMonth(1)} className="p-1 hover:bg-slate-200 rounded transition-colors">
+              <button onClick={() => changeMonth(1)} className="p-1.5 hover:bg-[#EAF3F2] hover:text-[#008A45] rounded-lg transition-colors">
                 <ChevronRight size={20} className="text-slate-600" />
               </button>
             </div>
             <div className="grid grid-cols-7 gap-y-4 text-center text-sm">
               {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day, idx) => (
-                <div key={idx} className="text-slate-400 font-medium text-xs">{day}</div>
+                <div key={idx} className="text-slate-400 font-semibold text-xs">{day}</div>
               ))}
               {calendarDays.map((day, index) => (
                 <div
                   key={index}
                   onClick={() => handleDayClick(day)}
-                  className={`relative flex items-center justify-center font-medium text-sm cursor-pointer hover:bg-slate-200 rounded-full w-7 h-7 mx-auto transition-colors
-                    ${day?.isToday ? 'bg-[#008A45] text-white' : ''}
-                    ${day?.hasEvent && !day?.isToday ? 'text-slate-900' : 'text-slate-900'}
+                  className={`relative flex items-center justify-center font-medium text-sm cursor-pointer rounded-full w-7 h-7 mx-auto transition-colors
+                    ${day?.isToday ? 'bg-[#008A45] text-white font-bold shadow-sm' : 'text-slate-900 hover:bg-[#EAF3F2] hover:text-[#008A45]'}
                   `}
                 >
                   {day?.day}
@@ -611,13 +614,13 @@ export default function Dashboard() {
                 <div
                   key={event.booking_id}
                   onClick={() => navigate(`/app/bookings/${event.booking_id}`)}
-                  className="bg-white border border-slate-200 rounded-lg p-4 flex justify-between items-center shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                  className="bg-slate-50 border border-slate-200 rounded-lg p-4 flex justify-between items-center hover:border-[#008A45]/40 hover:bg-[#EAF3F2]/40 transition-colors cursor-pointer"
                 >
                   <div>
                     <p className="font-bold text-slate-900 text-sm">{getClientName(event)}</p>
                     <p className="text-xs text-slate-500 mt-0.5">{getVenueDisplay(event)} · {event.pax_count || 0} pax</p>
                   </div>
-                  <span className="text-sm font-medium text-slate-700">{formatTime(event.event_datetime)}</span>
+                  <span className="text-sm font-bold text-[#008A45]">{formatTime(event.event_datetime)}</span>
                 </div>
               ))
             )}
@@ -625,12 +628,12 @@ export default function Dashboard() {
         </div>
 
         {/* RIGHT: Pending Orders (combined) */}
-        <div className="bg-[#F8F9FA] border border-slate-200 rounded-xl p-6 shadow-sm h-fit">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm h-fit">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-bold text-slate-900">Pending Orders</h2>
             <button
               onClick={() => navigate('/app/bookings')}
-              className="text-sm font-semibold text-slate-900 underline decoration-2 underline-offset-4 hover:text-[#008A45] transition-colors"
+              className="text-sm font-semibold text-[#008A45] underline decoration-2 underline-offset-4 hover:text-[#007038] transition-colors"
             >
               View All
             </button>
@@ -645,7 +648,7 @@ export default function Dashboard() {
                 const detailPath = isShortOrder ? '/app/orders' : '/app/bookings';
 
                 return (
-                  <div key={item.booking_id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                  <div key={item.booking_id} className="bg-slate-50 border border-slate-200 rounded-xl p-4 hover:border-[#008A45]/30 transition-colors">
                     <div className="flex justify-between items-start mb-4">
                       <div>
                         <div className="flex items-center gap-2">
@@ -655,7 +658,7 @@ export default function Dashboard() {
                           >
                             {getClientName(item)}
                           </h4>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isShortOrder ? 'bg-purple-100 text-purple-700 border border-purple-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${isShortOrder ? 'bg-[#EAF3F2] text-[#008A45] border-[#C1DEDC]' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
                             {isShortOrder ? 'Short Order' : 'Package'}
                           </span>
                         </div>
@@ -671,7 +674,7 @@ export default function Dashboard() {
                     <div className="flex gap-3">
                       <button
                         onClick={() => openApprovalModal(item, isShortOrder ? 'shortorder' : 'package')}
-                        className="flex-1 bg-[#D1E8E6] text-slate-800 font-semibold text-sm py-2 rounded-lg flex justify-center items-center gap-2 hover:bg-[#b8dad7] transition-colors"
+                        className="flex-1 bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-sm py-2 rounded-lg flex justify-center items-center gap-2 shadow-sm transition-colors"
                       >
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -680,7 +683,7 @@ export default function Dashboard() {
                       </button>
                       <button
                         onClick={() => openRejectionModal(item.booking_id)}
-                        className="flex-1 bg-red-50 border border-red-200 text-red-700 font-semibold text-sm py-2 rounded-lg hover:bg-red-100 transition-colors"
+                        className="flex-1 bg-white border border-red-200 text-red-700 font-semibold text-sm py-2 rounded-lg hover:bg-red-50 transition-colors"
                       >
                         <svg className="w-4 h-4 inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />

@@ -14,7 +14,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <button
           onClick={() => onCardClick('revenue')}
-          className={`rounded-xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 border ${cardColorClasses('green')}`}
+          className={`rounded-2xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 border ${cardColorClasses('green')}`}
         >
           <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Total Revenue</p>
           <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.totalRevenue)}</h3>
@@ -23,7 +23,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
         </button>
         <button
           onClick={() => onCardClick('collected')}
-          className={`rounded-xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 border ${cardColorClasses('teal')}`}
+          className={`rounded-2xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 border ${cardColorClasses('teal')}`}
         >
           <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Collected</p>
           <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.collected)}</h3>
@@ -32,7 +32,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
         </button>
         <button
           onClick={() => onCardClick('outstanding')}
-          className={`rounded-xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 border ${cardColorClasses('amber')}`}
+          className={`rounded-2xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 border ${cardColorClasses('amber')}`}
         >
           <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Outstanding</p>
           <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.outstanding)}</h3>
@@ -41,7 +41,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
         </button>
       </div>
 
-      <div className="bg-[#f8fafa] border border-slate-200 rounded-xl p-6">
+      <div className="bg-white border border-slate-200 rounded-2xl p-6">
         <h3 className="text-base font-bold text-slate-900 mb-4">Monthly Revenue (Net Collected)</h3>
         {monthlyRevenueData.length === 0 ? (
           <div className="h-64 flex items-center justify-center text-slate-400 text-sm">No payment data available.</div>
@@ -65,7 +65,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-[#f8fafa] border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
           <div className="p-4 border-b border-slate-200"><h3 className="text-base font-bold text-slate-900">Payment Methods</h3></div>
           {paymentMethodData.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-sm">No payments in this period.</div>
@@ -102,7 +102,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
           )}
         </div>
 
-        <div className="bg-[#f8fafa] border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
           <div className="p-4 border-b border-slate-200 flex items-center justify-between">
             <h3 className="text-base font-bold text-slate-900">Refunds</h3>
             <span className="text-xs font-bold text-red-600">{formatCurrency(totalRefunded)} total</span>
@@ -144,7 +144,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
         </div>
       </div>
 
-      <div className="bg-[#f8fafa] border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-200"><h3 className="text-base font-bold text-slate-900">Monthly Booking Summary (Completed)</h3></div>
         {bookingSummaryData.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-sm">No completed bookings yet.</div>

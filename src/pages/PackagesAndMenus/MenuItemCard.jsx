@@ -3,7 +3,7 @@ import ImageWithFallback from './ImageWithFallback';
 
 export default function MenuItemCard({ item, categoryName, onEdit, onArchive, onDelete }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
+    <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-[#008A45]/30 transition-all flex flex-col justify-between">
       <div>
         <div className="w-full h-32 bg-slate-100 rounded-lg mb-3 flex items-center justify-center text-slate-300 overflow-hidden">
           <ImageWithFallback src={item.menu_image} alt={item.menu_name} className="w-full h-full object-cover" />

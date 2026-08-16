@@ -298,7 +298,7 @@ export default function SettingsPage() {
         </nav>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         
         {activeTab === 'general' && (
           <form onSubmit={handleProfileUpdate} className="p-6 md:p-8">

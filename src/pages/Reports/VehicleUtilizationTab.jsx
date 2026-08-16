@@ -15,7 +15,7 @@ export default function VehicleUtilizationTab({ derived, onOpenDetail }) {
             description: 'From the vehicle table: every registered vehicle, regardless of current status.',
             fields: [{ label: 'Total vehicles', value: totalVehicles, emphasis: true }],
           })}
-          className={`border rounded-xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('purple')}`}
+          className={`border rounded-2xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('purple')}`}
         >
           <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Fleet Size</p>
           <h3 className="text-3xl font-extrabold text-slate-900">{totalVehicles}</h3>
@@ -30,7 +30,7 @@ export default function VehicleUtilizationTab({ derived, onOpenDetail }) {
               { label: 'Utilization', value: `${utilizationRate}%` },
             ],
           })}
-          className={`border rounded-xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('blue')}`}
+          className={`border rounded-2xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('blue')}`}
         >
           <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Currently Dispatched</p>
           <h3 className="text-3xl font-extrabold text-slate-900">{dispatchedVehicles} <span className="text-lg text-slate-400 font-medium">({utilizationRate}%)</span></h3>
@@ -42,7 +42,7 @@ export default function VehicleUtilizationTab({ derived, onOpenDetail }) {
             description: 'From the vehicle table: vehicles with no active (Scheduled) assignment right now.',
             fields: [{ label: 'Available vehicles', value: availableVehicles, emphasis: true }],
           })}
-          className={`border rounded-xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('green')}`}
+          className={`border rounded-2xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('green')}`}
         >
           <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Available</p>
           <h3 className="text-3xl font-extrabold text-slate-900">{availableVehicles}</h3>
@@ -50,7 +50,7 @@ export default function VehicleUtilizationTab({ derived, onOpenDetail }) {
         </button>
       </div>
 
-      <div className="bg-[#f8fafa] border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
         <div className="p-5 border-b border-slate-200">
           <h3 className="text-base font-bold text-slate-900">Vehicle Fleet Status</h3>
           <p className="text-xs text-slate-500 mt-1">Live snapshot of current status — not affected by the date range above.</p>

@@ -770,7 +770,7 @@ export default function Payments() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <button
           onClick={handleCollectedClick}
-          className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-left hover:shadow-md hover:border-[#008A45] transition-all cursor-pointer group"
+          className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-2xl p-5 text-left shadow-sm hover:shadow-md transition-all cursor-pointer group"
         >
           <p className="text-xs font-semibold text-slate-600 mb-1">Net Collected</p>
           <h3 className="text-3xl font-extrabold text-slate-900">₱{totalCollected.toLocaleString()}</h3>
@@ -779,7 +779,7 @@ export default function Payments() {
         </button>
         <button
           onClick={handlePendingClick}
-          className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-left hover:shadow-md hover:border-amber-500 transition-all cursor-pointer group"
+          className="bg-white border border-slate-200 border-l-4 border-l-amber-500 rounded-2xl p-5 text-left shadow-sm hover:shadow-md transition-all cursor-pointer group"
         >
           <p className="text-xs font-semibold text-slate-600 mb-1">Pending Balance</p>
           <h3 className="text-3xl font-extrabold text-slate-900">₱{pendingBalance.toLocaleString()}</h3>
@@ -788,7 +788,7 @@ export default function Payments() {
         </button>
         <button
           onClick={handleFullyPaidClick}
-          className="bg-[#CBDEDD]/60 border border-[#b4d2d0] rounded-xl p-5 text-left hover:shadow-md hover:border-emerald-500 transition-all cursor-pointer group"
+          className="bg-white border border-slate-200 border-l-4 border-l-emerald-500 rounded-2xl p-5 text-left shadow-sm hover:shadow-md transition-all cursor-pointer group"
         >
           <p className="text-xs font-semibold text-slate-600 mb-1">Fully Paid</p>
           <h3 className="text-3xl font-extrabold text-slate-900">{fullyPaidCount}</h3>
@@ -829,7 +829,7 @@ export default function Payments() {
       </div>
 
       {/* PAYMENTS TABLE */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>

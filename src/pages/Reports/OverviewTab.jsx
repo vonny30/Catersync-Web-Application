@@ -5,7 +5,7 @@ function StatCard({ label, value, sub, color, onClick }) {
   return (
     <button
       onClick={onClick}
-      className={`border rounded-xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses(color)}`}
+      className={`border rounded-2xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses(color)}`}
     >
       <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">{label}</p>
       <h3 className="text-2xl font-extrabold text-slate-900">{value}</h3>
@@ -118,7 +118,7 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
             ],
           })}
           disabled={!topPerformer}
-          className={`border rounded-xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 disabled:cursor-default disabled:hover:shadow-none ${cardColorClasses('purple')}`}
+          className={`border rounded-2xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 disabled:cursor-default disabled:hover:shadow-none ${cardColorClasses('purple')}`}
         >
           <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-2">Top Performer</p>
           {topPerformer ? (
@@ -140,7 +140,7 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
               { label: 'One-time customers', value: oneTimeCustomers },
             ],
           })}
-          className={`border rounded-xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('green')}`}
+          className={`border rounded-2xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('green')}`}
         >
           <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-2">Customers</p>
           <h3 className="text-lg font-bold text-slate-900">{totalCustomers} total</h3>

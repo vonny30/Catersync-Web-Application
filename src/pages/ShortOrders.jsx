@@ -1059,7 +1059,7 @@ export default function ShortOrders() {
       </div>
 
       {/* TABLE */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
@@ -1159,7 +1159,7 @@ export default function ShortOrders() {
                             <>
                               <button
                                 onClick={() => openApprovalModal(order, 'shortorder')}
-                                className="bg-[#C1DEDC] border border-[#a8cfcc] text-slate-800 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-[#b8dad7] transition-colors"
+                                className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition-colors"
                               >
                                 <Check size={14} /> Approve
                               </button>

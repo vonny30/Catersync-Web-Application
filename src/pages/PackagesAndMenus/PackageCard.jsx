@@ -3,7 +3,7 @@ import ImageWithFallback from './ImageWithFallback';
 
 export default function PackageCard({ pkg, categoryNames, equipmentNames, onEdit, onArchive, onDelete }) {
   return (
-    <div className="flex flex-col md:flex-row bg-[#f8fafa] border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+    <div className="flex flex-col md:flex-row bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md hover:border-[#008A45]/30 transition-all">
       <div className="w-full md:w-72 h-48 md:h-auto bg-slate-200 shrink-0 relative">
         <ImageWithFallback src={pkg.pkg_image} alt={pkg.pkg_name} className="w-full h-full object-cover" />
       </div>
