@@ -28,6 +28,42 @@ function writeBrowserSessionId(id) {
   localStorage.setItem(BROWSER_SESSION_KEY, id);
 }
 
+// Reads the browser's shared session id, generating one if none exists yet.
+// Generating-if-missing is a read-then-write that is NOT atomic across
+// concurrent callers — and there ARE concurrent callers: two tabs of the
+// same browser booting around the same time, or even a single tab, which
+// checks its session both from its own initial getSession() call and from
+// the auth-state-change listener's INITIAL_SESSION event firing right
+// after. Without serializing this, two callers with no id yet can each
+// generate a DIFFERENT id and overwrite each other in localStorage, then
+// each write their own (different) id to the database — leaving one of
+// them mismatched against what actually landed in the DB, which then
+// looks like a takeover and kicks it out. The Web Locks API serializes
+// this critical section across every tab of the origin so only one
+// caller ever generates the id; everyone else just reads what it wrote.
+async function getOrCreateBrowserSessionId() {
+  const existing = readBrowserSessionId();
+  if (existing) return existing;
+
+  if (typeof navigator !== 'undefined' && navigator.locks?.request) {
+    return navigator.locks.request('cs-browser-session-id-init', async () => {
+      // Re-check inside the lock — another tab may have just created it
+      // while we were waiting our turn.
+      const nowExisting = readBrowserSessionId();
+      if (nowExisting) return nowExisting;
+      const id = crypto.randomUUID();
+      writeBrowserSessionId(id);
+      return id;
+    });
+  }
+
+  // Web Locks unavailable (very old browser) — best-effort fallback, a
+  // narrow race window remains.
+  const id = crypto.randomUUID();
+  writeBrowserSessionId(id);
+  return id;
+}
+
 // Unique per physical tab (deliberately sessionStorage) — used only to
 // tell this browser's own tabs apart from each other in the open-tabs
 // registry below, not for session ownership.
@@ -95,11 +131,7 @@ export async function claimManagerSession(managerId) {
 // opening another tab) doesn't break the session. If another still-active
 // session holds it, reports 'kicked' so the caller can sign this tab out.
 export async function verifyOrReclaimManagerSession(managerId) {
-  let browserSessionId = readBrowserSessionId();
-  if (!browserSessionId) {
-    browserSessionId = crypto.randomUUID();
-    writeBrowserSessionId(browserSessionId);
-  }
+  const browserSessionId = await getOrCreateBrowserSessionId();
 
   const { data, error } = await supabase
     .from('manager')
