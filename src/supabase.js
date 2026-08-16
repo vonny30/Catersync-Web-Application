@@ -10,12 +10,18 @@ export const supabaseAnonKey = supabaseKey;
 console.log("Supabase URL is:", supabaseUrl);
 console.log("Supabase Key is:", supabaseKey ? "Found!" : "Missing!");
 
+// Auth token lives in localStorage (not sessionStorage) so every tab of
+// the same browser shares ONE real login — opening a second tab picks up
+// the existing session instead of forcing a separate login, matching how
+// Facebook/Gmail-style apps behave. Different browsers/profiles/devices
+// still get their own localStorage, so cross-device session detection
+// (see src/utils/managerSession.js) is unaffected.
 const customStorage = {
-  getItem: (key) => sessionStorage.getItem(key),
-  setItem: (key, value) => sessionStorage.setItem(key, value),
+  getItem: (key) => localStorage.getItem(key),
+  setItem: (key, value) => localStorage.setItem(key, value),
   removeItem: (key) => {
-    localStorage.removeItem(key); // Keeping this to clean up old tokens
-    sessionStorage.removeItem(key);
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key); // clean up any pre-migration tokens
   },
 };
 

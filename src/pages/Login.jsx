@@ -53,7 +53,7 @@ export default function Login() {
     setResolvingConflict(true);
     await cancelTakeOverSession();
     setResolvingConflict(false);
-    toast('Login cancelled. The other tab or device is still signed in.', { icon: 'ℹ️' });
+    toast('Login cancelled. The other browser or device is still signed in.', { icon: 'ℹ️' });
   };
 
   const handleConfirmTakeOver = async () => {
@@ -278,7 +278,7 @@ export default function Login() {
           <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6">
             <h3 className="text-lg font-bold text-slate-900 mb-2">Already signed in elsewhere</h3>
             <p className="text-sm text-slate-600 mb-5">
-              This account is currently signed in on another tab or device
+              This account is currently signed in on another browser or device
               {sessionConflict.since && (
                 <>
                   {' '}since{' '}

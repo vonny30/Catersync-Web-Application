@@ -9,6 +9,8 @@ import {
   releaseManagerSessionClaimBeacon,
   subscribeManagerSession,
   peekManagerSessionConflict,
+  registerOpenTab,
+  unregisterOpenTab,
 } from '../utils/managerSession';
 
 const AuthContext = createContext();
@@ -23,8 +25,10 @@ export const AuthProvider = ({ children }) => {
   const [initializing, setInitializing] = useState(true);
   const [isManager, setIsManager] = useState(false);
   // Set when a fresh login detects the account is already active on
-  // another tab/device — pauses the login until the person confirms they
-  // want to take over (instead of silently kicking the other side).
+  // another browser/device — pauses the login until the person confirms
+  // they want to take over (instead of silently kicking the other side).
+  // Never fires for a second tab of the SAME browser — those share one
+  // session automatically (see managerSession.js).
   const [sessionConflict, setSessionConflict] = useState(null);
   const pendingManagerIdRef = useRef(null);
   const kickedAtRef = useRef(null);
@@ -52,6 +56,24 @@ export const AuthProvider = ({ children }) => {
   const managerIdRef = useRef(null);
   const tabSessionIdRef = useRef(null);
   const realtimeUnsubRef = useRef(null);
+  // Periodically re-marks this tab as alive in the open-tabs registry so
+  // other tabs of the same browser know not to release the shared claim
+  // when THIS tab closes while others remain open.
+  const tabHeartbeatRef = useRef(null);
+  const TAB_HEARTBEAT_MS = 30 * 1000;
+
+  const startTabHeartbeat = () => {
+    registerOpenTab();
+    if (tabHeartbeatRef.current) clearInterval(tabHeartbeatRef.current);
+    tabHeartbeatRef.current = setInterval(registerOpenTab, TAB_HEARTBEAT_MS);
+  };
+
+  const stopTabHeartbeat = () => {
+    if (tabHeartbeatRef.current) {
+      clearInterval(tabHeartbeatRef.current);
+      tabHeartbeatRef.current = null;
+    }
+  };
 
   const INACTIVITY_TIMEOUT = 30 * 60 * 1000;
 
@@ -102,6 +124,7 @@ export const AuthProvider = ({ children }) => {
     }
     managerIdRef.current = null;
     tabSessionIdRef.current = null;
+    stopTabHeartbeat();
   };
 
   const handleKicked = (startedAt) => {
@@ -131,15 +154,18 @@ export const AuthProvider = ({ children }) => {
 
     window.addEventListener('popstate', handlePopState);
 
-    // Best-effort: release this tab's claim on the account when the tab is
-    // closed or refreshed, so a plain reload doesn't leave a stale lock
-    // (verifyOrReclaimManagerSession silently reclaims it on the next load
-    // if nobody else has logged in during the gap — refresh keeps working).
-    // event.persisted means the page is going into the back/forward cache,
-    // not actually closing, so skip the release in that case.
+    // Best-effort: release the browser's claim on the account only when
+    // THIS was the last open tab of this browser, so closing one of
+    // several open tabs doesn't kick the tabs still open (same-browser
+    // tabs share one claim now — see managerSession.js). A plain reload
+    // doesn't lose the lock either way: verifyOrReclaimManagerSession
+    // silently reclaims it on the next load if nobody else has logged in
+    // during the gap. event.persisted means the page is going into the
+    // back/forward cache, not actually closing, so skip in that case.
     const handlePageHide = (event) => {
       if (event.persisted) return;
-      if (managerIdRef.current && tabSessionIdRef.current && sessionRef.current?.access_token) {
+      const wasLastTab = unregisterOpenTab();
+      if (wasLastTab && managerIdRef.current && tabSessionIdRef.current && sessionRef.current?.access_token) {
         releaseManagerSessionClaimBeacon(
           managerIdRef.current,
           tabSessionIdRef.current,
@@ -214,6 +240,7 @@ export const AuthProvider = ({ children }) => {
       managerIdRef.current = manager.manager_id;
       tabSessionIdRef.current = lockResult.tabSessionId;
       realtimeUnsubRef.current = subscribeManagerSession(manager.manager_id, handleKicked);
+      startTabHeartbeat();
 
       setUser(authUser);
       setIsManager(true);
@@ -303,8 +330,8 @@ if (event === 'SIGNED_OUT') {
               : null;
             toast.error(
               when
-                ? `This account was signed in from another device or tab at ${when}, so you were logged out here.`
-                : 'This account was just logged in from another device or tab, so you were logged out here.',
+                ? `This account was signed in from another browser or device at ${when}, so you were logged out here.`
+                : 'This account was just signed in from another browser or device, so you were logged out here.',
               { id: AUTH_TOAST_ID, duration: 6000 }
             );
             isKickedRef.current = false;
@@ -406,7 +433,7 @@ if (event === 'SIGNED_OUT') {
   };
 
   // Called when the person logging in confirms they want to take over the
-  // account from whatever tab/device currently holds it.
+  // account from whatever browser/device currently holds it.
   const confirmTakeOverSession = async () => {
     const managerId = pendingManagerIdRef.current;
     if (!managerId) return;
@@ -416,6 +443,7 @@ if (event === 'SIGNED_OUT') {
       managerIdRef.current = managerId;
       tabSessionIdRef.current = tabSessionId;
       realtimeUnsubRef.current = subscribeManagerSession(managerId, handleKicked);
+      startTabHeartbeat();
 
       const { data: { user: authUser } } = await supabase.auth.getUser();
       setUser(authUser);
@@ -430,7 +458,7 @@ if (event === 'SIGNED_OUT') {
   };
 
   // Called when the person logging in backs out instead — leaves the other
-  // tab/device signed in untouched and cancels this login attempt.
+  // browser/device signed in untouched and cancels this login attempt.
   const cancelTakeOverSession = async () => {
     pendingManagerIdRef.current = null;
     setSessionConflict(null);
