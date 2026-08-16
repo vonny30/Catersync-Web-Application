@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
-import { allocateEquipmentForBooking, checkEquipmentCapacityForDate } from '../utils/equipment';
+import { allocateEquipmentForBooking, getEquipmentAvailabilityPreview } from '../utils/equipment';
 import { sumVerifiedPositivePayments } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 
@@ -184,15 +184,38 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
         }
       }
 
-      // Snapshot of what this booking looked like before we touch it, so a
-      // cancel further down (equipment shortage) can put it back exactly
-      // as it was — not just the status, but pax/total/fee/notes too.
-      const originalBookingSnapshot = {
-        pax_count: approvalBooking.pax_count,
-        total_amount: approvalBooking.total_amount,
-        delivery_fee: approvalBooking.delivery_fee,
-        notes: approvalBooking.notes,
-      };
+      // 1.5 Equipment hard-block: don't allow approval at all if there isn't
+      // enough physical stock for this booking, given what's already
+      // committed to other Approved/Confirmed bookings on the same date.
+      // This is the same data the Equipment Allocation panel shows in the
+      // modal — no "Override & Approve" here, since approving anyway is
+      // exactly how a shortage on event day happens. The manager has to
+      // either free up stock on the Equipment page or resolve the
+      // conflicting booking first, then come back and approve.
+      if (approvalType === 'package' && approvalBooking.package_id && approvalBooking.event_datetime) {
+        const effectivePax = approvalBooking.pax_count + (approvalData.extraPax || 0);
+        const preview = await getEquipmentAvailabilityPreview(
+          approvalBooking.event_datetime,
+          approvalBooking.package_id,
+          effectivePax,
+          approvalBooking.booking_id
+        );
+        const shortages = preview.filter(item => !item.sufficient);
+        if (shortages.length > 0) {
+          const details = shortages
+            .map(s => `• ${s.eqm_name} — needs ${s.needed}, only ${s.freeBeforeThis} free of ${s.totalStock} total`)
+            .join('\n');
+          await showConfirm({
+            title: 'Not Enough Equipment for This Date',
+            message: `This booking can't be approved yet — the following items don't have enough stock left for ${eventDate ? eventDate.toLocaleDateString() : 'this date'}:\n\n${details}\n\nIncrease the stock on the Equipment page, or free it up by resolving the conflicting booking, then approve again.`,
+            confirmLabel: 'Got it',
+            cancelLabel: 'Close',
+            confirmVariant: 'danger',
+          });
+          setIsSubmitting(false);
+          return;
+        }
+      }
 
       // 2. Update booking – compute new total properly
       let updatePayload = { booking_status: 'Approved' };
@@ -236,14 +259,6 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
       const newTotal = approvalData.newTotal;
       const newStatus = (paidTotal >= newTotal && paidTotal > 0) ? 'Fully Paid' : 'Downpayment';
 
-      // Remember exactly which rows we're about to touch and what they
-      // were before, so a cancel further down can put them back — a
-      // Pending booking shouldn't be left with payments already marked
-      // Downpayment/Fully Paid from an approval that didn't go through.
-      const touchedPaymentSnapshots = (existingPayments || [])
-        .filter(p => ['Downpayment', 'Fully Paid'].includes(p.pay_status))
-        .map(p => ({ payment_id: p.payment_id, pay_status: p.pay_status }));
-
       if (paidTotal > 0) {
         const { error: updatePaymentsError } = await supabase
           .from('payment')
@@ -251,51 +266,6 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
           .eq('booking_id', approvalBooking.booking_id)
           .in('pay_status', ['Downpayment', 'Fully Paid']);
         if (updatePaymentsError) throw updatePaymentsError;
-      }
-
-      // 5. Equipment capacity check (packages only)
-      if (approvalType === 'package' && approvalBooking.package_id) {
-        try {
-          const eventDate = approvalBooking.event_datetime;
-          const shortages = await checkEquipmentCapacityForDate(eventDate, approvalBooking.booking_id);
-          if (shortages.length > 0) {
-            const details = shortages.map(s => `${s.eqm_name}: needed ${s.needed}, available ${s.available}`).join('\n');
-            const override = await showConfirm({
-              title: '⚠️ Equipment Shortage',
-              message: `The following items are insufficient for this date:\n\n${details}\n\nOverride may cause issues on event day.\nDo you still want to approve?`,
-              confirmLabel: 'Override & Approve',
-              cancelLabel: 'Cancel Approval',
-              confirmVariant: 'danger',
-            });
-            if (!override) {
-              // Full rollback: booking status AND the pax/total/fee/notes
-              // this approval attempt had already written, plus any
-              // payment rows it had already marked Downpayment/Fully Paid
-              // — otherwise a cancelled approval leaves the booking back
-              // at Pending but with post-approval numbers stuck on it.
-              await supabase
-                .from('booking')
-                .update({ booking_status: 'Pending', ...originalBookingSnapshot })
-                .eq('booking_id', approvalBooking.booking_id);
-              await supabase.from('booking_equipment').delete().eq('booking_id', approvalBooking.booking_id);
-              for (const p of touchedPaymentSnapshots) {
-                await supabase
-                  .from('payment')
-                  .update({ pay_status: p.pay_status })
-                  .eq('payment_id', p.payment_id);
-              }
-              setIsSubmitting(false);
-              return;
-            } else {
-              await supabase
-                .from('booking')
-                .update({ notes: `${approvalBooking.notes || ''}\n[WARNING] Equipment overbooked for this date.` })
-                .eq('booking_id', approvalBooking.booking_id);
-            }
-          }
-        } catch (capError) {
-          console.warn('Equipment capacity check failed:', capError);
-        }
       }
 
       setIsApprovalModalOpen(false);
