@@ -213,10 +213,16 @@ export default function PackagesAndMenus() {
     });
   };
 
+  // Doesn't force-correct what they type — the input shows a live inline
+  // warning instead (see ItemFormModal) if it exceeds stock, and submit is
+  // blocked by the check in validatePackageForm. Avoids toast spam while
+  // someone's mid-keystroke.
   const handleEquipmentQuantityChange = (equipmentId, quantity) => {
+    let parsed = parseInt(quantity) || 1;
+    if (parsed < 1) parsed = 1;
     setFormData(prev => ({
       ...prev,
-      equipmentQuantities: { ...prev.equipmentQuantities, [equipmentId]: parseInt(quantity) || 1 },
+      equipmentQuantities: { ...prev.equipmentQuantities, [equipmentId]: parsed },
     }));
   };
 
@@ -227,7 +233,7 @@ export default function PackagesAndMenus() {
       toast.error('Please enter a color name.');
       return;
     }
-    if (formData.colors && formData.colors.includes(color)) {
+    if (formData.colors && formData.colors.some(c => c.toLowerCase() === color.toLowerCase())) {
       toast.error('Color already exists.');
       return;
     }
@@ -372,7 +378,7 @@ export default function PackagesAndMenus() {
   // ✅ VALIDATION – with duplicate check, image, and description
   // ============================================================
   const validatePackageForm = async () => {
-    const { title, price, minPax, selectedCategories, selectedEquipment, equipmentQuantities, description, imageFile } = formData;
+    const { title, price, minPax, selectedCategories, selectedEquipment, equipmentQuantities, description, imageFile, pricing_type, max_pax, extra_pax_price } = formData;
 
     // 1. Title
     if (!title || title.trim() === '') {
@@ -401,6 +407,30 @@ export default function PackagesAndMenus() {
       return false;
     }
 
+    // 4b. Fixed-pricing fields — same "shouldn't allow an impossible value"
+    // trap as equipment quantity: Max Pax Included can't be below the
+    // package's own Minimum Pax, and Extra Pax Price can't be negative.
+    if (pricing_type === 'fixed') {
+      if (max_pax !== '' && max_pax !== null && max_pax !== undefined) {
+        const maxPaxNum = parseInt(max_pax);
+        if (isNaN(maxPaxNum) || maxPaxNum < 1) {
+          toast.error('Max Pax Included must be at least 1.');
+          return false;
+        }
+        if (maxPaxNum < minPaxNum) {
+          toast.error(`Max Pax Included (${maxPaxNum}) can't be less than Minimum Pax (${minPaxNum}).`);
+          return false;
+        }
+      }
+      if (extra_pax_price !== '' && extra_pax_price !== null && extra_pax_price !== undefined) {
+        const extraPriceNum = parseFloat(extra_pax_price);
+        if (isNaN(extraPriceNum) || extraPriceNum < 0) {
+          toast.error('Extra Pax Price cannot be negative.');
+          return false;
+        }
+      }
+    }
+
     // 5. ✅ DESCRIPTION is required
     if (!description || description.trim() === '') {
       toast.error('Package description is required.');
@@ -422,11 +452,16 @@ export default function PackagesAndMenus() {
       return false;
     }
 
-    // 8. Check equipment quantities
+    // 8. Check equipment quantities — must be at least 1 and not exceed current stock
     if (hasEquipment) {
       for (const [equipId, qty] of Object.entries(equipmentQuantities)) {
         if (qty < 1) {
           toast.error('Equipment quantities must be at least 1.');
+          return false;
+        }
+        const eq = equipment.find(e => e.equipment_id === equipId);
+        if (eq && qty > eq.quantity_available) {
+          toast.error(`"${eq.eqm_name}" quantity (${qty}) exceeds available stock (${eq.quantity_available}).`);
           return false;
         }
       }

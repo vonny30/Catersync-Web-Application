@@ -40,7 +40,6 @@ export default function Equipment() {
     damagedQuantity: 0,
     maintenanceQuantity: 0,
     description: '',
-    condition: 'Good Condition',
     equipmentType: 'Countable',
     paxPerUnit: '',
   });
@@ -52,7 +51,6 @@ export default function Equipment() {
     damaged_quantity: 0,
     maintenance_quantity: 0,
     eqm_description: '',
-    eqm_status: 'Good Condition',
     equipment_type: 'Countable',
     pax_per_unit: null,
   });
@@ -65,6 +63,25 @@ export default function Equipment() {
   const [assignmentQueue, setAssignmentQueue] = useState([]);
   const [tempEquipId, setTempEquipId] = useState('');
   const [tempQuantity, setTempQuantity] = useState(1);
+
+  // --- Condition is derived from the actual damaged/maintenance counts,
+  // never set manually — a free-text "Condition" field used to exist
+  // alongside these counts and could silently drift out of sync with them
+  // (e.g. showing "Good Condition" while damaged_quantity > 0). ---
+  const getConditionSummary = (item) => {
+    const damaged = item.damaged_quantity || 0;
+    const maintenance = item.maintenance_quantity || 0;
+    if (damaged > 0 && maintenance > 0) {
+      return { label: `${damaged} Damaged, ${maintenance} In Maint.`, dbValue: 'Needs Attention', className: 'bg-red-50 border-red-200 text-red-600' };
+    }
+    if (damaged > 0) {
+      return { label: `${damaged} Damaged`, dbValue: 'Damaged', className: 'bg-red-50 border-red-200 text-red-600' };
+    }
+    if (maintenance > 0) {
+      return { label: `${maintenance} In Maintenance`, dbValue: 'Under Maintenance', className: 'bg-yellow-50 border-yellow-200 text-yellow-700' };
+    }
+    return { label: 'All Good', dbValue: 'Good Condition', className: 'bg-[#CBDEDD]/60 border-[#a3c7c4] text-slate-800' };
+  };
 
   // --- Helper: generate structured booking reference ---
   const getBookingRef = (booking) => {
@@ -258,7 +275,7 @@ export default function Equipment() {
           quantity_available: available,
           damaged_quantity: damaged,
           maintenance_quantity: maintenance,
-          eqm_status: addFormData.condition,
+          eqm_status: getConditionSummary({ damaged_quantity: damaged, maintenance_quantity: maintenance }).dbValue,
           equipment_type: addFormData.equipmentType,
           pax_per_unit: paxPerUnit,
         }]);
@@ -295,7 +312,6 @@ export default function Equipment() {
       damaged_quantity: item.damaged_quantity || 0,
       maintenance_quantity: item.maintenance_quantity || 0,
       eqm_description: item.eqm_description || '',
-      eqm_status: item.eqm_status || 'Good Condition',
       equipment_type: item.equipment_type || 'Countable',
       pax_per_unit: item.pax_per_unit || null,
     });
@@ -342,7 +358,7 @@ export default function Equipment() {
           quantity_available: available,
           damaged_quantity: damaged,
           maintenance_quantity: maintenance,
-          eqm_status: editFormData.eqm_status,
+          eqm_status: getConditionSummary({ damaged_quantity: damaged, maintenance_quantity: maintenance }).dbValue,
           equipment_type: editFormData.equipment_type,
           pax_per_unit: paxPerUnit,
         })
@@ -427,7 +443,8 @@ export default function Equipment() {
     }
 
     if (tempQuantity > equip.quantity_available) {
-      toast.warning(`You are assigning ${tempQuantity}, but only ${equip.quantity_available} available.`);
+      toast.error(`Only ${equip.quantity_available} "${equip.eqm_name}" in stock — can't assign ${tempQuantity}.`);
+      return;
     }
 
     if (selectedBooking) {
@@ -463,19 +480,30 @@ export default function Equipment() {
       return;
     }
 
+    // Quantity-aware capacity check — equipment isn't exclusive to one event
+    // per day, there's just a finite amount of it. Sum what's already
+    // committed to OTHER bookings on the same date and make sure adding
+    // this request wouldn't exceed total stock.
     const eventDate = selectedBooking?.event_datetime ? new Date(selectedBooking.event_datetime) : null;
     if (eventDate) {
       for (const item of assignmentQueue) {
-        const conflict = assignments.some(a =>
-          a.equipment_id === item.equipment_id &&
-          a.booking?.event_datetime &&
-          new Date(a.booking.event_datetime).toDateString() === eventDate.toDateString() &&
-          a.booking_id !== assignFormData.booking_id &&
-          !a.returned
-        );
-        if (conflict) {
-          const equip = equipmentList.find(e => e.equipment_id === item.equipment_id);
-          toast.error(`"${equip?.eqm_name || 'Equipment'}" is already assigned to another event on ${eventDate.toLocaleDateString()}.`);
+        const equip = equipmentList.find(e => e.equipment_id === item.equipment_id);
+        if (!equip) continue;
+        const alreadyCommitted = assignments
+          .filter(a =>
+            a.equipment_id === item.equipment_id &&
+            a.booking?.event_datetime &&
+            new Date(a.booking.event_datetime).toDateString() === eventDate.toDateString() &&
+            a.booking_id !== assignFormData.booking_id &&
+            !a.returned
+          )
+          .reduce((sum, a) => sum + (a.quantity || 0), 0);
+        const totalNeeded = alreadyCommitted + item.quantity;
+        if (totalNeeded > equip.quantity_available) {
+          toast.error(
+            `"${equip.eqm_name}": ${alreadyCommitted} already committed to other events on ${eventDate.toLocaleDateString()}, ` +
+            `plus ${item.quantity} requested exceeds the ${equip.quantity_available} in stock.`
+          );
           return;
         }
       }
@@ -697,14 +725,15 @@ export default function Equipment() {
                         {item.pax_per_unit ? `${item.pax_per_unit} pax` : '—'}
                       </td>
                       <td className="p-4 text-center">
-                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold 
-                          ${item.eqm_status === 'Good Condition' ? 'bg-[#CBDEDD]/60 border-[#a3c7c4] text-slate-800' : 
-                            item.eqm_status === 'Damaged' ? 'bg-red-50 border-red-200 text-red-600' :
-                            'bg-yellow-50 border-yellow-200 text-yellow-700'}`}
-                        >
-                          <CheckCircle size={12} className={item.eqm_status === 'Good Condition' ? 'text-[#008A45]' : 'text-slate-400'} />
-                          {item.eqm_status}
-                        </span>
+                        {(() => {
+                          const condition = getConditionSummary(item);
+                          return (
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${condition.className}`}>
+                              <CheckCircle size={12} className={condition.dbValue === 'Good Condition' ? 'text-[#008A45]' : 'text-slate-400'} />
+                              {condition.label}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="p-4 text-center">
                         <button
@@ -898,7 +927,7 @@ export default function Equipment() {
                   />
                 </div>
               </div>
-              <p className="text-xs text-slate-400 -mt-2">Damaged + Maintenance cannot exceed Total Quantity</p>
+              <p className="text-xs text-slate-400 -mt-2">Damaged + Maintenance cannot exceed Total Quantity. Overall condition is set automatically from these counts.</p>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Equipment Type</label>
@@ -935,19 +964,6 @@ export default function Equipment() {
                   <p className="text-xs text-slate-400 mt-1">Used to auto‑calculate needed quantity based on guest count.</p>
                 </div>
               )}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Condition</label>
-                <select
-                  name="condition"
-                  value={addFormData.condition}
-                  onChange={handleAddInputChange}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                >
-                  <option value="Good Condition">Good Condition</option>
-                  <option value="Damaged">Damaged</option>
-                  <option value="Under Maintenance">Under Maintenance</option>
-                </select>
-              </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Description</label>
                 <textarea
@@ -1001,7 +1017,7 @@ export default function Equipment() {
                   <input type="number" name="maintenance_quantity" min="0" value={editFormData.maintenance_quantity} onChange={handleEditInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm font-semibold text-amber-600 focus:ring-2 focus:ring-amber-200 focus:border-amber-400 outline-none" />
                 </div>
               </div>
-              <p className="text-xs text-slate-400 -mt-2">Damaged + Maintenance cannot exceed Total Quantity</p>
+              <p className="text-xs text-slate-400 -mt-2">Damaged + Maintenance cannot exceed Total Quantity. Overall condition is set automatically from these counts.</p>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Equipment Type</label>
@@ -1016,14 +1032,6 @@ export default function Equipment() {
                   <input type="number" name="pax_per_unit" min="1" value={editFormData.pax_per_unit || ''} onChange={handleEditInputChange} placeholder="e.g., 1 for chair, 10 for table" className="w-full border border-slate-300 rounded-lg p-2.5 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" />
                 </div>
               )}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Condition</label>
-                <select name="eqm_status" value={editFormData.eqm_status} onChange={handleEditInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none">
-                  <option value="Good Condition">Good Condition</option>
-                  <option value="Damaged">Damaged</option>
-                  <option value="Under Maintenance">Under Maintenance</option>
-                </select>
-              </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Description</label>
                 <textarea name="eqm_description" rows="3" placeholder="Type description..." value={editFormData.eqm_description} onChange={handleEditInputChange} className="w-full border border-slate-300 rounded-lg p-3 text-sm text-slate-700 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none" />
@@ -1395,14 +1403,15 @@ export default function Equipment() {
                           {item.pax_per_unit ? `${item.pax_per_unit} pax` : '—'}
                         </td>
                         <td className="p-3 text-center">
-                          <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-bold 
-                            ${item.eqm_status === 'Good Condition' ? 'bg-[#CBDEDD]/60 border-[#a3c7c4] text-slate-800' : 
-                              item.eqm_status === 'Damaged' ? 'bg-red-50 border-red-200 text-red-600' :
-                              'bg-yellow-50 border-yellow-200 text-yellow-700'}`}
-                          >
-                            <CheckCircle size={12} className={item.eqm_status === 'Good Condition' ? 'text-[#008A45]' : 'text-slate-400'} />
-                            {item.eqm_status}
-                          </span>
+                          {(() => {
+                            const condition = getConditionSummary(item);
+                            return (
+                              <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-bold ${condition.className}`}>
+                                <CheckCircle size={12} className={condition.dbValue === 'Good Condition' ? 'text-[#008A45]' : 'text-slate-400'} />
+                                {condition.label}
+                              </span>
+                            );
+                          })()}
                         </td>
                       </tr>
                     ))}

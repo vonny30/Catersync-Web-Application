@@ -561,11 +561,19 @@ export default function BookingDetails() {
       const oldPackageId = booking.package_id;
       const newPackageId = editFormData.package_id;
       const packageChanged = newPackageId && newPackageId !== oldPackageId;
+      const newPaxCount = parseInt(editFormData.pax_count) || 0;
+      const paxChanged = newPaxCount !== (booking.pax_count || 0);
+      // Whichever package is actually in effect after this save — needed so
+      // a pax-only change (package unchanged) still knows what to re-allocate against.
+      const effectivePackageId = newPackageId || oldPackageId;
+      const shouldReallocateEquipment = !!effectivePackageId && (packageChanged || paxChanged);
 
-      if (packageChanged) {
+      if (packageChanged || paxChanged) {
         const shouldContinue = await showConfirm({
-          title: 'Package Changed',
-          message: 'You have changed the package. Equipment assignments will be re‑allocated based on the new package. Continue?',
+          title: packageChanged ? 'Package Changed' : 'Guest Count Changed',
+          message: packageChanged
+            ? 'You have changed the package. Equipment assignments will be re‑allocated based on the new package. Continue?'
+            : 'You have changed the guest count. Equipment assignments will be recalculated to match. Continue?',
           confirmLabel: 'Continue',
           confirmVariant: 'warning',
         });
@@ -595,13 +603,16 @@ export default function BookingDetails() {
         .eq('booking_id', id);
       if (error) throw error;
 
-      // --- Re‑allocate equipment if package changed ---
-      if (packageChanged && newPackageId) {
+      // --- Re‑allocate equipment if the package or the guest count changed ---
+      // (guest count matters because Countable equipment quantities are
+      // computed from pax_count — leaving old equipment in place after a
+      // pax change would silently under/over-provision the event)
+      if (shouldReallocateEquipment) {
         // Delete existing equipment assignments for this booking
         await supabase.from('booking_equipment').delete().eq('booking_id', id);
-        // Allocate new equipment based on the new package
+        // Allocate equipment based on the (possibly new) package and pax count
         try {
-          await allocateEquipmentForBooking(id, newPackageId, parseInt(editFormData.pax_count) || 0);
+          await allocateEquipmentForBooking(id, effectivePackageId, newPaxCount);
           toast.success('Equipment re‑allocated successfully.');
         } catch (allocError) {
           console.warn('Equipment re‑allocation warning:', allocError);

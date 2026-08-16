@@ -198,6 +198,10 @@ export const checkEquipmentCapacityForDate = async (eventDate, excludeBookingId 
       manualMap[a.equipment_id] += a.quantity;
     });
 
+    // Bookings that already have real booking_equipment rows (the normal
+    // case — allocated at approval time, or re-allocated on edit).
+    const bookingIdsWithRealAllocations = new Set(manualAssignments.map(a => a.booking_id));
+
     // Compute package-based demand and merge with manual assignments
     const totalDemand = {};
 
@@ -206,9 +210,12 @@ export const checkEquipmentCapacityForDate = async (eventDate, excludeBookingId 
       totalDemand[eqId] = (totalDemand[eqId] || 0) + qty;
     }
 
-    // Add package-based demand
+    // Add THEORETICAL package-based demand only for approved bookings that
+    // don't already have real booking_equipment rows — otherwise a normal
+    // approved booking gets counted twice (once for its real rows above,
+    // once again here from recomputing its package template from scratch).
     for (const booking of bookings) {
-      if (booking.package_id) {
+      if (booking.package_id && !bookingIdsWithRealAllocations.has(booking.booking_id)) {
         const demand = await computeEquipmentDemand(booking.package_id, booking.pax_count);
         for (const [eqId, qty] of Object.entries(demand)) {
           totalDemand[eqId] = (totalDemand[eqId] || 0) + qty;

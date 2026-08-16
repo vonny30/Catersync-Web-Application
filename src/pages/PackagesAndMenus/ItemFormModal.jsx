@@ -203,22 +203,45 @@ export default function ItemFormModal({
                     </div>
                   </div>
 
-                  {formData.pricing_type === 'fixed' && (
-                    <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1.5">Max Pax Included</label>
-                        <input type="number" name="max_pax" value={formData.max_pax} onChange={onInputChange}
-                          placeholder="e.g. 100" className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" disabled={isSubmitting} />
-                        <p className="text-xs text-slate-400 mt-1">Different from Min Pax above — guests beyond this number pay the extra fee below.</p>
+                  {formData.pricing_type === 'fixed' && (() => {
+                    const minPaxNum = parseInt(formData.minPax) || 0;
+                    const maxPaxNum = formData.max_pax === '' ? null : parseInt(formData.max_pax);
+                    const maxPaxTooLow = maxPaxNum !== null && !isNaN(maxPaxNum) && maxPaxNum < minPaxNum;
+                    const extraPriceNum = formData.extra_pax_price === '' ? null : parseFloat(formData.extra_pax_price);
+                    const extraPriceNegative = extraPriceNum !== null && !isNaN(extraPriceNum) && extraPriceNum < 0;
+                    return (
+                      <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1.5">Max Pax Included</label>
+                          <input type="number" name="max_pax" min={minPaxNum || 1} value={formData.max_pax} onChange={onInputChange}
+                            placeholder="e.g. 100"
+                            className={`w-full border rounded-lg p-2.5 text-sm focus:ring-2 outline-none ${maxPaxTooLow ? 'border-red-400 focus:ring-red-200' : 'border-slate-300 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
+                            disabled={isSubmitting} />
+                          {maxPaxTooLow ? (
+                            <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                              <AlertTriangle size={12} /> Can't be less than Minimum Pax ({minPaxNum}).
+                            </p>
+                          ) : (
+                            <p className="text-xs text-slate-400 mt-1">Different from Min Pax above — guests beyond this number pay the extra fee below.</p>
+                          )}
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1.5">Extra Pax Price (₱)</label>
+                          <input type="number" name="extra_pax_price" min="0" value={formData.extra_pax_price} onChange={onInputChange}
+                            placeholder="e.g. 250"
+                            className={`w-full border rounded-lg p-2.5 text-sm focus:ring-2 outline-none ${extraPriceNegative ? 'border-red-400 focus:ring-red-200' : 'border-slate-300 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
+                            disabled={isSubmitting} />
+                          {extraPriceNegative ? (
+                            <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                              <AlertTriangle size={12} /> Can't be negative.
+                            </p>
+                          ) : (
+                            <p className="text-xs text-slate-400 mt-1">Price per guest above max</p>
+                          )}
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1.5">Extra Pax Price (₱)</label>
-                        <input type="number" name="extra_pax_price" value={formData.extra_pax_price} onChange={onInputChange}
-                          placeholder="e.g. 250" className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" disabled={isSubmitting} />
-                        <p className="text-xs text-slate-400 mt-1">Price per guest above max</p>
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </FormSection>
 
                 <FormSection title="Customization">
@@ -337,34 +360,43 @@ export default function ItemFormModal({
                             const isSelected = (formData.selectedEquipment || []).includes(eq.equipment_id);
                             const isCountable = eq.equipment_type === 'Countable';
                             const hasPaxPerUnit = isCountable && Number(eq.pax_per_unit) > 0;
+                            const currentQty = formData.equipmentQuantities?.[eq.equipment_id] || 1;
+                            const exceedsStock = isSelected && !hasPaxPerUnit && currentQty > eq.quantity_available;
                             return (
-                              <div key={eq.equipment_id} className="flex items-center gap-3 text-sm">
-                                <label className="flex items-center gap-2 cursor-pointer flex-1">
-                                  <input type="checkbox"
-                                    checked={isSelected}
-                                    onChange={() => onEquipmentSelection(eq.equipment_id, 1)}
-                                    disabled={isSubmitting}
-                                    className="w-4 h-4 text-[#008A45] focus:ring-[#008A45]" />
-                                  {eq.eqm_name} (total stock: {eq.quantity_available})
-                                  {!isCountable && <span className="ml-1 text-xs text-purple-600 font-medium">(Decoration – 1 per event)</span>}
-                                  {hasPaxPerUnit && <span className="ml-1 text-xs text-blue-600 font-medium">(Auto: 1 per {eq.pax_per_unit} pax)</span>}
-                                  {isCountable && !hasPaxPerUnit && <span className="ml-1 text-xs text-amber-600 font-medium">(Countable – no pax-per-unit set)</span>}
-                                </label>
-                                {isSelected && (
-                                  hasPaxPerUnit ? (
-                                    <span className="text-xs text-slate-400 italic whitespace-nowrap" title="Calculated automatically from guest count when a booking is approved — this quantity isn't used.">
-                                      Auto-calculated
-                                    </span>
-                                  ) : (
-                                    <div className="flex items-center gap-1">
-                                      <label className="text-xs text-slate-600">Qty:</label>
-                                      <input type="number" min="1"
-                                        value={formData.equipmentQuantities?.[eq.equipment_id] || 1}
-                                        onChange={(e) => onEquipmentQuantityChange(eq.equipment_id, e.target.value)}
-                                        className="w-16 border border-slate-300 rounded p-1 text-sm"
-                                        disabled={isSubmitting} />
-                                    </div>
-                                  )
+                              <div key={eq.equipment_id} className="text-sm">
+                                <div className="flex items-center gap-3">
+                                  <label className="flex items-center gap-2 cursor-pointer flex-1">
+                                    <input type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() => onEquipmentSelection(eq.equipment_id, 1)}
+                                      disabled={isSubmitting}
+                                      className="w-4 h-4 text-[#008A45] focus:ring-[#008A45]" />
+                                    {eq.eqm_name} (total stock: {eq.quantity_available})
+                                    {!isCountable && <span className="ml-1 text-xs text-purple-600 font-medium">(Decoration – 1 per event)</span>}
+                                    {hasPaxPerUnit && <span className="ml-1 text-xs text-blue-600 font-medium">(Auto: 1 per {eq.pax_per_unit} pax)</span>}
+                                    {isCountable && !hasPaxPerUnit && <span className="ml-1 text-xs text-amber-600 font-medium">(Countable – no pax-per-unit set)</span>}
+                                  </label>
+                                  {isSelected && (
+                                    hasPaxPerUnit ? (
+                                      <span className="text-xs text-slate-400 italic whitespace-nowrap" title="Calculated automatically from guest count when a booking is approved — this quantity isn't used.">
+                                        Auto-calculated
+                                      </span>
+                                    ) : (
+                                      <div className="flex items-center gap-1">
+                                        <label className="text-xs text-slate-600">Qty (max {eq.quantity_available}):</label>
+                                        <input type="number" min="1" max={eq.quantity_available}
+                                          value={currentQty}
+                                          onChange={(e) => onEquipmentQuantityChange(eq.equipment_id, e.target.value)}
+                                          className={`w-16 border rounded p-1 text-sm ${exceedsStock ? 'border-red-400 focus:ring-1 focus:ring-red-300' : 'border-slate-300'}`}
+                                          disabled={isSubmitting} />
+                                      </div>
+                                    )
+                                  )}
+                                </div>
+                                {exceedsStock && (
+                                  <p className="text-xs text-red-500 mt-0.5 flex items-center gap-1 pl-6">
+                                    <AlertTriangle size={12} /> Only {eq.quantity_available} in stock — lower this before saving.
+                                  </p>
                                 )}
                               </div>
                             );
