@@ -5,7 +5,6 @@ import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { allocateEquipmentForBooking, getEquipmentAvailabilityPreview } from '../utils/equipment';
 import { sumVerifiedPositivePayments } from '../utils/payments';
-import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 
 export function useApprovalHandlers({ booking, payments, fetchData }) {
   const { showConfirm } = useConfirm();
@@ -127,7 +126,8 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
       // before approving belongs earlier (Day Availability / Equipment
       // Availability panels), not as a payment warning at this step.
 
-      // 1. Conflict check: other approved events on same day
+      // 1. Past-date warning — still a soft check, since approving a
+      // backdated event doesn't put stock or capacity at risk, just reports.
       const eventDate = approvalBooking.event_datetime ? new Date(approvalBooking.event_datetime) : null;
       if (eventDate) {
         const now = new Date();
@@ -138,43 +138,6 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
             message: `This event is ${Math.abs(diffDays)} days ago. Approving a past event may affect reports. Do you still want to approve?`,
             confirmLabel: 'Yes, Approve Anyway',
             cancelLabel: 'Cancel Approval',
-            confirmVariant: 'warning',
-          });
-          if (!proceed) {
-            setIsSubmitting(false);
-            return;
-          }
-        }
-
-        const startOfDay = new Date(eventDate);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(eventDate);
-        endOfDay.setHours(23, 59, 59, 999);
-        const startISO = startOfDay.toISOString();
-        const endISO = endOfDay.toISOString();
-
-        const { data: otherEvents, error: conflictError } = await supabase
-          .from('booking')
-          .select(`booking_id, booking_type, venue, event_datetime, customer:customer_id (first_name, last_name)`)
-          .in('booking_status', ACTIVE_BOOKING_STATUSES)
-          .neq('booking_id', approvalBooking.booking_id)
-          .gte('event_datetime', startISO)
-          .lte('event_datetime', endISO);
-
-        if (conflictError) throw conflictError;
-
-        if (otherEvents && otherEvents.length > 0) {
-          const list = otherEvents.map(e => {
-            const cust = e.customer ? `${e.customer.first_name} ${e.customer.last_name}` : 'Unknown';
-            const time = e.event_datetime ? new Date(e.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-            const type = e.booking_type === 'Short Order' ? 'Short Order' : 'Package';
-            return `• ${cust} (${type}) at ${e.venue || 'N/A'} – ${time}`;
-          }).join('\n');
-          const proceed = await showConfirm({
-            title: '⚠️ Existing Events on This Date',
-            message: `The following events are already approved on ${eventDate.toLocaleDateString()}:\n\n${list}\n\nDo you still want to approve this booking?`,
-            confirmLabel: 'Approve Anyway',
-            cancelLabel: 'Cancel',
             confirmVariant: 'warning',
           });
           if (!proceed) {
