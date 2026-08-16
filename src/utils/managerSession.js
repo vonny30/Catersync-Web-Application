@@ -7,7 +7,8 @@
 // this id — opening a second tab of an already-logged-in browser just
 // joins the existing session instead of being treated as a takeover.
 // Only a genuinely different browser/profile/device (separate localStorage)
-// triggers the takeover confirmation.
+// triggers a takeover — a fresh login there always claims the session
+// outright and the previously-logged-in side is notified it was kicked.
 //
 // Requires the SQL migration in sql/manager_session_lock.sql to be run
 // against the Supabase project (adds the column + enables Realtime on
@@ -70,20 +71,6 @@ export function unregisterOpenTab() {
   const stillAlive = Object.values(tabs).some(ts => now - ts < STALE_TAB_MS);
   writeOpenTabs(tabs);
   return !stillAlive;
-}
-
-// Read-only check used right before a fresh login finalizes: is someone
-// else already holding the claim? Returns null if the coast is clear, or
-// { since } if another browser/device currently owns the session — the
-// caller can then ask the person logging in to confirm before we steal it.
-export async function peekManagerSessionConflict(managerId) {
-  const { data, error } = await supabase
-    .from('manager')
-    .select('active_session_id, active_session_started_at')
-    .eq('manager_id', managerId)
-    .maybeSingle();
-  if (error || !data?.active_session_id) return null;
-  return { since: data.active_session_started_at };
 }
 
 // Unconditionally takes ownership of the manager's active session,

@@ -8,7 +8,6 @@ import {
   releaseManagerSessionClaim,
   releaseManagerSessionClaimBeacon,
   subscribeManagerSession,
-  peekManagerSessionConflict,
   registerOpenTab,
   unregisterOpenTab,
 } from '../utils/managerSession';
@@ -24,13 +23,6 @@ export const AuthProvider = ({ children }) => {
   // blanking the whole app, so the UI doesn't flicker/reload mid-flow.
   const [initializing, setInitializing] = useState(true);
   const [isManager, setIsManager] = useState(false);
-  // Set when a fresh login detects the account is already active on
-  // another browser/device — pauses the login until the person confirms
-  // they want to take over (instead of silently kicking the other side).
-  // Never fires for a second tab of the SAME browser — those share one
-  // session automatically (see managerSession.js).
-  const [sessionConflict, setSessionConflict] = useState(null);
-  const pendingManagerIdRef = useRef(null);
   const kickedAtRef = useRef(null);
   const isCreatingWalkIn = useRef(false);
   const inactivityTimerRef = useRef(null);
@@ -224,19 +216,12 @@ export const AuthProvider = ({ children }) => {
       // --- Single active session enforcement ---
       let lockResult;
       if (isFreshSignIn) {
-        // Before stealing anything, check whether the account is already
-        // active elsewhere. If so, pause here and let the person logging
-        // in confirm the takeover instead of silently kicking the other
-        // side — see confirmTakeOverSession/cancelTakeOverSession below.
-        const conflict = await peekManagerSessionConflict(manager.manager_id);
-        if (conflict) {
-          console.log('[session-lock] Fresh sign-in found an existing claim — pausing for confirmation.', conflict);
-          pendingManagerIdRef.current = manager.manager_id;
-          setSessionConflict(conflict);
-          return false;
-        }
+        // A fresh login always claims the session outright, kicking out
+        // whatever browser/device was previously logged in as this
+        // manager. The kicked side gets a clear notification (see the
+        // 'kicked' toast below) — no confirmation prompt on this side.
         const tabSessionId = await claimManagerSession(manager.manager_id);
-        console.log('[session-lock] Claimed (fresh sign-in, no prior claim found):', tabSessionId);
+        console.log('[session-lock] Claimed (fresh sign-in):', tabSessionId);
         lockResult = { status: 'claimed', tabSessionId };
       } else {
         lockResult = await verifyOrReclaimManagerSession(manager.manager_id);
@@ -445,43 +430,8 @@ if (event === 'SIGNED_OUT') {
     await supabase.auth.signOut();
   };
 
-  // Called when the person logging in confirms they want to take over the
-  // account from whatever browser/device currently holds it.
-  const confirmTakeOverSession = async () => {
-    const managerId = pendingManagerIdRef.current;
-    if (!managerId) return;
-    try {
-      const tabSessionId = await claimManagerSession(managerId);
-      console.log('[session-lock] Claimed (confirmed takeover):', tabSessionId);
-      teardownSessionLock();
-      managerIdRef.current = managerId;
-      tabSessionIdRef.current = tabSessionId;
-      realtimeUnsubRef.current = subscribeManagerSession(managerId, handleKicked);
-      startTabHeartbeat();
-
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      setUser(authUser);
-      setIsManager(true);
-      retryCount.current = 0;
-      const rememberMe = localStorage.getItem('rememberMe') === 'true';
-      if (!rememberMe) resetInactivityTimer();
-    } finally {
-      pendingManagerIdRef.current = null;
-      setSessionConflict(null);
-    }
-  };
-
-  // Called when the person logging in backs out instead — leaves the other
-  // browser/device signed in untouched and cancels this login attempt.
-  const cancelTakeOverSession = async () => {
-    pendingManagerIdRef.current = null;
-    setSessionConflict(null);
-    isSilentLogoutRef.current = true; // Login.jsx shows its own message
-    await supabase.auth.signOut();
-  };
-
   return (
-    <AuthContext.Provider value={{ user, loading, initializing, isManager, login, logout, withWalkInCreation, sessionConflict, confirmTakeOverSession, cancelTakeOverSession }}>
+    <AuthContext.Provider value={{ user, loading, initializing, isManager, login, logout, withWalkInCreation }}>
       {children}
     </AuthContext.Provider>
   );
