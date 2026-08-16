@@ -33,28 +33,15 @@ export default function Login() {
     if (savedEmail && rememberMe) {
       setFormData(prev => ({ ...prev, email: savedEmail, rememberMe: true }));
     }
-
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const { data: manager } = await supabase
-          .from('manager')
-          .select('manager_id')
-          .eq('user_id', session.user.id)
-          .maybeSingle();
-        if (manager) {
-          window.history.replaceState(null, '', '/app');
-          window.location.replace('/app');
-        }
-      }
-    };
-    checkSession();
-
-    window.history.replaceState(null, '', window.location.href);
-  }, [navigate]);
+  }, []);
 
   // Once AuthContext confirms this is a fully-authenticated manager
-  // (password verified, session lock claimed), move into the app.
+  // (password verified, session lock claimed), move into the app. This is
+  // the ONLY redirect-away-from-login path — it's a normal in-app
+  // navigation (no full page reload), so landing here while already
+  // logged in just moves on to /app once, instead of hard-reloading the
+  // whole page (which used to race with this effect and could bounce
+  // back and forth between / and /app on a slow connection).
   useEffect(() => {
     if (!authLoading && isManager) {
       toast.success('Welcome back!');
