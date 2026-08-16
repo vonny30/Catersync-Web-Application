@@ -8,7 +8,14 @@ import toast from 'react-hot-toast';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { isManager, loading: authLoading } = useAuth();
+  const {
+    isManager,
+    loading: authLoading,
+    sessionConflict,
+    confirmTakeOverSession,
+    cancelTakeOverSession,
+  } = useAuth();
+  const [resolvingConflict, setResolvingConflict] = useState(false);
 
   const [formData, setFormData] = useState({
     email: '',
@@ -50,9 +57,28 @@ export default function Login() {
   // (password verified, session lock claimed), move into the app.
   useEffect(() => {
     if (!authLoading && isManager) {
+      toast.success('Welcome back!');
       navigate('/app');
     }
   }, [authLoading, isManager, navigate]);
+
+  const handleCancelTakeOver = async () => {
+    setResolvingConflict(true);
+    await cancelTakeOverSession();
+    setResolvingConflict(false);
+    toast('Login cancelled. The other tab or device is still signed in.', { icon: 'ℹ️' });
+  };
+
+  const handleConfirmTakeOver = async () => {
+    setResolvingConflict(true);
+    try {
+      await confirmTakeOverSession();
+    } catch {
+      toast.error('Something went wrong. Please try again.');
+    } finally {
+      setResolvingConflict(false);
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -140,7 +166,10 @@ export default function Login() {
         localStorage.removeItem('rememberedEmail');
       }
 
-      toast.success('Welcome back!');
+      // Don't toast "Welcome back!" here — AuthContext is still deciding
+      // whether this is a clean login or a same-account takeover conflict
+      // that needs confirmation first. The isManager effect below (or the
+      // takeover confirm handler) shows the success toast once it's real.
       setIsLoading(false);
 
     } catch (error) {
@@ -256,6 +285,44 @@ export default function Login() {
         <span>@2023 all rights reserved</span>
         <span>PG's Catering</span>
       </footer>
+
+      {sessionConflict && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6">
+            <h3 className="text-lg font-bold text-slate-900 mb-2">Already signed in elsewhere</h3>
+            <p className="text-sm text-slate-600 mb-5">
+              This account is currently signed in on another tab or device
+              {sessionConflict.since && (
+                <>
+                  {' '}since{' '}
+                  <span className="font-semibold text-slate-800">
+                    {new Date(sessionConflict.since).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </>
+              )}
+              . Continuing here will sign that session out immediately.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={handleCancelTakeOver}
+                disabled={resolvingConflict}
+                className="px-4 py-2 text-sm font-semibold rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmTakeOver}
+                disabled={resolvingConflict}
+                className="px-4 py-2 text-sm font-semibold rounded-md bg-[#008A45] text-white hover:bg-[#007038] disabled:opacity-60"
+              >
+                {resolvingConflict ? 'Signing in...' : 'Continue & sign in here'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

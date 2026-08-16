@@ -19,6 +19,20 @@ function writeTabSessionId(id) {
   sessionStorage.setItem(TAB_SESSION_KEY, id);
 }
 
+// Read-only check used right before a fresh login finalizes: is someone
+// else already holding the claim? Returns null if the coast is clear, or
+// { since } if another tab/device currently owns the session — the caller
+// can then ask the person logging in to confirm before we steal it.
+export async function peekManagerSessionConflict(managerId) {
+  const { data, error } = await supabase
+    .from('manager')
+    .select('active_session_id, active_session_started_at')
+    .eq('manager_id', managerId)
+    .maybeSingle();
+  if (error || !data?.active_session_id) return null;
+  return { since: data.active_session_started_at };
+}
+
 // Unconditionally takes ownership of the manager's active session,
 // kicking out whatever device/tab was previously logged in as them.
 // Only call this right after a fresh, fully-authenticated login.
@@ -128,7 +142,7 @@ export function subscribeManagerSession(managerId, onKicked) {
       (payload) => {
         const newId = payload.new?.active_session_id;
         if (newId && newId !== tabSessionId) {
-          onKicked();
+          onKicked(payload.new?.active_session_started_at);
         }
       }
     )

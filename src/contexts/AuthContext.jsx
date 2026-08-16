@@ -8,6 +8,7 @@ import {
   releaseManagerSessionClaim,
   releaseManagerSessionClaimBeacon,
   subscribeManagerSession,
+  peekManagerSessionConflict,
 } from '../utils/managerSession';
 
 const AuthContext = createContext();
@@ -21,6 +22,12 @@ export const AuthProvider = ({ children }) => {
   // blanking the whole app, so the UI doesn't flicker/reload mid-flow.
   const [initializing, setInitializing] = useState(true);
   const [isManager, setIsManager] = useState(false);
+  // Set when a fresh login detects the account is already active on
+  // another tab/device — pauses the login until the person confirms they
+  // want to take over (instead of silently kicking the other side).
+  const [sessionConflict, setSessionConflict] = useState(null);
+  const pendingManagerIdRef = useRef(null);
+  const kickedAtRef = useRef(null);
   const isCreatingWalkIn = useRef(false);
   const inactivityTimerRef = useRef(null);
   const retryCount = useRef(0);
@@ -97,9 +104,10 @@ export const AuthProvider = ({ children }) => {
     tabSessionIdRef.current = null;
   };
 
-  const handleKicked = () => {
+  const handleKicked = (startedAt) => {
     if (isKickedRef.current) return; // already handling
     isKickedRef.current = true;
+    kickedAtRef.current = startedAt || null;
     teardownSessionLock();
     supabase.auth.signOut();
   };
@@ -180,6 +188,16 @@ export const AuthProvider = ({ children }) => {
       // --- Single active session enforcement ---
       let lockResult;
       if (isFreshSignIn) {
+        // Before stealing anything, check whether the account is already
+        // active elsewhere. If so, pause here and let the person logging
+        // in confirm the takeover instead of silently kicking the other
+        // side — see confirmTakeOverSession/cancelTakeOverSession below.
+        const conflict = await peekManagerSessionConflict(manager.manager_id);
+        if (conflict) {
+          pendingManagerIdRef.current = manager.manager_id;
+          setSessionConflict(conflict);
+          return false;
+        }
         const tabSessionId = await claimManagerSession(manager.manager_id);
         lockResult = { status: 'claimed', tabSessionId };
       } else {
@@ -280,8 +298,17 @@ if (event === 'SIGNED_OUT') {
             toast.success('Logged out successfully', { id: AUTH_TOAST_ID });
             isManualLogout.current = false;
           } else if (isKickedRef.current) {
-            toast.error('This account was just logged in from another device or tab, so you were logged out here.', { id: AUTH_TOAST_ID, duration: 6000 });
+            const when = kickedAtRef.current
+              ? new Date(kickedAtRef.current).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              : null;
+            toast.error(
+              when
+                ? `This account was signed in from another device or tab at ${when}, so you were logged out here.`
+                : 'This account was just logged in from another device or tab, so you were logged out here.',
+              { id: AUTH_TOAST_ID, duration: 6000 }
+            );
             isKickedRef.current = false;
+            kickedAtRef.current = null;
           } else {
             // Only show this if they're not already on the login page —
             // avoids toast spam when we force a logout during email/password
@@ -378,8 +405,41 @@ if (event === 'SIGNED_OUT') {
     await supabase.auth.signOut();
   };
 
+  // Called when the person logging in confirms they want to take over the
+  // account from whatever tab/device currently holds it.
+  const confirmTakeOverSession = async () => {
+    const managerId = pendingManagerIdRef.current;
+    if (!managerId) return;
+    try {
+      const tabSessionId = await claimManagerSession(managerId);
+      teardownSessionLock();
+      managerIdRef.current = managerId;
+      tabSessionIdRef.current = tabSessionId;
+      realtimeUnsubRef.current = subscribeManagerSession(managerId, handleKicked);
+
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      setUser(authUser);
+      setIsManager(true);
+      retryCount.current = 0;
+      const rememberMe = localStorage.getItem('rememberMe') === 'true';
+      if (!rememberMe) resetInactivityTimer();
+    } finally {
+      pendingManagerIdRef.current = null;
+      setSessionConflict(null);
+    }
+  };
+
+  // Called when the person logging in backs out instead — leaves the other
+  // tab/device signed in untouched and cancels this login attempt.
+  const cancelTakeOverSession = async () => {
+    pendingManagerIdRef.current = null;
+    setSessionConflict(null);
+    isSilentLogoutRef.current = true; // Login.jsx shows its own message
+    await supabase.auth.signOut();
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, initializing, isManager, login, logout, withWalkInCreation }}>
+    <AuthContext.Provider value={{ user, loading, initializing, isManager, login, logout, withWalkInCreation, sessionConflict, confirmTakeOverSession, cancelTakeOverSession }}>
       {children}
     </AuthContext.Provider>
   );
