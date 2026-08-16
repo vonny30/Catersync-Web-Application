@@ -12,6 +12,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { createWalkInCustomer } from '../utils/createWalkInCustomer';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
+import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 
 export default function ShortOrders() {
   const navigate = useNavigate();
@@ -837,7 +838,7 @@ export default function ShortOrders() {
   const handleDelete = async (id) => {
     const confirmed = await showConfirm({
       title: 'Delete Order?',
-      message: 'This will permanently delete this order and all associated payments. This action cannot be undone.',
+      message: 'Are you sure you want to permanently delete this order? This action cannot be undone. All associated payments and vehicle assignments will also be deleted.',
       confirmLabel: 'Delete',
       confirmVariant: 'danger',
     });
@@ -848,6 +849,9 @@ export default function ShortOrders() {
         .delete()
         .eq('booking_id', id);
       if (paymentsError) throw paymentsError;
+
+      await supabase.from('vehicle_assign').delete().eq('booking_id', id);
+
       const { error } = await supabase
         .from('booking')
         .delete()
@@ -1588,6 +1592,11 @@ export default function ShortOrders() {
                 </div>
                 <p className="text-xs text-slate-500 mt-2">Short order pricing is per tray. You can add extra fees below.</p>
               </div>
+
+              <ApprovalAvailabilityCheck
+                booking={approvalOrder}
+                effectivePaxCount={0}
+              />
 
               <div className="space-y-4">
                 <div>

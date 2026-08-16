@@ -14,6 +14,7 @@ import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { sumVerifiedPositivePayments, sumVerifiedDownpayments } from '../utils/payments';
 import { getBookingsOnDate } from '../utils/availability';
+import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 
 export default function ShortOrderDetails() {
   const { id } = useParams();
@@ -423,7 +424,7 @@ export default function ShortOrderDetails() {
   const handleDelete = async () => {
     const confirmed = await showConfirm({
       title: 'Delete Short Order?',
-      message: 'Are you sure you want to permanently delete this order? This action cannot be undone. All associated payments will also be deleted.',
+      message: 'Are you sure you want to permanently delete this order? This action cannot be undone. All associated payments and vehicle assignments will also be deleted.',
       confirmLabel: 'Delete',
       confirmVariant: 'danger',
     });
@@ -434,6 +435,9 @@ export default function ShortOrderDetails() {
         .delete()
         .eq('booking_id', id);
       if (paymentsError) throw paymentsError;
+
+      await supabase.from('vehicle_assign').delete().eq('booking_id', id);
+
       const { error } = await supabase
         .from('booking')
         .delete()
@@ -1624,6 +1628,11 @@ export default function ShortOrderDetails() {
                 </div>
                 <p className="text-xs text-slate-500 mt-2">Short order pricing is per tray. You can add extra fees below.</p>
               </div>
+
+              <ApprovalAvailabilityCheck
+                booking={approvalOrder}
+                effectivePaxCount={0}
+              />
 
               <div className="space-y-4">
                 <div>
