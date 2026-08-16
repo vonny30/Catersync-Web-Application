@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
+import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -59,7 +60,7 @@ export default function Dashboard() {
         .eq('booking_type', 'Package')
         .gte('event_datetime', startOfMonthStr)
         .lte('event_datetime', endOfMonthStr)
-        .in('booking_status', ['Pending', 'Approved']);
+        .in('booking_status', ['Pending', ...ACTIVE_BOOKING_STATUSES]);
 
       if (monthError) throw monthError;
 
@@ -86,7 +87,7 @@ export default function Dashboard() {
           customer:customer_id (first_name, last_name)
         `)
         .eq('booking_type', 'Package')
-        .eq('booking_status', 'Approved')
+        .in('booking_status', ACTIVE_BOOKING_STATUSES)
         .gte('event_datetime', `${todayStr} 00:00:00`)
         .lt('event_datetime', `${todayStr} 23:59:59`)
         .order('event_datetime', { ascending: true });
@@ -150,7 +151,7 @@ export default function Dashboard() {
         .from('booking')
         .select('booking_id')
         .eq('booking_type', 'Package')
-        .eq('booking_status', 'Approved')
+        .in('booking_status', ACTIVE_BOOKING_STATUSES)
         .gte('event_datetime', `${todayStr} 00:00:00`)
         .lt('event_datetime', `${new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]} 00:00:00`);
 
@@ -277,7 +278,7 @@ export default function Dashboard() {
           customer:customer_id (first_name, last_name)
         `)
         .eq('booking_type', 'Package')
-        .in('booking_status', ['Pending', 'Approved', 'Completed'])
+        .in('booking_status', ['Pending', ...ACTIVE_BOOKING_STATUSES, 'Completed'])
         .gte('event_datetime', `${dateStr} 00:00:00`)
         .lt('event_datetime', `${dateStr} 23:59:59`)
         .order('event_datetime', { ascending: true });
@@ -342,7 +343,7 @@ export default function Dashboard() {
           customer:customer_id (first_name, last_name)
         `)
         .eq('booking_type', 'Package')
-        .eq('booking_status', 'Approved')
+        .in('booking_status', ACTIVE_BOOKING_STATUSES)
         .gte('event_datetime', `${todayStr} 00:00:00`)
         .lt('event_datetime', `${todayStr} 23:59:59`)
         .order('event_datetime', { ascending: true });
@@ -400,7 +401,7 @@ export default function Dashboard() {
           customer:customer_id (first_name, last_name)
         `)
         .eq('booking_type', 'Package')
-        .eq('booking_status', 'Approved')
+        .in('booking_status', ACTIVE_BOOKING_STATUSES)
         .gte('event_datetime', `${todayStr} 00:00:00`)
         .lt('event_datetime', `${futureStr} 00:00:00`)
         .order('event_datetime', { ascending: true });
@@ -736,7 +737,7 @@ export default function Dashboard() {
                       </div>
                       <div className="text-right">
                         <span className="text-xs text-slate-600">{formatTime(event.event_datetime)}</span>
-                        <span className={`block text-xs font-medium ${event.booking_status === 'Approved' ? 'text-green-600' : event.booking_status === 'Completed' ? 'text-blue-600' : 'text-amber-600'}`}>
+                        <span className={`block text-xs font-medium ${event.booking_status === 'Approved' ? 'text-green-600' : event.booking_status === 'Confirmed' ? 'text-emerald-600' : event.booking_status === 'Completed' ? 'text-blue-600' : 'text-amber-600'}`}>
                           {event.booking_status}
                         </span>
                       </div>

@@ -10,6 +10,10 @@ import { usePaymentHandlers } from '../hooks/usePaymentHandlers';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { useCancellationHandlers } from '../hooks/useCancellationHandlers';
+import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
+import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
+import { sumVerifiedPositivePayments, sumVerifiedDownpayments } from '../utils/payments';
+import { getBookingsOnDate } from '../utils/availability';
 
 export default function ShortOrderDetails() {
   const { id } = useParams();
@@ -47,6 +51,10 @@ export default function ShortOrderDetails() {
   // --- Proof Image Modal state ---
   const [isProofModalOpen, setIsProofModalOpen] = useState(false);
   const [proofModalUrl, setProofModalUrl] = useState('');
+
+  // --- Day schedule preview (Pending orders only) ---
+  const [dayBookings, setDayBookings] = useState([]);
+  const [loadingDayBookings, setLoadingDayBookings] = useState(false);
 
   // --- Fetch order data ---
   const fetchOrder = async () => {
@@ -146,6 +154,33 @@ export default function ShortOrderDetails() {
     fetchDropdownData();
   }, [id]);
 
+  // Show what else is already approved on the same day, so the manager can
+  // judge date/time availability before approving.
+  useEffect(() => {
+    let cancelled = false;
+    const isPending = order?.booking_status === 'Pending' && order?.event_datetime;
+
+    const run = async () => {
+      if (!isPending) {
+        if (!cancelled) setDayBookings([]);
+        return;
+      }
+      if (!cancelled) setLoadingDayBookings(true);
+      try {
+        const data = await getBookingsOnDate(order.event_datetime, order.booking_id, order.event_datetime);
+        if (!cancelled) setDayBookings(data);
+      } catch (err) {
+        console.error('Day schedule check failed:', err);
+        if (!cancelled) setDayBookings([]);
+      } finally {
+        if (!cancelled) setLoadingDayBookings(false);
+      }
+    };
+    run();
+
+    return () => { cancelled = true; };
+  }, [order?.booking_id, order?.booking_status, order?.event_datetime]);
+
   // ============================================================
   // HOOKS: Payment, Approval, Rejection, Cancellation
   // ============================================================
@@ -202,12 +237,8 @@ export default function ShortOrderDetails() {
   const getOrderBooking = (bookingId) => (bookingId === order?.booking_id ? order : null);
   const getPaymentSummary = (bookingId) => {
     if (bookingId === order?.booking_id) {
-      const positivePayments = payments
-        .filter(p => p.amount_paid > 0)
-        .reduce((sum, p) => sum + p.amount_paid, 0);
-      const downpaymentPaid = payments
-        .filter(p => p.pay_status === 'Downpayment' && p.amount_paid > 0)
-        .reduce((sum, p) => sum + p.amount_paid, 0);
+      const positivePayments = sumVerifiedPositivePayments(payments);
+      const downpaymentPaid = sumVerifiedDownpayments(payments);
       return { positivePayments, downpaymentPaid };
     }
     return { positivePayments: 0, downpaymentPaid: 0 };
@@ -252,6 +283,34 @@ export default function ShortOrderDetails() {
   } = useCancellationHandlers({
     booking: order,
     payments,
+    fetchData: fetchOrder,
+  });
+
+  // --- Confirmation Handlers (Approved -> Confirmed) ---
+  const {
+    canConfirmBooking,
+    isConfirming,
+    handleConfirmBooking,
+  } = useConfirmationHandlers({
+    booking: order,
+    payments,
+    fetchData: fetchOrder,
+  });
+
+  // --- Verification Handlers (Pending Verification payments) ---
+  const {
+    isRejectProofModalOpen,
+    setIsRejectProofModalOpen,
+    rejectProofTarget,
+    rejectProofReason,
+    setRejectProofReason,
+    isVerifying,
+    handleVerifyPayment,
+    openRejectProofModal,
+    handleRejectProofConfirm,
+  } = useVerificationHandlers({
+    payments,
+    totalAmount: order?.total_amount || 0,
     fetchData: fetchOrder,
   });
 
@@ -448,6 +507,23 @@ export default function ShortOrderDetails() {
   const handleEditSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+
+    if (!editFormData.venue || editFormData.venue.trim() === '') {
+      toast.error('Please enter a venue.');
+      setIsSubmitting(false);
+      return;
+    }
+    if (!editFormData.event_datetime) {
+      toast.error('Please select an event date and time.');
+      setIsSubmitting(false);
+      return;
+    }
+    if (!editFormData.menu_selections || editFormData.menu_selections.length === 0) {
+      toast.error('Please add at least one menu item.');
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       // Recalculate total from selections
       let total = 0;
@@ -525,9 +601,7 @@ export default function ShortOrderDetails() {
   if (!order) return <div className="p-12 text-center text-slate-500">Short order not found.</div>;
 
   // --- Payment calculations ---
-  const positivePayments = payments
-    .filter(p => p.amount_paid > 0)
-    .reduce((sum, p) => sum + p.amount_paid, 0);
+  const positivePayments = sumVerifiedPositivePayments(payments);
   const totalRefunded = payments
     .filter(p => p.amount_paid < 0)
     .reduce((sum, p) => sum + Math.abs(p.amount_paid), 0);
@@ -535,9 +609,7 @@ export default function ShortOrderDetails() {
   let remainingBalance = Math.max(0, (order.total_amount || 0) - positivePayments);
   if (order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') remainingBalance = 0;
 
-  const downpaymentPaid = payments
-    .filter(p => p.pay_status === 'Downpayment' && p.amount_paid > 0)
-    .reduce((sum, p) => sum + p.amount_paid, 0);
+  const downpaymentPaid = sumVerifiedDownpayments(payments);
 
   const eventDate = order.event_datetime ? new Date(order.event_datetime) : null;
   const now = new Date();
@@ -570,8 +642,11 @@ export default function ShortOrderDetails() {
     }
   }
 
-  const canCancel = order.booking_status === 'Approved';
+  // Cancellation only opens up once the order is genuinely locked in
+  // (Confirmed) — not while it's merely Approved-but-unpaid.
+  const canCancel = order.booking_status === 'Confirmed';
   const showAddRefund = (order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') && remainingRefundableAmount > 0;
+  const canRecordPayment = ['Approved', 'Confirmed', 'Completed'].includes(order.booking_status);
 
   const totalTrays = menuSelections.reduce((sum, item) => sum + (item.quantity || 0), 0);
 
@@ -603,6 +678,15 @@ export default function ShortOrderDetails() {
                 <X size={18} /> Reject
               </button>
             </>
+          )}
+          {canConfirmBooking && (
+            <button
+              onClick={handleConfirmBooking}
+              disabled={isConfirming}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50"
+            >
+              <Check size={18} /> {isConfirming ? 'Confirming...' : 'Confirm Order'}
+            </button>
           )}
           {canCancel && (
             <button
@@ -643,6 +727,7 @@ export default function ShortOrderDetails() {
         <span className={`px-4 py-1.5 rounded-full text-xs font-bold border ${
           order.booking_status === 'Pending' ? 'bg-amber-50 border-amber-200 text-amber-700' :
           order.booking_status === 'Approved' ? 'bg-[#EAF3F2] border-[#C1DEDC] text-slate-800' :
+          order.booking_status === 'Confirmed' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
           order.booking_status === 'Completed' ? 'bg-blue-50 border-blue-200 text-blue-700' :
           order.booking_status === 'Cancelled' ? 'bg-slate-100 border-slate-300 text-slate-600' :
           'bg-red-50 border-red-200 text-red-700'
@@ -672,6 +757,60 @@ export default function ShortOrderDetails() {
   </span>
 )}
       </div>
+
+      {/* Day Availability Check — any Pending order */}
+      {order.booking_status === 'Pending' && order.event_datetime && (
+        <div className={`border rounded-xl p-5 shadow-xs ${
+          loadingDayBookings ? 'bg-slate-50 border-slate-200' :
+          dayBookings.length === 0 ? 'bg-green-50 border-green-200' :
+          dayBookings.some(b => b.isCloseInTime) ? 'bg-amber-50 border-amber-200' : 'bg-blue-50 border-blue-200'
+        }`}>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-bold text-slate-900">Day Availability</h3>
+            {!loadingDayBookings && (
+              <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                dayBookings.length === 0 ? 'bg-green-100 border-green-200 text-green-700' :
+                dayBookings.some(b => b.isCloseInTime) ? 'bg-amber-100 border-amber-200 text-amber-700' :
+                'bg-blue-100 border-blue-200 text-blue-700'
+              }`}>
+                {dayBookings.length === 0
+                  ? '✅ No other approved events this day'
+                  : `📅 ${dayBookings.length} other event(s) this day${dayBookings.some(b => b.isCloseInTime) ? ' — check the time' : ''}`}
+              </span>
+            )}
+          </div>
+          {loadingDayBookings ? (
+            <p className="text-xs text-slate-500 italic">Checking the schedule for this date...</p>
+          ) : dayBookings.length === 0 ? (
+            <p className="text-xs text-slate-500 italic">The delivery date and time are wide open — nothing else is approved for this day.</p>
+          ) : (
+            <div className="space-y-2 mt-2">
+              {dayBookings.map(b => (
+                <div
+                  key={b.booking_id}
+                  className={`flex justify-between items-center px-3 py-2 rounded-lg border text-xs bg-white ${
+                    b.isCloseInTime ? 'border-red-300' : 'border-slate-200'
+                  }`}
+                >
+                  <div>
+                    <p className="font-semibold text-slate-800">
+                      {b.customerName}
+                      <span className="ml-2 font-normal text-slate-500">{b.booking_type === 'Short Order' ? 'Short Order' : 'Package'}</span>
+                    </p>
+                    <p className="text-slate-500">{b.venue || 'No venue set'}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className={`font-bold ${b.isCloseInTime ? 'text-red-600' : 'text-slate-700'}`}>
+                      {b.event_datetime ? new Date(b.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                    </p>
+                    {b.isCloseInTime && <p className="text-red-500">⚠️ Close to this time</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* LEFT COLUMN */}
@@ -745,7 +884,7 @@ export default function ShortOrderDetails() {
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-sm font-bold text-slate-900">Payment Tracking</h3>
-              {order.booking_status !== 'Rejected' && order.booking_status !== 'Cancelled' && (
+              {canRecordPayment && (
                 <button
                   onClick={openPaymentModal}
                   className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
@@ -753,7 +892,10 @@ export default function ShortOrderDetails() {
                   <Plus size={14} /> Record Payment
                 </button>
               )}
-              {(order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') && (
+              {!canRecordPayment && order.booking_status === 'Pending' && (
+                <span className="text-xs text-slate-400 italic">Approve this order to enable payments</span>
+              )}
+              {!canRecordPayment && (order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') && (
                 <span className="text-xs text-slate-400 italic">Payments closed</span>
               )}
             </div>
@@ -791,14 +933,22 @@ export default function ShortOrderDetails() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 text-slate-700">
-                    {payments.map(p => (
-                      <tr key={p.payment_id} className={p.amount_paid < 0 ? 'bg-red-50' : ''}>
+                    {payments.map(p => {
+                      const pendingVerification = p.pay_status === 'Pending Verification';
+                      return (
+                      <tr key={p.payment_id} className={p.amount_paid < 0 ? 'bg-red-50' : pendingVerification ? 'bg-blue-50' : ''}>
                         <td className={`p-3 font-bold ${p.amount_paid < 0 ? 'text-red-600' : ''}`}>
                           {p.amount_paid < 0 ? '-' : ''}₱{Math.abs(p.amount_paid).toLocaleString()}
                         </td>
                         <td className="p-3">{p.pay_method || 'N/A'}</td>
                         <td className="p-3">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${p.pay_status === 'Refunded' ? 'bg-red-100 text-red-700 border border-red-200' : p.pay_status === 'Fully Paid' ? 'bg-green-100 text-green-700 border border-green-200' : 'bg-amber-100 text-amber-700 border border-amber-200'}`}>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            p.pay_status === 'Refunded' ? 'bg-red-100 text-red-700 border border-red-200' :
+                            p.pay_status === 'Fully Paid' ? 'bg-green-100 text-green-700 border border-green-200' :
+                            p.pay_status === 'Pending Verification' ? 'bg-blue-100 text-blue-700 border border-blue-200' :
+                            p.pay_status === 'Proof Rejected' ? 'bg-red-100 text-red-700 border border-red-200' :
+                            'bg-amber-100 text-amber-700 border border-amber-200'
+                          }`}>
                             {p.pay_status || 'N/A'}
                           </span>
                         </td>
@@ -806,16 +956,28 @@ export default function ShortOrderDetails() {
                         <td className="p-3">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleString() : 'N/A'}</td>
                         <td className="p-3 text-center">
                           <div className="flex justify-center gap-2">
-                            <button onClick={() => openEditPaymentModal(p)} className="text-blue-500 hover:text-blue-700" title="Edit Payment">
-                              <Edit size={14} />
-                            </button>
+                            {pendingVerification ? (
+                              <>
+                                <button onClick={() => handleVerifyPayment(p)} disabled={isVerifying} className="text-green-600 hover:text-green-800 disabled:opacity-50" title="Verify Payment">
+                                  <Check size={14} />
+                                </button>
+                                <button onClick={() => openRejectProofModal(p)} disabled={isVerifying} className="text-red-500 hover:text-red-700 disabled:opacity-50" title="Reject Proof">
+                                  <X size={14} />
+                                </button>
+                              </>
+                            ) : (
+                              <button onClick={() => openEditPaymentModal(p)} className="text-blue-500 hover:text-blue-700" title="Edit Payment">
+                                <Edit size={14} />
+                              </button>
+                            )}
                             <button onClick={() => handleDeletePayment(p.payment_id)} className="text-red-500 hover:text-red-700" title="Delete Payment">
                               <Trash2 size={14} />
                             </button>
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1083,7 +1245,6 @@ export default function ShortOrderDetails() {
                   <select name="pay_status" value={paymentFormData.pay_status} onChange={handlePaymentInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white">
                     <option value="Downpayment">Downpayment</option>
                     <option value="Fully Paid">Fully Paid</option>
-                    <option value="Unpaid">Unpaid</option>
                   </select>
                 </div>
               </div>
@@ -1163,7 +1324,6 @@ export default function ShortOrderDetails() {
                   <select name="pay_status" value={editPaymentFormData.pay_status} onChange={(e) => setEditPaymentFormData({...editPaymentFormData, pay_status: e.target.value})} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white">
                     <option value="Downpayment">Downpayment</option>
                     <option value="Fully Paid">Fully Paid</option>
-                    <option value="Unpaid">Unpaid</option>
                   </select>
                 </div>
               </div>
@@ -1535,6 +1695,49 @@ export default function ShortOrderDetails() {
               >
                 Open in New Tab
               </a>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ===== REJECT PAYMENT PROOF MODAL ===== */}
+      {isRejectProofModalOpen && rejectProofTarget && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Reject Payment Proof</h2>
+              <button onClick={() => setIsRejectProofModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 text-left">
+              <p className="text-sm text-slate-600">
+                Rejecting the proof for the ₱{(rejectProofTarget.amount_paid || 0).toLocaleString()} payment submitted by the customer. They'll need to resubmit — let them know why.
+              </p>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Reason *</label>
+                <textarea
+                  value={rejectProofReason}
+                  onChange={(e) => setRejectProofReason(e.target.value)}
+                  rows="3"
+                  placeholder="e.g. Proof image is unreadable, amount doesn't match, wrong receiving account..."
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-red-400 resize-none"
+                />
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setIsRejectProofModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRejectProofConfirm}
+                  disabled={isVerifying}
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                >
+                  {isVerifying ? 'Rejecting...' : 'Reject Proof'}
+                </button>
+              </div>
             </div>
           </div>
         </div>,

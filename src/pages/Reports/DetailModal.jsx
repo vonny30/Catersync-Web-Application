@@ -55,7 +55,7 @@ export default function DetailModal({ detailModal, onClose }) {
                         <td className="p-3 text-slate-600">{formatDate(item.eventDate)}</td>
                         <td className="p-3 text-right font-bold text-slate-900">{formatCurrency(item.total)}</td>
                         <td className="p-3 text-right">
-                          <span className={`px-2 py-1 rounded-full text-xs font-bold ${item.status === 'Completed' ? 'bg-green-100 text-green-700' : item.status === 'Approved' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                          <span className={`px-2 py-1 rounded-full text-xs font-bold ${item.status === 'Completed' ? 'bg-green-100 text-green-700' : item.status === 'Confirmed' ? 'bg-emerald-100 text-emerald-700' : item.status === 'Approved' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
                             {item.status}
                           </span>
                         </td>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { sumVerifiedPositivePayments } from '../utils/payments';
 
 export function useCancellationHandlers({ booking, payments, fetchData }) {
   const { showConfirm } = useConfirm();
@@ -33,9 +34,7 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
       let isRefundable = false;
       let daysUntilEvent = 999;
 
-      const positivePayments = payments
-        .filter(p => p.amount_paid > 0)
-        .reduce((sum, p) => sum + p.amount_paid, 0);
+      const positivePayments = sumVerifiedPositivePayments(payments);
       const downpaymentPayments = payments.filter(p => p.pay_status === 'Downpayment' && p.amount_paid > 0);
       const totalDownpayment = downpaymentPayments.reduce((sum, p) => sum + p.amount_paid, 0);
 

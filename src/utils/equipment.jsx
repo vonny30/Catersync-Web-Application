@@ -1,5 +1,6 @@
 // src/utils/equipment.js
 import { supabase } from '../supabase';
+import { ACTIVE_BOOKING_STATUSES } from './bookingStatus';
 
 /**
  * Compute equipment demand for a given package and pax count.
@@ -165,11 +166,12 @@ export const checkEquipmentCapacityForDate = async (eventDate, excludeBookingId 
     const endOfDay = new Date(eventDate);
     endOfDay.setHours(23, 59, 59, 999);
 
-    // Get all approved bookings on that date (excluding the one being approved/edited)
+    // Get all actively-committed bookings on that date (Approved or
+    // Confirmed — excluding the one being approved/edited)
     let query = supabase
       .from('booking')
       .select('booking_id, package_id, pax_count')
-      .eq('booking_status', 'Approved')
+      .in('booking_status', ACTIVE_BOOKING_STATUSES)
       .gte('event_datetime', startOfDay.toISOString())
       .lte('event_datetime', endOfDay.toISOString());
 
@@ -252,6 +254,105 @@ export const checkEquipmentCapacityForDate = async (eventDate, excludeBookingId 
   } catch (error) {
     console.error('Error checking equipment capacity:', error);
     throw new Error(`Failed to check equipment capacity: ${error.message}`);
+  }
+};
+
+/**
+ * Preview equipment availability for a PENDING package booking, before it's
+ * approved — helps the manager see whether there's enough stock left for
+ * this date if they approve it. Unlike checkEquipmentCapacityForDate (which
+ * only reports shortages for bookings that are ALREADY approved), this
+ * includes the hypothetical demand of the booking being reviewed and
+ * returns the full per-item breakdown, not just shortages.
+ *
+ * Returns an array of:
+ *   { equipment_id, eqm_name, needed, alreadyCommitted, totalStock, freeBeforeThis, sufficient }
+ * sorted with shortages first.
+ */
+export const getEquipmentAvailabilityPreview = async (eventDate, packageId, paxCount, excludeBookingId = null) => {
+  if (!eventDate || !packageId) return [];
+
+  try {
+    // 1. What THIS booking would need if approved.
+    const thisDemand = await computeEquipmentDemand(packageId, paxCount);
+    const eqIds = Object.keys(thisDemand);
+    if (eqIds.length === 0) return [];
+
+    // 2. What's already committed to OTHER actively-booked bookings on this
+    // date (Approved or Confirmed).
+    const startOfDay = new Date(eventDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(eventDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    let query = supabase
+      .from('booking')
+      .select('booking_id, package_id, pax_count')
+      .in('booking_status', ACTIVE_BOOKING_STATUSES)
+      .gte('event_datetime', startOfDay.toISOString())
+      .lte('event_datetime', endOfDay.toISOString());
+    if (excludeBookingId) {
+      query = query.neq('booking_id', excludeBookingId);
+    }
+
+    const { data: otherBookings, error } = await query;
+    if (error) throw error;
+
+    const committed = {};
+    if (otherBookings && otherBookings.length > 0) {
+      const bookingIds = otherBookings.map(b => b.booking_id);
+      const { data: manualAssignments, error: assignError } = await supabase
+        .from('booking_equipment')
+        .select('booking_id, equipment_id, quantity')
+        .in('booking_id', bookingIds)
+        .eq('returned', false);
+      if (assignError) throw assignError;
+
+      const bookingIdsWithRealAllocations = new Set((manualAssignments || []).map(a => a.booking_id));
+      (manualAssignments || []).forEach(a => {
+        committed[a.equipment_id] = (committed[a.equipment_id] || 0) + a.quantity;
+      });
+
+      // Same double-counting guard as checkEquipmentCapacityForDate: only
+      // recompute theoretical demand for approved bookings that don't
+      // already have real booking_equipment rows.
+      for (const b of otherBookings) {
+        if (b.package_id && !bookingIdsWithRealAllocations.has(b.booking_id)) {
+          const demand = await computeEquipmentDemand(b.package_id, b.pax_count);
+          for (const [eqId, qty] of Object.entries(demand)) {
+            committed[eqId] = (committed[eqId] || 0) + qty;
+          }
+        }
+      }
+    }
+
+    // 3. Physical stock.
+    const { data: inventory, error: invError } = await supabase
+      .from('equipment')
+      .select('equipment_id, eqm_name, quantity_available')
+      .in('equipment_id', eqIds);
+    if (invError) throw invError;
+
+    return (inventory || [])
+      .map(inv => {
+        const needed = thisDemand[inv.equipment_id] || 0;
+        const alreadyCommitted = committed[inv.equipment_id] || 0;
+        const totalStock = inv.quantity_available || 0;
+        const freeBeforeThis = Math.max(0, totalStock - alreadyCommitted);
+        return {
+          equipment_id: inv.equipment_id,
+          eqm_name: inv.eqm_name,
+          needed,
+          alreadyCommitted,
+          totalStock,
+          freeBeforeThis,
+          sufficient: freeBeforeThis >= needed,
+        };
+      })
+      .sort((a, b) => Number(a.sufficient) - Number(b.sufficient));
+  } catch (error) {
+    console.error('Error computing equipment availability preview:', error);
+    throw new Error(`Failed to compute equipment availability: ${error.message}`, { cause: error });
   }
 };
 

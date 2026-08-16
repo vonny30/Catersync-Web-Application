@@ -4,6 +4,8 @@ import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { allocateEquipmentForBooking, checkEquipmentCapacityForDate } from '../utils/equipment';
+import { sumVerifiedPositivePayments } from '../utils/payments';
+import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 
 export function useApprovalHandlers({ booking, payments, fetchData }) {
   const { showConfirm } = useConfirm();
@@ -94,7 +96,11 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
 
   const handleApprovalInputChange = (e) => {
     const { name, value } = e.target;
-    const numValue = parseFloat(value) || 0;
+    // Clamp to >= 0 — the "min" HTML attribute doesn't actually block
+    // typing a negative number, and a negative extraPax/fee here would
+    // silently shrink the total (or the effective pax count) below the
+    // booking's real value.
+    const numValue = Math.max(0, parseFloat(value) || 0);
     setApprovalData(prev => {
       const updated = { ...prev, [name]: numValue };
       let newTotal = updated.baseTotal;
@@ -115,29 +121,13 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
     setIsSubmitting(true);
 
     try {
-      // 1. Check 50% payment (warning only)
-      const { data: paymentsData, error: paymentsError } = await supabase
-        .from('payment')
-        .select('amount_paid')
-        .eq('booking_id', approvalBooking.booking_id);
-      if (paymentsError) throw paymentsError;
-      const totalPaid = paymentsData.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-      const required = approvalData.newTotal * 0.5;
-      if (totalPaid < required) {
-        const proceed = await showConfirm({
-          title: '⚠️ Insufficient Downpayment',
-          message: `Total paid (₱${totalPaid.toFixed(2)}) is less than 50% of the total (₱${required.toFixed(2)}).\n\nApproving this booking may leave an unpaid balance.\nDo you still want to approve?`,
-          confirmLabel: 'Yes, Approve',
-          cancelLabel: 'Cancel',
-          confirmVariant: 'warning',
-        });
-        if (!proceed) {
-          setIsSubmitting(false);
-          return;
-        }
-      }
+      // Note: approval no longer checks payment status — in the Updated
+      // Flow, payment only happens AFTER a booking is approved, so there's
+      // nothing to warn about here. Any confirmation the manager needs
+      // before approving belongs earlier (Day Availability / Equipment
+      // Availability panels), not as a payment warning at this step.
 
-      // 2. Conflict check: other approved events on same day
+      // 1. Conflict check: other approved events on same day
       const eventDate = approvalBooking.event_datetime ? new Date(approvalBooking.event_datetime) : null;
       if (eventDate) {
         const now = new Date();
@@ -166,7 +156,7 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
         const { data: otherEvents, error: conflictError } = await supabase
           .from('booking')
           .select(`booking_id, booking_type, venue, event_datetime, customer:customer_id (first_name, last_name)`)
-          .eq('booking_status', 'Approved')
+          .in('booking_status', ACTIVE_BOOKING_STATUSES)
           .neq('booking_id', approvalBooking.booking_id)
           .gte('event_datetime', startISO)
           .lte('event_datetime', endISO);
@@ -194,7 +184,17 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
         }
       }
 
-      // 3. Update booking – compute new total properly
+      // Snapshot of what this booking looked like before we touch it, so a
+      // cancel further down (equipment shortage) can put it back exactly
+      // as it was — not just the status, but pax/total/fee/notes too.
+      const originalBookingSnapshot = {
+        pax_count: approvalBooking.pax_count,
+        total_amount: approvalBooking.total_amount,
+        delivery_fee: approvalBooking.delivery_fee,
+        notes: approvalBooking.notes,
+      };
+
+      // 2. Update booking – compute new total properly
       let updatePayload = { booking_status: 'Approved' };
       if (approvalType === 'package') {
         const newPax = approvalBooking.pax_count + (approvalData.extraPax || 0);
@@ -213,7 +213,7 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
         .eq('booking_id', approvalBooking.booking_id);
       if (updateError) throw updateError;
 
-      // 4. Allocate equipment (only for packages)
+      // 3. Allocate equipment (only for packages)
       if (approvalType === 'package' && approvalBooking.package_id) {
         try {
           await allocateEquipmentForBooking(approvalBooking.booking_id, approvalBooking.package_id, approvalBooking.pax_count + (approvalData.extraPax || 0));
@@ -223,24 +223,37 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
         }
       }
 
-      // ✅ 5. Update payments – set to Fully Paid if already paid in full, else Downpayment
+      // ✅ 4. Update already-verified payments – set to Fully Paid if paid in
+      // full, else Downpayment. Pending Verification / Proof Rejected rows
+      // are left alone — approval doesn't verify payments for you.
       const { data: existingPayments, error: fetchPaymentsError } = await supabase
         .from('payment')
-        .select('amount_paid')
+        .select('payment_id, amount_paid, pay_status')
         .eq('booking_id', approvalBooking.booking_id);
       if (fetchPaymentsError) throw fetchPaymentsError;
 
-      const paidTotal = existingPayments.reduce((sum, p) => sum + p.amount_paid, 0);
+      const paidTotal = sumVerifiedPositivePayments(existingPayments);
       const newTotal = approvalData.newTotal;
       const newStatus = (paidTotal >= newTotal && paidTotal > 0) ? 'Fully Paid' : 'Downpayment';
 
-      const { error: updatePaymentsError } = await supabase
-        .from('payment')
-        .update({ pay_status: newStatus })
-        .eq('booking_id', approvalBooking.booking_id);
-      if (updatePaymentsError) throw updatePaymentsError;
+      // Remember exactly which rows we're about to touch and what they
+      // were before, so a cancel further down can put them back — a
+      // Pending booking shouldn't be left with payments already marked
+      // Downpayment/Fully Paid from an approval that didn't go through.
+      const touchedPaymentSnapshots = (existingPayments || [])
+        .filter(p => ['Downpayment', 'Fully Paid'].includes(p.pay_status))
+        .map(p => ({ payment_id: p.payment_id, pay_status: p.pay_status }));
 
-      // 6. Equipment capacity check (packages only)
+      if (paidTotal > 0) {
+        const { error: updatePaymentsError } = await supabase
+          .from('payment')
+          .update({ pay_status: newStatus })
+          .eq('booking_id', approvalBooking.booking_id)
+          .in('pay_status', ['Downpayment', 'Fully Paid']);
+        if (updatePaymentsError) throw updatePaymentsError;
+      }
+
+      // 5. Equipment capacity check (packages only)
       if (approvalType === 'package' && approvalBooking.package_id) {
         try {
           const eventDate = approvalBooking.event_datetime;
@@ -255,11 +268,22 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
               confirmVariant: 'danger',
             });
             if (!override) {
+              // Full rollback: booking status AND the pax/total/fee/notes
+              // this approval attempt had already written, plus any
+              // payment rows it had already marked Downpayment/Fully Paid
+              // — otherwise a cancelled approval leaves the booking back
+              // at Pending but with post-approval numbers stuck on it.
               await supabase
                 .from('booking')
-                .update({ booking_status: 'Pending' })
+                .update({ booking_status: 'Pending', ...originalBookingSnapshot })
                 .eq('booking_id', approvalBooking.booking_id);
               await supabase.from('booking_equipment').delete().eq('booking_id', approvalBooking.booking_id);
+              for (const p of touchedPaymentSnapshots) {
+                await supabase
+                  .from('payment')
+                  .update({ pay_status: p.pay_status })
+                  .eq('payment_id', p.payment_id);
+              }
               setIsSubmitting(false);
               return;
             } else {
@@ -276,7 +300,7 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
 
       setIsApprovalModalOpen(false);
       fetchData();
-      toast.success(`Booking approved. Payments marked as ${newStatus}.`);
+      toast.success(paidTotal > 0 ? `Booking approved. Payments marked as ${newStatus}.` : 'Booking approved. The customer can now proceed to payment.');
     } catch (error) {
       console.error(error);
       toast.error('Failed to approve booking.');

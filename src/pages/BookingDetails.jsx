@@ -10,7 +10,12 @@ import { usePaymentHandlers } from '../hooks/usePaymentHandlers';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { useCancellationHandlers } from '../hooks/useCancellationHandlers';
-import { checkEquipmentCapacityForDate, allocateEquipmentForBooking } from '../utils/equipment';
+import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
+import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
+import { checkEquipmentCapacityForDate, allocateEquipmentForBooking, getEquipmentAvailabilityPreview } from '../utils/equipment';
+import { getBookingsOnDate } from '../utils/availability';
+import { sumVerifiedPositivePayments, sumVerifiedDownpayments } from '../utils/payments';
+import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 
 export default function BookingDetails() {
   const { id } = useParams();
@@ -67,6 +72,14 @@ export default function BookingDetails() {
   // --- Proof Image Modal state ---
   const [isProofModalOpen, setIsProofModalOpen] = useState(false);
   const [proofModalUrl, setProofModalUrl] = useState('');
+
+  // --- Equipment availability preview (Pending package bookings only) ---
+  const [equipmentAvailability, setEquipmentAvailability] = useState([]);
+  const [loadingAvailability, setLoadingAvailability] = useState(false);
+
+  // --- Day schedule preview (Pending bookings only, any type) ---
+  const [dayBookings, setDayBookings] = useState([]);
+  const [loadingDayBookings, setLoadingDayBookings] = useState(false);
 
   // --- FETCH DATA ---
   const fetchBooking = async () => {
@@ -177,6 +190,61 @@ export default function BookingDetails() {
     fetchDropdownData();
   }, [id]);
 
+  // Show the manager whether there's enough equipment left for this date
+  // BEFORE they approve — only makes sense for Pending package bookings
+  // (short orders don't have a catering equipment setup).
+  useEffect(() => {
+    let cancelled = false;
+    const isPendingPackage = booking?.booking_status === 'Pending' && booking?.booking_type !== 'Short Order' && booking?.package_id && booking?.event_datetime;
+
+    const run = async () => {
+      if (!isPendingPackage) {
+        if (!cancelled) setEquipmentAvailability([]);
+        return;
+      }
+      if (!cancelled) setLoadingAvailability(true);
+      try {
+        const data = await getEquipmentAvailabilityPreview(booking.event_datetime, booking.package_id, booking.pax_count, booking.booking_id);
+        if (!cancelled) setEquipmentAvailability(data);
+      } catch (err) {
+        console.error('Equipment availability preview failed:', err);
+        if (!cancelled) setEquipmentAvailability([]);
+      } finally {
+        if (!cancelled) setLoadingAvailability(false);
+      }
+    };
+    run();
+
+    return () => { cancelled = true; };
+  }, [booking?.booking_id, booking?.booking_status, booking?.booking_type, booking?.package_id, booking?.pax_count, booking?.event_datetime]);
+
+  // Show what else is already approved on the same day, so the manager can
+  // judge date/time availability before approving — not just equipment.
+  useEffect(() => {
+    let cancelled = false;
+    const isPending = booking?.booking_status === 'Pending' && booking?.event_datetime;
+
+    const run = async () => {
+      if (!isPending) {
+        if (!cancelled) setDayBookings([]);
+        return;
+      }
+      if (!cancelled) setLoadingDayBookings(true);
+      try {
+        const data = await getBookingsOnDate(booking.event_datetime, booking.booking_id, booking.event_datetime);
+        if (!cancelled) setDayBookings(data);
+      } catch (err) {
+        console.error('Day schedule check failed:', err);
+        if (!cancelled) setDayBookings([]);
+      } finally {
+        if (!cancelled) setLoadingDayBookings(false);
+      }
+    };
+    run();
+
+    return () => { cancelled = true; };
+  }, [booking?.booking_id, booking?.booking_status, booking?.event_datetime]);
+
   // ============================================================
   // HOOKS: Payment, Approval, Rejection, Cancellation
   // ============================================================
@@ -233,12 +301,8 @@ export default function BookingDetails() {
   const getBooking = (bookingId) => (bookingId === booking?.booking_id ? booking : null);
   const getPaymentSummary = (bookingId) => {
     if (bookingId === booking?.booking_id) {
-      const positivePayments = payments
-        .filter(p => p.amount_paid > 0)
-        .reduce((sum, p) => sum + p.amount_paid, 0);
-      const downpaymentPaid = payments
-        .filter(p => p.pay_status === 'Downpayment' && p.amount_paid > 0)
-        .reduce((sum, p) => sum + p.amount_paid, 0);
+      const positivePayments = sumVerifiedPositivePayments(payments);
+      const downpaymentPaid = sumVerifiedDownpayments(payments);
       return { positivePayments, downpaymentPaid };
     }
     return { positivePayments: 0, downpaymentPaid: 0 };
@@ -283,6 +347,34 @@ export default function BookingDetails() {
   } = useCancellationHandlers({
     booking,
     payments,
+    fetchData: fetchBooking,
+  });
+
+  // --- Confirmation Handlers (Approved -> Confirmed) ---
+  const {
+    canConfirmBooking,
+    isConfirming,
+    handleConfirmBooking,
+  } = useConfirmationHandlers({
+    booking,
+    payments,
+    fetchData: fetchBooking,
+  });
+
+  // --- Verification Handlers (Pending Verification payments) ---
+  const {
+    isRejectProofModalOpen,
+    setIsRejectProofModalOpen,
+    rejectProofTarget,
+    rejectProofReason,
+    setRejectProofReason,
+    isVerifying,
+    handleVerifyPayment,
+    openRejectProofModal,
+    handleRejectProofConfirm,
+  } = useVerificationHandlers({
+    payments,
+    totalAmount: booking?.total_amount || 0,
     fetchData: fetchBooking,
   });
 
@@ -557,6 +649,23 @@ export default function BookingDetails() {
   const handleEditSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+
+    if (!editFormData.venue || editFormData.venue.trim() === '') {
+      toast.error('Please enter a venue.');
+      setIsSubmitting(false);
+      return;
+    }
+    if (!editFormData.pax_count || parseInt(editFormData.pax_count) < 1) {
+      toast.error('Please enter a valid pax count (must be at least 1).');
+      setIsSubmitting(false);
+      return;
+    }
+    if (!editFormData.total_amount || parseFloat(editFormData.total_amount) <= 0) {
+      toast.error('Total amount must be greater than zero.');
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       const oldPackageId = booking.package_id;
       const newPackageId = editFormData.package_id;
@@ -720,10 +829,55 @@ export default function BookingDetails() {
   const handleEditEquipSubmit = async (e) => {
     e.preventDefault();
     setIsAssignSubmitting(true);
+
+    const newQuantity = editEquipData.quantity;
+    if (!newQuantity || newQuantity < 1) {
+      toast.error('Quantity must be at least 1.');
+      setIsAssignSubmitting(false);
+      return;
+    }
+
     try {
+      // Quantity-aware stock check — equipment isn't exclusive to one
+      // event per day, there's just a finite amount of it in total. Same
+      // check the Assign Equipment flow already does; this edit path
+      // never had it, so bumping a quantity up here could silently
+      // oversell the equipment for the date.
+      const { data: equipRow, error: equipError } = await supabase
+        .from('equipment')
+        .select('quantity_available, eqm_name')
+        .eq('equipment_id', editingAssignment.equipment_id)
+        .maybeSingle();
+      if (equipError) throw equipError;
+
+      if (equipRow && booking?.event_datetime) {
+        const eventDate = new Date(booking.event_datetime);
+        const { data: otherAssignments, error: otherError } = await supabase
+          .from('booking_equipment')
+          .select('quantity, booking:booking_id (event_datetime)')
+          .eq('equipment_id', editingAssignment.equipment_id)
+          .eq('returned', false)
+          .neq('assignment_id', editingAssignment.assignment_id);
+        if (otherError) throw otherError;
+
+        const alreadyCommitted = (otherAssignments || [])
+          .filter(a => a.booking?.event_datetime && new Date(a.booking.event_datetime).toDateString() === eventDate.toDateString())
+          .reduce((sum, a) => sum + (a.quantity || 0), 0);
+
+        const totalNeeded = alreadyCommitted + newQuantity;
+        if (totalNeeded > equipRow.quantity_available) {
+          toast.error(
+            `"${equipRow.eqm_name}": ${alreadyCommitted} already committed to other events on ${eventDate.toLocaleDateString()}, ` +
+            `plus ${newQuantity} requested exceeds the ${equipRow.quantity_available} in stock.`
+          );
+          setIsAssignSubmitting(false);
+          return;
+        }
+      }
+
       const { error } = await supabase
         .from('booking_equipment')
-        .update({ quantity: editEquipData.quantity })
+        .update({ quantity: newQuantity })
         .eq('assignment_id', editingAssignment.assignment_id);
       if (error) throw error;
       setIsEditEquipModalOpen(false);
@@ -777,9 +931,7 @@ export default function BookingDetails() {
   if (!booking) return <div className="p-12 text-center text-slate-500">Booking not found.</div>;
 
   // --- PAYMENT CALCULATIONS (including Cancelled) ---
-  const positivePayments = payments
-    .filter(p => p.amount_paid > 0)
-    .reduce((sum, p) => sum + p.amount_paid, 0);
+  const positivePayments = sumVerifiedPositivePayments(payments);
   const totalRefunded = payments
     .filter(p => p.amount_paid < 0)
     .reduce((sum, p) => sum + Math.abs(p.amount_paid), 0);
@@ -787,9 +939,7 @@ export default function BookingDetails() {
   let remainingBalance = Math.max(0, (booking.total_amount || 0) - positivePayments);
   if (booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') remainingBalance = 0;
 
-  const downpaymentPaid = payments
-    .filter(p => p.pay_status === 'Downpayment' && p.amount_paid > 0)
-    .reduce((sum, p) => sum + p.amount_paid, 0);
+  const downpaymentPaid = sumVerifiedDownpayments(payments);
 
   const eventDate = booking.event_datetime ? new Date(booking.event_datetime) : null;
   const now = new Date();
@@ -822,8 +972,14 @@ export default function BookingDetails() {
     }
   }
 
-  const canCancel = booking.booking_status === 'Approved';
+  // Cancellation only opens up once the event is genuinely locked in
+  // (Confirmed) — not while it's merely Approved-but-unpaid.
+  const canCancel = booking.booking_status === 'Confirmed';
   const showAddRefund = (booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') && remainingRefundableAmount > 0;
+  // Payments only open up once a booking has been approved (Updated Flow:
+  // Pending -> Approve/Reject -> Proceed to Payment). Confirmed/Completed
+  // bookings can still take a late/final payment.
+  const canRecordPayment = ['Approved', 'Confirmed', 'Completed'].includes(booking.booking_status);
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
@@ -853,6 +1009,15 @@ export default function BookingDetails() {
                 <X size={18} /> Reject
               </button>
             </>
+          )}
+          {canConfirmBooking && (
+            <button
+              onClick={handleConfirmBooking}
+              disabled={isConfirming}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50"
+            >
+              <Check size={18} /> {isConfirming ? 'Confirming...' : 'Confirm Event'}
+            </button>
           )}
           {canCancel && (
             <button
@@ -893,6 +1058,7 @@ export default function BookingDetails() {
         <span className={`px-4 py-1.5 rounded-full text-xs font-bold border ${(
           booking.booking_status === 'Pending' ? 'bg-amber-50 border-amber-200 text-amber-700' :
           booking.booking_status === 'Approved' ? 'bg-[#EAF3F2] border-[#C1DEDC] text-slate-800' :
+          booking.booking_status === 'Confirmed' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
           booking.booking_status === 'Completed' ? 'bg-blue-50 border-blue-200 text-blue-700' :
           booking.booking_status === 'Cancelled' ? 'bg-slate-100 border-slate-300 text-slate-600' :
           'bg-red-50 border-red-200 text-red-700'
@@ -924,6 +1090,108 @@ export default function BookingDetails() {
   </span>
 )}
       </div>
+
+      {/* Day Schedule Check — any Pending booking */}
+      {booking.booking_status === 'Pending' && booking.event_datetime && (
+        <div className={`border rounded-xl p-5 shadow-xs ${
+          loadingDayBookings ? 'bg-slate-50 border-slate-200' :
+          dayBookings.length === 0 ? 'bg-green-50 border-green-200' :
+          dayBookings.some(b => b.isCloseInTime) ? 'bg-amber-50 border-amber-200' : 'bg-blue-50 border-blue-200'
+        }`}>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-bold text-slate-900">Day Availability</h3>
+            {!loadingDayBookings && (
+              <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                dayBookings.length === 0 ? 'bg-green-100 border-green-200 text-green-700' :
+                dayBookings.some(b => b.isCloseInTime) ? 'bg-amber-100 border-amber-200 text-amber-700' :
+                'bg-blue-100 border-blue-200 text-blue-700'
+              }`}>
+                {dayBookings.length === 0
+                  ? '✅ No other approved events this day'
+                  : `📅 ${dayBookings.length} other event(s) this day${dayBookings.some(b => b.isCloseInTime) ? ' — check the time' : ''}`}
+              </span>
+            )}
+          </div>
+          {loadingDayBookings ? (
+            <p className="text-xs text-slate-500 italic">Checking the schedule for this date...</p>
+          ) : dayBookings.length === 0 ? (
+            <p className="text-xs text-slate-500 italic">The event date and time are wide open — nothing else is approved for this day.</p>
+          ) : (
+            <div className="space-y-2 mt-2">
+              {dayBookings.map(b => (
+                <div
+                  key={b.booking_id}
+                  className={`flex justify-between items-center px-3 py-2 rounded-lg border text-xs bg-white ${
+                    b.isCloseInTime ? 'border-red-300' : 'border-slate-200'
+                  }`}
+                >
+                  <div>
+                    <p className="font-semibold text-slate-800">
+                      {b.customerName}
+                      <span className="ml-2 font-normal text-slate-500">{b.booking_type === 'Short Order' ? 'Short Order' : 'Package'}</span>
+                    </p>
+                    <p className="text-slate-500">{b.venue || 'No venue set'}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className={`font-bold ${b.isCloseInTime ? 'text-red-600' : 'text-slate-700'}`}>
+                      {b.event_datetime ? new Date(b.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                    </p>
+                    {b.isCloseInTime && <p className="text-red-500">⚠️ Close to this time</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Equipment Availability Check — Pending package bookings only */}
+      {booking.booking_status === 'Pending' && booking.booking_type !== 'Short Order' && booking.package_id && (
+        <div className={`border rounded-xl p-5 shadow-xs ${
+          loadingAvailability ? 'bg-slate-50 border-slate-200' :
+          equipmentAvailability.length === 0 ? 'bg-slate-50 border-slate-200' :
+          equipmentAvailability.every(e => e.sufficient) ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'
+        }`}>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-bold text-slate-900">Equipment Availability for This Date</h3>
+            {!loadingAvailability && equipmentAvailability.length > 0 && (
+              <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                equipmentAvailability.every(e => e.sufficient)
+                  ? 'bg-green-100 border-green-200 text-green-700'
+                  : 'bg-amber-100 border-amber-200 text-amber-700'
+              }`}>
+                {equipmentAvailability.every(e => e.sufficient)
+                  ? '✅ Sufficient equipment available'
+                  : `⚠️ ${equipmentAvailability.filter(e => !e.sufficient).length} item(s) may be short`}
+              </span>
+            )}
+          </div>
+          {loadingAvailability ? (
+            <p className="text-xs text-slate-500 italic">Checking equipment availability...</p>
+          ) : equipmentAvailability.length === 0 ? (
+            <p className="text-xs text-slate-500 italic">This package doesn't require any tracked equipment, or the event date isn't set yet.</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-2">
+              {equipmentAvailability.map(item => (
+                <div
+                  key={item.equipment_id}
+                  className={`flex justify-between items-center px-3 py-2 rounded-lg border text-xs ${
+                    item.sufficient ? 'bg-white border-slate-200' : 'bg-white border-red-300'
+                  }`}
+                >
+                  <div>
+                    <p className="font-semibold text-slate-800">{item.eqm_name}</p>
+                    <p className="text-slate-500">Needs {item.needed} · {item.freeBeforeThis} free of {item.totalStock}</p>
+                  </div>
+                  <span className={item.sufficient ? 'text-green-600' : 'text-red-600 font-bold'}>
+                    {item.sufficient ? '✅' : '⚠️'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* LEFT COLUMN */}
@@ -1026,7 +1294,7 @@ export default function BookingDetails() {
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-sm font-bold text-slate-900">Payment Tracking</h3>
-              {booking.booking_status !== 'Rejected' && booking.booking_status !== 'Cancelled' && (
+              {canRecordPayment && (
                 <button
                   onClick={openPaymentModal}
                   className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
@@ -1034,7 +1302,10 @@ export default function BookingDetails() {
                   <Plus size={14} /> Record Payment
                 </button>
               )}
-              {(booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') && (
+              {!canRecordPayment && booking.booking_status === 'Pending' && (
+                <span className="text-xs text-slate-400 italic">Approve this booking to enable payments</span>
+              )}
+              {!canRecordPayment && (booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') && (
                 <span className="text-xs text-slate-400 italic">Payments closed</span>
               )}
             </div>
@@ -1072,14 +1343,22 @@ export default function BookingDetails() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 text-slate-700">
-                    {payments.map(p => (
-                      <tr key={p.payment_id} className={p.amount_paid < 0 ? 'bg-red-50' : ''}>
+                    {payments.map(p => {
+                      const pendingVerification = p.pay_status === 'Pending Verification';
+                      return (
+                      <tr key={p.payment_id} className={p.amount_paid < 0 ? 'bg-red-50' : pendingVerification ? 'bg-blue-50' : ''}>
                         <td className={`p-3 font-bold ${p.amount_paid < 0 ? 'text-red-600' : ''}`}>
                           {p.amount_paid < 0 ? '-' : ''}₱{Math.abs(p.amount_paid).toLocaleString()}
                         </td>
                         <td className="p-3">{p.pay_method || 'N/A'}</td>
                         <td className="p-3">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${p.pay_status === 'Refunded' ? 'bg-red-100 text-red-700 border border-red-200' : p.pay_status === 'Fully Paid' ? 'bg-green-100 text-green-700 border border-green-200' : 'bg-amber-100 text-amber-700 border border-amber-200'}`}>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            p.pay_status === 'Refunded' ? 'bg-red-100 text-red-700 border border-red-200' :
+                            p.pay_status === 'Fully Paid' ? 'bg-green-100 text-green-700 border border-green-200' :
+                            p.pay_status === 'Pending Verification' ? 'bg-blue-100 text-blue-700 border border-blue-200' :
+                            p.pay_status === 'Proof Rejected' ? 'bg-red-100 text-red-700 border border-red-200' :
+                            'bg-amber-100 text-amber-700 border border-amber-200'
+                          }`}>
                             {p.pay_status || 'N/A'}
                           </span>
                         </td>
@@ -1087,16 +1366,28 @@ export default function BookingDetails() {
                         <td className="p-3">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleString() : 'N/A'}</td>
                         <td className="p-3 text-center">
                           <div className="flex justify-center gap-2">
-                            <button onClick={() => openEditPaymentModal(p)} className="text-blue-500 hover:text-blue-700" title="Edit Payment">
-                              <Edit size={14} />
-                            </button>
+                            {pendingVerification ? (
+                              <>
+                                <button onClick={() => handleVerifyPayment(p)} disabled={isVerifying} className="text-green-600 hover:text-green-800 disabled:opacity-50" title="Verify Payment">
+                                  <Check size={14} />
+                                </button>
+                                <button onClick={() => openRejectProofModal(p)} disabled={isVerifying} className="text-red-500 hover:text-red-700 disabled:opacity-50" title="Reject Proof">
+                                  <X size={14} />
+                                </button>
+                              </>
+                            ) : (
+                              <button onClick={() => openEditPaymentModal(p)} className="text-blue-500 hover:text-blue-700" title="Edit Payment">
+                                <Edit size={14} />
+                              </button>
+                            )}
                             <button onClick={() => handleDeletePayment(p.payment_id)} className="text-red-500 hover:text-red-700" title="Delete Payment">
                               <Trash2 size={14} />
                             </button>
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1551,7 +1842,6 @@ export default function BookingDetails() {
                   >
                     <option value="Downpayment">Downpayment</option>
                     <option value="Fully Paid">Fully Paid</option>
-                    <option value="Unpaid">Unpaid</option>
                   </select>
                 </div>
               </div>
@@ -1631,7 +1921,6 @@ export default function BookingDetails() {
                   <select name="pay_status" value={editPaymentFormData.pay_status} onChange={(e) => setEditPaymentFormData({...editPaymentFormData, pay_status: e.target.value})} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white">
                     <option value="Downpayment">Downpayment</option>
                     <option value="Fully Paid">Fully Paid</option>
-                    <option value="Unpaid">Unpaid</option>
                   </select>
                 </div>
               </div>
@@ -2025,6 +2314,11 @@ export default function BookingDetails() {
                 <p className="text-xs text-slate-500 mt-2">* Adjust extra pax or add fees below.</p>
               </div>
 
+              <ApprovalAvailabilityCheck
+                booking={approvalBooking}
+                effectivePaxCount={(approvalBooking.pax_count || 0) + (approvalData.extraPax || 0)}
+              />
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Extra Pax (additional headcount)</label>
@@ -2118,6 +2412,49 @@ export default function BookingDetails() {
               >
                 Open in New Tab
               </a>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ===== REJECT PAYMENT PROOF MODAL ===== */}
+      {isRejectProofModalOpen && rejectProofTarget && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Reject Payment Proof</h2>
+              <button onClick={() => setIsRejectProofModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 text-left">
+              <p className="text-sm text-slate-600">
+                Rejecting the proof for the ₱{(rejectProofTarget.amount_paid || 0).toLocaleString()} payment submitted by the customer. They'll need to resubmit — let them know why.
+              </p>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Reason *</label>
+                <textarea
+                  value={rejectProofReason}
+                  onChange={(e) => setRejectProofReason(e.target.value)}
+                  rows="3"
+                  placeholder="e.g. Proof image is unreadable, amount doesn't match, wrong receiving account..."
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-red-400 resize-none"
+                />
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setIsRejectProofModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRejectProofConfirm}
+                  disabled={isVerifying}
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                >
+                  {isVerifying ? 'Rejecting...' : 'Reject Proof'}
+                </button>
+              </div>
             </div>
           </div>
         </div>,

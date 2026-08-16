@@ -5,6 +5,7 @@ import { Plus, Edit, Trash2, X, Truck, Car, Settings, Calendar, MapPin, Users, C
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 
 export default function Vehicles() {
   const { showConfirm } = useConfirm();
@@ -167,7 +168,7 @@ export default function Vehicles() {
           notes,
           customer:customer_id (first_name, last_name, contact_no, cus_address)
         `)
-        .eq('booking_status', 'Approved')
+        .in('booking_status', ACTIVE_BOOKING_STATUSES)
         .order('event_datetime', { ascending: false });
 
       if (search.trim()) {
@@ -1025,7 +1026,11 @@ export default function Vehicles() {
                 <div className="bg-[#F8F9FA] border border-slate-200 rounded-lg p-4 space-y-3">
                   <div className="flex justify-between items-start">
                     <h4 className="font-bold text-slate-900 text-sm">Booking Details</h4>
-                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${selectedBooking.booking_status === 'Approved' ? 'bg-green-100 text-green-700 border border-green-200' : 'bg-amber-100 text-amber-700 border border-amber-200'}`}>
+                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      selectedBooking.booking_status === 'Approved' ? 'bg-green-100 text-green-700 border border-green-200' :
+                      selectedBooking.booking_status === 'Confirmed' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' :
+                      'bg-amber-100 text-amber-700 border border-amber-200'
+                    }`}>
                       {selectedBooking.booking_status}
                     </span>
                   </div>

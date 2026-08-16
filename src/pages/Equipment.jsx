@@ -5,6 +5,7 @@ import { Plus, Edit, Trash2, X, CheckCircle, Settings, ClipboardList, RefreshCw,
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 
 export default function Equipment() {
   const { showConfirm } = useConfirm();
@@ -122,7 +123,7 @@ export default function Equipment() {
           customer:customer_id (first_name, last_name, contact_no, cus_address)
         `)
         .eq('booking_type', 'Package')
-        .in('booking_status', ['Approved', 'Pending'])
+        .in('booking_status', [...ACTIVE_BOOKING_STATUSES, 'Pending'])
         .order('event_datetime', { ascending: true });
       if (bookingError) throw bookingError;
       setBookings(bookingData || []);
@@ -344,6 +345,34 @@ export default function Equipment() {
     }
 
     const available = qty - damaged - maintenance;
+
+    // Warn if the new available quantity would drop below what's already
+    // committed to active (not yet returned) bookings — otherwise this
+    // silently creates an oversold state with no signal until event day.
+    try {
+      const { data: activeAssignments, error: assignError } = await supabase
+        .from('booking_equipment')
+        .select('quantity')
+        .eq('equipment_id', editFormData.equipment_id)
+        .eq('returned', false);
+      if (assignError) throw assignError;
+      const committedQty = (activeAssignments || []).reduce((sum, a) => sum + (a.quantity || 0), 0);
+      if (available < committedQty) {
+        const proceed = await showConfirm({
+          title: '⚠️ Stock Below Committed Amount',
+          message: `This equipment is currently committed to active bookings for ${committedQty} unit(s), but the new available quantity would only be ${available}. This may cause shortages on event day.\n\nDo you still want to proceed?`,
+          confirmLabel: 'Yes, Proceed Anyway',
+          cancelLabel: 'Cancel',
+          confirmVariant: 'warning',
+        });
+        if (!proceed) {
+          setIsSubmitting(false);
+          return;
+        }
+      }
+    } catch (checkError) {
+      console.warn('Committed-quantity check failed:', checkError);
+    }
 
     try {
       const paxPerUnit = editFormData.equipment_type === 'Countable'
@@ -1134,6 +1163,7 @@ export default function Equipment() {
                     <h4 className="font-bold text-slate-900 text-sm">Booking Details</h4>
                     <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${
                       selectedBooking.booking_status === 'Approved' ? 'bg-green-100 text-green-700 border border-green-200' :
+                      selectedBooking.booking_status === 'Confirmed' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' :
                       selectedBooking.booking_status === 'Pending' ? 'bg-amber-100 text-amber-700 border border-amber-200' :
                       'bg-slate-100 text-slate-700 border border-slate-200'
                     }`}>

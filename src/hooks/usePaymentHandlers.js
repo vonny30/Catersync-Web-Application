@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { sumVerifiedPositivePayments } from '../utils/payments';
 
 export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData, customerId }) {
   const { showConfirm } = useConfirm();
@@ -88,9 +89,9 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       return;
     }
 
-    const positivePayments = payments
-      .filter(p => p.amount_paid > 0 && (editingPayment ? p.payment_id !== editingPayment.payment_id : true))
-      .reduce((sum, p) => sum + p.amount_paid, 0);
+    const positivePayments = sumVerifiedPositivePayments(
+      payments.filter(p => (editingPayment ? p.payment_id !== editingPayment.payment_id : true))
+    );
     const remainingBalance = Math.max(0, totalAmount - positivePayments);
     const isFirstPayment = positivePayments === 0;
 
@@ -301,9 +302,9 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     }
 
     // Check if editing would exceed remaining balance
-    const positivePayments = payments
-      .filter(p => p.amount_paid > 0 && p.payment_id !== editingPayment.payment_id)
-      .reduce((sum, p) => sum + p.amount_paid, 0);
+    const positivePayments = sumVerifiedPositivePayments(
+      payments.filter(p => p.payment_id !== editingPayment.payment_id)
+    );
     const newRemainingBalance = Math.max(0, totalAmount - positivePayments - amount);
     if (newRemainingBalance < 0) {
       toast.error(`Amount exceeds remaining balance of ₱${(totalAmount - positivePayments).toLocaleString()}.`);
@@ -311,12 +312,21 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       return;
     }
 
-    const existingPayments = payments.filter(p => p.booking_id === bookingId && p.amount_paid > 0 && p.payment_id !== editingPayment.payment_id);
-    const totalPaid = existingPayments.reduce((sum, p) => sum + p.amount_paid, 0);
+    const totalPaid = positivePayments;
     const isFirstPayment = totalPaid === 0;
 
     if (isFirstPayment && editPaymentFormData.pay_status === 'Downpayment' && amount < totalAmount * 0.5) {
       toast.error(`First payment must be at least 50% of total (₱${(totalAmount * 0.5).toLocaleString()}).`);
+      setIsPaymentSubmitting(false);
+      return;
+    }
+
+    // A payment can't stay labeled "Fully Paid" if, after this edit, the
+    // booking's total paid no longer actually covers the total amount —
+    // otherwise reducing the amount on a Fully Paid row silently leaves
+    // it saying Fully Paid while a real balance remains.
+    if (editPaymentFormData.pay_status === 'Fully Paid' && newRemainingBalance > 0) {
+      toast.error(`This amount leaves a remaining balance of ₱${newRemainingBalance.toLocaleString()}, so it can't stay marked "Fully Paid." Either keep the amount at ₱${(totalAmount - positivePayments).toLocaleString()}, or change the status to Downpayment.`);
       setIsPaymentSubmitting(false);
       return;
     }

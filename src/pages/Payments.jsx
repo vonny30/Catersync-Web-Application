@@ -6,6 +6,7 @@ import { Search, Upload, X, Image as ImageIcon, Edit, Trash2, Check, DollarSign,
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { sumVerifiedPositivePayments, UNVERIFIED_PAY_STATUSES } from '../utils/payments';
 
 export default function Payments() {
   const navigate = useNavigate();
@@ -17,7 +18,13 @@ export default function Payments() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('All');
   const [typeFilter, setTypeFilter] = useState('All'); // 'All', 'Package', 'Short Order'
-  const tabs = ['All', 'Downpayment', 'Full Payment'];
+  const tabs = ['All', 'Pending Verification', 'Downpayment', 'Full Payment'];
+
+  // --- Reject Proof modal state ---
+  const [isRejectProofModalOpen, setIsRejectProofModalOpen] = useState(false);
+  const [rejectProofTarget, setRejectProofTarget] = useState(null);
+  const [rejectProofReason, setRejectProofReason] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
 
   // --- MODAL STATE ---
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -126,17 +133,20 @@ export default function Payments() {
       if (bookingsError) throw bookingsError;
       setBookings(bookingsData || []);
 
-      // Calculate Net Collected: only from bookings that are NOT Rejected or Cancelled
+      // Calculate Net Collected: only from bookings that are NOT Rejected or
+      // Cancelled, and only counting verified funds (Pending Verification /
+      // Proof Rejected rows aren't real money in hand yet).
       const activePayments = paymentsData.filter(p => {
         const status = p.booking?.booking_status;
         return status !== 'Rejected' && status !== 'Cancelled';
       });
-      const collected = activePayments.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+      const verifiedActivePayments = activePayments.filter(p => !UNVERIFIED_PAY_STATUSES.includes(p.pay_status));
+      const collected = verifiedActivePayments.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
       setTotalCollected(collected);
 
       // For fully paid count and pending balance, we consider only active bookings
       const bookingTotals = {};
-      activePayments.forEach(p => {
+      verifiedActivePayments.forEach(p => {
         if (p.booking_id) {
           if (!bookingTotals[p.booking_id]) bookingTotals[p.booking_id] = 0;
           bookingTotals[p.booking_id] += p.amount_paid || 0;
@@ -173,6 +183,8 @@ export default function Payments() {
     // Status filter
     if (activeTab === 'All') {
       // pass
+    } else if (activeTab === 'Pending Verification') {
+      if (p.pay_status !== 'Pending Verification') return false;
     } else if (activeTab === 'Downpayment') {
       if (p.pay_status !== 'Downpayment') return false;
     } else if (activeTab === 'Full Payment') {
@@ -245,7 +257,7 @@ export default function Payments() {
     const booking = bookings.find(b => b.booking_id === bookingId);
     if (!booking) return 0;
     const paid = payments
-      .filter(p => p.booking_id === bookingId)
+      .filter(p => p.booking_id === bookingId && !UNVERIFIED_PAY_STATUSES.includes(p.pay_status))
       .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
     return Math.max(0, (booking.total_amount || 0) - paid);
   };
@@ -253,9 +265,7 @@ export default function Payments() {
 
   const getTotalPaidForBooking = (bookingId) => {
     if (!bookingId) return 0;
-    return payments
-      .filter(p => p.booking_id === bookingId && p.amount_paid > 0)
-      .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+    return sumVerifiedPositivePayments(payments.filter(p => p.booking_id === bookingId));
   };
   const totalPaidForSelected = getTotalPaidForBooking(formData.booking_id);
   const isFirstPaymentForSelected = totalPaidForSelected === 0;
@@ -264,10 +274,7 @@ export default function Payments() {
   const filteredBookings = bookings.filter(b => {
     if (formData.booking_id && b.booking_id === formData.booking_id) return true;
 
-    const paid = payments
-      .filter(p => p.booking_id === b.booking_id)
-      .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-    const remaining = Math.max(0, (b.total_amount || 0) - paid);
+    const remaining = getRemainingBalance(b.booking_id);
     if (remaining <= 0) return false;
 
     if (bookingSearchTerm) {
@@ -329,9 +336,14 @@ export default function Payments() {
       return;
     }
 
-    const paid = payments
-      .filter(p => p.booking_id === formData.booking_id)
-      .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+    // Excludes the row being edited (otherwise its old amount double-counts
+    // against itself, corrupting the remaining-balance math below) and
+    // excludes unverified rows (Pending Verification / Proof Rejected
+    // aren't real collected funds), matching sumVerifiedPositivePayments
+    // usage everywhere else in the app.
+    const paid = sumVerifiedPositivePayments(
+      payments.filter(p => p.booking_id === formData.booking_id && p.payment_id !== editingId)
+    );
     const totalAmount = selectedBooking.total_amount || 0;
     const remainingBalance = Math.max(0, totalAmount - paid);
     const isFirstPayment = paid === 0;
@@ -469,6 +481,69 @@ export default function Payments() {
     }
   };
 
+  // --- Verify / Reject a customer-submitted payment proof ---
+  const handleVerifyPaymentRow = async (payment) => {
+    const totalAmount = payment.booking?.total_amount || 0;
+    const alreadyVerified = sumVerifiedPositivePayments(
+      payments.filter(p => p.booking_id === payment.booking_id && p.payment_id !== payment.payment_id)
+    );
+    const remainingBeforeThis = Math.max(0, totalAmount - alreadyVerified);
+    const finalStatus = payment.amount_paid >= remainingBeforeThis ? 'Fully Paid' : 'Downpayment';
+
+    const confirmed = await showConfirm({
+      title: 'Verify Payment?',
+      message: `Confirm this payment of ₱${(payment.amount_paid || 0).toLocaleString()} is legitimate? It will be marked as "${finalStatus}".`,
+      confirmLabel: 'Yes, Verify',
+      cancelLabel: 'Cancel',
+      confirmVariant: 'success',
+    });
+    if (!confirmed) return;
+
+    setIsVerifying(true);
+    try {
+      const { error } = await supabase
+        .from('payment')
+        .update({ pay_status: finalStatus })
+        .eq('payment_id', payment.payment_id);
+      if (error) throw error;
+      toast.success(`Payment verified and marked as ${finalStatus}.`);
+      fetchData();
+    } catch (error) {
+      handleError(error, 'Failed to verify payment.');
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const openRejectProofModal = (payment) => {
+    setRejectProofTarget(payment);
+    setRejectProofReason('');
+    setIsRejectProofModalOpen(true);
+  };
+
+  const handleRejectProofConfirm = async () => {
+    if (!rejectProofTarget) return;
+    if (!rejectProofReason.trim()) {
+      toast.error('Please provide a reason so the customer knows what to fix.');
+      return;
+    }
+    setIsVerifying(true);
+    try {
+      const { error } = await supabase
+        .from('payment')
+        .update({ pay_status: 'Proof Rejected', remarks: rejectProofReason.trim() })
+        .eq('payment_id', rejectProofTarget.payment_id);
+      if (error) throw error;
+      setIsRejectProofModalOpen(false);
+      toast.success('Payment proof rejected. The customer will need to resubmit.');
+      fetchData();
+    } catch (error) {
+      handleError(error, 'Failed to reject payment proof.');
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
   const handleDelete = async (id) => {
     const confirmed = await showConfirm({
       title: 'Delete Payment?',
@@ -510,9 +585,10 @@ export default function Payments() {
     const map = {
       'Downpayment': 'bg-amber-50 border-amber-200 text-amber-700',
       'Fully Paid': 'bg-[#EAF3F2] border-[#C1DEDC] text-slate-800',
-      'Unpaid': 'bg-red-50 border-red-200 text-red-700',
       'Refunded': 'bg-red-100 border-red-200 text-red-700',
       'Pending': 'bg-slate-100 border-slate-200 text-slate-500',
+      'Pending Verification': 'bg-blue-50 border-blue-200 text-blue-700',
+      'Proof Rejected': 'bg-red-50 border-red-200 text-red-700',
     };
     return map[status] || 'bg-slate-100 text-slate-600';
   };
@@ -522,6 +598,7 @@ export default function Payments() {
     const map = {
       'Pending': 'bg-amber-100 text-amber-800 border-amber-200',
       'Approved': 'bg-green-100 text-green-800 border-green-200',
+      'Confirmed': 'bg-emerald-100 text-emerald-800 border-emerald-200',
       'Completed': 'bg-blue-100 text-blue-800 border-blue-200',
       'Rejected': 'bg-red-100 text-red-800 border-red-200',
       'Cancelled': 'bg-slate-200 text-slate-700 border-slate-300',
@@ -598,7 +675,7 @@ export default function Payments() {
   const handlePendingClick = () => {
     const data = bookings.map(b => {
       const paid = payments
-        .filter(p => p.booking_id === b.booking_id)
+        .filter(p => p.booking_id === b.booking_id && !UNVERIFIED_PAY_STATUSES.includes(p.pay_status))
         .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
       const remaining = Math.max(0, (b.total_amount || 0) - paid);
       return {
@@ -621,7 +698,7 @@ export default function Payments() {
     const fullyPaidBookingIds = bookings
       .filter(b => {
         const paid = payments
-          .filter(p => p.booking_id === b.booking_id)
+          .filter(p => p.booking_id === b.booking_id && !UNVERIFIED_PAY_STATUSES.includes(p.pay_status))
           .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
         return paid >= (b.total_amount || 0) && paid > 0;
       })
@@ -814,6 +891,26 @@ export default function Payments() {
                       </td>
                       <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-3">
+                          {payment.pay_status === 'Pending Verification' && (
+                            <>
+                              <button
+                                onClick={() => handleVerifyPaymentRow(payment)}
+                                disabled={isVerifying}
+                                className="text-green-600 hover:text-green-800 transition-colors disabled:opacity-50"
+                                title="Verify Payment"
+                              >
+                                <Check size={16} />
+                              </button>
+                              <button
+                                onClick={() => openRejectProofModal(payment)}
+                                disabled={isVerifying}
+                                className="text-red-500 hover:text-red-700 transition-colors disabled:opacity-50"
+                                title="Reject Proof"
+                              >
+                                <X size={16} />
+                              </button>
+                            </>
+                          )}
                           <button
                             onClick={() => openEditModal(payment)}
                             className="text-slate-400 hover:text-[#008A45] transition-colors"
@@ -1368,6 +1465,49 @@ export default function Payments() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ===== REJECT PAYMENT PROOF MODAL ===== */}
+      {isRejectProofModalOpen && rejectProofTarget && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Reject Payment Proof</h2>
+              <button onClick={() => setIsRejectProofModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 text-left">
+              <p className="text-sm text-slate-600">
+                Rejecting the proof for the ₱{(rejectProofTarget.amount_paid || 0).toLocaleString()} payment submitted by {getClientName(rejectProofTarget)}. They'll need to resubmit — let them know why.
+              </p>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Reason *</label>
+                <textarea
+                  value={rejectProofReason}
+                  onChange={(e) => setRejectProofReason(e.target.value)}
+                  rows="3"
+                  placeholder="e.g. Proof image is unreadable, amount doesn't match, wrong receiving account..."
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-red-400 resize-none"
+                />
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setIsRejectProofModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRejectProofConfirm}
+                  disabled={isVerifying}
+                  className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                >
+                  {isVerifying ? 'Rejecting...' : 'Reject Proof'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>,
         document.body

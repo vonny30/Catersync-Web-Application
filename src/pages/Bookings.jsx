@@ -13,6 +13,7 @@ import { checkEquipmentCapacityForDate, allocateEquipmentForBooking } from '../u
 import { createWalkInCustomer } from '../utils/createWalkInCustomer';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
+import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 
 export default function Bookings() {
   const navigate = useNavigate();
@@ -224,7 +225,10 @@ if (searchTerm) {
               paymentsMap[p.booking_id] = { positive: 0, refunded: 0, downpayment: 0 };
             }
             const amount = parseFloat(p.amount_paid) || 0;
-            if (amount > 0) {
+            // Pending Verification / Proof Rejected rows aren't confirmed
+            // funds yet, so they don't count toward what's actually paid.
+            const isUnverified = p.pay_status === 'Pending Verification' || p.pay_status === 'Proof Rejected';
+            if (amount > 0 && !isUnverified) {
               paymentsMap[p.booking_id].positive += amount;
               if (p.pay_status === 'Downpayment') {
                 paymentsMap[p.booking_id].downpayment += amount;
@@ -616,6 +620,11 @@ if (searchTerm) {
       setIsSubmitting(false);
       return;
     }
+    if (!formData.total_amount || parseFloat(formData.total_amount) <= 0) {
+      toast.error('Total amount must be greater than zero.');
+      setIsSubmitting(false);
+      return;
+    }
 
     const selectedPackage = packages.find(p => p.package_id === formData.package_id);
     if (selectedPackage && parseInt(formData.pax_count) < selectedPackage.minimum_pax) {
@@ -683,83 +692,90 @@ if (searchTerm) {
         }
       }
 
-      // ✅ DUPLICATE CHECK – only active bookings (not Rejected or Cancelled)
+      // ✅ DUPLICATE CHECK – only active bookings (not Rejected or Cancelled).
+      // Skipped for a brand-new walk-in customer: they were just created a
+      // few lines up, so they can't possibly already have a booking on
+      // this date — and running the check (and letting the manager Cancel
+      // out of it) would leave the account we just created orphaned with
+      // no booking attached to it.
       const eventDate = new Date(formData.event_datetime);
-      const startOfDay = new Date(eventDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(eventDate);
-      endOfDay.setHours(23, 59, 59, 999);
-      const startISO = startOfDay.toISOString();
-      const endISO = endOfDay.toISOString();
+      if (customerMode !== 'new') {
+        const startOfDay = new Date(eventDate);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(eventDate);
+        endOfDay.setHours(23, 59, 59, 999);
+        const startISO = startOfDay.toISOString();
+        const endISO = endOfDay.toISOString();
 
-      let dupQuery = supabase
-      .from('booking')
-      .select('booking_id, venue, pax_count, booking_status, event_datetime, package_id')
-      .eq('customer_id', customerId)
-      .eq('booking_type', 'Package')        // <-- ADD THIS LINE
-      .gte('event_datetime', startISO)
-      .lte('event_datetime', endISO)
-      .not('booking_status', 'in', '("Rejected","Cancelled")');
+        let dupQuery = supabase
+        .from('booking')
+        .select('booking_id, venue, pax_count, booking_status, event_datetime, package_id')
+        .eq('customer_id', customerId)
+        .eq('booking_type', 'Package')        // <-- ADD THIS LINE
+        .gte('event_datetime', startISO)
+        .lte('event_datetime', endISO)
+        .not('booking_status', 'in', '("Rejected","Cancelled")');
 
-      if (editingId) {
-        dupQuery = dupQuery.neq('booking_id', editingId);
-      }
-
-      const { data: duplicates, error: dupError } = await dupQuery;
-      if (dupError) {
-        console.error('Duplicate check error:', dupError);
-      } else if (duplicates && duplicates.length > 0) {
-        const existing = duplicates[0];
-        const { data: customerData } = await supabase
-          .from('customer')
-          .select('first_name, last_name')
-          .eq('customer_id', customerId)
-          .maybeSingle();
-
-        let packageName = 'No Package';
-        if (existing.package_id) {
-          const { data: pkgData } = await supabase
-            .from('package')
-            .select('pkg_name')
-            .eq('package_id', existing.package_id)
-            .maybeSingle();
-          if (pkgData) packageName = pkgData.pkg_name;
+        if (editingId) {
+          dupQuery = dupQuery.neq('booking_id', editingId);
         }
 
-        const customerName = customerData
-          ? `${customerData.first_name} ${customerData.last_name}`
-          : 'Unknown Customer';
+        const { data: duplicates, error: dupError } = await dupQuery;
+        if (dupError) {
+          console.error('Duplicate check error:', dupError);
+        } else if (duplicates && duplicates.length > 0) {
+          const existing = duplicates[0];
+          const { data: customerData } = await supabase
+            .from('customer')
+            .select('first_name, last_name')
+            .eq('customer_id', customerId)
+            .maybeSingle();
 
-        const existingTime = existing.event_datetime
-          ? new Date(existing.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          : 'Unknown Time';
-        const venue = existing.venue || 'N/A';
-        const pax = existing.pax_count || 0;
-        const status = existing.booking_status || 'Unknown';
-        const count = duplicates.length;
+          let packageName = 'No Package';
+          if (existing.package_id) {
+            const { data: pkgData } = await supabase
+              .from('package')
+              .select('pkg_name')
+              .eq('package_id', existing.package_id)
+              .maybeSingle();
+            if (pkgData) packageName = pkgData.pkg_name;
+          }
 
-        let message = `⚠️ Duplicate Booking Found\n\n`;
-        if (count > 1) message += `Found ${count} bookings on this date. Showing the first one:\n\n`;
-        message +=
-          `Customer  : ${customerName}\n` +
-          `Date      : ${new Date(eventDate).toLocaleDateString()}\n` +
-          `Time      : ${existingTime}\n` +
-          `Package   : ${packageName}\n` +
-          `Venue     : ${venue}\n` +
-          `Pax       : ${pax}\n` +
-          `Status    : ${status}\n\n` +
-          `Do you still want to proceed with this new booking?`;
+          const customerName = customerData
+            ? `${customerData.first_name} ${customerData.last_name}`
+            : 'Unknown Customer';
 
-        const proceed = await showConfirm({
-          title: '⚠️ Duplicate Booking Detected',
-          message: message,
-          confirmLabel: 'Yes, Proceed Anyway',
-          cancelLabel: 'Cancel',
-          confirmVariant: 'warning',
-        });
-        if (!proceed) {
-          setIsSubmitting(false);
-          return;
+          const existingTime = existing.event_datetime
+            ? new Date(existing.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : 'Unknown Time';
+          const venue = existing.venue || 'N/A';
+          const pax = existing.pax_count || 0;
+          const status = existing.booking_status || 'Unknown';
+          const count = duplicates.length;
+
+          let message = `⚠️ Duplicate Booking Found\n\n`;
+          if (count > 1) message += `Found ${count} bookings on this date. Showing the first one:\n\n`;
+          message +=
+            `Customer  : ${customerName}\n` +
+            `Date      : ${new Date(eventDate).toLocaleDateString()}\n` +
+            `Time      : ${existingTime}\n` +
+            `Package   : ${packageName}\n` +
+            `Venue     : ${venue}\n` +
+            `Pax       : ${pax}\n` +
+            `Status    : ${status}\n\n` +
+            `Do you still want to proceed with this new booking?`;
+
+          const proceed = await showConfirm({
+            title: '⚠️ Duplicate Booking Detected',
+            message: message,
+            confirmLabel: 'Yes, Proceed Anyway',
+            cancelLabel: 'Cancel',
+            confirmVariant: 'warning',
+          });
+          if (!proceed) {
+            setIsSubmitting(false);
+            return;
+          }
         }
       }
 
@@ -825,6 +841,42 @@ if (searchTerm) {
   };
 
   // ❌ Local rejection functions removed – using hook
+
+  // Approved -> Confirmed: manual step, requires at least 50% verified paid.
+  const handleConfirmBooking = async (id) => {
+    const booking = bookings.find(b => b.booking_id === id);
+    if (!booking) {
+      toast.error('Booking not found.');
+      return;
+    }
+    const totalAmount = booking.total_amount || 0;
+    const paid = booking.positivePayments || 0;
+    const required = totalAmount * 0.5;
+    if (paid < required) {
+      toast.error(`Needs at least 50% paid and verified before this can be confirmed (₱${paid.toLocaleString()} of ₱${required.toLocaleString()} required).`);
+      return;
+    }
+    const isFullyPaid = paid >= totalAmount;
+    const confirmed = await showConfirm({
+      title: 'Confirm This Event?',
+      message: `This booking has ${isFullyPaid ? 'been paid in full' : 'a verified downpayment of at least 50%'} (₱${paid.toLocaleString()} of ₱${totalAmount.toLocaleString()}). Marking it Confirmed locks the event in — cancellation only becomes available after this point. Continue?`,
+      confirmLabel: 'Yes, Confirm Event',
+      cancelLabel: 'Cancel',
+      confirmVariant: 'success',
+    });
+    if (!confirmed) return;
+    try {
+      const { error } = await supabase
+        .from('booking')
+        .update({ booking_status: 'Confirmed' })
+        .eq('booking_id', id);
+      if (error) throw error;
+      toast.success('Event confirmed!');
+      fetchData();
+    } catch (error) {
+      handleError(error, 'Failed to confirm booking.');
+    }
+  };
 
 const handleMarkCompleted = async (id) => {
   const booking = bookings.find(b => b.booking_id === id);
@@ -984,13 +1036,14 @@ const handleMarkCompleted = async (id) => {
     }
   };
 
-  const tabs = ['All', 'Pending', 'Approved', 'Completed', 'Rejected', 'Cancelled'];
+  const tabs = ['All', 'Pending', 'Approved', 'Confirmed', 'Completed', 'Rejected', 'Cancelled'];
   const hasActiveFilters = filters.dateFrom || filters.dateTo || filters.customerId || filters.packageId || filters.venue;
 
   const getStatusBadge = (status) => {
     const map = {
       Pending: 'bg-amber-50 border-amber-200 text-amber-700',
       Approved: 'bg-[#EAF3F2] border-[#C1DEDC] text-slate-800',
+      Confirmed: 'bg-emerald-50 border-emerald-200 text-emerald-700',
       Completed: 'bg-blue-50 border-blue-200 text-blue-700',
       Rejected: 'bg-red-50 border-red-200 text-red-700',
       Cancelled: 'bg-slate-100 border-slate-300 text-slate-600',
@@ -1207,6 +1260,14 @@ const handleMarkCompleted = async (id) => {
                           </>
                         )}
                         {booking.booking_status === 'Approved' && (
+                          <button
+                            onClick={() => handleConfirmBooking(booking.booking_id)}
+                            className="bg-emerald-100 border border-emerald-200 text-emerald-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-emerald-200 transition-colors"
+                          >
+                            <Check size={14} /> Confirm
+                          </button>
+                        )}
+                        {booking.booking_status === 'Confirmed' && (
                           <button
                             onClick={() => handleMarkCompleted(booking.booking_id)}
                             className="bg-blue-100 border border-blue-200 text-blue-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-blue-200 transition-colors"
@@ -1704,6 +1765,11 @@ const handleMarkCompleted = async (id) => {
                 </div>
                 <p className="text-xs text-slate-500 mt-2">* Adjust extra pax or add fees below.</p>
               </div>
+
+              <ApprovalAvailabilityCheck
+                booking={approvalBooking}
+                effectivePaxCount={(approvalBooking.pax_count || 0) + (approvalData.extraPax || 0)}
+              />
 
               <div className="space-y-4">
                 <div>
