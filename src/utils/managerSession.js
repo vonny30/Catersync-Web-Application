@@ -185,8 +185,14 @@ export function releaseManagerSessionClaimBeacon(managerId, tabSessionId, access
 // Subscribes to realtime changes on this manager's row so an open tab is
 // kicked out the instant another browser/device claims the session, rather
 // than only finding out on its next reload. Returns an unsubscribe fn.
+//
+// Deliberately does NOT filter out "our own" updates here by snapshotting
+// the claim id at subscribe time — that snapshot could go stale if the
+// caller re-claims without re-subscribing. Instead every UPDATE is handed
+// to onKicked(newId, startedAt) and the CALLER compares newId against its
+// own live/current id, so there's no window where a stale local id can
+// cause a false self-kick.
 export function subscribeManagerSession(managerId, onKicked) {
-  const browserSessionId = readBrowserSessionId();
   const channel = supabase
     .channel(`manager-session-${managerId}`)
     .on(
@@ -194,9 +200,7 @@ export function subscribeManagerSession(managerId, onKicked) {
       { event: 'UPDATE', schema: 'public', table: 'manager', filter: `manager_id=eq.${managerId}` },
       (payload) => {
         const newId = payload.new?.active_session_id;
-        if (newId && newId !== browserSessionId) {
-          onKicked(payload.new?.active_session_started_at);
-        }
+        onKicked(newId, payload.new?.active_session_started_at);
       }
     )
     .subscribe();

@@ -127,8 +127,18 @@ export const AuthProvider = ({ children }) => {
     stopTabHeartbeat();
   };
 
-  const handleKicked = (startedAt) => {
+  // Called on every realtime UPDATE to this manager's row, including ones
+  // caused by OUR OWN claim (Postgres changefeeds don't distinguish "who
+  // made this change"). Must compare newSessionId against the live ref
+  // (not a value captured earlier) or a stale comparison could make a tab
+  // sign itself out right after successfully claiming the session.
+  const handleKicked = (newSessionId, startedAt) => {
+    if (!newSessionId || newSessionId === tabSessionIdRef.current) {
+      console.log('[session-lock] Ignoring realtime update — this is our own claim.', { newSessionId, ours: tabSessionIdRef.current });
+      return;
+    }
     if (isKickedRef.current) return; // already handling
+    console.log('[session-lock] Kicked — another browser/device claimed the session.', { newSessionId, ours: tabSessionIdRef.current, startedAt });
     isKickedRef.current = true;
     kickedAtRef.current = startedAt || null;
     teardownSessionLock();
@@ -220,14 +230,17 @@ export const AuthProvider = ({ children }) => {
         // side — see confirmTakeOverSession/cancelTakeOverSession below.
         const conflict = await peekManagerSessionConflict(manager.manager_id);
         if (conflict) {
+          console.log('[session-lock] Fresh sign-in found an existing claim — pausing for confirmation.', conflict);
           pendingManagerIdRef.current = manager.manager_id;
           setSessionConflict(conflict);
           return false;
         }
         const tabSessionId = await claimManagerSession(manager.manager_id);
+        console.log('[session-lock] Claimed (fresh sign-in, no prior claim found):', tabSessionId);
         lockResult = { status: 'claimed', tabSessionId };
       } else {
         lockResult = await verifyOrReclaimManagerSession(manager.manager_id);
+        console.log('[session-lock] verifyOrReclaim result:', lockResult.status, lockResult.tabSessionId);
       }
 
       if (lockResult.status === 'kicked') {
@@ -439,6 +452,7 @@ if (event === 'SIGNED_OUT') {
     if (!managerId) return;
     try {
       const tabSessionId = await claimManagerSession(managerId);
+      console.log('[session-lock] Claimed (confirmed takeover):', tabSessionId);
       teardownSessionLock();
       managerIdRef.current = managerId;
       tabSessionIdRef.current = tabSessionId;
