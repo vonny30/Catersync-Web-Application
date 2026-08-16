@@ -13,7 +13,6 @@ import { useCancellationHandlers } from '../hooks/useCancellationHandlers';
 import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { sumVerifiedPositivePayments, sumVerifiedDownpayments } from '../utils/payments';
-import { getBookingsOnDate } from '../utils/availability';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 
 export default function ShortOrderDetails() {
@@ -52,10 +51,6 @@ export default function ShortOrderDetails() {
   // --- Proof Image Modal state ---
   const [isProofModalOpen, setIsProofModalOpen] = useState(false);
   const [proofModalUrl, setProofModalUrl] = useState('');
-
-  // --- Day schedule preview (Pending orders only) ---
-  const [dayBookings, setDayBookings] = useState([]);
-  const [loadingDayBookings, setLoadingDayBookings] = useState(false);
 
   // --- Fetch order data ---
   const fetchOrder = async () => {
@@ -154,33 +149,6 @@ export default function ShortOrderDetails() {
     };
     fetchDropdownData();
   }, [id]);
-
-  // Show what else is already approved on the same day, so the manager can
-  // judge date/time availability before approving.
-  useEffect(() => {
-    let cancelled = false;
-    const isPending = order?.booking_status === 'Pending' && order?.event_datetime;
-
-    const run = async () => {
-      if (!isPending) {
-        if (!cancelled) setDayBookings([]);
-        return;
-      }
-      if (!cancelled) setLoadingDayBookings(true);
-      try {
-        const data = await getBookingsOnDate(order.event_datetime, order.booking_id, order.event_datetime);
-        if (!cancelled) setDayBookings(data);
-      } catch (err) {
-        console.error('Day schedule check failed:', err);
-        if (!cancelled) setDayBookings([]);
-      } finally {
-        if (!cancelled) setLoadingDayBookings(false);
-      }
-    };
-    run();
-
-    return () => { cancelled = true; };
-  }, [order?.booking_id, order?.booking_status, order?.event_datetime]);
 
   // ============================================================
   // HOOKS: Payment, Approval, Rejection, Cancellation
@@ -762,58 +730,12 @@ export default function ShortOrderDetails() {
 )}
       </div>
 
-      {/* Day Availability Check — any Pending order */}
+      {/* Day Availability — same shared layout as the Approve modal */}
       {order.booking_status === 'Pending' && order.event_datetime && (
-        <div className={`border rounded-xl p-5 shadow-xs ${
-          loadingDayBookings ? 'bg-slate-50 border-slate-200' :
-          dayBookings.length === 0 ? 'bg-green-50 border-green-200' :
-          dayBookings.some(b => b.isCloseInTime) ? 'bg-amber-50 border-amber-200' : 'bg-blue-50 border-blue-200'
-        }`}>
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-bold text-slate-900">Day Availability</h3>
-            {!loadingDayBookings && (
-              <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
-                dayBookings.length === 0 ? 'bg-green-100 border-green-200 text-green-700' :
-                dayBookings.some(b => b.isCloseInTime) ? 'bg-amber-100 border-amber-200 text-amber-700' :
-                'bg-blue-100 border-blue-200 text-blue-700'
-              }`}>
-                {dayBookings.length === 0
-                  ? '✅ No other approved events this day'
-                  : `📅 ${dayBookings.length} other event(s) this day${dayBookings.some(b => b.isCloseInTime) ? ' — check the time' : ''}`}
-              </span>
-            )}
-          </div>
-          {loadingDayBookings ? (
-            <p className="text-xs text-slate-500 italic">Checking the schedule for this date...</p>
-          ) : dayBookings.length === 0 ? (
-            <p className="text-xs text-slate-500 italic">The delivery date and time are wide open — nothing else is approved for this day.</p>
-          ) : (
-            <div className="space-y-2 mt-2">
-              {dayBookings.map(b => (
-                <div
-                  key={b.booking_id}
-                  className={`flex justify-between items-center px-3 py-2 rounded-lg border text-xs bg-white ${
-                    b.isCloseInTime ? 'border-red-300' : 'border-slate-200'
-                  }`}
-                >
-                  <div>
-                    <p className="font-semibold text-slate-800">
-                      {b.customerName}
-                      <span className="ml-2 font-normal text-slate-500">{b.booking_type === 'Short Order' ? 'Short Order' : 'Package'}</span>
-                    </p>
-                    <p className="text-slate-500">{b.venue || 'No venue set'}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className={`font-bold ${b.isCloseInTime ? 'text-red-600' : 'text-slate-700'}`}>
-                      {b.event_datetime ? new Date(b.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
-                    </p>
-                    {b.isCloseInTime && <p className="text-red-500">⚠️ Close to this time</p>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <ApprovalAvailabilityCheck
+          booking={order}
+          effectivePaxCount={0}
+        />
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

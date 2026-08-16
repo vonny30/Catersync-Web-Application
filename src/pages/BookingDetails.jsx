@@ -12,8 +12,7 @@ import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { useCancellationHandlers } from '../hooks/useCancellationHandlers';
 import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
-import { checkEquipmentCapacityForDate, allocateEquipmentForBooking, getEquipmentAvailabilityPreview } from '../utils/equipment';
-import { getBookingsOnDate } from '../utils/availability';
+import { checkEquipmentCapacityForDate, allocateEquipmentForBooking } from '../utils/equipment';
 import { sumVerifiedPositivePayments, sumVerifiedDownpayments } from '../utils/payments';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 
@@ -72,14 +71,6 @@ export default function BookingDetails() {
   // --- Proof Image Modal state ---
   const [isProofModalOpen, setIsProofModalOpen] = useState(false);
   const [proofModalUrl, setProofModalUrl] = useState('');
-
-  // --- Equipment availability preview (Pending package bookings only) ---
-  const [equipmentAvailability, setEquipmentAvailability] = useState([]);
-  const [loadingAvailability, setLoadingAvailability] = useState(false);
-
-  // --- Day schedule preview (Pending bookings only, any type) ---
-  const [dayBookings, setDayBookings] = useState([]);
-  const [loadingDayBookings, setLoadingDayBookings] = useState(false);
 
   // --- FETCH DATA ---
   const fetchBooking = async () => {
@@ -189,61 +180,6 @@ export default function BookingDetails() {
     };
     fetchDropdownData();
   }, [id]);
-
-  // Show the manager whether there's enough equipment left for this date
-  // BEFORE they approve — only makes sense for Pending package bookings
-  // (short orders don't have a catering equipment setup).
-  useEffect(() => {
-    let cancelled = false;
-    const isPendingPackage = booking?.booking_status === 'Pending' && booking?.booking_type !== 'Short Order' && booking?.package_id && booking?.event_datetime;
-
-    const run = async () => {
-      if (!isPendingPackage) {
-        if (!cancelled) setEquipmentAvailability([]);
-        return;
-      }
-      if (!cancelled) setLoadingAvailability(true);
-      try {
-        const data = await getEquipmentAvailabilityPreview(booking.event_datetime, booking.package_id, booking.pax_count, booking.booking_id);
-        if (!cancelled) setEquipmentAvailability(data);
-      } catch (err) {
-        console.error('Equipment availability preview failed:', err);
-        if (!cancelled) setEquipmentAvailability([]);
-      } finally {
-        if (!cancelled) setLoadingAvailability(false);
-      }
-    };
-    run();
-
-    return () => { cancelled = true; };
-  }, [booking?.booking_id, booking?.booking_status, booking?.booking_type, booking?.package_id, booking?.pax_count, booking?.event_datetime]);
-
-  // Show what else is already approved on the same day, so the manager can
-  // judge date/time availability before approving — not just equipment.
-  useEffect(() => {
-    let cancelled = false;
-    const isPending = booking?.booking_status === 'Pending' && booking?.event_datetime;
-
-    const run = async () => {
-      if (!isPending) {
-        if (!cancelled) setDayBookings([]);
-        return;
-      }
-      if (!cancelled) setLoadingDayBookings(true);
-      try {
-        const data = await getBookingsOnDate(booking.event_datetime, booking.booking_id, booking.event_datetime);
-        if (!cancelled) setDayBookings(data);
-      } catch (err) {
-        console.error('Day schedule check failed:', err);
-        if (!cancelled) setDayBookings([]);
-      } finally {
-        if (!cancelled) setLoadingDayBookings(false);
-      }
-    };
-    run();
-
-    return () => { cancelled = true; };
-  }, [booking?.booking_id, booking?.booking_status, booking?.event_datetime]);
 
   // ============================================================
   // HOOKS: Payment, Approval, Rejection, Cancellation
@@ -1091,106 +1027,12 @@ export default function BookingDetails() {
 )}
       </div>
 
-      {/* Day Schedule Check — any Pending booking */}
+      {/* Day / Equipment Availability — any Pending booking, same shared layout as the Approve modal */}
       {booking.booking_status === 'Pending' && booking.event_datetime && (
-        <div className={`border rounded-xl p-5 shadow-xs ${
-          loadingDayBookings ? 'bg-slate-50 border-slate-200' :
-          dayBookings.length === 0 ? 'bg-green-50 border-green-200' :
-          dayBookings.some(b => b.isCloseInTime) ? 'bg-amber-50 border-amber-200' : 'bg-blue-50 border-blue-200'
-        }`}>
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-bold text-slate-900">Day Availability</h3>
-            {!loadingDayBookings && (
-              <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
-                dayBookings.length === 0 ? 'bg-green-100 border-green-200 text-green-700' :
-                dayBookings.some(b => b.isCloseInTime) ? 'bg-amber-100 border-amber-200 text-amber-700' :
-                'bg-blue-100 border-blue-200 text-blue-700'
-              }`}>
-                {dayBookings.length === 0
-                  ? '✅ No other approved events this day'
-                  : `📅 ${dayBookings.length} other event(s) this day${dayBookings.some(b => b.isCloseInTime) ? ' — check the time' : ''}`}
-              </span>
-            )}
-          </div>
-          {loadingDayBookings ? (
-            <p className="text-xs text-slate-500 italic">Checking the schedule for this date...</p>
-          ) : dayBookings.length === 0 ? (
-            <p className="text-xs text-slate-500 italic">The event date and time are wide open — nothing else is approved for this day.</p>
-          ) : (
-            <div className="space-y-2 mt-2">
-              {dayBookings.map(b => (
-                <div
-                  key={b.booking_id}
-                  className={`flex justify-between items-center px-3 py-2 rounded-lg border text-xs bg-white ${
-                    b.isCloseInTime ? 'border-red-300' : 'border-slate-200'
-                  }`}
-                >
-                  <div>
-                    <p className="font-semibold text-slate-800">
-                      {b.customerName}
-                      <span className="ml-2 font-normal text-slate-500">{b.booking_type === 'Short Order' ? 'Short Order' : 'Package'}</span>
-                    </p>
-                    <p className="text-slate-500">{b.venue || 'No venue set'}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className={`font-bold ${b.isCloseInTime ? 'text-red-600' : 'text-slate-700'}`}>
-                      {b.event_datetime ? new Date(b.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
-                    </p>
-                    {b.isCloseInTime && <p className="text-red-500">⚠️ Close to this time</p>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Equipment Availability Check — Pending package bookings only */}
-      {booking.booking_status === 'Pending' && booking.booking_type !== 'Short Order' && booking.package_id && (
-        <div className={`border rounded-xl p-5 shadow-xs ${
-          loadingAvailability ? 'bg-slate-50 border-slate-200' :
-          equipmentAvailability.length === 0 ? 'bg-slate-50 border-slate-200' :
-          equipmentAvailability.every(e => e.sufficient) ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'
-        }`}>
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-bold text-slate-900">Equipment Availability for This Date</h3>
-            {!loadingAvailability && equipmentAvailability.length > 0 && (
-              <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
-                equipmentAvailability.every(e => e.sufficient)
-                  ? 'bg-green-100 border-green-200 text-green-700'
-                  : 'bg-amber-100 border-amber-200 text-amber-700'
-              }`}>
-                {equipmentAvailability.every(e => e.sufficient)
-                  ? '✅ Sufficient equipment available'
-                  : `⚠️ ${equipmentAvailability.filter(e => !e.sufficient).length} item(s) may be short`}
-              </span>
-            )}
-          </div>
-          {loadingAvailability ? (
-            <p className="text-xs text-slate-500 italic">Checking equipment availability...</p>
-          ) : equipmentAvailability.length === 0 ? (
-            <p className="text-xs text-slate-500 italic">This package doesn't require any tracked equipment, or the event date isn't set yet.</p>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-2">
-              {equipmentAvailability.map(item => (
-                <div
-                  key={item.equipment_id}
-                  className={`flex justify-between items-center px-3 py-2 rounded-lg border text-xs ${
-                    item.sufficient ? 'bg-white border-slate-200' : 'bg-white border-red-300'
-                  }`}
-                >
-                  <div>
-                    <p className="font-semibold text-slate-800">{item.eqm_name}</p>
-                    <p className="text-slate-500">Needs {item.needed} · {item.freeBeforeThis} free of {item.totalStock}</p>
-                  </div>
-                  <span className={item.sufficient ? 'text-green-600' : 'text-red-600 font-bold'}>
-                    {item.sufficient ? '✅' : '⚠️'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <ApprovalAvailabilityCheck
+          booking={booking}
+          effectivePaxCount={booking.pax_count || 0}
+        />
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
