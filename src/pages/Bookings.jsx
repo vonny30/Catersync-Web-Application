@@ -324,6 +324,12 @@ if (searchTerm) {
     fetchData: fetchData,
   });
 
+  // Reported by ApprovalAvailabilityCheck inside the approve modal — lets us
+  // disable the Approve button instead of letting the manager click through
+  // and get blocked by the hook's equipment hard-check afterward.
+  const [approvalEquipmentStatus, setApprovalEquipmentStatus] = useState({ applicable: false, loading: false, sufficient: true, shortages: [] });
+  const approveDisabled = isApprovalSubmitting || (approvalEquipmentStatus.applicable && (approvalEquipmentStatus.loading || !approvalEquipmentStatus.sufficient));
+
   // Rejection Hook with callbacks
   const getBooking = (id) => bookings.find(b => b.booking_id === id);
   const getPaymentSummary = (id) => {
@@ -1769,6 +1775,7 @@ const handleMarkCompleted = async (id) => {
               <ApprovalAvailabilityCheck
                 booking={approvalBooking}
                 effectivePaxCount={(approvalBooking.pax_count || 0) + (approvalData.extraPax || 0)}
+                onEquipmentStatusChange={setApprovalEquipmentStatus}
               />
 
               <div className="space-y-4">
@@ -1808,6 +1815,12 @@ const handleMarkCompleted = async (id) => {
                 <p className="text-xs mt-1">* Down payment is required to secure the booking (non-refundable within 3 days of event).</p>
               </div>
 
+              {approvalEquipmentStatus.applicable && !approvalEquipmentStatus.loading && !approvalEquipmentStatus.sufficient && (
+                <p className="text-xs font-semibold text-red-600 text-right">
+                  Can't approve — not enough {approvalEquipmentStatus.shortages.map(s => s.eqm_name).join(', ')} for this date.
+                </p>
+              )}
+
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
                 <button
                   type="button"
@@ -1818,8 +1831,9 @@ const handleMarkCompleted = async (id) => {
                 </button>
                 <button
                   onClick={handleFinalizeApproval}
-                  disabled={isApprovalSubmitting}
-                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                  disabled={approveDisabled}
+                  title={approveDisabled && !isApprovalSubmitting ? 'Not enough equipment for this date' : undefined}
+                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isApprovalSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}
                 </button>

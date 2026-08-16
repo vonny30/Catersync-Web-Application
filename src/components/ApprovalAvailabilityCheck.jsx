@@ -9,16 +9,25 @@
 // track equipment. Recomputes equipment demand using the pax count as
 // currently adjusted in the modal (base pax + extra pax), not the original
 // booking value, so it stays accurate while the manager is still editing.
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Calendar, Clock, Users, PackageCheck, MapPin, Loader2 } from 'lucide-react';
 import { getBookingsOnDate } from '../utils/availability';
 import { getEquipmentAvailabilityPreview } from '../utils/equipment';
 
-export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount }) {
+export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, onEquipmentStatusChange }) {
   const [dayBookings, setDayBookings] = useState([]);
   const [loadingDay, setLoadingDay] = useState(false);
   const [equipmentAvailability, setEquipmentAvailability] = useState([]);
   const [loadingEquipment, setLoadingEquipment] = useState(false);
+
+  // Keep the latest callback in a ref so the notify-effect below doesn't
+  // need it as a dependency — parents often pass an inline function that's
+  // a new reference every render, which would otherwise re-fire this effect
+  // (and re-notify the parent) on every keystroke elsewhere in the modal.
+  const onEquipmentStatusChangeRef = useRef(onEquipmentStatusChange);
+  useEffect(() => {
+    onEquipmentStatusChangeRef.current = onEquipmentStatusChange;
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +72,21 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount }
     run();
     return () => { cancelled = true; };
   }, [booking?.booking_id, booking?.package_id, effectivePaxCount, booking?.event_datetime]);
+
+  // Report equipment status up to the parent so it can disable the Approve
+  // button instead of letting the manager click through and get blocked
+  // afterward.
+  useEffect(() => {
+    if (!onEquipmentStatusChangeRef.current) return;
+    const applicable = !!booking?.package_id;
+    const shortages = equipmentAvailability.filter(e => !e.sufficient);
+    onEquipmentStatusChangeRef.current({
+      applicable,
+      loading: applicable && loadingEquipment,
+      sufficient: !applicable || shortages.length === 0,
+      shortages,
+    });
+  }, [booking?.package_id, loadingEquipment, equipmentAvailability]);
 
   if (!booking) return null;
 
