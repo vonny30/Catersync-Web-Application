@@ -8,8 +8,6 @@ import {
   releaseManagerSessionClaim,
   releaseManagerSessionClaimBeacon,
   subscribeManagerSession,
-  registerOpenTab,
-  unregisterOpenTab,
 } from '../utils/managerSession';
 
 const AuthContext = createContext();
@@ -48,24 +46,6 @@ export const AuthProvider = ({ children }) => {
   const managerIdRef = useRef(null);
   const tabSessionIdRef = useRef(null);
   const realtimeUnsubRef = useRef(null);
-  // Periodically re-marks this tab as alive in the open-tabs registry so
-  // other tabs of the same browser know not to release the shared claim
-  // when THIS tab closes while others remain open.
-  const tabHeartbeatRef = useRef(null);
-  const TAB_HEARTBEAT_MS = 30 * 1000;
-
-  const startTabHeartbeat = () => {
-    registerOpenTab();
-    if (tabHeartbeatRef.current) clearInterval(tabHeartbeatRef.current);
-    tabHeartbeatRef.current = setInterval(registerOpenTab, TAB_HEARTBEAT_MS);
-  };
-
-  const stopTabHeartbeat = () => {
-    if (tabHeartbeatRef.current) {
-      clearInterval(tabHeartbeatRef.current);
-      tabHeartbeatRef.current = null;
-    }
-  };
 
   const INACTIVITY_TIMEOUT = 30 * 60 * 1000;
 
@@ -116,7 +96,6 @@ export const AuthProvider = ({ children }) => {
     }
     managerIdRef.current = null;
     tabSessionIdRef.current = null;
-    stopTabHeartbeat();
   };
 
   // Called on every realtime UPDATE to this manager's row, including ones
@@ -130,7 +109,7 @@ export const AuthProvider = ({ children }) => {
       return;
     }
     if (isKickedRef.current) return; // already handling
-    console.log('[session-lock] Kicked — another browser/device claimed the session.', { newSessionId, ours: tabSessionIdRef.current, startedAt });
+    console.log('[session-lock] Kicked — another device/tab claimed the session.', { newSessionId, ours: tabSessionIdRef.current, startedAt });
     isKickedRef.current = true;
     kickedAtRef.current = startedAt || null;
     teardownSessionLock();
@@ -146,28 +125,15 @@ export const AuthProvider = ({ children }) => {
       window.addEventListener(event, updateActivity, { passive: true });
     });
 
-    // ✅ Back button interception: triggers logout ONLY if returning to login page
-    const handlePopState = () => {
-      const isGoingToLogin = window.location.pathname === '/' || window.location.pathname === '/login';
-      if (user && isGoingToLogin) {
-        logout(false);
-      }
-    };
-
-    window.addEventListener('popstate', handlePopState);
-
-    // Best-effort: release the browser's claim on the account only when
-    // THIS was the last open tab of this browser, so closing one of
-    // several open tabs doesn't kick the tabs still open (same-browser
-    // tabs share one claim now — see managerSession.js). A plain reload
-    // doesn't lose the lock either way: verifyOrReclaimManagerSession
-    // silently reclaims it on the next load if nobody else has logged in
-    // during the gap. event.persisted means the page is going into the
-    // back/forward cache, not actually closing, so skip in that case.
+    // Best-effort: release this tab's claim on the account when the tab is
+    // closed or refreshed, so a plain reload doesn't leave a stale lock
+    // (verifyOrReclaimManagerSession silently reclaims it on the next load
+    // if nobody else has logged in during the gap — refresh keeps working).
+    // event.persisted means the page is going into the back/forward cache,
+    // not actually closing, so skip the release in that case.
     const handlePageHide = (event) => {
       if (event.persisted) return;
-      const wasLastTab = unregisterOpenTab();
-      if (wasLastTab && managerIdRef.current && tabSessionIdRef.current && sessionRef.current?.access_token) {
+      if (managerIdRef.current && tabSessionIdRef.current && sessionRef.current?.access_token) {
         releaseManagerSessionClaimBeacon(
           managerIdRef.current,
           tabSessionIdRef.current,
@@ -181,7 +147,6 @@ export const AuthProvider = ({ children }) => {
       activityEvents.forEach(event => {
         window.removeEventListener(event, updateActivity);
       });
-      window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('pagehide', handlePageHide);
       clearInactivityTimer();
     };
@@ -217,9 +182,9 @@ export const AuthProvider = ({ children }) => {
       let lockResult;
       if (isFreshSignIn) {
         // A fresh login always claims the session outright, kicking out
-        // whatever browser/device was previously logged in as this
-        // manager. The kicked side gets a clear notification (see the
-        // 'kicked' toast below) — no confirmation prompt on this side.
+        // whatever device/tab was previously logged in as this manager.
+        // The kicked side gets a clear notification (see the 'kicked'
+        // toast below) — no confirmation prompt on this side.
         const tabSessionId = await claimManagerSession(manager.manager_id);
         console.log('[session-lock] Claimed (fresh sign-in):', tabSessionId);
         lockResult = { status: 'claimed', tabSessionId };
@@ -238,7 +203,6 @@ export const AuthProvider = ({ children }) => {
       managerIdRef.current = manager.manager_id;
       tabSessionIdRef.current = lockResult.tabSessionId;
       realtimeUnsubRef.current = subscribeManagerSession(manager.manager_id, handleKicked);
-      startTabHeartbeat();
 
       setUser(authUser);
       setIsManager(true);
@@ -328,8 +292,8 @@ if (event === 'SIGNED_OUT') {
               : null;
             toast.error(
               when
-                ? `This account was signed in from another browser or device at ${when}, so you were logged out here.`
-                : 'This account was just signed in from another browser or device, so you were logged out here.',
+                ? `This account was signed in from another device or tab at ${when}, so you were logged out here.`
+                : 'This account was just signed in from another device or tab, so you were logged out here.',
               { id: AUTH_TOAST_ID, duration: 6000 }
             );
             isKickedRef.current = false;

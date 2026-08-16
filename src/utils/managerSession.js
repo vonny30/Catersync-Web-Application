@@ -1,137 +1,54 @@
 // src/utils/managerSession.js
 //
-// Enforces "one active browser/device per manager account" by storing a
+// Enforces "one active device/tab per manager account" by storing a
 // per-login session id on manager.active_session_id and comparing it
-// against a browser-scoped id kept in localStorage. Because it's in
-// localStorage (not sessionStorage), every tab of the SAME browser shares
-// this id — opening a second tab of an already-logged-in browser just
-// joins the existing session instead of being treated as a takeover.
-// Only a genuinely different browser/profile/device (separate localStorage)
-// triggers a takeover — a fresh login there always claims the session
-// outright and the previously-logged-in side is notified it was kicked.
+// against a tab-scoped id kept in sessionStorage. Opening ANY second tab
+// (even of the same browser) is treated as a takeover and kicks out
+// whatever was previously logged in, notifying it with a toast — simple,
+// strict, single-session-anywhere enforcement.
 //
 // Requires the SQL migration in sql/manager_session_lock.sql to be run
 // against the Supabase project (adds the column + enables Realtime on
 // public.manager) before this has any effect.
 import { supabase, supabaseUrl, supabaseAnonKey } from '../supabase';
 
-const BROWSER_SESSION_KEY = 'cs_browser_session_id';
-const THIS_TAB_ID_KEY = 'cs_this_tab_id'; // per-tab on purpose (sessionStorage)
-const OPEN_TABS_KEY = 'cs_open_tabs'; // { [tabId]: lastSeenTimestamp }
-const STALE_TAB_MS = 90 * 1000; // ignore heartbeats older than this (crashed/killed tabs)
+const TAB_SESSION_KEY = 'cs_tab_session_id';
 
-function readBrowserSessionId() {
-  return localStorage.getItem(BROWSER_SESSION_KEY);
+function readTabSessionId() {
+  return sessionStorage.getItem(TAB_SESSION_KEY);
 }
 
-function writeBrowserSessionId(id) {
-  localStorage.setItem(BROWSER_SESSION_KEY, id);
-}
-
-// Reads the browser's shared session id, generating one if none exists yet.
-// Generating-if-missing is a read-then-write that is NOT atomic across
-// concurrent callers — and there ARE concurrent callers: two tabs of the
-// same browser booting around the same time, or even a single tab, which
-// checks its session both from its own initial getSession() call and from
-// the auth-state-change listener's INITIAL_SESSION event firing right
-// after. Without serializing this, two callers with no id yet can each
-// generate a DIFFERENT id and overwrite each other in localStorage, then
-// each write their own (different) id to the database — leaving one of
-// them mismatched against what actually landed in the DB, which then
-// looks like a takeover and kicks it out. The Web Locks API serializes
-// this critical section across every tab of the origin so only one
-// caller ever generates the id; everyone else just reads what it wrote.
-async function getOrCreateBrowserSessionId() {
-  const existing = readBrowserSessionId();
-  if (existing) return existing;
-
-  if (typeof navigator !== 'undefined' && navigator.locks?.request) {
-    return navigator.locks.request('cs-browser-session-id-init', async () => {
-      // Re-check inside the lock — another tab may have just created it
-      // while we were waiting our turn.
-      const nowExisting = readBrowserSessionId();
-      if (nowExisting) return nowExisting;
-      const id = crypto.randomUUID();
-      writeBrowserSessionId(id);
-      return id;
-    });
-  }
-
-  // Web Locks unavailable (very old browser) — best-effort fallback, a
-  // narrow race window remains.
-  const id = crypto.randomUUID();
-  writeBrowserSessionId(id);
-  return id;
-}
-
-// Unique per physical tab (deliberately sessionStorage) — used only to
-// tell this browser's own tabs apart from each other in the open-tabs
-// registry below, not for session ownership.
-function getThisTabId() {
-  let id = sessionStorage.getItem(THIS_TAB_ID_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    sessionStorage.setItem(THIS_TAB_ID_KEY, id);
-  }
-  return id;
-}
-
-function readOpenTabs() {
-  try {
-    const raw = localStorage.getItem(OPEN_TABS_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeOpenTabs(tabs) {
-  localStorage.setItem(OPEN_TABS_KEY, JSON.stringify(tabs));
-}
-
-// Marks this tab as alive. Call on establishing a session and periodically
-// afterward (heartbeat) so other tabs of this browser know it's still open.
-export function registerOpenTab() {
-  const tabs = readOpenTabs();
-  tabs[getThisTabId()] = Date.now();
-  writeOpenTabs(tabs);
-}
-
-// Removes this tab from the registry (call on close/unload) and reports
-// whether any OTHER tab of this browser is still alive, so the caller can
-// decide whether it's safe to release the account-level claim.
-export function unregisterOpenTab() {
-  const tabs = readOpenTabs();
-  delete tabs[getThisTabId()];
-  const now = Date.now();
-  const stillAlive = Object.values(tabs).some(ts => now - ts < STALE_TAB_MS);
-  writeOpenTabs(tabs);
-  return !stillAlive;
+function writeTabSessionId(id) {
+  sessionStorage.setItem(TAB_SESSION_KEY, id);
 }
 
 // Unconditionally takes ownership of the manager's active session,
-// kicking out whatever browser/device was previously logged in as them.
+// kicking out whatever device/tab was previously logged in as them.
 // Only call this right after a fresh, fully-authenticated login.
 export async function claimManagerSession(managerId) {
-  const browserSessionId = crypto.randomUUID();
-  writeBrowserSessionId(browserSessionId);
+  const tabSessionId = crypto.randomUUID();
+  writeTabSessionId(tabSessionId);
   const { error } = await supabase
     .from('manager')
     .update({
-      active_session_id: browserSessionId,
+      active_session_id: tabSessionId,
       active_session_started_at: new Date().toISOString(),
     })
     .eq('manager_id', managerId);
   if (error) throw error;
-  return browserSessionId;
+  return tabSessionId;
 }
 
 // Called on page load / token refresh (NOT a fresh login). If nobody else
-// holds the claim, this browser silently takes it over so refreshing (or
-// opening another tab) doesn't break the session. If another still-active
-// session holds it, reports 'kicked' so the caller can sign this tab out.
+// holds the claim, this tab silently takes it over so refreshing the page
+// doesn't break the session. If another still-active session holds it,
+// reports 'kicked' so the caller can sign this tab out.
 export async function verifyOrReclaimManagerSession(managerId) {
-  const browserSessionId = await getOrCreateBrowserSessionId();
+  let tabSessionId = readTabSessionId();
+  if (!tabSessionId) {
+    tabSessionId = crypto.randomUUID();
+    writeTabSessionId(tabSessionId);
+  }
 
   const { data, error } = await supabase
     .from('manager')
@@ -141,7 +58,7 @@ export async function verifyOrReclaimManagerSession(managerId) {
 
   if (error) {
     // Transient/network error — don't punish the user for a flaky request.
-    return { status: 'unknown', tabSessionId: browserSessionId };
+    return { status: 'unknown', tabSessionId };
   }
 
   const dbSessionId = data?.active_session_id;
@@ -149,17 +66,17 @@ export async function verifyOrReclaimManagerSession(managerId) {
   if (!dbSessionId) {
     const { error: reclaimError } = await supabase
       .from('manager')
-      .update({ active_session_id: browserSessionId, active_session_started_at: new Date().toISOString() })
+      .update({ active_session_id: tabSessionId, active_session_started_at: new Date().toISOString() })
       .eq('manager_id', managerId);
-    if (reclaimError) return { status: 'unknown', tabSessionId: browserSessionId };
-    return { status: 'reclaimed', tabSessionId: browserSessionId };
+    if (reclaimError) return { status: 'unknown', tabSessionId };
+    return { status: 'reclaimed', tabSessionId };
   }
 
-  if (dbSessionId !== browserSessionId) {
-    return { status: 'kicked', tabSessionId: browserSessionId };
+  if (dbSessionId !== tabSessionId) {
+    return { status: 'kicked', tabSessionId };
   }
 
-  return { status: 'ok', tabSessionId: browserSessionId };
+  return { status: 'ok', tabSessionId };
 }
 
 // Best-effort, awaited release — used on explicit logout.
@@ -202,7 +119,7 @@ export function releaseManagerSessionClaimBeacon(managerId, tabSessionId, access
 }
 
 // Subscribes to realtime changes on this manager's row so an open tab is
-// kicked out the instant another browser/device claims the session, rather
+// kicked out the instant another device/tab claims the session, rather
 // than only finding out on its next reload. Returns an unsubscribe fn.
 //
 // Deliberately does NOT filter out "our own" updates here by snapshotting

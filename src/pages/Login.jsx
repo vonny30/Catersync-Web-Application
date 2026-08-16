@@ -29,16 +29,15 @@ export default function Login() {
   }, []);
 
   // Once AuthContext confirms this is a fully-authenticated manager
-  // (password verified, session lock claimed), move into the app. This is
-  // the ONLY redirect-away-from-login path — it's a normal in-app
-  // navigation (no full page reload), so landing here while already
-  // logged in just moves on to /app once, instead of hard-reloading the
-  // whole page (which used to race with this effect and could bounce
-  // back and forth between / and /app on a slow connection).
+  // (password verified, session lock claimed), move into the app. Uses
+  // `replace` so the login page's history entry is replaced rather than
+  // kept — otherwise pressing Back from the dashboard would land back on
+  // the login form (still authenticated underneath, just a confusing
+  // "am I logged in or not" flash) instead of leaving the app entirely.
   useEffect(() => {
     if (!authLoading && isManager) {
       toast.success('Welcome back!');
-      navigate('/app');
+      navigate('/app', { replace: true });
     }
   }, [authLoading, isManager, navigate]);
 
