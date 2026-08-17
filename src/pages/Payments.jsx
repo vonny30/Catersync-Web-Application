@@ -1,5 +1,5 @@
 // src/pages/Payments.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Search, Upload, X, Image as ImageIcon, Edit, Trash2, Lock, Check, DollarSign, RefreshCw, Eye, Filter, LayoutGrid, RotateCcw } from 'lucide-react';
@@ -23,6 +23,12 @@ export default function Payments() {
   const [activeTab, setActiveTab] = useState('All');
   const [typeFilter, setTypeFilter] = useState('All'); // 'All', 'Package', 'Short Order'
   const [methodFilter, setMethodFilter] = useState('All'); // 'All', 'Cash', 'GCash', 'Bank Transfer', 'Refund'
+
+  // Status cards jump straight to the results below when clicked.
+  const tableRef = useRef(null);
+  const scrollToTable = () => {
+    tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   // --- DATE FILTER STATE ---
   const [datePreset, setDatePreset] = useState('All Time');
@@ -942,7 +948,7 @@ export default function Payments() {
           {statusStats.map((s) => (
             <button
               key={s.key}
-              onClick={() => setActiveTab(s.key)}
+              onClick={() => { setActiveTab(s.key); scrollToTable(); }}
               className={`relative text-left rounded-xl border p-4 transition-all ${
                 activeTab === s.key
                   ? 'border-[#008A45] ring-2 ring-[#008A45]/15 bg-[#EAF3F2]'
@@ -1040,7 +1046,7 @@ export default function Payments() {
       </div>
 
       {/* PAYMENTS TABLE */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <div ref={tableRef} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden scroll-mt-4">
         <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800 flex justify-between items-center">
           <span>{activeTab === 'All' ? 'All Payments' : activeTab}</span>
           <span className="text-xs font-normal text-slate-500">{filteredPayments.length} result{filteredPayments.length === 1 ? '' : 's'}</span>
