@@ -615,17 +615,37 @@ export default function PackagesAndMenus() {
           packageId = newPackage[0].package_id;
         }
 
-        // Update categories
-        await supabase.from('package_category').delete().eq('package_id', packageId);
+        // Update categories — insert the new set FIRST, then delete only the
+        // rows that predate this save (captured by id before inserting).
+        // Deleting first and inserting after (the old approach) meant a
+        // failed insert left the package with its categories already wiped
+        // and nothing to show for it, since these aren't run in a real
+        // transaction. Inserting first means a failed insert leaves the old
+        // associations completely untouched.
+        const { data: oldCatRows } = await supabase
+          .from('package_category')
+          .select('package_category_id')
+          .eq('package_id', packageId);
+
         const selectedCatIds = formData.selectedCategories || [];
         if (selectedCatIds.length > 0) {
           const inserts = selectedCatIds.map(catId => ({ package_id: packageId, category_id: catId }));
           const { error } = await supabase.from('package_category').insert(inserts);
           if (error) throw error;
         }
+        if (oldCatRows && oldCatRows.length > 0) {
+          const oldCatIds = oldCatRows.map(r => r.package_category_id);
+          const { error } = await supabase.from('package_category').delete().in('package_category_id', oldCatIds);
+          if (error) throw error;
+        }
 
-        // Update equipment
-        await supabase.from('package_equipment').delete().eq('package_id', packageId);
+        // Update equipment — same insert-then-delete-old ordering, for the
+        // same reason.
+        const { data: oldEquipRows } = await supabase
+          .from('package_equipment')
+          .select('package_equipment_id')
+          .eq('package_id', packageId);
+
         const selectedEquipIds = formData.selectedEquipment || [];
         if (selectedEquipIds.length > 0) {
           const inserts = selectedEquipIds.map(equipId => ({
@@ -635,6 +655,11 @@ export default function PackagesAndMenus() {
             per_pax: formData.equipmentPerPax[equipId] !== undefined ? formData.equipmentPerPax[equipId] : true,
           }));
           const { error } = await supabase.from('package_equipment').insert(inserts);
+          if (error) throw error;
+        }
+        if (oldEquipRows && oldEquipRows.length > 0) {
+          const oldEquipIds = oldEquipRows.map(r => r.package_equipment_id);
+          const { error } = await supabase.from('package_equipment').delete().in('package_equipment_id', oldEquipIds);
           if (error) throw error;
         }
 
