@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, Upload, X, Image as ImageIcon, Edit, Trash2, Lock, Check, DollarSign, RefreshCw, Eye, Filter } from 'lucide-react';
+import { Search, Upload, X, Image as ImageIcon, Edit, Trash2, Lock, Check, DollarSign, RefreshCw, Eye, Filter, LayoutGrid, RotateCcw } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -932,87 +932,119 @@ export default function Payments() {
         </button>
       </div>
 
-      {/* STATUS CARDS — click one to filter the table below by that status */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {statusStats.map((s) => (
-          <button
-            key={s.key}
-            onClick={() => setActiveTab(s.key)}
-            className={`relative text-left rounded-xl border p-4 transition-all ${
-              activeTab === s.key
-                ? 'border-[#008A45] ring-2 ring-[#008A45]/15 bg-[#EAF3F2]'
-                : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
-            }`}
-          >
-            <p className={`text-xs font-semibold mb-1 flex items-center gap-1.5 ${activeTab === s.key ? 'text-[#007038]' : 'text-slate-500'}`}>
-              {s.label}
-              {s.key === 'Pending Verification' && pendingVerificationCount > 0 && (
-                <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold">
-                  {pendingVerificationCount}
-                </span>
-              )}
-            </p>
-            <p className={`text-2xl font-extrabold ${activeTab === s.key ? 'text-[#007038]' : 'text-slate-900'}`}>{s.count}</p>
-            <p className="text-[11px] text-slate-400 mt-0.5">₱{s.amount.toLocaleString()}</p>
-            <p className={`text-[11px] mt-2 ${activeTab === s.key ? 'text-[#007038]/80' : 'text-slate-400'}`}>{s.description}</p>
-            <span className={`text-[10px] font-semibold ${activeTab === s.key ? 'text-[#007038]' : 'text-slate-400'}`}>
-              {activeTab === s.key ? 'Filtering table below ✓' : 'Click to filter table below →'}
-            </span>
-          </button>
-        ))}
+      {/* STATUS OVERVIEW — click a card to filter the table by that status */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+        <div className="flex items-center gap-1.5 mb-3">
+          <LayoutGrid size={13} className="text-slate-400" />
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Status Overview</span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {statusStats.map((s) => (
+            <button
+              key={s.key}
+              onClick={() => setActiveTab(s.key)}
+              className={`relative text-left rounded-xl border p-4 transition-all ${
+                activeTab === s.key
+                  ? 'border-[#008A45] ring-2 ring-[#008A45]/15 bg-[#EAF3F2]'
+                  : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+              }`}
+            >
+              <p className={`text-xs font-semibold mb-1 flex items-center gap-1.5 ${activeTab === s.key ? 'text-[#007038]' : 'text-slate-500'}`}>
+                {s.label}
+                {s.key === 'Pending Verification' && pendingVerificationCount > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold">
+                    {pendingVerificationCount}
+                  </span>
+                )}
+              </p>
+              <p className={`text-2xl font-extrabold ${activeTab === s.key ? 'text-[#007038]' : 'text-slate-900'}`}>{s.count}</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">₱{s.amount.toLocaleString()}</p>
+              <p className={`text-[11px] mt-2 ${activeTab === s.key ? 'text-[#007038]/80' : 'text-slate-400'}`}>{s.description}</p>
+              <span className={`text-[10px] font-semibold ${activeTab === s.key ? 'text-[#007038]' : 'text-slate-400'}`}>
+                {activeTab === s.key ? 'Filtering table below ✓' : 'Click to filter table below →'}
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* FILTERS */}
-      <div className="border-b border-slate-200 pb-4">
-        <div className="flex items-center gap-1.5 mb-2.5">
-          <Filter size={13} className="text-slate-400" />
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Filters</span>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-slate-500">Type:</span>
-              <select
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-                className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-              >
-                <option value="All">All</option>
-                <option value="Package">Packages</option>
-                <option value="Short Order">Short Orders</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-slate-500">Method:</span>
-              <select
-                value={methodFilter}
-                onChange={(e) => setMethodFilter(e.target.value)}
-                className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-              >
-                <option value="All">All</option>
-                <option value="Cash">Cash</option>
-                <option value="GCash">GCash</option>
-                <option value="Bank Transfer">Bank Transfer</option>
-                <option value="Refund">Refund</option>
-              </select>
-            </div>
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div className="flex items-center gap-1.5">
+            <Filter size={13} className="text-slate-400" />
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Filters</span>
           </div>
-          <DateRangeFilter
-            preset={datePreset}
-            customStart={customStart}
-            customEnd={customEnd}
-            rangeStart={dateRangeStart}
-            rangeEnd={dateRangeEnd}
-            onPresetChange={setDatePreset}
-            onCustomStartChange={setCustomStart}
-            onCustomEndChange={setCustomEnd}
-            onClear={() => { setDatePreset('All Time'); setCustomStart(''); setCustomEnd(''); }}
-          />
+          <div className="flex items-center gap-2">
+            {(typeFilter !== 'All' || methodFilter !== 'All' || datePreset !== 'All Time') && (
+              <button
+                onClick={() => { setTypeFilter('All'); setMethodFilter('All'); setDatePreset('All Time'); setCustomStart(''); setCustomEnd(''); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <RotateCcw size={13} /> Clear all
+              </button>
+            )}
+            <button
+              onClick={fetchData}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-start gap-3">
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Type</label>
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className="border border-slate-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+            >
+              <option value="All">All</option>
+              <option value="Package">Packages</option>
+              <option value="Short Order">Short Orders</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Method</label>
+            <select
+              value={methodFilter}
+              onChange={(e) => setMethodFilter(e.target.value)}
+              className="border border-slate-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+            >
+              <option value="All">All</option>
+              <option value="Cash">Cash</option>
+              <option value="GCash">GCash</option>
+              <option value="Bank Transfer">Bank Transfer</option>
+              <option value="Refund">Refund</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Payment Date</label>
+            <DateRangeFilter
+              preset={datePreset}
+              customStart={customStart}
+              customEnd={customEnd}
+              rangeStart={dateRangeStart}
+              rangeEnd={dateRangeEnd}
+              onPresetChange={setDatePreset}
+              onCustomStartChange={setCustomStart}
+              onCustomEndChange={setCustomEnd}
+              onClear={() => { setDatePreset('All Time'); setCustomStart(''); setCustomEnd(''); }}
+            />
+          </div>
         </div>
       </div>
 
       {/* PAYMENTS TABLE */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800 flex justify-between items-center">
+          <span>{activeTab === 'All' ? 'All Payments' : activeTab}</span>
+          <span className="text-xs font-normal text-slate-500">{filteredPayments.length} result{filteredPayments.length === 1 ? '' : 's'}</span>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
