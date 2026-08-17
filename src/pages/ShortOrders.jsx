@@ -1238,7 +1238,7 @@ export default function ShortOrders() {
                 <th className="p-4 font-bold w-16 text-center">Trays</th>
                 <th className="p-4 font-bold w-28 text-right">Amount</th>
                 <th className="p-4 font-bold min-w-[120px] text-center">Status</th>
-                <th className="p-4 font-bold min-w-[280px] text-center">Actions</th>
+                <th className="p-4 font-bold min-w-[200px] text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
@@ -1317,60 +1317,69 @@ export default function ShortOrders() {
   </div>
 </td>
                       <td className="p-4" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-center gap-1.5 flex-nowrap whitespace-nowrap">
-                          {order.booking_status === 'Pending' && (
+                        <div className="flex flex-col items-center gap-1.5 w-full">
+                          {(order.booking_status === 'Pending' || order.booking_status === 'Approved' || order.booking_status === 'Confirmed') && (
                             <>
-                              <button
-                                onClick={() => openApprovalModal(order, 'shortorder')}
-                                className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition-colors"
-                              >
-                                <Check size={14} /> Approve
-                              </button>
-                              <button
-                                onClick={() => openRejectionModal(order.booking_id)}
-                                className="bg-red-100 border border-red-200 text-red-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-red-200 transition-colors"
-                              >
-                                <X size={14} /> Reject
-                              </button>
+                              <div className="flex items-center justify-center gap-1.5 flex-nowrap whitespace-nowrap">
+                                {order.booking_status === 'Pending' && (
+                                  <>
+                                    <button
+                                      onClick={() => openApprovalModal(order, 'shortorder')}
+                                      className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition-colors"
+                                    >
+                                      <Check size={14} /> Approve
+                                    </button>
+                                    <button
+                                      onClick={() => openRejectionModal(order.booking_id)}
+                                      className="bg-red-100 border border-red-200 text-red-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-red-200 transition-colors"
+                                    >
+                                      <X size={14} /> Reject
+                                    </button>
+                                  </>
+                                )}
+                                {order.booking_status === 'Approved' && (
+                                  <button
+                                    onClick={() => handleConfirmBooking(order.booking_id)}
+                                    className="bg-emerald-100 border border-emerald-200 text-emerald-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-emerald-200 transition-colors"
+                                  >
+                                    <Check size={14} /> Confirm
+                                  </button>
+                                )}
+                                {order.booking_status === 'Confirmed' && (
+                                  <button
+                                    onClick={() => handleMarkCompleted(order.booking_id)}
+                                    className={(order.positivePayments || 0) >= (order.total_amount || 0) ? 'bg-blue-100 border border-blue-200 text-blue-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-blue-200 transition-colors' : 'bg-slate-100 border border-slate-200 text-slate-500 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-slate-200 transition-colors'}
+                                    title={(order.positivePayments || 0) >= (order.total_amount || 0) ? undefined : `Locked — ₱${Math.max(0, (order.total_amount || 0) - (order.positivePayments || 0)).toLocaleString()} still owed`}
+                                  >
+                                    {(order.positivePayments || 0) >= (order.total_amount || 0) ? <Check size={14} /> : <Lock size={14} />} Complete
+                                  </button>
+                                )}
+                              </div>
+                              <span className="h-px w-16 bg-slate-200 shrink-0" />
                             </>
                           )}
-                          {order.booking_status === 'Approved' && (
+                          <div className="flex items-center justify-center gap-1.5 flex-nowrap whitespace-nowrap">
                             <button
-                              onClick={() => handleConfirmBooking(order.booking_id)}
-                              className="bg-emerald-100 border border-emerald-200 text-emerald-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-emerald-200 transition-colors"
+                              onClick={() => navigate(`/app/orders/${order.booking_id}`)}
+                              className="bg-white border border-slate-300 text-slate-700 font-semibold text-[11px] px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors"
                             >
-                              <Check size={14} /> Confirm
+                              Details
                             </button>
-                          )}
-                          {order.booking_status === 'Confirmed' && (
                             <button
-                              onClick={() => handleMarkCompleted(order.booking_id)}
-                              className={(order.positivePayments || 0) >= (order.total_amount || 0) ? 'bg-blue-100 border border-blue-200 text-blue-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-blue-200 transition-colors' : 'bg-slate-100 border border-slate-200 text-slate-500 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-slate-200 transition-colors'}
-                              title={(order.positivePayments || 0) >= (order.total_amount || 0) ? undefined : `Locked — ₱${Math.max(0, (order.total_amount || 0) - (order.positivePayments || 0)).toLocaleString()} still owed`}
+                              onClick={() => openEditModal(order)}
+                              className={`flex items-center justify-center w-7 h-7 rounded-lg border transition-colors ${isPaymentLedgerLocked(order.booking_status) ? 'border-slate-200 text-slate-300' : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}
+                              title={isPaymentLedgerLocked(order.booking_status) ? bookingEditLockedMessage(order.booking_status, { noun: 'order' }) : 'Edit'}
                             >
-                              {(order.positivePayments || 0) >= (order.total_amount || 0) ? <Check size={14} /> : <Lock size={14} />} Complete
+                              {isPaymentLedgerLocked(order.booking_status) ? <Lock size={15} /> : <Edit size={15} />}
                             </button>
-                          )}
-                          <button
-                            onClick={() => navigate(`/app/orders/${order.booking_id}`)}
-                            className="bg-white border border-slate-300 text-slate-700 font-semibold text-[11px] px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors"
-                          >
-                            Details
-                          </button>
-                          <button
-                            onClick={() => openEditModal(order)}
-                            className={isPaymentLedgerLocked(order.booking_status) ? 'text-slate-300 hover:text-slate-500 transition-colors p-1' : 'text-slate-400 hover:text-slate-700 transition-colors p-1'}
-                            title={isPaymentLedgerLocked(order.booking_status) ? bookingEditLockedMessage(order.booking_status, { noun: 'order' }) : 'Edit'}
-                          >
-                            {isPaymentLedgerLocked(order.booking_status) ? <Lock size={16} /> : <Edit size={16} />}
-                          </button>
-                          <button
-                            onClick={() => handleDelete(order.booking_id)}
-                            className="text-red-400 hover:text-red-600 transition-colors p-1"
-                            title="Delete (password required)"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                            <button
+                              onClick={() => handleDelete(order.booking_id)}
+                              className="flex items-center justify-center w-7 h-7 rounded-lg border border-slate-200 text-red-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+                              title="Delete (password required)"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
                         </div>
                       </td>
                     </tr>
