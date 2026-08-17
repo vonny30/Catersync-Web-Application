@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../../contexts/ConfirmContext';
+import { usePasswordConfirm } from '../../contexts/PasswordConfirmContext';
 import { DEFAULT_COLORS, EMPTY_FORM_DATA } from './constants';
 import PackageCard from './PackageCard';
 import MenuItemCard from './MenuItemCard';
@@ -11,6 +12,7 @@ import CategoryManagerModal from './CategoryManagerModal';
 
 export default function PackagesAndMenus() {
   const { showConfirm } = useConfirm();
+  const { requestPasswordConfirm } = usePasswordConfirm();
 
   // --- STATE ---
   const [activeTab, setActiveTab] = useState('All');
@@ -703,6 +705,12 @@ export default function PackagesAndMenus() {
     });
     if (!confirmed) return;
 
+    const passwordOk = await requestPasswordConfirm({
+      title: 'Confirm Your Password',
+      message: `Deleting this ${type.toLowerCase()} is permanent. Re-enter your password to continue.`,
+    });
+    if (!passwordOk) return;
+
     try {
       if (type === 'Package') {
         const { count, error: countError } = await supabase
@@ -876,6 +884,12 @@ export default function PackagesAndMenus() {
       confirmVariant: 'danger',
     });
     if (!confirmed) return;
+
+    const passwordOk = await requestPasswordConfirm({
+      title: 'Confirm Your Password',
+      message: 'Deleting this category is permanent. Re-enter your password to continue.',
+    });
+    if (!passwordOk) return;
 
     try {
       const { error } = await supabase

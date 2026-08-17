@@ -9,15 +9,18 @@ import {
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { checkEquipmentCapacityForDate, allocateEquipmentForBooking } from '../utils/equipment';
 import { createWalkInCustomer } from '../utils/createWalkInCustomer';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
+import { errorInputClass } from '../utils/formErrors';
 
 export default function Bookings() {
   const navigate = useNavigate();
   const { showConfirm } = useConfirm();
+  const { requestPasswordConfirm } = usePasswordConfirm();
   const [bookings, setBookings] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [packages, setPackages] = useState([]);
@@ -64,6 +67,10 @@ export default function Bookings() {
     cus_address: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Field-level errors for the New/Edit Booking form — highlights exactly
+  // which input is blocking submission (red border + inline message)
+  // instead of only a toast.
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const [customerSearch, setCustomerSearch] = useState('');
   const [filteredCustomers, setFilteredCustomers] = useState([]);
@@ -449,11 +456,13 @@ if (searchTerm) {
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    setFieldErrors(prev => (prev[name] ? { ...prev, [name]: undefined } : prev));
   };
 
   const handleWalkInChange = (e) => {
     const { name, value } = e.target;
     setWalkInData(prev => ({ ...prev, [name]: value }));
+    setFieldErrors(prev => (prev[name] ? { ...prev, [name]: undefined } : prev));
   };
 
   const handleMenuSelectionChange = (categoryId, menuItemId) => {
@@ -504,6 +513,7 @@ if (searchTerm) {
     setWalkInData({ first_name: '', last_name: '', contact_no: '', email_address: '', cus_address: '' });
     setPackageCategories([]);
     setCategoryMenuItems({});
+    setFieldErrors({});
     setIsModalOpen(true);
   };
 
@@ -525,6 +535,7 @@ if (searchTerm) {
       menu_selections: booking.menu_selections || {},
     });
     setWalkInData({ first_name: '', last_name: '', contact_no: '', email_address: '', cus_address: '' });
+    setFieldErrors({});
     setIsModalOpen(true);
   };
 
@@ -549,6 +560,7 @@ if (searchTerm) {
     setWalkInData({ first_name: '', last_name: '', contact_no: '', email_address: '', cus_address: '' });
     setPackageCategories([]);
     setCategoryMenuItems({});
+    setFieldErrors({});
     setIsSubmitting(false);
   };
 
@@ -571,29 +583,39 @@ if (searchTerm) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setFieldErrors({});
 
     const eventDateTimeISO = formData.event_datetime ? new Date(formData.event_datetime).toISOString() : null;
 
     if (!editingId) {
       if (customerMode === 'existing' && !formData.customer_id) {
         toast.error('Please select an existing customer.');
+        setFieldErrors({ customer_id: 'Please select an existing customer.' });
         setIsSubmitting(false);
         return;
       }
       if (customerMode === 'new') {
         if (!walkInData.first_name || !walkInData.last_name || !walkInData.contact_no || !walkInData.email_address) {
           toast.error('Please fill in all customer details for walk-in customer.');
+          setFieldErrors({
+            first_name: !walkInData.first_name ? 'Required.' : undefined,
+            last_name: !walkInData.last_name ? 'Required.' : undefined,
+            contact_no: !walkInData.contact_no ? 'Required.' : undefined,
+            email_address: !walkInData.email_address ? 'Required.' : undefined,
+          });
           setIsSubmitting(false);
           return;
         }
         if (!walkInData.email_address.includes('@')) {
           toast.error('Please enter a valid email address.');
+          setFieldErrors({ email_address: 'Please enter a valid email address.' });
           setIsSubmitting(false);
           return;
         }
         const phoneRegex = /^[0-9]{11}$/;
         if (!phoneRegex.test(walkInData.contact_no)) {
           toast.error('Contact number must be exactly 11 digits (numbers only).');
+          setFieldErrors({ contact_no: 'Must be exactly 11 digits (numbers only).' });
           setIsSubmitting(false);
           return;
         }
@@ -601,6 +623,7 @@ if (searchTerm) {
     } else {
       if (!formData.customer_id) {
         toast.error('Customer is required for this booking.');
+        setFieldErrors({ customer_id: 'Customer is required for this booking.' });
         setIsSubmitting(false);
         return;
       }
@@ -608,33 +631,40 @@ if (searchTerm) {
 
     if (!formData.package_id) {
       toast.error('Please select a package for this booking.');
+      setFieldErrors({ package_id: 'Please select a package for this booking.' });
       setIsSubmitting(false);
       return;
     }
     if (!formData.event_datetime) {
       toast.error('Please select an event date and time.');
+      setFieldErrors({ event_datetime: 'Please select an event date and time.' });
       setIsSubmitting(false);
       return;
     }
     if (!formData.venue || formData.venue.trim() === '') {
       toast.error('Please enter a venue.');
+      setFieldErrors({ venue: 'Please enter a venue.' });
       setIsSubmitting(false);
       return;
     }
     if (!formData.pax_count || parseInt(formData.pax_count) < 1) {
       toast.error('Please enter a valid pax count (must be at least 1).');
+      setFieldErrors({ pax_count: 'Must be at least 1.' });
       setIsSubmitting(false);
       return;
     }
     if (!formData.total_amount || parseFloat(formData.total_amount) <= 0) {
       toast.error('Total amount must be greater than zero.');
+      setFieldErrors({ total_amount: 'Must be greater than zero.' });
       setIsSubmitting(false);
       return;
     }
 
     const selectedPackage = packages.find(p => p.package_id === formData.package_id);
     if (selectedPackage && parseInt(formData.pax_count) < selectedPackage.minimum_pax) {
-      toast.error(`Minimum pax for this package is ${selectedPackage.minimum_pax}.`);
+      const msg = `Minimum pax for this package is ${selectedPackage.minimum_pax}.`;
+      toast.error(msg);
+      setFieldErrors({ pax_count: msg });
       setIsSubmitting(false);
       return;
     }
@@ -644,6 +674,7 @@ if (searchTerm) {
     const missing = requiredCategories.filter(c => !selectedCategories.includes(c));
     if (missing.length > 0) {
       toast.error('Please select a menu item for each category.');
+      setFieldErrors({ menu_selections: 'Select a menu item for each category.' });
       setIsSubmitting(false);
       return;
     }
@@ -971,6 +1002,12 @@ const handleMarkCompleted = async (id) => {
     });
     if (!confirmed) return;
 
+    const passwordOk = await requestPasswordConfirm({
+      title: 'Confirm Your Password',
+      message: 'Deleting this booking is permanent. Re-enter your password to continue.',
+    });
+    if (!passwordOk) return;
+
     try {
       const { error: paymentsError } = await supabase
         .from('payment')
@@ -1019,6 +1056,12 @@ const handleMarkCompleted = async (id) => {
       confirmVariant: 'danger',
     });
     if (!confirmed) return;
+
+    const passwordOk = await requestPasswordConfirm({
+      title: 'Confirm Your Password',
+      message: `Deleting ${selectedBookings.length} booking(s) is permanent. Re-enter your password to continue.`,
+    });
+    if (!passwordOk) return;
 
     try {
       await supabase.from('payment').delete().in('booking_id', selectedBookings);
@@ -1401,12 +1444,14 @@ const handleMarkCompleted = async (id) => {
                               onChange={(e) => {
                                 setCustomerSearch(e.target.value);
                                 setShowCustomerList(true);
+                                setFieldErrors(prev => (prev.customer_id ? { ...prev, customer_id: undefined } : prev));
                               }}
                               onFocus={() => setShowCustomerList(true)}
                               placeholder="Search by name, phone, or email..."
-                              className="w-full border border-slate-300 rounded-lg pl-10 pr-3 py-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
+                              className={errorInputClass(!!fieldErrors.customer_id, 'w-full border rounded-lg pl-10 pr-3 py-2.5 text-sm focus:ring-2 outline-none bg-white')}
                             />
                           </div>
+                          {fieldErrors.customer_id && <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.customer_id}</p>}
                           {showCustomerList && (
                             <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                               {filteredCustomers.length > 0 ? (
@@ -1493,9 +1538,10 @@ const handleMarkCompleted = async (id) => {
                               value={walkInData.first_name}
                               onChange={handleWalkInChange}
                               placeholder="e.g. Juan"
-                              className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                              className={errorInputClass(!!fieldErrors.first_name, 'w-full border rounded-lg p-2 text-sm outline-none')}
                               required
                             />
+                            {fieldErrors.first_name && <p className="text-[10px] text-red-600 font-semibold mt-0.5">{fieldErrors.first_name}</p>}
                           </div>
                           <div>
                             <label className="block text-xs font-semibold text-slate-600 mb-0.5">Last Name *</label>
@@ -1505,9 +1551,10 @@ const handleMarkCompleted = async (id) => {
                               value={walkInData.last_name}
                               onChange={handleWalkInChange}
                               placeholder="e.g. Dela Cruz"
-                              className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                              className={errorInputClass(!!fieldErrors.last_name, 'w-full border rounded-lg p-2 text-sm outline-none')}
                               required
                             />
+                            {fieldErrors.last_name && <p className="text-[10px] text-red-600 font-semibold mt-0.5">{fieldErrors.last_name}</p>}
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
@@ -1519,10 +1566,14 @@ const handleMarkCompleted = async (id) => {
                               value={walkInData.contact_no}
                               onChange={handleWalkInChange}
                               placeholder="09123456789"
-                              className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                              className={errorInputClass(!!fieldErrors.contact_no, 'w-full border rounded-lg p-2 text-sm outline-none')}
                               required
                             />
-                            <p className="text-[10px] text-slate-400 mt-0.5">Must be exactly 11 digits</p>
+                            {fieldErrors.contact_no ? (
+                              <p className="text-[10px] text-red-600 font-semibold mt-0.5">{fieldErrors.contact_no}</p>
+                            ) : (
+                              <p className="text-[10px] text-slate-400 mt-0.5">Must be exactly 11 digits</p>
+                            )}
                           </div>
                           <div>
                             <label className="block text-xs font-semibold text-slate-600 mb-0.5">Email Address *</label>
@@ -1532,9 +1583,10 @@ const handleMarkCompleted = async (id) => {
                               value={walkInData.email_address}
                               onChange={handleWalkInChange}
                               placeholder="e.g. juan@email.com"
-                              className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                              className={errorInputClass(!!fieldErrors.email_address, 'w-full border rounded-lg p-2 text-sm outline-none')}
                               required
                             />
+                            {fieldErrors.email_address && <p className="text-[10px] text-red-600 font-semibold mt-0.5">{fieldErrors.email_address}</p>}
                           </div>
                         </div>
                         <div>
@@ -1562,7 +1614,7 @@ const handleMarkCompleted = async (id) => {
                   value={formData.package_id}
                   onChange={handleInputChange}
                   required
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                  className={errorInputClass(!!fieldErrors.package_id, 'w-full border rounded-lg p-2.5 text-sm outline-none')}
                 >
                   <option value="">Select Package</option>
                   {packages.map(p => (
@@ -1571,6 +1623,7 @@ const handleMarkCompleted = async (id) => {
                     </option>
                   ))}
                 </select>
+                {fieldErrors.package_id && <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.package_id}</p>}
               </div>
 
               {/* Menu Selections */}
@@ -1613,9 +1666,10 @@ const handleMarkCompleted = async (id) => {
                   name="event_datetime"
                   value={formData.event_datetime}
                   onChange={handleInputChange}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                  className={errorInputClass(!!fieldErrors.event_datetime, 'w-full border rounded-lg p-2.5 text-sm outline-none')}
                   required
                 />
+                {fieldErrors.event_datetime && <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.event_datetime}</p>}
               </div>
 
               {/* Venue */}
@@ -1627,9 +1681,10 @@ const handleMarkCompleted = async (id) => {
                   value={formData.venue}
                   onChange={handleInputChange}
                   placeholder="e.g. Grand Pavilion"
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                  className={errorInputClass(!!fieldErrors.venue, 'w-full border rounded-lg p-2.5 text-sm outline-none')}
                   required
                 />
+                {fieldErrors.venue && <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.venue}</p>}
               </div>
 
               {/* Pax, Motif Color, Total Amount (NO delivery fee) */}
@@ -1642,9 +1697,10 @@ const handleMarkCompleted = async (id) => {
                     value={formData.pax_count}
                     onChange={handleInputChange}
                     placeholder="e.g. 80"
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                    className={errorInputClass(!!fieldErrors.pax_count, 'w-full border rounded-lg p-2.5 text-sm outline-none')}
                     required
                   />
+                  {fieldErrors.pax_count && <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.pax_count}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Motif Color</label>
@@ -1707,9 +1763,13 @@ const handleMarkCompleted = async (id) => {
                     onChange={handleInputChange}
                     placeholder="Auto-calculated"
                     step="0.01"
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                    className={errorInputClass(!!fieldErrors.total_amount, 'w-full border rounded-lg p-2.5 text-sm outline-none')}
                   />
-                  <p className="text-xs text-slate-400 mt-1">Auto-calculated based on package pricing. You can adjust.</p>
+                  {fieldErrors.total_amount ? (
+                    <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.total_amount}</p>
+                  ) : (
+                    <p className="text-xs text-slate-400 mt-1">Auto-calculated based on package pricing. You can adjust.</p>
+                  )}
                 </div>
               </div>
 

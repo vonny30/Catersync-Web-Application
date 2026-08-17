@@ -4,8 +4,10 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ErrorProvider } from './contexts/ErrorContext';
 import { ConfirmProvider } from './contexts/ConfirmContext';
+import { PasswordConfirmProvider, usePasswordConfirm } from './contexts/PasswordConfirmContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import ConfirmModal from './components/ConfirmModal';
+import PasswordConfirmModal from './components/PasswordConfirmModal';
 import { useConfirm } from './contexts/ConfirmContext';
 import ManagerLayout from './layouts/ManagerLayout';
 import Dashboard from './pages/Dashboard';
@@ -26,6 +28,7 @@ import LoadingScreen from './components/LoadingScreen';
 
 function AppContent() {
   const { confirmState } = useConfirm();
+  const { passwordConfirmState, setPassword } = usePasswordConfirm();
   const { initializing } = useAuth();
 
   if (initializing) {
@@ -110,6 +113,18 @@ function AppContent() {
         onConfirm={confirmState.onConfirm || (() => {})}
         onCancel={confirmState.onCancel || (() => {})}
       />
+
+      <PasswordConfirmModal
+        isOpen={passwordConfirmState.isOpen}
+        title={passwordConfirmState.title}
+        message={passwordConfirmState.message}
+        password={passwordConfirmState.password}
+        error={passwordConfirmState.error}
+        verifying={passwordConfirmState.verifying}
+        onPasswordChange={setPassword}
+        onConfirm={passwordConfirmState.onConfirm || (() => {})}
+        onCancel={passwordConfirmState.onCancel || (() => {})}
+      />
     </>
   );
 }
@@ -120,7 +135,9 @@ function App() {
       <AuthProvider>
         <ErrorProvider>
           <ConfirmProvider>
-            <AppContent />
+            <PasswordConfirmProvider>
+              <AppContent />
+            </PasswordConfirmProvider>
           </ConfirmProvider>
         </ErrorProvider>
       </AuthProvider>

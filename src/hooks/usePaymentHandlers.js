@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { sumVerifiedPositivePayments } from '../utils/payments';
 
 export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData, customerId }) {
   const { showConfirm } = useConfirm();
+  const { requestPasswordConfirm } = usePasswordConfirm();
 
   // Modal state
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -18,6 +20,11 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     pay_status: 'Downpayment',
     pay_proof: 'placeholder.png',
   });
+  // Field-level errors — lets the modal highlight exactly which input is
+  // blocking submission (e.g. the amount field, in red) instead of the
+  // manager having to re-read a toast to figure out what to fix.
+  const [paymentAmountError, setPaymentAmountError] = useState('');
+  const [paymentFileError, setPaymentFileError] = useState('');
 
   // Edit payment modal
   const [isEditPaymentModalOpen, setIsEditPaymentModalOpen] = useState(false);
@@ -29,6 +36,8 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     pay_proof: 'placeholder.png',
   });
   const [editSelectedFile, setEditSelectedFile] = useState(null);
+  const [editAmountError, setEditAmountError] = useState('');
+  const [editFileError, setEditFileError] = useState('');
 
   // Helper: get proof URL
   const getProofUrl = (proofUrl) => {
@@ -54,27 +63,34 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       pay_proof: 'placeholder.png',
     });
     setSelectedFile(null);
+    setPaymentAmountError('');
+    setPaymentFileError('');
     setIsPaymentModalOpen(true);
   };
 
   const handlePaymentInputChange = (e) => {
     const { name, value } = e.target;
     setPaymentFormData(prev => ({ ...prev, [name]: value }));
+    if (name === 'amount') setPaymentAmountError('');
   };
 
   const handlePaymentFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
       setSelectedFile(e.target.files[0]);
+      setPaymentFileError('');
     }
   };
 
   const handlePaymentSubmit = async (e) => {
     e.preventDefault();
     setIsPaymentSubmitting(true);
+    setPaymentAmountError('');
+    setPaymentFileError('');
 
     const amount = parseFloat(paymentFormData.amount) || 0;
     if (amount <= 0) {
       toast.error('Amount must be greater than zero.');
+      setPaymentAmountError('Amount must be greater than zero.');
       setIsPaymentSubmitting(false);
       return;
     }
@@ -101,7 +117,9 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       return;
     }
     if (amount > remainingBalance) {
-      toast.error(`Amount exceeds remaining balance of ₱${remainingBalance.toLocaleString()}.`);
+      const msg = `Amount exceeds remaining balance of ₱${remainingBalance.toLocaleString()}.`;
+      toast.error(msg);
+      setPaymentAmountError(msg);
       setIsPaymentSubmitting(false);
       return;
     }
@@ -109,6 +127,7 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     // --- FILE VALIDATION (NEW) ---
     if (!selectedFile && (paymentFormData.pay_proof === 'placeholder.png' || !paymentFormData.pay_proof)) {
       toast.error('Please upload a proof of payment image.');
+      setPaymentFileError('Proof of payment is required.');
       setIsPaymentSubmitting(false);
       return;
     }
@@ -119,12 +138,16 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
       if (!allowedTypes.includes(file.type)) {
-        toast.error('Invalid file type. Please upload a JPEG, PNG, WebP, or GIF image.');
+        const msg = 'Invalid file type. Please upload a JPEG, PNG, WebP, or GIF image.';
+        toast.error(msg);
+        setPaymentFileError(msg);
         setIsPaymentSubmitting(false);
         return;
       }
       if (file.size > maxSize) {
-        toast.error(`File is too large. Maximum size is 5 MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)} MB.`);
+        const msg = `File is too large. Maximum size is 5 MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)} MB.`;
+        toast.error(msg);
+        setPaymentFileError(msg);
         setIsPaymentSubmitting(false);
         return;
       }
@@ -134,20 +157,26 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     if (status === 'Downpayment' && isFirstPayment) {
       const requiredMin = totalAmount * 0.5;
       if (amount < requiredMin) {
-        toast.error(`First payment (Downpayment) must be at least 50% of total (₱${requiredMin.toLocaleString()}).`);
+        const msg = `First payment (Downpayment) must be at least 50% of total (₱${requiredMin.toLocaleString()}).`;
+        toast.error(msg);
+        setPaymentAmountError(msg);
         setIsPaymentSubmitting(false);
         return;
       }
     } else if (status === 'Fully Paid') {
       if (isFirstPayment) {
         if (amount < totalAmount) {
-          toast.error(`First payment marked as Fully Paid must equal the full total amount (₱${totalAmount.toLocaleString()}).`);
+          const msg = `First payment marked as Fully Paid must equal the full total amount (₱${totalAmount.toLocaleString()}).`;
+          toast.error(msg);
+          setPaymentAmountError(msg);
           setIsPaymentSubmitting(false);
           return;
         }
       } else {
         if (amount < remainingBalance) {
-          toast.error(`To mark as Fully Paid, the amount must equal the remaining balance of ₱${remainingBalance.toLocaleString()}.`);
+          const msg = `To mark as Fully Paid, the amount must equal the remaining balance of ₱${remainingBalance.toLocaleString()}.`;
+          toast.error(msg);
+          setPaymentAmountError(msg);
           setIsPaymentSubmitting(false);
           return;
         }
@@ -254,15 +283,20 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       pay_proof: payment.pay_proof || 'placeholder.png',
     });
     setEditSelectedFile(null);
+    setEditAmountError('');
+    setEditFileError('');
     setIsEditPaymentModalOpen(true);
   };
 
   const handleEditPaymentSubmit = async (e) => {
     e.preventDefault();
     setIsPaymentSubmitting(true);
+    setEditAmountError('');
+    setEditFileError('');
     const amount = parseFloat(editPaymentFormData.amount) || 0;
     if (amount <= 0) {
       toast.error('Amount must be greater than zero.');
+      setEditAmountError('Amount must be greater than zero.');
       setIsPaymentSubmitting(false);
       return;
     }
@@ -285,18 +319,23 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
       if (!allowedTypes.includes(file.type)) {
-        toast.error('Invalid file type. Please upload a JPEG, PNG, WebP, or GIF image.');
+        const msg = 'Invalid file type. Please upload a JPEG, PNG, WebP, or GIF image.';
+        toast.error(msg);
+        setEditFileError(msg);
         setIsPaymentSubmitting(false);
         return;
       }
       if (file.size > maxSize) {
-        toast.error(`File is too large. Maximum size is 5 MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)} MB.`);
+        const msg = `File is too large. Maximum size is 5 MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)} MB.`;
+        toast.error(msg);
+        setEditFileError(msg);
         setIsPaymentSubmitting(false);
         return;
       }
     } else if (!editPaymentFormData.pay_proof || editPaymentFormData.pay_proof === 'placeholder.png') {
       // If no new file and existing proof is missing or placeholder, require upload
       toast.error('Please upload a proof of payment image.');
+      setEditFileError('Proof of payment is required.');
       setIsPaymentSubmitting(false);
       return;
     }
@@ -307,7 +346,9 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     );
     const newRemainingBalance = Math.max(0, totalAmount - positivePayments - amount);
     if (newRemainingBalance < 0) {
-      toast.error(`Amount exceeds remaining balance of ₱${(totalAmount - positivePayments).toLocaleString()}.`);
+      const msg = `Amount exceeds remaining balance of ₱${(totalAmount - positivePayments).toLocaleString()}.`;
+      toast.error(msg);
+      setEditAmountError(msg);
       setIsPaymentSubmitting(false);
       return;
     }
@@ -316,7 +357,9 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     const isFirstPayment = totalPaid === 0;
 
     if (isFirstPayment && editPaymentFormData.pay_status === 'Downpayment' && amount < totalAmount * 0.5) {
-      toast.error(`First payment must be at least 50% of total (₱${(totalAmount * 0.5).toLocaleString()}).`);
+      const msg = `First payment must be at least 50% of total (₱${(totalAmount * 0.5).toLocaleString()}).`;
+      toast.error(msg);
+      setEditAmountError(msg);
       setIsPaymentSubmitting(false);
       return;
     }
@@ -326,7 +369,9 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     // otherwise reducing the amount on a Fully Paid row silently leaves
     // it saying Fully Paid while a real balance remains.
     if (editPaymentFormData.pay_status === 'Fully Paid' && newRemainingBalance > 0) {
-      toast.error(`This amount leaves a remaining balance of ₱${newRemainingBalance.toLocaleString()}, so it can't stay marked "Fully Paid." Either keep the amount at ₱${(totalAmount - positivePayments).toLocaleString()}, or change the status to Downpayment.`);
+      const msg = `This amount leaves a remaining balance of ₱${newRemainingBalance.toLocaleString()}, so it can't stay marked "Fully Paid." Either keep the amount at ₱${(totalAmount - positivePayments).toLocaleString()}, or change the status to Downpayment.`;
+      toast.error(msg);
+      setEditAmountError(msg);
       setIsPaymentSubmitting(false);
       return;
     }
@@ -396,6 +441,12 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     });
     if (!confirmed) return;
 
+    const passwordOk = await requestPasswordConfirm({
+      title: 'Confirm Your Password',
+      message: 'Deleting this payment record is permanent. Re-enter your password to continue.',
+    });
+    if (!passwordOk) return;
+
     try {
       const { error } = await supabase
         .from('payment')
@@ -423,6 +474,10 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     editSelectedFile,
     isPaymentSubmitting,
     uploading,
+    paymentAmountError,
+    paymentFileError,
+    editAmountError,
+    editFileError,
 
     // Actions
     openPaymentModal,

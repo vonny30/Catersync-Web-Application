@@ -5,10 +5,13 @@ import { Plus, Edit, Trash2, X, CheckCircle, Settings, ClipboardList, RefreshCw,
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
+import { errorInputClass } from '../utils/formErrors';
 
 export default function Equipment() {
   const { showConfirm } = useConfirm();
+  const { requestPasswordConfirm } = usePasswordConfirm();
 
   // --- STATE ---
   const [equipmentList, setEquipmentList] = useState([]);
@@ -16,6 +19,8 @@ export default function Equipment() {
   const [bookings, setBookings] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [addFieldErrors, setAddFieldErrors] = useState({});
+  const [editFieldErrors, setEditFieldErrors] = useState({});
 
   const [isUsageModalOpen, setIsUsageModalOpen] = useState(false);
   const [selectedEquipment, setSelectedEquipment] = useState(null);
@@ -210,6 +215,7 @@ export default function Equipment() {
         ? parseInt(value) || 0
         : name === 'paxPerUnit' ? (value === '' ? '' : parseInt(value) || 0) : value
     }));
+    setAddFieldErrors(prev => (prev[name] ? { ...prev, [name]: undefined } : prev));
   };
 
   const handleEditInputChange = (e) => {
@@ -220,6 +226,7 @@ export default function Equipment() {
         ? parseInt(value) || 0
         : name === 'pax_per_unit' ? (value === '' ? null : parseInt(value) || 0) : value
     }));
+    setEditFieldErrors(prev => (prev[name] ? { ...prev, [name]: undefined } : prev));
   };
 
   const handleAssignInputChange = (e) => {
@@ -239,24 +246,29 @@ export default function Equipment() {
   const handleAddEquipment = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setAddFieldErrors({});
 
     if (!addFormData.equipmentName.trim()) {
       toast.error('Equipment name is required.');
+      setAddFieldErrors({ equipmentName: 'Equipment name is required.' });
       setIsSubmitting(false);
       return;
     }
     const qty = parseInt(addFormData.quantity) || 0;
     if (qty < 1) {
       toast.error('Total quantity must be at least 1.');
+      setAddFieldErrors({ quantity: 'Must be at least 1.' });
       setIsSubmitting(false);
       return;
     }
 
     const damaged = parseInt(addFormData.damagedQuantity) || 0;
     const maintenance = parseInt(addFormData.maintenanceQuantity) || 0;
-    
+
     if (damaged + maintenance > qty) {
+      const msg = 'Cannot exceed total quantity.';
       toast.error('Damaged + Maintenance quantities cannot exceed total quantity.');
+      setAddFieldErrors({ damagedQuantity: msg, maintenanceQuantity: msg });
       setIsSubmitting(false);
       return;
     }
@@ -316,30 +328,36 @@ export default function Equipment() {
       equipment_type: item.equipment_type || 'Countable',
       pax_per_unit: item.pax_per_unit || null,
     });
+    setEditFieldErrors({});
     setIsEditModalOpen(true);
   };
 
   const handleEditSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setEditFieldErrors({});
 
     if (!editFormData.eqm_name.trim()) {
       toast.error('Equipment name is required.');
+      setEditFieldErrors({ eqm_name: 'Equipment name is required.' });
       setIsSubmitting(false);
       return;
     }
     const qty = parseInt(editFormData.quantity_available) || 0;
     if (qty < 0) {
       toast.error('Total quantity cannot be negative.');
+      setEditFieldErrors({ quantity_available: 'Cannot be negative.' });
       setIsSubmitting(false);
       return;
     }
 
     const damaged = parseInt(editFormData.damaged_quantity) || 0;
     const maintenance = parseInt(editFormData.maintenance_quantity) || 0;
-    
+
     if (damaged + maintenance > qty) {
+      const msg = 'Cannot exceed total quantity.';
       toast.error('Damaged + Maintenance quantities cannot exceed total quantity.');
+      setEditFieldErrors({ damaged_quantity: msg, maintenance_quantity: msg });
       setIsSubmitting(false);
       return;
     }
@@ -414,6 +432,12 @@ export default function Equipment() {
       confirmVariant: 'danger',
     });
     if (!confirmed) return;
+
+    const passwordOk = await requestPasswordConfirm({
+      title: 'Confirm Your Password',
+      message: 'Deleting this equipment is permanent. Re-enter your password to continue.',
+    });
+    if (!passwordOk) return;
 
     try {
       const { count, error: countError } = await supabase
@@ -642,7 +666,7 @@ export default function Equipment() {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={() => { setAddFieldErrors({}); setIsAddModalOpen(true); }}
             className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-xs cursor-pointer"
           >
             <Settings size={16} /> Add Stock
@@ -914,9 +938,10 @@ export default function Equipment() {
                     value={addFormData.equipmentName}
                     onChange={handleAddInputChange}
                     placeholder="e.g. Infinity Chairs"
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none font-medium text-slate-800"
+                    className={errorInputClass(!!addFieldErrors.equipmentName, 'w-full border rounded-lg p-2.5 text-sm bg-white focus:ring-2 outline-none font-medium text-slate-800')}
                     required
                   />
+                  {addFieldErrors.equipmentName && <p className="text-xs text-red-600 font-semibold mt-1">{addFieldErrors.equipmentName}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Total Quantity *</label>
@@ -926,9 +951,10 @@ export default function Equipment() {
                     min="1"
                     value={addFormData.quantity}
                     onChange={handleAddInputChange}
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                    className={errorInputClass(!!addFieldErrors.quantity, 'w-full border rounded-lg p-2.5 text-sm font-semibold text-slate-800 focus:ring-2 outline-none')}
                     required
                   />
+                  {addFieldErrors.quantity && <p className="text-xs text-red-600 font-semibold mt-1">{addFieldErrors.quantity}</p>}
                 </div>
               </div>
 
@@ -1028,11 +1054,13 @@ export default function Equipment() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Equipment Name *</label>
-                  <input type="text" name="eqm_name" value={editFormData.eqm_name} onChange={handleEditInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none font-medium text-slate-800" required />
+                  <input type="text" name="eqm_name" value={editFormData.eqm_name} onChange={handleEditInputChange} className={errorInputClass(!!editFieldErrors.eqm_name, 'w-full border rounded-lg p-2.5 text-sm bg-white focus:ring-2 outline-none font-medium text-slate-800')} required />
+                  {editFieldErrors.eqm_name && <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.eqm_name}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Total Quantity *</label>
-                  <input type="number" name="quantity_available" min="0" value={editFormData.quantity_available} onChange={handleEditInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" required />
+                  <input type="number" name="quantity_available" min="0" value={editFormData.quantity_available} onChange={handleEditInputChange} className={errorInputClass(!!editFieldErrors.quantity_available, 'w-full border rounded-lg p-2.5 text-sm font-semibold text-slate-800 focus:ring-2 outline-none')} required />
+                  {editFieldErrors.quantity_available && <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.quantity_available}</p>}
                 </div>
               </div>
 

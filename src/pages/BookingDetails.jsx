@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { usePaymentHandlers } from '../hooks/usePaymentHandlers';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
@@ -15,11 +16,13 @@ import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { checkEquipmentCapacityForDate, allocateEquipmentForBooking } from '../utils/equipment';
 import { sumVerifiedPositivePayments, sumVerifiedDownpayments } from '../utils/payments';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
+import { errorInputClass } from '../utils/formErrors';
 
 export default function BookingDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { showConfirm } = useConfirm();
+  const { requestPasswordConfirm } = usePasswordConfirm();
 
   // --- Local state (not duplicated) ---
   const [booking, setBooking] = useState(null);
@@ -31,6 +34,10 @@ export default function BookingDetails() {
   // --- Edit Modal state (unique) ---
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Field-level errors for the Edit Booking form — highlights exactly
+  // which input is blocking submission (red border + inline message)
+  // instead of only a toast.
+  const [editFieldErrors, setEditFieldErrors] = useState({});
   const [customers, setCustomers] = useState([]);
   const [packages, setPackages] = useState([]);
   const [packageCategories, setPackageCategories] = useState([]);
@@ -198,6 +205,10 @@ export default function BookingDetails() {
     editSelectedFile,
     isPaymentSubmitting,
     uploading,
+    paymentAmountError,
+    paymentFileError,
+    editAmountError,
+    editFileError,
     openPaymentModal,
     handlePaymentInputChange,
     handlePaymentFileChange,
@@ -434,6 +445,13 @@ export default function BookingDetails() {
       confirmVariant: 'danger',
     });
     if (!confirmed) return;
+
+    const passwordOk = await requestPasswordConfirm({
+      title: 'Confirm Your Password',
+      message: 'Deleting this booking is permanent. Re-enter your password to continue.',
+    });
+    if (!passwordOk) return;
+
     try {
       const { error: paymentsError } = await supabase
         .from('payment')
@@ -479,6 +497,7 @@ export default function BookingDetails() {
       setCategoryMenuItems({});
       setSelectedPackageInfo(null);
     }
+    setEditFieldErrors({});
     setIsEditModalOpen(true);
   };
 
@@ -566,6 +585,7 @@ export default function BookingDetails() {
   const handleEditInputChange = (e) => {
     const { name, value } = e.target;
     setEditFormData(prev => ({ ...prev, [name]: value }));
+    setEditFieldErrors(prev => (prev[name] ? { ...prev, [name]: undefined } : prev));
     // If package changes, reset menu selections and fetch new package details
     if (name === 'package_id') {
       // Reset menu selections
@@ -591,19 +611,23 @@ export default function BookingDetails() {
   const handleEditSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setEditFieldErrors({});
 
     if (!editFormData.venue || editFormData.venue.trim() === '') {
       toast.error('Please enter a venue.');
+      setEditFieldErrors({ venue: 'Please enter a venue.' });
       setIsSubmitting(false);
       return;
     }
     if (!editFormData.pax_count || parseInt(editFormData.pax_count) < 1) {
       toast.error('Please enter a valid pax count (must be at least 1).');
+      setEditFieldErrors({ pax_count: 'Must be at least 1.' });
       setIsSubmitting(false);
       return;
     }
     if (!editFormData.total_amount || parseFloat(editFormData.total_amount) <= 0) {
       toast.error('Total amount must be greater than zero.');
+      setEditFieldErrors({ total_amount: 'Must be greater than zero.' });
       setIsSubmitting(false);
       return;
     }
@@ -1432,8 +1456,9 @@ export default function BookingDetails() {
                   value={editFormData.venue}
                   onChange={handleEditInputChange}
                   placeholder="e.g. Grand Pavilion"
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                  className={errorInputClass(!!editFieldErrors.venue, 'w-full border rounded-lg p-2.5 text-sm outline-none')}
                 />
+                {editFieldErrors.venue && <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.venue}</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -1445,8 +1470,9 @@ export default function BookingDetails() {
                     value={editFormData.pax_count}
                     onChange={handleEditInputChange}
                     placeholder="e.g. 80"
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                    className={errorInputClass(!!editFieldErrors.pax_count, 'w-full border rounded-lg p-2.5 text-sm outline-none')}
                   />
+                  {editFieldErrors.pax_count && <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.pax_count}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Motif Color</label>
@@ -1467,8 +1493,9 @@ export default function BookingDetails() {
                     value={editFormData.total_amount}
                     onChange={handleEditInputChange}
                     placeholder="0.00"
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                    className={errorInputClass(!!editFieldErrors.total_amount, 'w-full border rounded-lg p-2.5 text-sm outline-none')}
                   />
+                  {editFieldErrors.total_amount && <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.total_amount}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Delivery Fee</label>
@@ -1656,9 +1683,12 @@ export default function BookingDetails() {
                     placeholder="0.00"
                     step="0.01"
                     required
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                    className={`w-full border rounded-lg p-2.5 text-sm focus:ring-2 outline-none ${paymentAmountError ? 'border-red-400 focus:ring-red-200 focus:border-red-400 bg-red-50/40' : 'border-slate-300 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
                   />
-                  {(() => {
+                  {paymentAmountError && (
+                    <p className="text-xs text-red-600 mt-1 font-semibold">{paymentAmountError}</p>
+                  )}
+                  {!paymentAmountError && (() => {
                     const isFirst = positivePayments === 0;
                     const status = paymentFormData.pay_status;
                     const total = booking.total_amount || 0;
@@ -1715,13 +1745,17 @@ export default function BookingDetails() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Proof of Payment</label>
-                <label className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center relative overflow-hidden h-24">
+                <label className={`border-2 border-dashed rounded-lg p-4 flex flex-col items-center justify-center transition-colors cursor-pointer text-center relative overflow-hidden h-24 ${paymentFileError ? 'border-red-400 bg-red-50/40 hover:bg-red-50' : 'border-slate-300 bg-slate-50 hover:bg-slate-100'}`}>
                   <input type="file" onChange={handlePaymentFileChange} accept="image/*" className="hidden" />
-                  <ImageIcon size={20} className="text-slate-400 mb-1" />
+                  <ImageIcon size={20} className={paymentFileError ? 'text-red-400 mb-1' : 'text-slate-400 mb-1'} />
                   <span className="text-xs font-semibold text-slate-600">{selectedFile ? selectedFile.name : 'Upload Image'}</span>
                   <span className="text-[10px] text-slate-400 mt-0.5">PNG, JPG up to 5MB</span>
                 </label>
-                <p className="text-xs text-slate-400 mt-1">Upload a proof image; will be stored in Supabase Storage.</p>
+                {paymentFileError ? (
+                  <p className="text-xs text-red-600 mt-1 font-semibold">{paymentFileError}</p>
+                ) : (
+                  <p className="text-xs text-slate-400 mt-1">Upload a proof image; will be stored in Supabase Storage.</p>
+                )}
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
@@ -1762,7 +1796,8 @@ export default function BookingDetails() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Amount (₱)</label>
-                  <input type="number" name="amount" value={editPaymentFormData.amount} onChange={(e) => setEditPaymentFormData({...editPaymentFormData, amount: e.target.value})} placeholder="0.00" step="0.01" required className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" />
+                  <input type="number" name="amount" value={editPaymentFormData.amount} onChange={(e) => setEditPaymentFormData({...editPaymentFormData, amount: e.target.value})} placeholder="0.00" step="0.01" required className={`w-full border rounded-lg p-2.5 text-sm focus:ring-2 outline-none ${editAmountError ? 'border-red-400 focus:ring-red-200 focus:border-red-400 bg-red-50/40' : 'border-slate-300 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`} />
+                  {editAmountError && <p className="text-xs text-red-600 mt-1 font-semibold">{editAmountError}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Payment Status</label>
@@ -1794,15 +1829,17 @@ export default function BookingDetails() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Proof of Payment</label>
-                <label className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center relative overflow-hidden h-24">
+                <label className={`border-2 border-dashed rounded-lg p-4 flex flex-col items-center justify-center transition-colors cursor-pointer text-center relative overflow-hidden h-24 ${editFileError ? 'border-red-400 bg-red-50/40 hover:bg-red-50' : 'border-slate-300 bg-slate-50 hover:bg-slate-100'}`}>
                   <input type="file" onChange={(e) => setEditSelectedFile(e.target.files[0])} accept="image/*" className="hidden" />
-                  <ImageIcon size={20} className="text-slate-400 mb-1" />
+                  <ImageIcon size={20} className={editFileError ? 'text-red-400 mb-1' : 'text-slate-400 mb-1'} />
                   <span className="text-xs font-semibold text-slate-600">{editSelectedFile ? editSelectedFile.name : 'Upload New Image'}</span>
                   <span className="text-[10px] text-slate-400 mt-0.5">PNG, JPG up to 5MB</span>
                 </label>
-                {editPaymentFormData.pay_proof !== 'placeholder.png' && !editSelectedFile && (
+                {editFileError ? (
+                  <p className="text-xs text-red-600 mt-1 font-semibold">{editFileError}</p>
+                ) : editPaymentFormData.pay_proof !== 'placeholder.png' && !editSelectedFile ? (
                   <p className="text-xs text-slate-400 mt-1">Current proof: <a href={getProofUrl(editPaymentFormData.pay_proof)} target="_blank" className="text-blue-500 underline">View</a></p>
-                )}
+                ) : null}
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">

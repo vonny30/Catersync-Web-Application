@@ -9,14 +9,17 @@ import {
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { createWalkInCustomer } from '../utils/createWalkInCustomer';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
+import { errorInputClass } from '../utils/formErrors';
 
 export default function ShortOrders() {
   const navigate = useNavigate();
   const { showConfirm } = useConfirm();
+  const { requestPasswordConfirm } = usePasswordConfirm();
 
   // --- STATE ---
   const [orders, setOrders] = useState([]);
@@ -44,6 +47,10 @@ export default function ShortOrders() {
   const [editingId, setEditingId] = useState(null);
   const [customerMode, setCustomerMode] = useState('existing');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Field-level errors for the New/Edit Order form — highlights exactly
+  // which input is blocking submission (red border + inline message)
+  // instead of only a toast.
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const [formData, setFormData] = useState({
     customer_id: '',
@@ -359,11 +366,13 @@ export default function ShortOrders() {
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    setFieldErrors(prev => (prev[name] ? { ...prev, [name]: undefined } : prev));
   };
 
   const handleWalkInChange = (e) => {
     const { name, value } = e.target;
     setWalkInData(prev => ({ ...prev, [name]: value }));
+    setFieldErrors(prev => (prev[name] ? { ...prev, [name]: undefined } : prev));
   };
 
   const handleTempItemChange = (e) => {
@@ -428,6 +437,7 @@ export default function ShortOrders() {
     });
     setWalkInData({ first_name: '', last_name: '', contact_no: '', email_address: '', cus_address: '' });
     setTempItem({ menu_item_id: '', quantity: 1 });
+    setFieldErrors({});
     setIsModalOpen(true);
   };
 
@@ -455,6 +465,7 @@ export default function ShortOrders() {
     });
     setWalkInData({ first_name: '', last_name: '', contact_no: '', email_address: '', cus_address: '' });
     setTempItem({ menu_item_id: '', quantity: 1 });
+    setFieldErrors({});
     setIsModalOpen(true);
   };
 
@@ -476,6 +487,7 @@ export default function ShortOrders() {
     });
     setWalkInData({ first_name: '', last_name: '', contact_no: '', email_address: '', cus_address: '' });
     setTempItem({ menu_item_id: '', quantity: 1 });
+    setFieldErrors({});
     setIsSubmitting(false);
   };
 
@@ -499,6 +511,7 @@ export default function ShortOrders() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setFieldErrors({});
 
     const eventDateTimeISO = formData.event_datetime ? new Date(formData.event_datetime).toISOString() : null;
 
@@ -506,6 +519,7 @@ export default function ShortOrders() {
     if (!editingId) {
       if (customerMode === 'existing' && !formData.customer_id) {
         toast.error('Please select an existing customer.');
+        setFieldErrors({ customer_id: 'Please select an existing customer.' });
         setIsSubmitting(false);
         return;
       }
@@ -513,17 +527,25 @@ export default function ShortOrders() {
       if (customerMode === 'new') {
         if (!walkInData.first_name || !walkInData.last_name || !walkInData.contact_no || !walkInData.email_address) {
           toast.error('Please fill in all customer details for walk-in customer.');
+          setFieldErrors({
+            first_name: !walkInData.first_name ? 'Required.' : undefined,
+            last_name: !walkInData.last_name ? 'Required.' : undefined,
+            contact_no: !walkInData.contact_no ? 'Required.' : undefined,
+            email_address: !walkInData.email_address ? 'Required.' : undefined,
+          });
           setIsSubmitting(false);
           return;
         }
         if (!walkInData.email_address.includes('@')) {
           toast.error('Please enter a valid email address.');
+          setFieldErrors({ email_address: 'Please enter a valid email address.' });
           setIsSubmitting(false);
           return;
         }
         const phoneRegex = /^[0-9]{11}$/;
         if (!phoneRegex.test(walkInData.contact_no)) {
           toast.error('Contact number must be exactly 11 digits (numbers only).');
+          setFieldErrors({ contact_no: 'Must be exactly 11 digits (numbers only).' });
           setIsSubmitting(false);
           return;
         }
@@ -531,6 +553,7 @@ export default function ShortOrders() {
     } else {
       if (!formData.customer_id) {
         toast.error('Customer is required for this order.');
+        setFieldErrors({ customer_id: 'Customer is required for this order.' });
         setIsSubmitting(false);
         return;
       }
@@ -539,21 +562,25 @@ export default function ShortOrders() {
     // Required fields
     if (formData.menu_selections.length === 0) {
       toast.error('Please add at least one menu item.');
+      setFieldErrors({ menu_selections: 'Add at least one menu item.' });
       setIsSubmitting(false);
       return;
     }
     if (!formData.event_datetime) {
       toast.error('Please select an event date and time.');
+      setFieldErrors({ event_datetime: 'Please select an event date and time.' });
       setIsSubmitting(false);
       return;
     }
     if (!formData.venue || formData.venue.trim() === '') {
       toast.error('Please enter a venue or delivery location.');
+      setFieldErrors({ venue: 'Please enter a venue or delivery location.' });
       setIsSubmitting(false);
       return;
     }
     if (!formData.total_amount || parseFloat(formData.total_amount) <= 0) {
       toast.error('Total amount must be greater than zero.');
+      setFieldErrors({ total_amount: 'Must be greater than zero.' });
       setIsSubmitting(false);
       return;
     }
@@ -843,6 +870,13 @@ export default function ShortOrders() {
       confirmVariant: 'danger',
     });
     if (!confirmed) return;
+
+    const passwordOk = await requestPasswordConfirm({
+      title: 'Confirm Your Password',
+      message: 'Deleting this order is permanent. Re-enter your password to continue.',
+    });
+    if (!passwordOk) return;
+
     try {
       const { error: paymentsError } = await supabase
         .from('payment')
@@ -886,6 +920,13 @@ export default function ShortOrders() {
       confirmVariant: 'danger',
     });
     if (!confirmed) return;
+
+    const passwordOk = await requestPasswordConfirm({
+      title: 'Confirm Your Password',
+      message: `Deleting ${selectedOrders.length} order(s) is permanent. Re-enter your password to continue.`,
+    });
+    if (!passwordOk) return;
+
     try {
       await supabase.from('payment').delete().in('booking_id', selectedOrders);
       const { error: ordersError } = await supabase
@@ -1306,12 +1347,14 @@ export default function ShortOrders() {
                               onChange={(e) => {
                                 setCustomerSearch(e.target.value);
                                 setShowCustomerList(true);
+                                setFieldErrors(prev => (prev.customer_id ? { ...prev, customer_id: undefined } : prev));
                               }}
                               onFocus={() => setShowCustomerList(true)}
                               placeholder="Search by name, phone, or email..."
-                              className="w-full border border-slate-300 rounded-lg pl-10 pr-3 py-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
+                              className={errorInputClass(!!fieldErrors.customer_id, 'w-full border rounded-lg pl-10 pr-3 py-2.5 text-sm focus:ring-2 outline-none bg-white')}
                             />
                           </div>
+                          {fieldErrors.customer_id && <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.customer_id}</p>}
                           {showCustomerList && (
                             <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                               {filteredCustomers.length > 0 ? (
@@ -1385,9 +1428,10 @@ export default function ShortOrders() {
                               value={walkInData.first_name}
                               onChange={handleWalkInChange}
                               placeholder="e.g. Juan"
-                              className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                              className={errorInputClass(!!fieldErrors.first_name, 'w-full border rounded-lg p-2 text-sm outline-none')}
                               required
                             />
+                            {fieldErrors.first_name && <p className="text-[10px] text-red-600 font-semibold mt-0.5">{fieldErrors.first_name}</p>}
                           </div>
                           <div>
                             <label className="block text-xs font-semibold text-slate-600 mb-0.5">Last Name *</label>
@@ -1397,9 +1441,10 @@ export default function ShortOrders() {
                               value={walkInData.last_name}
                               onChange={handleWalkInChange}
                               placeholder="e.g. Dela Cruz"
-                              className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                              className={errorInputClass(!!fieldErrors.last_name, 'w-full border rounded-lg p-2 text-sm outline-none')}
                               required
                             />
+                            {fieldErrors.last_name && <p className="text-[10px] text-red-600 font-semibold mt-0.5">{fieldErrors.last_name}</p>}
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
@@ -1411,10 +1456,14 @@ export default function ShortOrders() {
                               value={walkInData.contact_no}
                               onChange={handleWalkInChange}
                               placeholder="09123456789"
-                              className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                              className={errorInputClass(!!fieldErrors.contact_no, 'w-full border rounded-lg p-2 text-sm outline-none')}
                               required
                             />
-                            <p className="text-[10px] text-slate-400 mt-0.5">Must be exactly 11 digits</p>
+                            {fieldErrors.contact_no ? (
+                              <p className="text-[10px] text-red-600 font-semibold mt-0.5">{fieldErrors.contact_no}</p>
+                            ) : (
+                              <p className="text-[10px] text-slate-400 mt-0.5">Must be exactly 11 digits</p>
+                            )}
                           </div>
                           <div>
                             <label className="block text-xs font-semibold text-slate-600 mb-0.5">Email Address *</label>
@@ -1424,9 +1473,10 @@ export default function ShortOrders() {
                               value={walkInData.email_address}
                               onChange={handleWalkInChange}
                               placeholder="e.g. juan@email.com"
-                              className="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-[#008A45]"
+                              className={errorInputClass(!!fieldErrors.email_address, 'w-full border rounded-lg p-2 text-sm outline-none')}
                               required
                             />
+                            {fieldErrors.email_address && <p className="text-[10px] text-red-600 font-semibold mt-0.5">{fieldErrors.email_address}</p>}
                           </div>
                         </div>
                         <div>
@@ -1449,13 +1499,15 @@ export default function ShortOrders() {
               {/* Event Date & Time */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Event Date & Time *</label>
-                <input type="datetime-local" name="event_datetime" value={formData.event_datetime} onChange={handleInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]" required />
+                <input type="datetime-local" name="event_datetime" value={formData.event_datetime} onChange={handleInputChange} className={errorInputClass(!!fieldErrors.event_datetime, 'w-full border rounded-lg p-2.5 text-sm outline-none')} required />
+                {fieldErrors.event_datetime && <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.event_datetime}</p>}
               </div>
 
               {/* Venue */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Venue / Location *</label>
-                <input type="text" name="venue" value={formData.venue} onChange={handleInputChange} placeholder="e.g. Pick-up or Delivery address" className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]" required />
+                <input type="text" name="venue" value={formData.venue} onChange={handleInputChange} placeholder="e.g. Pick-up or Delivery address" className={errorInputClass(!!fieldErrors.venue, 'w-full border rounded-lg p-2.5 text-sm outline-none')} required />
+                {fieldErrors.venue && <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.venue}</p>}
               </div>
 
               {/* Delivery Fee */}
@@ -1467,7 +1519,8 @@ export default function ShortOrders() {
               {/* Menu Items Selection */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Select Menu Items (trays) *</label>
-                <div className="flex gap-2 mb-2">
+                {fieldErrors.menu_selections && <p className="text-xs text-red-600 font-semibold mb-1">{fieldErrors.menu_selections}</p>}
+                <div className={`flex gap-2 mb-2 rounded-lg ${fieldErrors.menu_selections ? 'ring-1 ring-red-300' : ''}`}>
                   <select
                     name="menu_item_id"
                     value={tempItem.menu_item_id}

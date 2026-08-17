@@ -5,16 +5,21 @@ import { Plus, Edit, Trash2, X, Truck, Car, Settings, Calendar, MapPin, Users, C
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
+import { errorInputClass } from '../utils/formErrors';
 
 export default function Vehicles() {
   const { showConfirm } = useConfirm();
+  const { requestPasswordConfirm } = usePasswordConfirm();
   // --- DATA STATE ---
   const [vehicles, setVehicles] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [addFieldErrors, setAddFieldErrors] = useState({});
+  const [editFieldErrors, setEditFieldErrors] = useState({});
 
   // --- MODAL STATES ---
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
@@ -225,11 +230,13 @@ export default function Vehicles() {
   const handleNewVehicleChange = (e) => {
     const { name, value } = e.target;
     setNewVehicleForm((prev) => ({ ...prev, [name]: value }));
+    setAddFieldErrors(prev => (prev[name] ? { ...prev, [name]: undefined } : prev));
   };
 
   const handleEditVehicleChange = (e) => {
     const { name, value } = e.target;
     setEditVehicleForm((prev) => ({ ...prev, [name]: value }));
+    setEditFieldErrors(prev => (prev[name] ? { ...prev, [name]: undefined } : prev));
   };
 
   const handleAssignChange = (e) => {
@@ -275,13 +282,16 @@ export default function Vehicles() {
     e.preventDefault();
 
     // ✅ Trim and validate plate number
+    setAddFieldErrors({});
     const plate = newVehicleForm.plate_number.trim();
     if (!plate) {
       toast.error('Plate number is required.');
+      setAddFieldErrors({ plate_number: 'Plate number is required.' });
       return;
     }
     if (plate.length < 3) {
       toast.error('Plate number must be at least 3 characters.');
+      setAddFieldErrors({ plate_number: 'Must be at least 3 characters.' });
       return;
     }
 
@@ -323,14 +333,17 @@ export default function Vehicles() {
       vehicle_type: vehicle.vehicle_type,
       vehicle_status: vehicle.vehicle_status,
     });
+    setEditFieldErrors({});
     setIsEditModalOpen(true);
   };
 
   // ✅ UPDATED handleEditSubmit with confirmation for active assignments
   const handleEditSubmit = async (e) => {
     e.preventDefault();
+    setEditFieldErrors({});
     if (!editVehicleForm.plate_number) {
       toast.error('Plate number is required.');
+      setEditFieldErrors({ plate_number: 'Plate number is required.' });
       return;
     }
 
@@ -387,6 +400,12 @@ export default function Vehicles() {
       confirmVariant: 'danger',
     });
     if (!confirmed) return;
+
+    const passwordOk = await requestPasswordConfirm({
+      title: 'Confirm Your Password',
+      message: 'Deleting this vehicle is permanent. Re-enter your password to continue.',
+    });
+    if (!passwordOk) return;
 
     try {
       // Delete all assignments for this vehicle
@@ -567,7 +586,7 @@ export default function Vehicles() {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setIsManageFleetModalOpen(true)}
+            onClick={() => { setAddFieldErrors({}); setIsManageFleetModalOpen(true); }}
             className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-xs cursor-pointer"
           >
             <Settings size={16} /> Manage Fleet
@@ -823,10 +842,14 @@ export default function Vehicles() {
                   placeholder="e.g. ABC 1234"
                   value={newVehicleForm.plate_number}
                   onChange={handleNewVehicleChange}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                  className={errorInputClass(!!addFieldErrors.plate_number, 'w-full border rounded-lg p-2.5 text-sm bg-white focus:ring-2 outline-none')}
                   required
                 />
-                <p className="text-xs text-slate-400 mt-1">Minimum 3 characters, no leading/trailing spaces.</p>
+                {addFieldErrors.plate_number ? (
+                  <p className="text-xs text-red-600 font-semibold mt-1">{addFieldErrors.plate_number}</p>
+                ) : (
+                  <p className="text-xs text-slate-400 mt-1">Minimum 3 characters, no leading/trailing spaces.</p>
+                )}
               </div>
 
               <div>
@@ -893,9 +916,10 @@ export default function Vehicles() {
                   placeholder="e.g. ABC 1234"
                   value={editVehicleForm.plate_number}
                   onChange={handleEditVehicleChange}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                  className={errorInputClass(!!editFieldErrors.plate_number, 'w-full border rounded-lg p-2.5 text-sm bg-white focus:ring-2 outline-none')}
                   required
                 />
+                {editFieldErrors.plate_number && <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.plate_number}</p>}
               </div>
 
               <div>

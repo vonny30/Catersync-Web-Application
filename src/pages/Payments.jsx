@@ -6,11 +6,13 @@ import { Search, Upload, X, Image as ImageIcon, Edit, Trash2, Check, DollarSign,
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { sumVerifiedPositivePayments, UNVERIFIED_PAY_STATUSES } from '../utils/payments';
 
 export default function Payments() {
   const navigate = useNavigate();
   const { showConfirm } = useConfirm();
+  const { requestPasswordConfirm } = usePasswordConfirm();
 
   // --- STATE ---
   const [payments, setPayments] = useState([]);
@@ -32,6 +34,10 @@ export default function Payments() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // Field-level errors — highlights exactly which input is blocking
+  // submission (red border + inline message) instead of only a toast.
+  const [amountError, setAmountError] = useState('');
+  const [fileError, setFileError] = useState('');
 
   // --- SEARCH STATE for dropdown ---
   const [bookingSearchTerm, setBookingSearchTerm] = useState('');
@@ -204,11 +210,13 @@ export default function Payments() {
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    if (name === 'amount') setAmountError('');
   };
 
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
       setSelectedFile(e.target.files[0]);
+      setFileError('');
     }
   };
 
@@ -223,6 +231,8 @@ export default function Payments() {
     });
     setSelectedFile(null);
     setBookingSearchTerm('');
+    setAmountError('');
+    setFileError('');
     setIsModalOpen(true);
   };
 
@@ -237,6 +247,8 @@ export default function Payments() {
     });
     setSelectedFile(null);
     setBookingSearchTerm('');
+    setAmountError('');
+    setFileError('');
     setIsModalOpen(true);
   };
 
@@ -246,6 +258,8 @@ export default function Payments() {
     setFormData(initialFormState);
     setSelectedFile(null);
     setBookingSearchTerm('');
+    setAmountError('');
+    setFileError('');
     setIsSubmitting(false);
     setUploading(false);
   };
@@ -290,6 +304,8 @@ export default function Payments() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setAmountError('');
+    setFileError('');
 
     if (!formData.booking_id) {
       toast.error('Please select a booking.');
@@ -300,6 +316,7 @@ export default function Payments() {
     const amount = parseFloat(formData.amount) || 0;
     if (amount <= 0) {
       toast.error('Amount must be greater than zero.');
+      setAmountError('Amount must be greater than zero.');
       setIsSubmitting(false);
       return;
     }
@@ -325,6 +342,7 @@ export default function Payments() {
     }
     if (isProofRequired && !selectedFile) {
       toast.error('Please upload a proof of payment image.');
+      setFileError('Proof of payment is required.');
       setIsSubmitting(false);
       return;
     }
@@ -355,7 +373,9 @@ export default function Payments() {
     }
 
     if (amount > remainingBalance) {
-      toast.error(`Amount exceeds remaining balance of ₱${remainingBalance.toLocaleString()}.`);
+      const msg = `Amount exceeds remaining balance of ₱${remainingBalance.toLocaleString()}.`;
+      toast.error(msg);
+      setAmountError(msg);
       setIsSubmitting(false);
       return;
     }
@@ -365,20 +385,26 @@ export default function Payments() {
     if (status === 'Downpayment' && isFirstPayment) {
       const requiredMin = totalAmount * 0.5;
       if (amount < requiredMin) {
-        toast.error(`First payment (Downpayment) must be at least 50% of total (₱${requiredMin.toLocaleString()}).`);
+        const msg = `First payment (Downpayment) must be at least 50% of total (₱${requiredMin.toLocaleString()}).`;
+        toast.error(msg);
+        setAmountError(msg);
         setIsSubmitting(false);
         return;
       }
     } else if (status === 'Fully Paid') {
       if (isFirstPayment) {
         if (amount < totalAmount) {
-          toast.error(`First payment marked as Fully Paid must equal the full total amount (₱${totalAmount.toLocaleString()}).`);
+          const msg = `First payment marked as Fully Paid must equal the full total amount (₱${totalAmount.toLocaleString()}).`;
+          toast.error(msg);
+          setAmountError(msg);
           setIsSubmitting(false);
           return;
         }
       } else {
         if (amount < remainingBalance) {
-          toast.error(`To mark as Fully Paid, the amount must equal the remaining balance of ₱${remainingBalance.toLocaleString()}.`);
+          const msg = `To mark as Fully Paid, the amount must equal the remaining balance of ₱${remainingBalance.toLocaleString()}.`;
+          toast.error(msg);
+          setAmountError(msg);
           setIsSubmitting(false);
           return;
         }
@@ -552,6 +578,12 @@ export default function Payments() {
       confirmVariant: 'danger',
     });
     if (!confirmed) return;
+
+    const passwordOk = await requestPasswordConfirm({
+      title: 'Confirm Your Password',
+      message: 'Deleting this payment record is permanent. Re-enter your password to continue.',
+    });
+    if (!passwordOk) return;
 
     try {
       const { error } = await supabase
@@ -1350,12 +1382,15 @@ export default function Payments() {
                     placeholder="0.00"
                     step="0.01"
                     required
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                    className={`w-full border rounded-lg p-2.5 text-sm focus:ring-2 outline-none ${amountError ? 'border-red-400 focus:ring-red-200 focus:border-red-400 bg-red-50/40' : 'border-slate-300 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
                   />
-                  {selectedBooking && (
+                  {amountError && (
+                    <p className="text-xs text-red-600 mt-1 font-semibold">{amountError}</p>
+                  )}
+                  {!amountError && selectedBooking && (
                     <p className="text-xs text-slate-400 mt-1">Max: ₱{remainingBalanceForSelected.toLocaleString()}</p>
                   )}
-                  {selectedBooking && (() => {
+                  {!amountError && selectedBooking && (() => {
                     const total = selectedBooking.total_amount || 0;
                     const isFirst = isFirstPaymentForSelected;
                     const status = formData.pay_status;
@@ -1432,19 +1467,23 @@ export default function Payments() {
                     <span className="text-red-500 ml-1">*</span>
                   )}
                 </label>
-                <label className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center relative overflow-hidden h-24">
+                <label className={`border-2 border-dashed rounded-lg p-4 flex flex-col items-center justify-center transition-colors cursor-pointer text-center relative overflow-hidden h-24 ${fileError ? 'border-red-400 bg-red-50/40 hover:bg-red-50' : 'border-slate-300 bg-slate-50 hover:bg-slate-100'}`}>
                   <input type="file" onChange={handleFileChange} accept="image/*" className="hidden" />
-                  <ImageIcon size={20} className="text-slate-400 mb-1" />
+                  <ImageIcon size={20} className={fileError ? 'text-red-400 mb-1' : 'text-slate-400 mb-1'} />
                   <span className="text-xs font-semibold text-slate-600">
                     {selectedFile ? selectedFile.name : (editingId ? 'Upload New Image (Optional)' : 'Upload Image')}
                   </span>
                   <span className="text-[10px] text-slate-400 mt-0.5">PNG, JPG up to 5MB</span>
                 </label>
-                <p className="text-xs text-slate-400 mt-1">
-                  {editingId && formData.pay_proof && formData.pay_proof !== 'placeholder.png' && formData.pay_proof !== 'refund_placeholder.png'
-                    ? 'Leave blank to keep existing proof.'
-                    : 'Upload a proof image; will be stored in Supabase Storage.'}
-                </p>
+                {fileError ? (
+                  <p className="text-xs text-red-600 mt-1 font-semibold">{fileError}</p>
+                ) : (
+                  <p className="text-xs text-slate-400 mt-1">
+                    {editingId && formData.pay_proof && formData.pay_proof !== 'placeholder.png' && formData.pay_proof !== 'refund_placeholder.png'
+                      ? 'Leave blank to keep existing proof.'
+                      : 'Upload a proof image; will be stored in Supabase Storage.'}
+                  </p>
+                )}
               </div>
 
               {/* Footer */}
