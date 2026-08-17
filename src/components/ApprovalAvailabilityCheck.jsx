@@ -3,10 +3,12 @@
 // Shown inside the Approve modal (used identically from Bookings/ShortOrders
 // list pages and their Details pages) so a manager sees the same day-schedule
 // and equipment-capacity signal no matter where they approve from. Day
-// Availability applies to every booking type (package or short order both
-// compete for the same venue/date); Equipment Availability only renders when
-// the booking being approved is a package booking, since short orders don't
-// track equipment. Recomputes equipment demand using the pax count as
+// Availability is scoped to the booking's own type — a Package booking only
+// sees other Package bookings on that date, a Short Order only sees other
+// Short Orders — since the two are run as separate lines of business here,
+// not competing for the same venue/date. Equipment Availability only renders
+// when the booking being approved is a package booking, since short orders
+// don't track equipment. Recomputes equipment demand using the pax count as
 // currently adjusted in the modal (base pax + extra pax), not the original
 // booking value, so it stays accurate while the manager is still editing.
 import { useState, useEffect, useRef } from 'react';
@@ -38,7 +40,7 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
       }
       if (!cancelled) setLoadingDay(true);
       try {
-        const data = await getBookingsOnDate(booking.event_datetime, booking.booking_id, booking.event_datetime);
+        const data = await getBookingsOnDate(booking.event_datetime, booking.booking_id, booking.event_datetime, booking.booking_type);
         if (!cancelled) setDayBookings(data);
       } catch (err) {
         console.error('Day schedule check failed:', err);
@@ -49,7 +51,7 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
     };
     run();
     return () => { cancelled = true; };
-  }, [booking?.booking_id, booking?.event_datetime]);
+  }, [booking?.booking_id, booking?.event_datetime, booking?.booking_type]);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,7 +114,7 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
 
   return (
     <div className="space-y-3">
-      {/* Day Availability — applies to every booking type */}
+      {/* Day Availability — scoped to this booking's own type only */}
       <div className={`relative overflow-hidden border rounded-xl shadow-sm ${dayTheme.wrap}`}>
         <div className={`absolute left-0 top-0 bottom-0 w-1 ${dayTheme.bar}`} />
         <div className="pl-4 pr-3 py-3">
@@ -120,7 +122,7 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
             <div className="flex items-center gap-2">
               <Calendar size={16} className={dayTheme.icon} />
               <span className="font-bold text-slate-900 text-sm">Day Availability</span>
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+              <span className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full ${booking.booking_type === 'Short Order' ? 'bg-sky-100 text-sky-700' : 'bg-violet-100 text-violet-700'}`}>
                 {booking.booking_type === 'Short Order' ? 'Short Order' : 'Package'}
               </span>
             </div>
@@ -134,11 +136,14 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
           </div>
 
           {booking.event_datetime && (
-            <p className="text-[11px] text-slate-500 mb-2 flex items-center gap-1">
+            <p className="text-[11px] text-slate-500 mb-1 flex items-center gap-1">
               <Clock size={11} />
               {new Date(booking.event_datetime).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
             </p>
           )}
+          <p className="text-[10px] text-slate-400 mb-2">
+            Only showing other {booking.booking_type === 'Short Order' ? 'Short Order' : 'Package'} events — {booking.booking_type === 'Short Order' ? 'Package bookings are' : 'Short Orders are'} tracked separately.
+          </p>
 
           {loadingDay ? (
             <p className="text-slate-500 text-xs flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Checking the schedule for this date...</p>
@@ -151,9 +156,6 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
                   <div className="min-w-0">
                     <p className={`truncate font-semibold ${b.isCloseInTime ? 'text-red-700' : 'text-slate-800'}`}>{b.customerName}</p>
                     <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5">
-                      <span className={`px-1.5 py-0.5 rounded-full font-semibold ${b.booking_type === 'Short Order' ? 'bg-sky-100 text-sky-700' : 'bg-violet-100 text-violet-700'}`}>
-                        {b.booking_type === 'Short Order' ? 'Short Order' : 'Package'}
-                      </span>
                       {b.pax_count ? (
                         <span className="inline-flex items-center gap-0.5"><Users size={10} /> {b.pax_count} pax</span>
                       ) : null}

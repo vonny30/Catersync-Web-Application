@@ -1,10 +1,11 @@
 // src/pages/ShortOrders.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
-  Search, Check, Edit, Trash2, ChevronLeft, ChevronRight,
-  Filter, X, RefreshCw, RotateCcw, UserPlus, Plus, Users
+  Search, Check, Edit, Trash2, Lock, ChevronLeft, ChevronRight,
+  Filter, X, RefreshCw, RotateCcw, UserPlus, Plus, Users,
+  LayoutGrid, CalendarClock
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -15,6 +16,12 @@ import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
+import DateTimePicker from '../components/DateTimePicker';
+import { isPaymentLedgerLocked } from '../utils/payments';
+import { bookingEditLockedMessage } from '../utils/bookingStatus';
+import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
+import DateRangeFilter from './Reports/DateRangeFilter';
+import { getRangeBounds } from './Reports/helpers';
 
 export default function ShortOrders() {
   const navigate = useNavigate();
@@ -29,19 +36,30 @@ export default function ShortOrders() {
   const [activeTab, setActiveTab] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedOrders, setSelectedOrders] = useState([]);
+
+  // --- Scroll-to-table (status cards & quick looks jump straight to the
+  // results). The scroll-to-top button itself is shared/global — see
+  // ManagerLayout. ---
+  const tableRef = useRef(null);
+  const scrollToTable = () => {
+    tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const pageSize = 10;
   const [totalPages, setTotalPages] = useState(1);
 
   const [filters, setFilters] = useState({
-    dateFrom: '',
-    dateTo: '',
     customerId: '',
     venue: '',
-    status: '',
   });
-  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  const [datePreset, setDatePreset] = useState('All Time');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  // Lightweight rows (status + event_datetime only) matching every filter
+  // except status itself — powers the status cards and the Today/Upcoming
+  // quick filters without re-fetching full order records per status.
+  const [statusCountRows, setStatusCountRows] = useState([]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -86,63 +104,49 @@ export default function ShortOrders() {
     try {
       const from = (currentPage - 1) * pageSize;
       const to = from + pageSize - 1;
+      const { start: dateStart, end: dateEnd } = getRangeBounds(datePreset, customStart, customEnd);
 
-      let query = supabase
-        .from('booking')
-        .select('*, customer:customer_id (first_name, last_name, contact_no)', { count: 'exact' })
-        .eq('booking_type', 'Short Order');
+      // --- SEARCH: resolve once, reused by both the main query and the
+      // status-count query below, so a search term narrows both. ---
+      let searchCustomerIds = null;
+      const search = searchTerm.trim();
+      if (search) {
+        const parts = search.split(' ').filter(p => p.length > 0);
+        const conditions = [];
+        parts.forEach(part => {
+          conditions.push(`first_name.ilike.%${part}%`);
+          conditions.push(`last_name.ilike.%${part}%`);
+        });
+        try {
+          const { data: matchingCustomers } = await supabase
+            .from('customer')
+            .select('customer_id')
+            .or(conditions.join(','));
+          searchCustomerIds = (matchingCustomers || []).map(c => c.customer_id);
+        } catch (e) {
+          console.warn('Customer search failed:', e);
+          searchCustomerIds = [];
+        }
+        if (searchCustomerIds.length === 0) searchCustomerIds = ['00000000-0000-0000-0000-000000000000'];
+      }
 
+      // Every filter except status and pagination — shared by the main
+      // paginated query and the lightweight status-count query.
+      const applyCommonFilters = (q) => {
+        q = q.eq('booking_type', 'Short Order');
+        if (dateStart) q = q.gte('event_datetime', dateStart.toISOString());
+        if (dateEnd) q = q.lte('event_datetime', dateEnd.toISOString());
+        if (filters.customerId) q = q.eq('customer_id', filters.customerId);
+        if (filters.venue) q = q.ilike('venue', `%${filters.venue}%`);
+        if (searchCustomerIds) q = q.in('customer_id', searchCustomerIds);
+        return q;
+      };
+
+      let query = applyCommonFilters(
+        supabase.from('booking').select('*, customer:customer_id (first_name, last_name, contact_no)', { count: 'exact' })
+      );
       if (activeTab !== 'All') {
         query = query.eq('booking_status', activeTab);
-      }
-
-      if (filters.dateFrom) {
-        const fromDate = new Date(filters.dateFrom);
-        fromDate.setHours(0, 0, 0, 0);
-        query = query.gte('event_datetime', fromDate.toISOString());
-      }
-      if (filters.dateTo) {
-        const toDate = new Date(filters.dateTo);
-        toDate.setHours(23, 59, 59, 999);
-        query = query.lte('event_datetime', toDate.toISOString());
-      }
-
-      if (filters.customerId) {
-        query = query.eq('customer_id', filters.customerId);
-      }
-      if (filters.venue) {
-        query = query.ilike('venue', `%${filters.venue}%`);
-      }
-
-      // --- SEARCH ---
-      if (searchTerm) {
-        const search = searchTerm.trim();
-        if (search) {
-          const parts = search.split(' ').filter(p => p.length > 0);
-          const conditions = [];
-          parts.forEach(part => {
-            conditions.push(`first_name.ilike.%${part}%`);
-            conditions.push(`last_name.ilike.%${part}%`);
-          });
-          const queryCondition = conditions.join(',');
-
-          let customerIds = [];
-          try {
-            const { data: matchingCustomers } = await supabase
-              .from('customer')
-              .select('customer_id')
-              .or(queryCondition);
-            customerIds = (matchingCustomers || []).map(c => c.customer_id);
-          } catch (e) {
-            console.warn('Customer search failed:', e);
-          }
-
-          if (customerIds.length > 0) {
-            query = query.in('customer_id', customerIds);
-          } else {
-            query = query.eq('customer_id', '00000000-0000-0000-0000-000000000000');
-          }
-        }
       }
 
       query = query
@@ -208,6 +212,14 @@ export default function ShortOrders() {
           return { ...order, positivePayments: p.positive, totalRefunded: p.refunded, downpaymentPaid: p.downpayment, refundStatus };
         });
         setOrders(enriched);
+
+        // Passive auto-complete: no server-side cron in this stack, so this
+        // runs whenever the list is loaded — any Confirmed order past its
+        // event date and fully paid gets completed here.
+        const completedIds = await autoCompletePastEvents(enriched);
+        if (completedIds.length > 0) {
+          fetchData();
+        }
       } else {
         setOrders(ordersData || []);
       }
@@ -227,6 +239,15 @@ export default function ShortOrders() {
         .order('menu_name');
       if (menuError) throw menuError;
       setMenuItems(menuData || []);
+
+      // Lightweight status-count pass — same filters as above minus status
+      // and pagination, fetching only the columns the cards/quick-filters
+      // need, so it stays cheap even as the table grows.
+      const { data: countRows, error: countRowsError } = await applyCommonFilters(
+        supabase.from('booking').select('booking_id, booking_status, event_datetime')
+      );
+      if (countRowsError) throw countRowsError;
+      setStatusCountRows(countRows || []);
 
     } catch (error) {
       handleError(error, 'Unable to load short orders. Please refresh the page.');
@@ -300,7 +321,7 @@ export default function ShortOrders() {
   // 4. Fetch data when dependencies change
   useEffect(() => {
     fetchData();
-  }, [currentPage, activeTab, searchTerm, filters]);
+  }, [currentPage, activeTab, searchTerm, filters, datePreset, customStart, customEnd]);
 
   // 5. ✅ REAL‑TIME SUBSCRIPTION (MUST be at top level, NOT inside fetchData)
   useEffect(() => {
@@ -442,6 +463,10 @@ export default function ShortOrders() {
   };
 
   const openEditModal = (order) => {
+    if (isPaymentLedgerLocked(order.booking_status)) {
+      toast.error(bookingEditLockedMessage(order.booking_status, { noun: 'order' }));
+      return;
+    }
     setEditingId(order.booking_id);
     setCustomerMode('existing');
     setCustomerSearch('');
@@ -492,19 +517,44 @@ export default function ShortOrders() {
   };
 
   // --- FILTER MODAL ---
-  const openFilterModal = () => setIsFilterModalOpen(true);
-  const closeFilterModal = () => setIsFilterModalOpen(false);
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
     setFilters(prev => ({ ...prev, [name]: value }));
-  };
-  const applyFilters = () => {
-    setIsFilterModalOpen(false);
     setCurrentPage(1);
   };
   const clearFilters = () => {
-    setFilters({ dateFrom: '', dateTo: '', customerId: '', venue: '', status: '' });
+    setFilters({ customerId: '', venue: '' });
+    setDatePreset('All Time');
+    setCustomStart('');
+    setCustomEnd('');
+    setSearchTerm('');
     setCurrentPage(1);
+  };
+
+  // "Today's Events" — every order happening today, any status, so a
+  // manager can see the full day at a glance regardless of where each
+  // order is in the pipeline.
+  const applyTodayFilter = () => {
+    const todayISO = new Date().toISOString().slice(0, 10);
+    setDatePreset('Custom');
+    setCustomStart(todayISO);
+    setCustomEnd(todayISO);
+    setActiveTab('All');
+    setCurrentPage(1);
+    scrollToTable();
+  };
+
+  // "Upcoming Confirmed" — Confirmed orders from today onward (open-ended
+  // end date), since those are the ones genuinely locked in and still to
+  // come.
+  const applyUpcomingConfirmedFilter = () => {
+    const todayISO = new Date().toISOString().slice(0, 10);
+    setDatePreset('Custom');
+    setCustomStart(todayISO);
+    setCustomEnd('');
+    setActiveTab('Confirmed');
+    setCurrentPage(1);
+    scrollToTable();
   };
 
   // --- CRUD SUBMIT (Create/Edit) ---
@@ -512,6 +562,15 @@ export default function ShortOrders() {
     e.preventDefault();
     setIsSubmitting(true);
     setFieldErrors({});
+
+    if (editingId) {
+      const targetStatus = orders.find(o => o.booking_id === editingId)?.booking_status;
+      if (isPaymentLedgerLocked(targetStatus)) {
+        toast.error(bookingEditLockedMessage(targetStatus, { noun: 'order' }));
+        setIsSubmitting(false);
+        return;
+      }
+    }
 
     const eventDateTimeISO = formData.event_datetime ? new Date(formData.event_datetime).toISOString() : null;
 
@@ -589,20 +648,14 @@ export default function ShortOrders() {
     if (formData.event_datetime) {
       const eventDate = new Date(formData.event_datetime);
       const now = new Date();
-      const diffTime = eventDate.getTime() - now.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const eventDay = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const diffDays = Math.round((eventDay - today) / (1000 * 60 * 60 * 24));
       if (diffDays < 0) {
-        const proceed = await showConfirm({
-          title: '⚠️ Event Date is in the Past',
-          message: `This event date is ${Math.abs(diffDays)} days ago. Creating a booking for a past date may affect reports and operations. Do you still want to proceed?`,
-          confirmLabel: 'Yes, Proceed Anyway',
-          cancelLabel: 'Cancel',
-          confirmVariant: 'warning',
-        });
-        if (!proceed) {
-          setIsSubmitting(false);
-          return;
-        }
+        toast.error('The event date cannot be in the past. Please choose today or a later date.');
+        setFieldErrors({ event_datetime: 'This date has already passed.' });
+        setIsSubmitting(false);
+        return;
       } else if (diffDays >= 0 && diffDays < 3) {
         const proceed = await showConfirm({
           title: '⚠️ Booking is Very Soon',
@@ -806,21 +859,14 @@ export default function ShortOrders() {
   const remainingBalance = Math.max(0, totalAmount - totalPaid);
   const isFullyPaid = remainingBalance <= 0;
 
-  // ✅ Show warning if there's a remaining balance
   if (!isFullyPaid) {
-    const proceed = await showConfirm({
-      title: '⚠️ Outstanding Balance',
-      message: `This order has a remaining balance of ₱${remainingBalance.toLocaleString()}.\n\nMarking it as "Completed" will close the order, but the balance will remain unpaid.\n\nDo you still want to proceed?`,
-      confirmLabel: 'Yes, Complete Anyway',
-      cancelLabel: 'Cancel',
-      confirmVariant: 'warning',
-    });
-    if (!proceed) return;
+    toast.error(`Can't mark this order as completed — ₱${remainingBalance.toLocaleString()} is still owed. Full payment is required first.`);
+    return;
   }
 
   const confirmed = await showConfirm({
     title: 'Mark as Completed?',
-    message: `Are you sure you want to mark this order as completed?\n\n${!isFullyPaid ? `⚠️ Remaining balance: ₱${remainingBalance.toLocaleString()}` : '✅ All payments are settled.'}`,
+    message: 'Are you sure you want to mark this order as completed?\n\n✅ All payments are settled.',
     confirmLabel: 'Complete',
     confirmVariant: 'success',
   });
@@ -841,19 +887,15 @@ export default function ShortOrders() {
       .eq('booking_id', id);
     if (vehicleReturnError) throw vehicleReturnError;
 
-    // 3. Update payments to Fully Paid if fully paid
-    if (isFullyPaid && totalPaid > 0) {
+    // 3. Update payments to Fully Paid
+    if (totalPaid > 0) {
       const { error: updatePaymentsError } = await supabase
         .from('payment')
         .update({ pay_status: 'Fully Paid' })
         .eq('booking_id', id);
       if (updatePaymentsError) throw updatePaymentsError;
-      toast.success('Order marked completed. All payments set to Fully Paid.');
-    } else if (!isFullyPaid) {
-      toast.warning(`Order marked completed. ⚠️ Remaining balance: ₱${remainingBalance.toLocaleString()}`);
-    } else {
-      toast.success('Order marked completed successfully.');
     }
+    toast.success('Order marked completed. All payments set to Fully Paid.');
 
     // 4. Refresh data
     fetchData();
@@ -863,9 +905,10 @@ export default function ShortOrders() {
 };
 
   const handleDelete = async (id) => {
+    const targetOrder = orders.find(o => o.booking_id === id);
     const confirmed = await showConfirm({
       title: 'Delete Order?',
-      message: 'Are you sure you want to permanently delete this order? This action cannot be undone. All associated payments and vehicle assignments will also be deleted.',
+      message: `Are you sure you want to permanently delete this ${targetOrder?.booking_status || ''} order? This action cannot be undone. All associated payments and vehicle assignments will also be deleted.`,
       confirmLabel: 'Delete',
       confirmVariant: 'danger',
     });
@@ -905,7 +948,7 @@ export default function ShortOrders() {
     );
   };
   const toggleSelectAll = () => {
-    const visibleIds = filtered.map(o => o.booking_id);
+    const visibleIds = orders.map(o => o.booking_id);
     const allSelected = visibleIds.every(id => selectedOrders.includes(id));
     setSelectedOrders(allSelected ? [] : visibleIds);
   };
@@ -913,6 +956,7 @@ export default function ShortOrders() {
 
   const handleBulkDelete = async () => {
     if (selectedOrders.length === 0) return;
+
     const confirmed = await showConfirm({
       title: 'Delete Selected Orders?',
       message: `You are about to delete ${selectedOrders.length} order(s). This action cannot be undone and will also delete all associated payments.`,
@@ -959,39 +1003,11 @@ export default function ShortOrders() {
     }
   };
 
-  // --- FILTER LOGIC ---
-  const tabs = ['All', 'Pending', 'Approved', 'Confirmed', 'Completed', 'Rejected', 'Cancelled'];
-
-  const filtered = orders.filter(order => {
-    if (activeTab !== 'All' && order.booking_status !== activeTab) return false;
-    if (searchTerm) {
-      const name = `${order.customer?.first_name || ''} ${order.customer?.last_name || ''}`.toLowerCase();
-      const id = order.booking_id.toLowerCase();
-      const search = searchTerm.toLowerCase();
-      if (!name.includes(search) && !id.includes(search)) return false;
-    }
-    if (filters.dateFrom && order.event_datetime) {
-      const eventDate = new Date(order.event_datetime);
-      const fromDate = new Date(filters.dateFrom);
-      fromDate.setHours(0,0,0,0);
-      if (eventDate < fromDate) return false;
-    }
-    if (filters.dateTo && order.event_datetime) {
-      const eventDate = new Date(order.event_datetime);
-      const toDate = new Date(filters.dateTo);
-      toDate.setHours(23,59,59,999);
-      if (eventDate > toDate) return false;
-    }
-    if (filters.customerId && order.customer_id !== filters.customerId) return false;
-    if (filters.venue && order.venue) {
-      const venueLower = order.venue.toLowerCase();
-      const searchVenue = filters.venue.toLowerCase();
-      if (!venueLower.includes(searchVenue)) return false;
-    }
-    return true;
-  });
-
-  const hasActiveFilters = filters.dateFrom || filters.dateTo || filters.customerId || filters.venue;
+  // --- FILTER LOGIC (status/date/customer/venue/search all apply
+  // server-side in fetchData; `orders` already reflects every active
+  // filter for the current page) ---
+  const STATUS_LIST = ['Pending', 'Approved', 'Confirmed', 'Completed', 'Rejected', 'Cancelled'];
+  const hasActiveFilters = datePreset !== 'All Time' || filters.customerId || filters.venue;
 
   const getStatusBadge = (status) => {
     const map = {
@@ -1016,6 +1032,35 @@ export default function ShortOrders() {
     return map[status] || 'bg-slate-100 text-slate-600';
   };
 
+  // --- STATUS CARDS + QUICK FILTERS (derived from statusCountRows, which
+  // reflects every active filter except status/pagination) ---
+  const STATUS_CARD_ACCENT = {
+    All: 'border-l-slate-400',
+    Pending: 'border-l-amber-500',
+    Approved: 'border-l-[#008A45]',
+    Confirmed: 'border-l-emerald-500',
+    Completed: 'border-l-blue-500',
+    Rejected: 'border-l-red-500',
+    Cancelled: 'border-l-slate-400',
+  };
+  const STATUS_CARD_TEXT = {
+    All: 'text-slate-900',
+    Pending: 'text-amber-700',
+    Approved: 'text-slate-900',
+    Confirmed: 'text-emerald-700',
+    Completed: 'text-blue-700',
+    Rejected: 'text-red-700',
+    Cancelled: 'text-slate-600',
+  };
+  const statusCards = ['All', ...STATUS_LIST].map(key => ({
+    key,
+    count: key === 'All' ? statusCountRows.length : statusCountRows.filter(r => r.booking_status === key).length,
+  }));
+
+  const todayStr = new Date().toDateString();
+  const todaysEventsCount = statusCountRows.filter(r => r.event_datetime && new Date(r.event_datetime).toDateString() === todayStr).length;
+  const upcomingConfirmedCount = statusCountRows.filter(r => r.booking_status === 'Confirmed' && r.event_datetime && new Date(r.event_datetime) >= new Date()).length;
+
   // --- RENDER ---
   return (
     <div className="space-y-6 relative">
@@ -1033,74 +1078,146 @@ export default function ShortOrders() {
         </button>
       </div>
 
-      {/* TABS */}
-      <div className="flex space-x-6 border-b border-slate-200 overflow-x-auto">
-        {tabs.map(tab => (
+      {/* STATUS OVERVIEW + QUICK LOOKS */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+        <div className="flex items-center gap-1.5 mb-3">
+          <LayoutGrid size={13} className="text-slate-400" />
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Status Overview</span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+          {statusCards.map((s) => (
+            <button
+              key={s.key}
+              onClick={() => { setActiveTab(s.key); setCurrentPage(1); scrollToTable(); }}
+              className={`text-left rounded-xl border-l-4 border border-slate-200 bg-white p-3.5 transition-all ${STATUS_CARD_ACCENT[s.key]} ${
+                activeTab === s.key ? 'ring-2 ring-[#008A45]/20 shadow-sm' : 'hover:shadow-sm hover:border-slate-300'
+              }`}
+            >
+              <p className="text-[11px] font-semibold text-slate-500 mb-1 truncate">{s.key === 'All' ? 'All Orders' : s.key}</p>
+              <p className={`text-xl font-extrabold ${STATUS_CARD_TEXT[s.key]}`}>{s.count}</p>
+            </button>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t border-slate-100">
+          <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wide">
+            <CalendarClock size={13} /> Quick looks
+          </span>
           <button
-            key={tab}
-            onClick={() => {
-              setActiveTab(tab);
-              setCurrentPage(1);
-            }}
-            className={`pb-3 text-sm font-semibold transition-colors border-b-2 shrink-0 ${
-              activeTab === tab
-                ? 'border-[#008A45] text-slate-900'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
+            onClick={applyTodayFilter}
+            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:border-slate-300 hover:shadow-sm transition-all"
           >
-            {tab}
+            Today's Events
+            <span className="inline-flex items-center justify-center min-w-[20px] h-[20px] px-1.5 rounded-full bg-slate-100 text-slate-700 text-xs font-bold">{todaysEventsCount}</span>
           </button>
-        ))}
+          <button
+            onClick={applyUpcomingConfirmedFilter}
+            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:border-slate-300 hover:shadow-sm transition-all"
+          >
+            Upcoming Confirmed
+            <span className="inline-flex items-center justify-center min-w-[20px] h-[20px] px-1.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">{upcomingConfirmedCount}</span>
+          </button>
+        </div>
       </div>
 
-      {/* SEARCH & FILTER */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <input
-            type="text"
-            placeholder="Search by client name or order ID..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full border border-slate-300 rounded-lg py-2.5 pl-4 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] bg-white"
-          />
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+      {/* FILTERS */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div className="flex items-center gap-1.5">
+            <Filter size={13} className="text-slate-400" />
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Filters</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {(hasActiveFilters || searchTerm) && (
+              <button
+                onClick={clearFilters}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <RotateCcw size={13} /> Clear all
+              </button>
+            )}
+            {selectedOrders.length > 0 && (
+              <button
+                onClick={handleBulkDelete}
+                className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1.5 text-xs shadow-sm"
+              >
+                <Trash2 size={14} /> Delete Selected ({selectedOrders.length})
+              </button>
+            )}
+            <button
+              onClick={fetchData}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          {selectedOrders.length > 0 && (
-            <button
-              onClick={handleBulkDelete}
-              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-sm"
+
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="relative flex-1 min-w-[220px]">
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Search</label>
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Client name or order ref..."
+                value={searchTerm}
+                onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                className="w-full border border-slate-300 rounded-lg py-2.5 pl-4 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] bg-white"
+              />
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Customer</label>
+            <select
+              name="customerId"
+              value={filters.customerId}
+              onChange={handleFilterChange}
+              className="border border-slate-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
             >
-              <Trash2 size={16} /> Delete Selected ({selectedOrders.length})
-            </button>
-          )}
-          <button
-            onClick={openFilterModal}
-            className="flex items-center gap-2 px-4 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 bg-white shadow-xs"
-          >
-            <Filter size={16} />
-            Filter
-            {hasActiveFilters && <span className="ml-1 w-2 h-2 rounded-full bg-[#008A45] inline-block" />}
-          </button>
-          {hasActiveFilters && (
-            <button
-              onClick={clearFilters}
-              className="flex items-center gap-2 px-4 py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 bg-white shadow-xs"
-            >
-              <RotateCcw size={16} /> Clear
-            </button>
-          )}
-          <button
-            onClick={fetchData}
-            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-xs"
-          >
-            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
-          </button>
+              <option value="">All Customers</option>
+              {customers.map(c => (
+                <option key={c.customer_id} value={c.customer_id}>{c.first_name} {c.last_name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Venue</label>
+            <input
+              type="text"
+              name="venue"
+              value={filters.venue}
+              onChange={handleFilterChange}
+              placeholder="e.g. Grand Pavilion"
+              className="border border-slate-300 rounded-lg px-3 py-2.5 text-sm w-40 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Event Date</label>
+            <DateRangeFilter
+              preset={datePreset}
+              customStart={customStart}
+              customEnd={customEnd}
+              rangeStart={getRangeBounds(datePreset, customStart, customEnd).start}
+              rangeEnd={getRangeBounds(datePreset, customStart, customEnd).end}
+              onPresetChange={(p) => { setDatePreset(p); setCurrentPage(1); }}
+              onCustomStartChange={(v) => { setCustomStart(v); setCurrentPage(1); }}
+              onCustomEndChange={(v) => { setCustomEnd(v); setCurrentPage(1); }}
+              onClear={() => { setDatePreset('All Time'); setCustomStart(''); setCustomEnd(''); setCurrentPage(1); }}
+            />
+          </div>
         </div>
       </div>
 
       {/* TABLE */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <div ref={tableRef} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden scroll-mt-4">
+        <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800 flex justify-between items-center">
+          <span>{activeTab === 'All' ? 'All Short Orders' : `${activeTab} Short Orders`}</span>
+          <span className="text-xs font-normal text-slate-500">{totalCount} result{totalCount === 1 ? '' : 's'}</span>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
@@ -1108,10 +1225,10 @@ export default function ShortOrders() {
                 <th className="p-4 w-10">
                   <input
                     type="checkbox"
-                    checked={filtered.length > 0 && filtered.every(o => selectedOrders.includes(o.booking_id))}
+                    checked={orders.length > 0 && orders.every(o => selectedOrders.includes(o.booking_id))}
                     onChange={toggleSelectAll}
                     className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
-                    disabled={filtered.length === 0}
+                    disabled={orders.length === 0}
                   />
                 </th>
                 <th className="p-4 font-bold min-w-[130px]">Client</th>
@@ -1127,10 +1244,10 @@ export default function ShortOrders() {
             <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
               {loading ? (
                 <tr><td colSpan="9" className="p-6 text-center text-slate-400">Loading orders...</td></tr>
-              ) : filtered.length === 0 ? (
+              ) : orders.length === 0 ? (
                 <tr><td colSpan="9" className="p-6 text-center text-slate-500 italic">No short orders found.</td></tr>
               ) : (
-                filtered.map((order) => {
+                orders.map((order) => {
                   let totalTrays = 0;
                   try {
                     let selections = order.menu_selections;
@@ -1187,6 +1304,11 @@ export default function ShortOrders() {
         Balance Remaining
       </span>
     )}
+    {hasUnpaidPastEvent(order) && (
+      <span className="px-3 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700 inline-block w-[120px] text-center" title={`Event passed with ₱${Math.max(0, (order.total_amount || 0) - (order.positivePayments || 0)).toLocaleString()} still owed`}>
+        Past Due
+      </span>
+    )}
     {(order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') && order.refundStatus && (
       <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getRefundStatusBadge(order.refundStatus)} inline-block w-[120px] text-center`}>
         {order.refundStatus}
@@ -1223,9 +1345,10 @@ export default function ShortOrders() {
                           {order.booking_status === 'Confirmed' && (
                             <button
                               onClick={() => handleMarkCompleted(order.booking_id)}
-                              className="bg-blue-100 border border-blue-200 text-blue-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-blue-200 transition-colors"
+                              className={(order.positivePayments || 0) >= (order.total_amount || 0) ? 'bg-blue-100 border border-blue-200 text-blue-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-blue-200 transition-colors' : 'bg-slate-100 border border-slate-200 text-slate-500 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-slate-200 transition-colors'}
+                              title={(order.positivePayments || 0) >= (order.total_amount || 0) ? undefined : `Locked — ₱${Math.max(0, (order.total_amount || 0) - (order.positivePayments || 0)).toLocaleString()} still owed`}
                             >
-                              <Check size={14} /> Complete
+                              {(order.positivePayments || 0) >= (order.total_amount || 0) ? <Check size={14} /> : <Lock size={14} />} Complete
                             </button>
                           )}
                           <button
@@ -1236,15 +1359,15 @@ export default function ShortOrders() {
                           </button>
                           <button
                             onClick={() => openEditModal(order)}
-                            className="text-slate-400 hover:text-slate-700 transition-colors p-1"
-                            title="Edit"
+                            className={isPaymentLedgerLocked(order.booking_status) ? 'text-slate-300 hover:text-slate-500 transition-colors p-1' : 'text-slate-400 hover:text-slate-700 transition-colors p-1'}
+                            title={isPaymentLedgerLocked(order.booking_status) ? bookingEditLockedMessage(order.booking_status, { noun: 'order' }) : 'Edit'}
                           >
-                            <Edit size={16} />
+                            {isPaymentLedgerLocked(order.booking_status) ? <Lock size={16} /> : <Edit size={16} />}
                           </button>
                           <button
                             onClick={() => handleDelete(order.booking_id)}
                             className="text-red-400 hover:text-red-600 transition-colors p-1"
-                            title="Delete"
+                            title="Delete (password required)"
                           >
                             <Trash2 size={16} />
                           </button>
@@ -1499,7 +1622,7 @@ export default function ShortOrders() {
               {/* Event Date & Time */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Event Date & Time *</label>
-                <input type="datetime-local" name="event_datetime" value={formData.event_datetime} onChange={handleInputChange} className={errorInputClass(!!fieldErrors.event_datetime, 'w-full border rounded-lg p-2.5 text-sm outline-none')} required />
+                <DateTimePicker name="event_datetime" value={formData.event_datetime} onChange={handleInputChange} hasError={!!fieldErrors.event_datetime} required />
                 {fieldErrors.event_datetime && <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.event_datetime}</p>}
               </div>
 
@@ -1775,49 +1898,6 @@ export default function ShortOrders() {
         document.body
       )}
 
-      {/* ===== FILTER MODAL ===== */}
-      {isFilterModalOpen && createPortal(
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
-              <h2 className="text-lg font-bold text-slate-900">Filter Short Orders</h2>
-              <button onClick={closeFilterModal} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto space-y-5 text-left">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Event Date From</label>
-                  <input type="date" name="dateFrom" value={filters.dateFrom} onChange={handleFilterChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Event Date To</label>
-                  <input type="date" name="dateTo" value={filters.dateTo} onChange={handleFilterChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Customer</label>
-                <select name="customerId" value={filters.customerId} onChange={handleFilterChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white">
-                  <option value="">All Customers</option>
-                  {customers.map(c => (
-                    <option key={c.customer_id} value={c.customer_id}>{c.first_name} {c.last_name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Venue (contains)</label>
-                <input type="text" name="venue" value={filters.venue} onChange={handleFilterChange} placeholder="e.g. Grand Pavilion" className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" />
-              </div>
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-                <button type="button" onClick={() => { clearFilters(); closeFilterModal(); }} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">Clear Filters</button>
-                <button type="button" onClick={applyFilters} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors">Apply Filters</button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
     </div>
   );
 }

@@ -14,13 +14,16 @@ import { ACTIVE_BOOKING_STATUSES } from './bookingStatus';
 const CLOSE_TIME_WINDOW_HOURS = 3;
 
 /**
- * Returns every Approved or Confirmed booking (Package or Short Order) on
- * the same calendar day as eventDate, sorted by time, excluding
- * excludeBookingId.
+ * Returns every Approved or Confirmed booking on the same calendar day as
+ * eventDate, sorted by time, excluding excludeBookingId. When bookingType
+ * is given, only events of that same type (Package or Short Order) are
+ * returned — Package bookings and Short Orders are tracked as separate
+ * lines of business here, so a manager reviewing one shouldn't be shown
+ * the other's schedule.
  * Each item also gets `hoursApart` (vs. referenceTime, if provided) and
  * `isCloseInTime` so callers can flag likely time conflicts.
  */
-export async function getBookingsOnDate(eventDate, excludeBookingId = null, referenceTime = null) {
+export async function getBookingsOnDate(eventDate, excludeBookingId = null, referenceTime = null, bookingType = null) {
   if (!eventDate) return [];
 
   const startOfDay = new Date(eventDate);
@@ -45,6 +48,9 @@ export async function getBookingsOnDate(eventDate, excludeBookingId = null, refe
 
   if (excludeBookingId) {
     query = query.neq('booking_id', excludeBookingId);
+  }
+  if (bookingType) {
+    query = query.eq('booking_type', bookingType);
   }
 
   const { data, error } = await query;

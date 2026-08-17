@@ -408,6 +408,25 @@ export default function Vehicles() {
     if (!passwordOk) return;
 
     try {
+      // Same protective concept as Equipment/Booking deletes: a vehicle
+      // still dispatched to an upcoming Confirmed event has real
+      // operational commitments riding on it — deleting it out from under
+      // that booking would leave the event with no vehicle and no warning.
+      const { data: activeAssignments, error: activeCheckError } = await supabase
+        .from('vehicle_assign')
+        .select('assignment_id, booking:booking_id (booking_status)')
+        .eq('vehicle_id', vehicleId)
+        .neq('assignment_status', 'Completed');
+      if (activeCheckError) throw activeCheckError;
+
+      const committedCount = (activeAssignments || []).filter(
+        a => a.booking?.booking_status && ACTIVE_BOOKING_STATUSES.includes(a.booking.booking_status)
+      ).length;
+      if (committedCount > 0) {
+        toast.error(`This vehicle can't be deleted — it's dispatched to ${committedCount} active booking(s). Reassign or complete those first.`);
+        return;
+      }
+
       // Delete all assignments for this vehicle
       const { error: deleteAssignError } = await supabase
         .from('vehicle_assign')

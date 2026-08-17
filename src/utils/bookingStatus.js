@@ -11,3 +11,19 @@
 // 'Approved' alone, or a newly-Confirmed booking will silently drop out of
 // those checks.
 export const ACTIVE_BOOKING_STATUSES = ['Approved', 'Confirmed'];
+
+// Editing structural fields (total_amount, pax_count, package, event date,
+// etc.) on a booking/order after real payment history exists would silently
+// desync the record from the payments already made against it — the fee
+// adjustments this system supports happen once, during Approval, on
+// purpose. Reuses the same locked-status set as the payment ledger
+// (isPaymentLedgerLocked in ../utils/payments) since it's the same
+// underlying concern: Confirmed means a verified payment already came
+// through, and Completed/Cancelled/Rejected are downstream/terminal states
+// where the record is settled history, not something to keep editing.
+// Deleting the whole record is intentionally NOT gated by this — that's a
+// deliberate, all-or-nothing action (password-confirmed) rather than a
+// partial edit that could leave totals inconsistent with payments made.
+export function bookingEditLockedMessage(status, { noun = 'booking' } = {}) {
+  return `This ${noun} can't be edited anymore — it's ${status}, and changing details now would conflict with the payment history already on record.`;
+}

@@ -1,7 +1,7 @@
 // src/pages/BookingDetails.jsx
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, ClipboardList, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Image as ImageIcon } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -13,10 +13,14 @@ import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { useCancellationHandlers } from '../hooks/useCancellationHandlers';
 import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
+import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
 import { checkEquipmentCapacityForDate, allocateEquipmentForBooking } from '../utils/equipment';
-import { sumVerifiedPositivePayments, sumVerifiedDownpayments } from '../utils/payments';
+import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked } from '../utils/payments';
+import { bookingEditLockedMessage } from '../utils/bookingStatus';
+import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
+import DateTimePicker from '../components/DateTimePicker';
 
 export default function BookingDetails() {
   const { id } = useParams();
@@ -109,6 +113,21 @@ export default function BookingDetails() {
       if (paymentsError) throw paymentsError;
       const filtered = (paymentsData || []).filter(p => !(p.amount_paid === 0 && p.pay_status === 'Pending'));
       setPayments(filtered);
+
+      // Passive auto-complete: no server-side cron in this stack, so this
+      // runs whenever the details page is loaded — completes this booking
+      // if it's Confirmed, past its event date, and fully paid.
+      const completedIds = await autoCompletePastEvents([{
+        booking_id: bookingData.booking_id,
+        booking_status: bookingData.booking_status,
+        event_datetime: bookingData.event_datetime,
+        total_amount: bookingData.total_amount,
+        positivePayments: sumVerifiedPositivePayments(filtered),
+      }]);
+      if (completedIds.length > 0) {
+        fetchBooking();
+        return;
+      }
 
       // Menu selections
       if (bookingData.menu_selections && typeof bookingData.menu_selections === 'object') {
@@ -226,6 +245,7 @@ export default function BookingDetails() {
     totalAmount: booking?.total_amount || 0,
     fetchData: fetchBooking,
     customerId: booking?.customer_id,
+    bookingStatus: booking?.booking_status,
   });
 
   // --- Approval Handlers ---
@@ -314,6 +334,19 @@ export default function BookingDetails() {
     fetchData: fetchBooking,
   });
 
+  // --- Completion Handlers (Confirmed -> Completed) ---
+  const {
+    canMarkCompleted,
+    isFullyPaid: isCompletionFullyPaid,
+    remainingBalance: completionRemainingBalance,
+    isCompleting,
+    handleMarkCompleted,
+  } = useCompletionHandlers({
+    booking,
+    payments,
+    fetchData: fetchBooking,
+  });
+
   // --- Verification Handlers (Pending Verification payments) ---
   const {
     isRejectProofModalOpen,
@@ -322,7 +355,13 @@ export default function BookingDetails() {
     rejectProofReason,
     setRejectProofReason,
     isVerifying,
-    handleVerifyPayment,
+    isVerifyModalOpen,
+    setIsVerifyModalOpen,
+    verifyTarget,
+    verifyMethod,
+    setVerifyMethod,
+    openVerifyModal,
+    handleVerifyConfirm,
     openRejectProofModal,
     handleRejectProofConfirm,
   } = useVerificationHandlers({
@@ -332,15 +371,13 @@ export default function BookingDetails() {
   });
 
   // --- Refund after rejection/cancellation (local) ---
+  // Uses the same policy-aware `remainingRefundableAmount` computed below in
+  // the render body (excludes the forfeited downpayment when cancellation
+  // happened within 3 days of the event) — must NOT recompute a simpler
+  // "total paid minus already refunded" figure here, or the modal's max
+  // will silently allow refunding the forfeited downpayment.
   const openRefundModal = () => {
-    const positivePayments = payments
-      .filter(p => p.amount_paid > 0)
-      .reduce((sum, p) => sum + p.amount_paid, 0);
-    const totalRefunded = payments
-      .filter(p => p.amount_paid < 0)
-      .reduce((sum, p) => sum + Math.abs(p.amount_paid), 0);
-    const remainingRefundable = Math.max(0, positivePayments - totalRefunded);
-    setRefundModalAmount(remainingRefundable > 0 ? remainingRefundable.toFixed(2) : '');
+    setRefundModalAmount(remainingRefundableAmount > 0 ? remainingRefundableAmount.toFixed(2) : '');
     setRefundModalRemarks('');
     setRefundModalFile(null);
     setIsRefundModalOpen(true);
@@ -348,21 +385,14 @@ export default function BookingDetails() {
 
   const handleRefundSubmit = async (e) => {
     e.preventDefault();
-    const positivePayments = payments
-      .filter(p => p.amount_paid > 0)
-      .reduce((sum, p) => sum + p.amount_paid, 0);
-    const totalRefunded = payments
-      .filter(p => p.amount_paid < 0)
-      .reduce((sum, p) => sum + Math.abs(p.amount_paid), 0);
-    const remainingRefundable = Math.max(0, positivePayments - totalRefunded);
 
     const amount = parseFloat(refundModalAmount) || 0;
     if (amount <= 0) {
       toast.error('Please enter a valid refund amount.');
       return;
     }
-    if (amount > remainingRefundable) {
-      toast.error(`Amount exceeds remaining refundable (₱${remainingRefundable.toFixed(2)}).`);
+    if (amount > remainingRefundableAmount) {
+      toast.error(`Amount exceeds remaining refundable (₱${remainingRefundableAmount.toFixed(2)}).`);
       return;
     }
     if (!refundModalFile) {
@@ -440,7 +470,7 @@ export default function BookingDetails() {
   const handleDelete = async () => {
     const confirmed = await showConfirm({
       title: 'Delete Booking?',
-      message: 'Are you sure you want to permanently delete this booking? This action cannot be undone. All associated payments will also be deleted.',
+      message: `Are you sure you want to permanently delete this ${booking.booking_status} booking? This action cannot be undone. All associated payments, equipment, and vehicle assignments will also be deleted.`,
       confirmLabel: 'Delete',
       confirmVariant: 'danger',
     });
@@ -476,6 +506,10 @@ export default function BookingDetails() {
   // --- EDIT MODAL (unique) ---
   const openEditModal = () => {
     if (!booking) return;
+    if (isPaymentLedgerLocked(booking.booking_status)) {
+      toast.error(bookingEditLockedMessage(booking.booking_status));
+      return;
+    }
     setEditFormData({
       customer_id: booking.customer_id || '',
       package_id: booking.package_id || '',
@@ -613,6 +647,12 @@ export default function BookingDetails() {
     setIsSubmitting(true);
     setEditFieldErrors({});
 
+    if (isPaymentLedgerLocked(booking.booking_status)) {
+      toast.error(bookingEditLockedMessage(booking.booking_status));
+      setIsSubmitting(false);
+      return;
+    }
+
     if (!editFormData.venue || editFormData.venue.trim() === '') {
       toast.error('Please enter a venue.');
       setEditFieldErrors({ venue: 'Please enter a venue.' });
@@ -630,6 +670,18 @@ export default function BookingDetails() {
       setEditFieldErrors({ total_amount: 'Must be greater than zero.' });
       setIsSubmitting(false);
       return;
+    }
+    if (editFormData.event_datetime) {
+      const eventDate = new Date(editFormData.event_datetime);
+      const now = new Date();
+      const eventDay = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      if (eventDay < today) {
+        toast.error('The event date cannot be in the past. Please choose today or a later date.');
+        setEditFieldErrors({ event_datetime: 'This date has already passed.' });
+        setIsSubmitting(false);
+        return;
+      }
     }
 
     try {
@@ -691,7 +743,7 @@ export default function BookingDetails() {
           toast.success('Equipment re‑allocated successfully.');
         } catch (allocError) {
           console.warn('Equipment re‑allocation warning:', allocError);
-          toast.warning('Equipment re‑allocation had issues: ' + allocError.message);
+          toast('Equipment re‑allocation had issues: ' + allocError.message, { icon: '⚠️' });
         }
       }
 
@@ -766,11 +818,18 @@ export default function BookingDetails() {
   const handleRemoveEquipment = async (assignmentId) => {
     const confirmed = await showConfirm({
       title: 'Remove Equipment?',
-      message: 'Are you sure you want to remove this equipment assignment?',
+      message: 'Are you sure you want to remove this equipment assignment? This action cannot be undone.',
       confirmLabel: 'Remove',
       confirmVariant: 'warning',
     });
     if (!confirmed) return;
+
+    const passwordOk = await requestPasswordConfirm({
+      title: 'Confirm Your Password',
+      message: 'Removing this equipment assignment is permanent. Re-enter your password to continue.',
+    });
+    if (!passwordOk) return;
+
     try {
       const { error: deleteError } = await supabase
         .from('booking_equipment')
@@ -799,6 +858,15 @@ export default function BookingDetails() {
     const newQuantity = editEquipData.quantity;
     if (!newQuantity || newQuantity < 1) {
       toast.error('Quantity must be at least 1.');
+      setIsAssignSubmitting(false);
+      return;
+    }
+    // Quantity can only go up from here, never down — lowering it below what
+    // was already allocated could leave the event short on the day, and the
+    // "remove" action already covers taking equipment off the booking
+    // entirely if it's genuinely no longer needed.
+    if (newQuantity < editingAssignment.quantity) {
+      toast.error(`Quantity can't be lowered below what's already allocated (${editingAssignment.quantity}). Remove the assignment instead if less is needed.`);
       setIsAssignSubmitting(false);
       return;
     }
@@ -897,10 +965,17 @@ export default function BookingDetails() {
   if (!booking) return <div className="p-12 text-center text-slate-500">Booking not found.</div>;
 
   // --- PAYMENT CALCULATIONS (including Cancelled) ---
+  // `positivePayments` stays a gross figure (money paid in, ignoring
+  // refunds) — the refund-eligibility math below (refundableBase,
+  // remainingRefundableAmount, refundStatus, Cancel modal's maxRefundable)
+  // all depend on that gross number. `netPaid` is refunds netted out, used
+  // only where the UI is showing "how much does the customer actually have
+  // paid in right now" (the Total Paid stat).
   const positivePayments = sumVerifiedPositivePayments(payments);
   const totalRefunded = payments
     .filter(p => p.amount_paid < 0)
     .reduce((sum, p) => sum + Math.abs(p.amount_paid), 0);
+  const netPaid = Math.max(0, positivePayments - totalRefunded);
 
   let remainingBalance = Math.max(0, (booking.total_amount || 0) - positivePayments);
   if (booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') remainingBalance = 0;
@@ -985,6 +1060,16 @@ export default function BookingDetails() {
               <Check size={18} /> {isConfirming ? 'Confirming...' : 'Confirm Event'}
             </button>
           )}
+          {canMarkCompleted && (
+            <button
+              onClick={handleMarkCompleted}
+              disabled={isCompleting}
+              className={isCompletionFullyPaid ? 'bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50' : 'bg-white border border-slate-300 text-slate-500 font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 hover:bg-slate-50 transition-colors'}
+              title={isCompletionFullyPaid ? undefined : `Locked — ₱${completionRemainingBalance.toLocaleString()} still owed`}
+            >
+              {isCompletionFullyPaid ? <Check size={18} /> : <Lock size={18} />} {isCompleting ? 'Completing...' : 'Mark Completed'}
+            </button>
+          )}
           {canCancel && (
             <button
               onClick={openCancelModal}
@@ -1003,13 +1088,15 @@ export default function BookingDetails() {
           )}
           <button
             onClick={openEditModal}
-            className="bg-white border border-slate-300 text-slate-700 font-bold text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 hover:bg-slate-50 transition-colors"
+            className={isPaymentLedgerLocked(booking.booking_status) ? 'bg-white border border-slate-300 text-slate-400 font-bold text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 hover:bg-slate-50 transition-colors' : 'bg-white border border-slate-300 text-slate-700 font-bold text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 hover:bg-slate-50 transition-colors'}
+            title={isPaymentLedgerLocked(booking.booking_status) ? bookingEditLockedMessage(booking.booking_status) : undefined}
           >
-            <Edit size={16} /> Edit
+            {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={16} /> : <Edit size={16} />} Edit
           </button>
           <button
             onClick={handleDelete}
             className="bg-white border border-red-300 text-red-600 font-bold text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 hover:bg-red-50 transition-colors"
+            title="Permanently delete this booking (password required)"
           >
             <Trash2 size={16} /> Delete
           </button>
@@ -1031,6 +1118,12 @@ export default function BookingDetails() {
         )}`}>
           {booking.booking_status}
         </span>
+
+        {hasUnpaidPastEvent({ booking_status: booking.booking_status, event_datetime: booking.event_datetime, total_amount: booking.total_amount, positivePayments }) && (
+          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
+            Past Event — ₱{remainingBalance.toLocaleString()} Remaining
+          </span>
+        )}
 
         {/* Refund status indicator for rejected/cancelled bookings with payments */}
         {refundStatus === 'Fully Refunded' && (
@@ -1056,6 +1149,25 @@ export default function BookingDetails() {
   </span>
 )}
       </div>
+
+      {/* Mobile payment(s) awaiting verification — a manually recorded
+          payment is verified by definition, so this only ever fires for
+          something the customer submitted from the app that needs a
+          manager's eyes on the proof. */}
+      {payments.some(p => p.pay_status === 'Pending Verification') && (
+        <div className="relative overflow-hidden rounded-xl border-2 border-red-300 bg-red-50 p-4 flex items-center gap-3">
+          <span className="relative flex h-3 w-3 shrink-0">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
+          </span>
+          <div className="flex-1">
+            <p className="text-sm font-bold text-red-800">
+              {payments.filter(p => p.pay_status === 'Pending Verification').length} payment{payments.filter(p => p.pay_status === 'Pending Verification').length > 1 ? 's' : ''} awaiting verification
+            </p>
+            <p className="text-xs text-red-600">Submitted from the mobile app — review the proof below and Verify or Reject it.</p>
+          </div>
+        </div>
+      )}
 
       {/* Day / Equipment Availability — any Pending booking, same shared layout as the Approve modal */}
       {booking.booking_status === 'Pending' && booking.event_datetime && (
@@ -1191,14 +1303,16 @@ export default function BookingDetails() {
             </div>
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-2 flex justify-between items-center text-sm">
               <span className="font-medium text-slate-700">Total Paid:</span>
-              <span className="font-bold text-[#008A45]">₱{positivePayments.toLocaleString()}</span>
+              <span className="font-bold text-[#008A45]">₱{netPaid.toLocaleString()}</span>
             </div>
             <div className={`rounded-lg p-3 flex justify-between items-center text-sm border ${
               remainingBalance <= 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'
             }`}>
               <span className="font-medium text-slate-700">Remaining Balance:</span>
               <span className={`font-bold ${remainingBalance <= 0 ? 'text-green-700' : 'text-amber-700'}`}>
-                ₱{remainingBalance.toLocaleString()}
+                {booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled'
+                  ? `N/A — ${booking.booking_status}`
+                  : `₱${remainingBalance.toLocaleString()}`}
               </span>
             </div>
             {payments.length > 0 && (
@@ -1240,7 +1354,7 @@ export default function BookingDetails() {
                           <div className="flex justify-center gap-2">
                             {pendingVerification ? (
                               <>
-                                <button onClick={() => handleVerifyPayment(p)} disabled={isVerifying} className="text-green-600 hover:text-green-800 disabled:opacity-50" title="Verify Payment">
+                                <button onClick={() => openVerifyModal(p)} disabled={isVerifying} className="text-green-600 hover:text-green-800 disabled:opacity-50" title="Verify Payment">
                                   <Check size={14} />
                                 </button>
                                 <button onClick={() => openRejectProofModal(p)} disabled={isVerifying} className="text-red-500 hover:text-red-700 disabled:opacity-50" title="Reject Proof">
@@ -1248,12 +1362,20 @@ export default function BookingDetails() {
                                 </button>
                               </>
                             ) : (
-                              <button onClick={() => openEditPaymentModal(p)} className="text-blue-500 hover:text-blue-700" title="Edit Payment">
-                                <Edit size={14} />
+                              <button
+                                onClick={() => openEditPaymentModal(p)}
+                                className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-blue-500 hover:text-blue-700'}
+                                title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — payments can't be edited once a booking is ${booking.booking_status}` : 'Edit Payment'}
+                              >
+                                {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
                               </button>
                             )}
-                            <button onClick={() => handleDeletePayment(p.payment_id)} className="text-red-500 hover:text-red-700" title="Delete Payment">
-                              <Trash2 size={14} />
+                            <button
+                              onClick={() => handleDeletePayment(p.payment_id)}
+                              className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-red-500 hover:text-red-700'}
+                              title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — payments can't be deleted once a booking is ${booking.booking_status}` : 'Delete Payment'}
+                            >
+                              {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Trash2 size={14} />}
                             </button>
                           </div>
                         </td>
@@ -1439,13 +1561,13 @@ export default function BookingDetails() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Event Date & Time</label>
-                <input
-                  type="datetime-local"
+                <DateTimePicker
                   name="event_datetime"
                   value={editFormData.event_datetime}
                   onChange={handleEditInputChange}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                  hasError={!!editFieldErrors.event_datetime}
                 />
+                {editFieldErrors.event_datetime && <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.event_datetime}</p>}
               </div>
 
               <div>
@@ -1999,7 +2121,8 @@ export default function BookingDetails() {
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Quantity</label>
-                <input type="number" min="1" value={editEquipData.quantity} onChange={(e) => setEditEquipData({ quantity: parseInt(e.target.value) || 1 })} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]" required />
+                <input type="number" min={editingAssignment.quantity} value={editEquipData.quantity} onChange={(e) => setEditEquipData({ quantity: parseInt(e.target.value) || 1 })} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]" required />
+                <p className="text-[10px] text-slate-400 mt-0.5">Can't go below the currently allocated {editingAssignment.quantity}. Remove the assignment instead if less is needed.</p>
               </div>
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
                 <button type="button" onClick={() => setIsEditEquipModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors">Cancel</button>
@@ -2305,6 +2428,88 @@ export default function BookingDetails() {
               >
                 Open in New Tab
               </a>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ===== VERIFY PAYMENT MODAL ===== */}
+      {isVerifyModalOpen && verifyTarget && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Verify Payment</h2>
+              <button onClick={() => setIsVerifyModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 text-left">
+              <p className="text-sm text-slate-600">Review the proof and confirm this payment is legitimate.</p>
+
+              <div className="flex gap-4 items-center bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = getProofUrl(verifyTarget.pay_proof);
+                    if (url) { setProofModalUrl(url); setIsProofModalOpen(true); }
+                  }}
+                  className="shrink-0 w-20 h-20 rounded-lg border border-slate-200 overflow-hidden bg-white flex items-center justify-center hover:shadow-md transition-shadow"
+                  title="Click to view full proof"
+                >
+                  {verifyTarget.pay_proof && verifyTarget.pay_proof !== 'placeholder.png' && verifyTarget.pay_proof !== 'refund_placeholder.png' ? (
+                    <img src={getProofUrl(verifyTarget.pay_proof)} alt="Payment proof" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-[10px] text-slate-400 italic px-1 text-center">No proof</span>
+                  )}
+                </button>
+                <div className="flex-1 space-y-1.5">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Amount</span>
+                    <span className="font-bold text-[#008A45]">₱{(verifyTarget.amount_paid || 0).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Booking Total</span>
+                    <span className="font-semibold text-slate-900">₱{(booking?.total_amount || 0).toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Payment Method *</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {['Cash', 'GCash', 'Bank Transfer'].map((method) => (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={() => setVerifyMethod(method)}
+                      className={`flex items-center justify-center gap-1.5 p-2.5 rounded-lg border-2 font-semibold text-xs transition-all ${
+                        verifyMethod === method
+                          ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900'
+                          : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className={`w-3 h-3 rounded-full border flex items-center justify-center ${verifyMethod === method ? 'border-[#008A45]' : 'border-slate-400'}`}>
+                        {verifyMethod === method && <div className="w-1.5 h-1.5 rounded-full bg-[#008A45]" />}
+                      </div>
+                      {method}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setIsVerifyModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleVerifyConfirm}
+                  disabled={isVerifying}
+                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                >
+                  {isVerifying ? 'Verifying...' : 'Verify Payment'}
+                </button>
+              </div>
             </div>
           </div>
         </div>,

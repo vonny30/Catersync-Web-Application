@@ -205,7 +205,7 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
           await allocateEquipmentForBooking(approvalBooking.booking_id, approvalBooking.package_id, approvalBooking.pax_count + (approvalData.extraPax || 0));
         } catch (allocError) {
           console.warn('Equipment allocation warning:', allocError);
-          toast.warning('Equipment allocation had issues: ' + allocError.message);
+          toast('Equipment allocation had issues: ' + allocError.message, { icon: '⚠️' });
         }
       }
 

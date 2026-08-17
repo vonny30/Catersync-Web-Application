@@ -1,7 +1,7 @@
 // src/pages/ShortOrderDetails.jsx
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, Image as ImageIcon } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -13,9 +13,13 @@ import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { useCancellationHandlers } from '../hooks/useCancellationHandlers';
 import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
-import { sumVerifiedPositivePayments, sumVerifiedDownpayments } from '../utils/payments';
+import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
+import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked } from '../utils/payments';
+import { bookingEditLockedMessage } from '../utils/bookingStatus';
+import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
+import DateTimePicker from '../components/DateTimePicker';
 
 export default function ShortOrderDetails() {
   const { id } = useParams();
@@ -45,6 +49,7 @@ export default function ShortOrderDetails() {
     notes: '',
     menu_selections: [], // [{menu_item_id, quantity}]
   });
+  const [editTempItem, setEditTempItem] = useState({ menu_item_id: '', quantity: 1 });
 
   // --- Refund Modal state (local) ---
   const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
@@ -88,6 +93,21 @@ export default function ShortOrderDetails() {
       if (paymentsError) throw paymentsError;
       const filtered = (paymentsData || []).filter(p => !(p.amount_paid === 0 && p.pay_status === 'Pending'));
       setPayments(filtered);
+
+      // Passive auto-complete: no server-side cron in this stack, so this
+      // runs whenever the details page is loaded — completes this order
+      // if it's Confirmed, past its event date, and fully paid.
+      const completedIds = await autoCompletePastEvents([{
+        booking_id: orderData.booking_id,
+        booking_status: orderData.booking_status,
+        event_datetime: orderData.event_datetime,
+        total_amount: orderData.total_amount,
+        positivePayments: sumVerifiedPositivePayments(filtered),
+      }]);
+      if (completedIds.length > 0) {
+        fetchOrder();
+        return;
+      }
 
       // Parse menu selections (array of {menu_item_id, quantity})
       let selections = [];
@@ -193,6 +213,7 @@ export default function ShortOrderDetails() {
     totalAmount: order?.total_amount || 0,
     fetchData: fetchOrder,
     customerId: order?.customer_id,
+    bookingStatus: order?.booking_status,
   });
 
   // Approval Handlers (works for short orders as well)
@@ -275,6 +296,20 @@ export default function ShortOrderDetails() {
     fetchData: fetchOrder,
   });
 
+  // --- Completion Handlers (Confirmed -> Completed) ---
+  const {
+    canMarkCompleted,
+    isFullyPaid: isCompletionFullyPaid,
+    remainingBalance: completionRemainingBalance,
+    isCompleting,
+    handleMarkCompleted,
+  } = useCompletionHandlers({
+    booking: order,
+    payments,
+    fetchData: fetchOrder,
+    noun: 'order',
+  });
+
   // --- Verification Handlers (Pending Verification payments) ---
   const {
     isRejectProofModalOpen,
@@ -283,7 +318,13 @@ export default function ShortOrderDetails() {
     rejectProofReason,
     setRejectProofReason,
     isVerifying,
-    handleVerifyPayment,
+    isVerifyModalOpen,
+    setIsVerifyModalOpen,
+    verifyTarget,
+    verifyMethod,
+    setVerifyMethod,
+    openVerifyModal,
+    handleVerifyConfirm,
     openRejectProofModal,
     handleRejectProofConfirm,
   } = useVerificationHandlers({
@@ -293,15 +334,13 @@ export default function ShortOrderDetails() {
   });
 
   // --- Refund after rejection/cancellation (local) ---
+  // Uses the same policy-aware `remainingRefundableAmount` computed below in
+  // the render body (excludes the forfeited downpayment when cancellation
+  // happened within 3 days of the event) — must NOT recompute a simpler
+  // "total paid minus already refunded" figure here, or the modal's max
+  // will silently allow refunding the forfeited downpayment.
   const openRefundModal = () => {
-    const positivePayments = payments
-      .filter(p => p.amount_paid > 0)
-      .reduce((sum, p) => sum + p.amount_paid, 0);
-    const totalRefunded = payments
-      .filter(p => p.amount_paid < 0)
-      .reduce((sum, p) => sum + Math.abs(p.amount_paid), 0);
-    const remainingRefundable = Math.max(0, positivePayments - totalRefunded);
-    setRefundModalAmount(remainingRefundable > 0 ? remainingRefundable.toFixed(2) : '');
+    setRefundModalAmount(remainingRefundableAmount > 0 ? remainingRefundableAmount.toFixed(2) : '');
     setRefundModalRemarks('');
     setRefundModalFile(null);
     setIsRefundModalOpen(true);
@@ -309,21 +348,14 @@ export default function ShortOrderDetails() {
 
   const handleRefundSubmit = async (e) => {
     e.preventDefault();
-    const positivePayments = payments
-      .filter(p => p.amount_paid > 0)
-      .reduce((sum, p) => sum + p.amount_paid, 0);
-    const totalRefunded = payments
-      .filter(p => p.amount_paid < 0)
-      .reduce((sum, p) => sum + Math.abs(p.amount_paid), 0);
-    const remainingRefundable = Math.max(0, positivePayments - totalRefunded);
 
     const amount = parseFloat(refundModalAmount) || 0;
     if (amount <= 0) {
       toast.error('Please enter a valid refund amount.');
       return;
     }
-    if (amount > remainingRefundable) {
-      toast.error(`Amount exceeds remaining refundable (₱${remainingRefundable.toFixed(2)}).`);
+    if (amount > remainingRefundableAmount) {
+      toast.error(`Amount exceeds remaining refundable (₱${remainingRefundableAmount.toFixed(2)}).`);
       return;
     }
     if (!refundModalFile) {
@@ -401,7 +433,7 @@ export default function ShortOrderDetails() {
   const handleDelete = async () => {
     const confirmed = await showConfirm({
       title: 'Delete Short Order?',
-      message: 'Are you sure you want to permanently delete this order? This action cannot be undone. All associated payments and vehicle assignments will also be deleted.',
+      message: `Are you sure you want to permanently delete this ${order.booking_status} order? This action cannot be undone. All associated payments and vehicle assignments will also be deleted.`,
       confirmLabel: 'Delete',
       confirmVariant: 'danger',
     });
@@ -438,6 +470,10 @@ export default function ShortOrderDetails() {
   // --- EDIT MODAL ---
   const openEditModal = () => {
     if (!order) return;
+    if (isPaymentLedgerLocked(order.booking_status)) {
+      toast.error(bookingEditLockedMessage(order.booking_status, { noun: 'order' }));
+      return;
+    }
     let selections = [];
     try {
       if (order.menu_selections) {
@@ -457,6 +493,7 @@ export default function ShortOrderDetails() {
       notes: order.notes || '',
       menu_selections: selections,
     });
+    setEditTempItem({ menu_item_id: '', quantity: 1 });
     setEditFieldErrors({});
     setIsEditModalOpen(true);
   };
@@ -467,24 +504,41 @@ export default function ShortOrderDetails() {
     setEditFieldErrors(prev => (prev[name] ? { ...prev, [name]: undefined } : prev));
   };
 
-  const handleEditMenuSelectionChange = (menuItemId, quantity) => {
-    setEditFormData(prev => {
-      const current = prev.menu_selections || [];
-      const existing = current.find(item => item.menu_item_id === menuItemId);
-      if (existing) {
-        return {
-          ...prev,
-          menu_selections: current.map(item =>
-            item.menu_item_id === menuItemId ? { ...item, quantity: parseInt(quantity) || 0 } : item
-          ),
-        };
-      } else {
-        return {
-          ...prev,
-          menu_selections: [...current, { menu_item_id: menuItemId, quantity: parseInt(quantity) || 1 }],
-        };
-      }
-    });
+  const handleEditTempItemChange = (e) => {
+    const { name, value } = e.target;
+    setEditTempItem(prev => ({ ...prev, [name]: name === 'quantity' ? parseInt(value) || 0 : value }));
+  };
+
+  const addEditMenuItem = () => {
+    if (!editTempItem.menu_item_id) {
+      toast.error('Please select a menu item.');
+      return;
+    }
+    const qty = parseInt(editTempItem.quantity) || 0;
+    if (qty < 1) {
+      toast.error('Quantity must be at least 1.');
+      return;
+    }
+    const existing = (editFormData.menu_selections || []).find(item => item.menu_item_id === editTempItem.menu_item_id);
+    if (existing) {
+      toast.error('This item is already added.');
+      return;
+    }
+    setEditFormData(prev => ({
+      ...prev,
+      menu_selections: [...(prev.menu_selections || []), { menu_item_id: editTempItem.menu_item_id, quantity: qty }],
+    }));
+    setEditTempItem({ menu_item_id: '', quantity: 1 });
+  };
+
+  const updateEditMenuItemQuantity = (menuItemId, quantity) => {
+    if (quantity < 1) return;
+    setEditFormData(prev => ({
+      ...prev,
+      menu_selections: (prev.menu_selections || []).map(item =>
+        item.menu_item_id === menuItemId ? { ...item, quantity: parseInt(quantity) } : item
+      ),
+    }));
   };
 
   const removeEditMenuItem = (menuItemId) => {
@@ -499,6 +553,12 @@ export default function ShortOrderDetails() {
     setIsSubmitting(true);
     setEditFieldErrors({});
 
+    if (isPaymentLedgerLocked(order.booking_status)) {
+      toast.error(bookingEditLockedMessage(order.booking_status, { noun: 'order' }));
+      setIsSubmitting(false);
+      return;
+    }
+
     if (!editFormData.venue || editFormData.venue.trim() === '') {
       toast.error('Please enter a venue.');
       setEditFieldErrors({ venue: 'Please enter a venue.' });
@@ -508,6 +568,16 @@ export default function ShortOrderDetails() {
     if (!editFormData.event_datetime) {
       toast.error('Please select an event date and time.');
       setEditFieldErrors({ event_datetime: 'Please select an event date and time.' });
+      setIsSubmitting(false);
+      return;
+    }
+    const eventDate = new Date(editFormData.event_datetime);
+    const now = new Date();
+    const eventDay = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (eventDay < today) {
+      toast.error('The event date cannot be in the past. Please choose today or a later date.');
+      setEditFieldErrors({ event_datetime: 'This date has already passed.' });
       setIsSubmitting(false);
       return;
     }
@@ -595,10 +665,16 @@ export default function ShortOrderDetails() {
   if (!order) return <div className="p-12 text-center text-slate-500">Short order not found.</div>;
 
   // --- Payment calculations ---
+  // `positivePayments` stays a gross figure (money paid in, ignoring
+  // refunds) — the refund-eligibility math below depends on that gross
+  // number. `netPaid` is refunds netted out, used only where the UI shows
+  // "how much does the customer actually have paid in right now" (the
+  // Total Paid stat).
   const positivePayments = sumVerifiedPositivePayments(payments);
   const totalRefunded = payments
     .filter(p => p.amount_paid < 0)
     .reduce((sum, p) => sum + Math.abs(p.amount_paid), 0);
+  const netPaid = Math.max(0, positivePayments - totalRefunded);
 
   let remainingBalance = Math.max(0, (order.total_amount || 0) - positivePayments);
   if (order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') remainingBalance = 0;
@@ -682,6 +758,16 @@ export default function ShortOrderDetails() {
               <Check size={18} /> {isConfirming ? 'Confirming...' : 'Confirm Order'}
             </button>
           )}
+          {canMarkCompleted && (
+            <button
+              onClick={handleMarkCompleted}
+              disabled={isCompleting}
+              className={isCompletionFullyPaid ? 'bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50' : 'bg-white border border-slate-300 text-slate-500 font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 hover:bg-slate-50 transition-colors'}
+              title={isCompletionFullyPaid ? undefined : `Locked — ₱${completionRemainingBalance.toLocaleString()} still owed`}
+            >
+              {isCompletionFullyPaid ? <Check size={18} /> : <Lock size={18} />} {isCompleting ? 'Completing...' : 'Mark Completed'}
+            </button>
+          )}
           {canCancel && (
             <button
               onClick={openCancelModal}
@@ -700,13 +786,15 @@ export default function ShortOrderDetails() {
           )}
           <button
             onClick={openEditModal}
-            className="bg-white border border-slate-300 text-slate-700 font-bold text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 hover:bg-slate-50 transition-colors"
+            className={isPaymentLedgerLocked(order.booking_status) ? 'bg-white border border-slate-300 text-slate-400 font-bold text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 hover:bg-slate-50 transition-colors' : 'bg-white border border-slate-300 text-slate-700 font-bold text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 hover:bg-slate-50 transition-colors'}
+            title={isPaymentLedgerLocked(order.booking_status) ? bookingEditLockedMessage(order.booking_status, { noun: 'order' }) : undefined}
           >
-            <Edit size={16} /> Edit
+            {isPaymentLedgerLocked(order.booking_status) ? <Lock size={16} /> : <Edit size={16} />} Edit
           </button>
           <button
             onClick={handleDelete}
             className="bg-white border border-red-300 text-red-600 font-bold text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 hover:bg-red-50 transition-colors"
+            title="Permanently delete this order (password required)"
           >
             <Trash2 size={16} /> Delete
           </button>
@@ -728,6 +816,11 @@ export default function ShortOrderDetails() {
         }`}>
           {order.booking_status}
         </span>
+        {hasUnpaidPastEvent({ booking_status: order.booking_status, event_datetime: order.event_datetime, total_amount: order.total_amount, positivePayments }) && (
+          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
+            Past Event — ₱{remainingBalance.toLocaleString()} Remaining
+          </span>
+        )}
         {refundStatus === 'Fully Refunded' && (
           <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-blue-50 border-blue-200 text-blue-700">
             Fully Refunded
@@ -751,6 +844,25 @@ export default function ShortOrderDetails() {
   </span>
 )}
       </div>
+
+      {/* Mobile payment(s) awaiting verification — a manually recorded
+          payment is verified by definition, so this only ever fires for
+          something the customer submitted from the app that needs a
+          manager's eyes on the proof. */}
+      {payments.some(p => p.pay_status === 'Pending Verification') && (
+        <div className="relative overflow-hidden rounded-xl border-2 border-red-300 bg-red-50 p-4 flex items-center gap-3">
+          <span className="relative flex h-3 w-3 shrink-0">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
+          </span>
+          <div className="flex-1">
+            <p className="text-sm font-bold text-red-800">
+              {payments.filter(p => p.pay_status === 'Pending Verification').length} payment{payments.filter(p => p.pay_status === 'Pending Verification').length > 1 ? 's' : ''} awaiting verification
+            </p>
+            <p className="text-xs text-red-600">Submitted from the mobile app — review the proof below and Verify or Reject it.</p>
+          </div>
+        </div>
+      )}
 
       {/* Day Availability — same shared layout as the Approve modal */}
       {order.booking_status === 'Pending' && order.event_datetime && (
@@ -857,14 +969,16 @@ export default function ShortOrderDetails() {
             </div>
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-2 flex justify-between items-center text-sm">
               <span className="font-medium text-slate-700">Total Paid:</span>
-              <span className="font-bold text-[#008A45]">₱{positivePayments.toLocaleString()}</span>
+              <span className="font-bold text-[#008A45]">₱{netPaid.toLocaleString()}</span>
             </div>
             <div className={`rounded-lg p-3 flex justify-between items-center text-sm border ${
               remainingBalance <= 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'
             }`}>
               <span className="font-medium text-slate-700">Remaining Balance:</span>
               <span className={`font-bold ${remainingBalance <= 0 ? 'text-green-700' : 'text-amber-700'}`}>
-                ₱{remainingBalance.toLocaleString()}
+                {order.booking_status === 'Rejected' || order.booking_status === 'Cancelled'
+                  ? `N/A — ${order.booking_status}`
+                  : `₱${remainingBalance.toLocaleString()}`}
               </span>
             </div>
             {payments.length > 0 && (
@@ -906,7 +1020,7 @@ export default function ShortOrderDetails() {
                           <div className="flex justify-center gap-2">
                             {pendingVerification ? (
                               <>
-                                <button onClick={() => handleVerifyPayment(p)} disabled={isVerifying} className="text-green-600 hover:text-green-800 disabled:opacity-50" title="Verify Payment">
+                                <button onClick={() => openVerifyModal(p)} disabled={isVerifying} className="text-green-600 hover:text-green-800 disabled:opacity-50" title="Verify Payment">
                                   <Check size={14} />
                                 </button>
                                 <button onClick={() => openRejectProofModal(p)} disabled={isVerifying} className="text-red-500 hover:text-red-700 disabled:opacity-50" title="Reject Proof">
@@ -914,12 +1028,20 @@ export default function ShortOrderDetails() {
                                 </button>
                               </>
                             ) : (
-                              <button onClick={() => openEditPaymentModal(p)} className="text-blue-500 hover:text-blue-700" title="Edit Payment">
-                                <Edit size={14} />
+                              <button
+                                onClick={() => openEditPaymentModal(p)}
+                                className={isPaymentLedgerLocked(order.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-blue-500 hover:text-blue-700'}
+                                title={isPaymentLedgerLocked(order.booking_status) ? `Locked — payments can't be edited once an order is ${order.booking_status}` : 'Edit Payment'}
+                              >
+                                {isPaymentLedgerLocked(order.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
                               </button>
                             )}
-                            <button onClick={() => handleDeletePayment(p.payment_id)} className="text-red-500 hover:text-red-700" title="Delete Payment">
-                              <Trash2 size={14} />
+                            <button
+                              onClick={() => handleDeletePayment(p.payment_id)}
+                              className={isPaymentLedgerLocked(order.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-red-500 hover:text-red-700'}
+                              title={isPaymentLedgerLocked(order.booking_status) ? `Locked — payments can't be deleted once an order is ${order.booking_status}` : 'Delete Payment'}
+                            >
+                              {isPaymentLedgerLocked(order.booking_status) ? <Lock size={14} /> : <Trash2 size={14} />}
                             </button>
                           </div>
                         </td>
@@ -1008,12 +1130,11 @@ export default function ShortOrderDetails() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Event Date & Time *</label>
-                <input
-                  type="datetime-local"
+                <DateTimePicker
                   name="event_datetime"
                   value={editFormData.event_datetime}
                   onChange={handleEditInputChange}
-                  className={errorInputClass(!!editFieldErrors.event_datetime, 'w-full border rounded-lg p-2.5 text-sm outline-none')}
+                  hasError={!!editFieldErrors.event_datetime}
                   required
                 />
                 {editFieldErrors.event_datetime && <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.event_datetime}</p>}
@@ -1046,49 +1167,74 @@ export default function ShortOrderDetails() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-2">Menu Items (Trays)</label>
-                <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
-                  {editFormData.menu_selections && editFormData.menu_selections.map((sel, idx) => {
-                    const menuItem = menuItems.find(m => m.menu_item_id === sel.menu_item_id);
-                    return (
-                      <div key={idx} className="flex items-center gap-4">
-                        <span className="w-32 text-sm font-bold text-slate-700">{menuItem?.menu_name || 'Unknown'}</span>
-                        <input
-                          type="number"
-                          min="1"
-                          value={sel.quantity}
-                          onChange={(e) => handleEditMenuSelectionChange(sel.menu_item_id, e.target.value)}
-                          className="w-20 border border-slate-300 rounded-lg p-2 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeEditMenuItem(sel.menu_item_id)}
-                          className="text-red-500 hover:text-red-700 text-xs font-bold"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    );
-                  })}
-                  <div className="flex gap-2">
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val) {
-                          handleEditMenuSelectionChange(val, 1);
-                        }
-                      }}
-                      className="flex-1 border border-slate-300 rounded-lg p-2 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                    >
-                      <option value="">Add item...</option>
-                      {menuItems.filter(m => !editFormData.menu_selections.some(s => s.menu_item_id === m.menu_item_id)).map(m => (
-                        <option key={m.menu_item_id} value={m.menu_item_id}>{m.menu_name}</option>
-                      ))}
-                    </select>
-                  </div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Select Menu Items (trays) *</label>
+                {editFieldErrors.menu_selections && <p className="text-xs text-red-600 font-semibold mb-1">{editFieldErrors.menu_selections}</p>}
+                <div className={`flex gap-2 mb-2 rounded-lg ${editFieldErrors.menu_selections ? 'ring-1 ring-red-300' : ''}`}>
+                  <select
+                    name="menu_item_id"
+                    value={editTempItem.menu_item_id}
+                    onChange={handleEditTempItemChange}
+                    className="flex-1 border border-slate-300 rounded-lg p-2 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                  >
+                    <option value="">Choose item...</option>
+                    {menuItems.map(item => (
+                      <option key={item.menu_item_id} value={item.menu_item_id}>
+                        {item.menu_name} (₱{item.menu_price} / tray)
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    name="quantity"
+                    min="1"
+                    value={editTempItem.quantity}
+                    onChange={handleEditTempItemChange}
+                    className="w-20 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                    placeholder="#"
+                  />
+                  <button
+                    type="button"
+                    onClick={addEditMenuItem}
+                    className="bg-[#008A45] hover:bg-[#007038] text-white px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1"
+                  >
+                    <Plus size={16} /> Add
+                  </button>
                 </div>
-                <p className="text-xs text-slate-400 mt-1">Each tray serves 35‑50 pax.</p>
+                <div className="border border-slate-200 rounded-lg p-3 min-h-[80px] space-y-1.5 bg-slate-50">
+                  {!editFormData.menu_selections || editFormData.menu_selections.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic">No items added yet.</p>
+                  ) : (
+                    editFormData.menu_selections.map((sel, idx) => {
+                      const menuItem = menuItems.find(m => m.menu_item_id === sel.menu_item_id);
+                      const subtotal = menuItem ? menuItem.menu_price * sel.quantity : 0;
+                      return (
+                        <div key={idx} className="flex items-center justify-between bg-white border border-slate-200 rounded px-3 py-1.5 text-sm">
+                          <span className="font-medium text-slate-700">
+                            {menuItem?.menu_name || 'Unknown'} × {sel.quantity}
+                            <span className="text-xs text-slate-500 ml-2">₱{subtotal.toFixed(2)}</span>
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              min="1"
+                              value={sel.quantity}
+                              onChange={(e) => updateEditMenuItemQuantity(sel.menu_item_id, e.target.value)}
+                              className="w-14 border border-slate-300 rounded p-0.5 text-sm text-center"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeEditMenuItem(sel.menu_item_id)}
+                              className="text-red-500 hover:text-red-700 text-xs font-bold"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                <p className="text-xs text-slate-400 mt-1">Quantity = number of trays. Each tray serves 35‑50 pax.</p>
               </div>
 
               <div>
@@ -1660,6 +1806,88 @@ export default function ShortOrderDetails() {
               >
                 Open in New Tab
               </a>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ===== VERIFY PAYMENT MODAL ===== */}
+      {isVerifyModalOpen && verifyTarget && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Verify Payment</h2>
+              <button onClick={() => setIsVerifyModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 text-left">
+              <p className="text-sm text-slate-600">Review the proof and confirm this payment is legitimate.</p>
+
+              <div className="flex gap-4 items-center bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = getProofUrl(verifyTarget.pay_proof);
+                    if (url) { setProofModalUrl(url); setIsProofModalOpen(true); }
+                  }}
+                  className="shrink-0 w-20 h-20 rounded-lg border border-slate-200 overflow-hidden bg-white flex items-center justify-center hover:shadow-md transition-shadow"
+                  title="Click to view full proof"
+                >
+                  {verifyTarget.pay_proof && verifyTarget.pay_proof !== 'placeholder.png' && verifyTarget.pay_proof !== 'refund_placeholder.png' ? (
+                    <img src={getProofUrl(verifyTarget.pay_proof)} alt="Payment proof" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-[10px] text-slate-400 italic px-1 text-center">No proof</span>
+                  )}
+                </button>
+                <div className="flex-1 space-y-1.5">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Amount</span>
+                    <span className="font-bold text-[#008A45]">₱{(verifyTarget.amount_paid || 0).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Order Total</span>
+                    <span className="font-semibold text-slate-900">₱{(order?.total_amount || 0).toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Payment Method *</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {['Cash', 'GCash', 'Bank Transfer'].map((method) => (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={() => setVerifyMethod(method)}
+                      className={`flex items-center justify-center gap-1.5 p-2.5 rounded-lg border-2 font-semibold text-xs transition-all ${
+                        verifyMethod === method
+                          ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900'
+                          : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className={`w-3 h-3 rounded-full border flex items-center justify-center ${verifyMethod === method ? 'border-[#008A45]' : 'border-slate-400'}`}>
+                        {verifyMethod === method && <div className="w-1.5 h-1.5 rounded-full bg-[#008A45]" />}
+                      </div>
+                      {method}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setIsVerifyModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleVerifyConfirm}
+                  disabled={isVerifying}
+                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                >
+                  {isVerifying ? 'Verifying...' : 'Verify Payment'}
+                </button>
+              </div>
             </div>
           </div>
         </div>,

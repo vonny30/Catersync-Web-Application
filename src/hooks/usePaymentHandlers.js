@@ -3,9 +3,9 @@ import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
-import { sumVerifiedPositivePayments } from '../utils/payments';
+import { sumVerifiedPositivePayments, isPaymentLedgerLocked, paymentLockedMessage } from '../utils/payments';
 
-export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData, customerId }) {
+export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData, customerId, bookingStatus }) {
   const { showConfirm } = useConfirm();
   const { requestPasswordConfirm } = usePasswordConfirm();
 
@@ -275,6 +275,10 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
 
   // --- Edit Payment ---
   const openEditPaymentModal = (payment) => {
+    if (isPaymentLedgerLocked(bookingStatus)) {
+      toast.error(paymentLockedMessage(bookingStatus));
+      return;
+    }
     setEditingPayment(payment);
     setEditPaymentFormData({
       amount: payment.amount_paid?.toString() || '',
@@ -293,6 +297,13 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     setIsPaymentSubmitting(true);
     setEditAmountError('');
     setEditFileError('');
+
+    if (isPaymentLedgerLocked(bookingStatus)) {
+      toast.error(paymentLockedMessage(bookingStatus));
+      setIsPaymentSubmitting(false);
+      return;
+    }
+
     const amount = parseFloat(editPaymentFormData.amount) || 0;
     if (amount <= 0) {
       toast.error('Amount must be greater than zero.');
@@ -433,6 +444,11 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
   };
 
   const handleDeletePayment = async (paymentId) => {
+    if (isPaymentLedgerLocked(bookingStatus)) {
+      toast.error(paymentLockedMessage(bookingStatus));
+      return;
+    }
+
     const confirmed = await showConfirm({
       title: 'Delete Payment?',
       message: 'This will permanently delete this payment record. This action cannot be undone.',

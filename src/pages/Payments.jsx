@@ -2,12 +2,14 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, Upload, X, Image as ImageIcon, Edit, Trash2, Check, DollarSign, RefreshCw, Eye } from 'lucide-react';
+import { Search, Upload, X, Image as ImageIcon, Edit, Trash2, Lock, Check, DollarSign, RefreshCw, Eye, Filter } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
-import { sumVerifiedPositivePayments, UNVERIFIED_PAY_STATUSES } from '../utils/payments';
+import { sumVerifiedPositivePayments, UNVERIFIED_PAY_STATUSES, isPaymentLedgerLocked, paymentLockedMessage } from '../utils/payments';
+import DateRangeFilter from './Reports/DateRangeFilter';
+import { getRangeBounds, isWithinRange } from './Reports/helpers';
 
 export default function Payments() {
   const navigate = useNavigate();
@@ -20,13 +22,25 @@ export default function Payments() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('All');
   const [typeFilter, setTypeFilter] = useState('All'); // 'All', 'Package', 'Short Order'
-  const tabs = ['All', 'Pending Verification', 'Downpayment', 'Full Payment'];
+  const [methodFilter, setMethodFilter] = useState('All'); // 'All', 'Cash', 'GCash', 'Bank Transfer', 'Refund'
+
+  // --- DATE FILTER STATE ---
+  const [datePreset, setDatePreset] = useState('All Time');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
 
   // --- Reject Proof modal state ---
   const [isRejectProofModalOpen, setIsRejectProofModalOpen] = useState(false);
   const [rejectProofTarget, setRejectProofTarget] = useState(null);
   const [rejectProofReason, setRejectProofReason] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
+
+  // --- Verify Payment modal state — mobile submissions arrive as a generic
+  // direct transfer, so verifying is also where the manager records
+  // whether it was actually GCash or Bank Transfer. ---
+  const [isVerifyModalOpen, setIsVerifyModalOpen] = useState(false);
+  const [verifyTarget, setVerifyTarget] = useState(null);
+  const [verifyMethod, setVerifyMethod] = useState('GCash');
 
   // --- MODAL STATE ---
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -41,6 +55,7 @@ export default function Payments() {
 
   // --- SEARCH STATE for dropdown ---
   const [bookingSearchTerm, setBookingSearchTerm] = useState('');
+  const [showBookingList, setShowBookingList] = useState(false);
 
   // --- SUMMARY STATE ---
   const [totalCollected, setTotalCollected] = useState(0);
@@ -107,6 +122,7 @@ export default function Payments() {
           *,
           booking:booking_id (
             booking_id,
+            booking_number,
             booking_type,
             booking_status,
             customer:customer_id (first_name, last_name),
@@ -121,11 +137,18 @@ export default function Payments() {
       if (paymentsError) throw paymentsError;
       setPayments(paymentsData || []);
 
-      // Fetch active bookings (exclude Rejected, Cancelled, Completed for pending balance)
+      // Fetch bookings a payment can legitimately be recorded against —
+      // the same statuses the Details pages allow "Record Payment" for.
+      // Completed is included on purpose: a Completed booking can still
+      // have a balance owed (see "Balance Remaining"), and that balance
+      // needs to be payable from here too, not just from its own Details
+      // page. Rejected/Cancelled are excluded — no new money should be
+      // recorded against those.
       const { data: bookingsData, error: bookingsError } = await supabase
         .from('booking')
         .select(`
           booking_id,
+          booking_number,
           booking_type,
           booking_status,
           customer:customer_id (first_name, last_name, customer_id),
@@ -133,7 +156,7 @@ export default function Payments() {
           venue,
           event_datetime
         `)
-        .not('booking_status', 'in', '("Completed","Rejected","Cancelled")')
+        .in('booking_status', ['Approved', 'Confirmed', 'Completed'])
         .order('event_datetime');
 
       if (bookingsError) throw bookingsError;
@@ -184,27 +207,41 @@ export default function Payments() {
     fetchData();
   }, []);
 
-  // --- FILTER LOGIC (status + type) ---
-  const filteredPayments = payments.filter(p => {
-    // Status filter
-    if (activeTab === 'All') {
-      // pass
-    } else if (activeTab === 'Pending Verification') {
-      if (p.pay_status !== 'Pending Verification') return false;
-    } else if (activeTab === 'Downpayment') {
-      if (p.pay_status !== 'Downpayment') return false;
-    } else if (activeTab === 'Full Payment') {
-      if (p.pay_status !== 'Fully Paid') return false;
-    }
-
-    // Type filter
+  // --- FILTER LOGIC (type + method + date, independent of status) ---
+  const { start: dateRangeStart, end: dateRangeEnd } = getRangeBounds(datePreset, customStart, customEnd);
+  const typeAndDateFiltered = payments.filter(p => {
     if (typeFilter !== 'All') {
       const bookingType = p.booking?.booking_type;
       if (typeFilter === 'Package' && bookingType !== 'Package') return false;
       if (typeFilter === 'Short Order' && bookingType !== 'Short Order') return false;
     }
+    if (methodFilter !== 'All' && p.pay_method !== methodFilter) return false;
+    if (datePreset !== 'All Time' && !isWithinRange(p.pay_datetime, dateRangeStart, dateRangeEnd)) return false;
     return true;
   });
+
+  // --- STATUS CARDS (replace the old tabs) — each card's count/amount is
+  // computed from the type+date filtered set, so the numbers stay accurate
+  // as those other filters change, and clicking one filters the table by
+  // that status. ---
+  const statusTabs = [
+    { key: 'All', label: 'All Payments', description: 'Every payment record, any status', match: () => true },
+    { key: 'Pending Verification', label: 'Pending Verification', description: 'Submitted from mobile, awaiting review', match: (p) => p.pay_status === 'Pending Verification' },
+    { key: 'Downpayment', label: 'Downpayment', description: 'Partial payments recorded so far', match: (p) => p.pay_status === 'Downpayment' },
+    { key: 'Full Payment', label: 'Full Payment', description: 'Records paid in full', match: (p) => p.pay_status === 'Fully Paid' },
+  ];
+  const statusStats = statusTabs.map(t => {
+    const rows = typeAndDateFiltered.filter(t.match);
+    return {
+      ...t,
+      count: rows.length,
+      amount: rows.reduce((sum, p) => sum + Math.max(0, p.amount_paid || 0), 0),
+    };
+  });
+
+  const filteredPayments = typeAndDateFiltered.filter(
+    statusTabs.find(t => t.key === activeTab)?.match || (() => true)
+  );
 
   // --- HANDLERS ---
   const handleInputChange = (e) => {
@@ -231,12 +268,17 @@ export default function Payments() {
     });
     setSelectedFile(null);
     setBookingSearchTerm('');
+    setShowBookingList(false);
     setAmountError('');
     setFileError('');
     setIsModalOpen(true);
   };
 
   const openEditModal = (payment) => {
+    if (isPaymentLedgerLocked(payment.booking?.booking_status)) {
+      toast.error(paymentLockedMessage(payment.booking?.booking_status));
+      return;
+    }
     setEditingId(payment.payment_id);
     setFormData({
       booking_id: payment.booking_id,
@@ -246,7 +288,9 @@ export default function Payments() {
       pay_proof: payment.pay_proof || 'placeholder.png',
     });
     setSelectedFile(null);
-    setBookingSearchTerm('');
+    const customerName = payment.booking?.customer ? `${payment.booking.customer.first_name} ${payment.booking.customer.last_name}` : 'Unknown';
+    setBookingSearchTerm(`${bookingRefFor(payment.booking)} — ${customerName}`);
+    setShowBookingList(false);
     setAmountError('');
     setFileError('');
     setIsModalOpen(true);
@@ -258,11 +302,21 @@ export default function Payments() {
     setFormData(initialFormState);
     setSelectedFile(null);
     setBookingSearchTerm('');
+    setShowBookingList(false);
     setAmountError('');
     setFileError('');
     setIsSubmitting(false);
     setUploading(false);
   };
+
+  // Prefer the human-readable booking_number — falls back to a shortened
+  // UUID only for old records that predate that column being populated.
+  function bookingRefFor(b) {
+    if (!b) return 'N/A';
+    if (b.booking_number) return b.booking_number;
+    const type = b.booking_type === 'Short Order' ? 'SO' : 'BKG';
+    return `${type}-${b.booking_id.slice(0, 8)}`;
+  }
 
   // --- Get selected booking details and remaining balance ---
   const selectedBooking = bookings.find(b => b.booking_id === formData.booking_id);
@@ -294,11 +348,18 @@ export default function Payments() {
     if (bookingSearchTerm) {
       const search = bookingSearchTerm.toLowerCase();
       const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}`.toLowerCase() : '';
-      const id = b.booking_id.toLowerCase();
-      return customerName.includes(search) || id.includes(search);
+      const ref = bookingRefFor(b).toLowerCase();
+      return customerName.includes(search) || ref.includes(search);
     }
     return true;
   });
+
+  const selectBooking = (b) => {
+    setFormData(prev => ({ ...prev, booking_id: b.booking_id }));
+    const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
+    setBookingSearchTerm(`${bookingRefFor(b)} — ${customerName}`);
+    setShowBookingList(false);
+  };
 
   // --- CRUD (with file upload) ---
   const handleSubmit = async (e) => {
@@ -311,6 +372,16 @@ export default function Payments() {
       toast.error('Please select a booking.');
       setIsSubmitting(false);
       return;
+    }
+
+    if (editingId) {
+      const editingPayment = payments.find(p => p.payment_id === editingId);
+      const lockedStatus = editingPayment?.booking?.booking_status;
+      if (isPaymentLedgerLocked(lockedStatus)) {
+        toast.error(paymentLockedMessage(lockedStatus));
+        setIsSubmitting(false);
+        return;
+      }
     }
 
     const amount = parseFloat(formData.amount) || 0;
@@ -508,7 +579,17 @@ export default function Payments() {
   };
 
   // --- Verify / Reject a customer-submitted payment proof ---
-  const handleVerifyPaymentRow = async (payment) => {
+  const KNOWN_PAY_METHODS = ['Cash', 'GCash', 'Bank Transfer'];
+
+  const openVerifyModal = (payment) => {
+    setVerifyTarget(payment);
+    setVerifyMethod(KNOWN_PAY_METHODS.includes(payment.pay_method) ? payment.pay_method : 'GCash');
+    setIsVerifyModalOpen(true);
+  };
+
+  const handleVerifyConfirm = async () => {
+    if (!verifyTarget) return;
+    const payment = verifyTarget;
     const totalAmount = payment.booking?.total_amount || 0;
     const alreadyVerified = sumVerifiedPositivePayments(
       payments.filter(p => p.booking_id === payment.booking_id && p.payment_id !== payment.payment_id)
@@ -516,23 +597,15 @@ export default function Payments() {
     const remainingBeforeThis = Math.max(0, totalAmount - alreadyVerified);
     const finalStatus = payment.amount_paid >= remainingBeforeThis ? 'Fully Paid' : 'Downpayment';
 
-    const confirmed = await showConfirm({
-      title: 'Verify Payment?',
-      message: `Confirm this payment of ₱${(payment.amount_paid || 0).toLocaleString()} is legitimate? It will be marked as "${finalStatus}".`,
-      confirmLabel: 'Yes, Verify',
-      cancelLabel: 'Cancel',
-      confirmVariant: 'success',
-    });
-    if (!confirmed) return;
-
     setIsVerifying(true);
     try {
       const { error } = await supabase
         .from('payment')
-        .update({ pay_status: finalStatus })
+        .update({ pay_status: finalStatus, pay_method: verifyMethod })
         .eq('payment_id', payment.payment_id);
       if (error) throw error;
-      toast.success(`Payment verified and marked as ${finalStatus}.`);
+      setIsVerifyModalOpen(false);
+      toast.success(`Payment verified as ${verifyMethod} and marked "${finalStatus}".`);
       fetchData();
     } catch (error) {
       handleError(error, 'Failed to verify payment.');
@@ -571,6 +644,13 @@ export default function Payments() {
   };
 
   const handleDelete = async (id) => {
+    const target = payments.find(p => p.payment_id === id);
+    const bookingStatus = target?.booking?.booking_status;
+    if (isPaymentLedgerLocked(bookingStatus)) {
+      toast.error(paymentLockedMessage(bookingStatus));
+      return;
+    }
+
     const confirmed = await showConfirm({
       title: 'Delete Payment?',
       message: 'Are you sure you want to permanently delete this payment record? This action cannot be undone.',
@@ -605,13 +685,7 @@ export default function Payments() {
     return 'Unknown Client';
   };
 
-  const getBookingRef = (payment) => {
-    if (payment.booking) {
-      const type = payment.booking.booking_type === 'Short Order' ? 'SO' : 'BKG';
-      return `${type}-${payment.booking.booking_id.slice(0, 8)}`;
-    }
-    return 'N/A';
-  };
+  const getBookingRef = (payment) => bookingRefFor(payment.booking);
 
   const getStatusBadge = (status) => {
     const map = {
@@ -751,6 +825,16 @@ export default function Payments() {
     setIsSummaryModalOpen(true);
   };
 
+  // 4. Pending Verification – payments submitted from the mobile app that a
+  // manager hasn't reviewed yet (a manually recorded payment is verified by
+  // definition, so this only ever surfaces mobile submissions). Jumps
+  // straight to that tab instead of opening the detail modal, since the
+  // action a manager needs (Verify / Reject) already lives there.
+  const handlePendingVerificationClick = () => {
+    setActiveTab('Pending Verification');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const closeSummaryModal = () => {
     setIsSummaryModalOpen(false);
     setSummaryModalData([]);
@@ -772,6 +856,8 @@ export default function Payments() {
     setIsPaymentDetailModalOpen(false);
     setSelectedPaymentDetail(null);
   };
+
+  const pendingVerificationCount = payments.filter(p => p.pay_status === 'Pending Verification').length;
 
   // --- RENDER ---
   return (
@@ -798,8 +884,25 @@ export default function Payments() {
         </div>
       </div>
 
-      {/* SUMMARY CARDS */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* SUMMARY CARDS — "Needs Review" only exists when there's something
+          to review, so the grid drops to 3 columns then instead of leaving
+          a blank fourth slot. */}
+      <div className={`grid grid-cols-1 gap-6 ${pendingVerificationCount > 0 ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
+        {pendingVerificationCount > 0 && (
+          <button
+            onClick={handlePendingVerificationClick}
+            className="relative bg-red-50 border-2 border-red-300 border-l-4 border-l-red-500 rounded-2xl p-5 text-left shadow-sm hover:shadow-md transition-all cursor-pointer group"
+          >
+            <span className="absolute top-3 right-3 flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+            </span>
+            <p className="text-xs font-bold text-red-700 mb-1 uppercase tracking-wide">Needs Review</p>
+            <h3 className="text-3xl font-extrabold text-red-700">{pendingVerificationCount}</h3>
+            <p className="text-xs text-red-600 mt-2 font-medium">Submitted from the mobile app — awaiting verification</p>
+            <span className="text-[10px] text-red-500 font-semibold group-hover:text-red-700 transition-colors">Click to review now →</span>
+          </button>
+        )}
         <button
           onClick={handleCollectedClick}
           className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-2xl p-5 text-left shadow-sm hover:shadow-md transition-all cursor-pointer group"
@@ -829,34 +932,82 @@ export default function Payments() {
         </button>
       </div>
 
-      {/* TABS + TYPE FILTER */}
-      <div className="flex flex-wrap items-center gap-4 border-b border-slate-200 pb-2">
-        <div className="flex space-x-6 overflow-x-auto flex-1">
-          {tabs.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`pb-3 text-sm font-semibold transition-colors border-b-2 shrink-0 ${
-                activeTab === tab
-                  ? 'border-[#008A45] text-slate-900'
-                  : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2 pb-1">
-          <span className="text-xs font-medium text-slate-500">Type:</span>
-          <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-            className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+      {/* STATUS CARDS — click one to filter the table below by that status */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {statusStats.map((s) => (
+          <button
+            key={s.key}
+            onClick={() => setActiveTab(s.key)}
+            className={`relative text-left rounded-xl border p-4 transition-all ${
+              activeTab === s.key
+                ? 'border-[#008A45] ring-2 ring-[#008A45]/15 bg-[#EAF3F2]'
+                : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+            }`}
           >
-            <option value="All">All</option>
-            <option value="Package">Packages</option>
-            <option value="Short Order">Short Orders</option>
-          </select>
+            <p className={`text-xs font-semibold mb-1 flex items-center gap-1.5 ${activeTab === s.key ? 'text-[#007038]' : 'text-slate-500'}`}>
+              {s.label}
+              {s.key === 'Pending Verification' && pendingVerificationCount > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold">
+                  {pendingVerificationCount}
+                </span>
+              )}
+            </p>
+            <p className={`text-2xl font-extrabold ${activeTab === s.key ? 'text-[#007038]' : 'text-slate-900'}`}>{s.count}</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">₱{s.amount.toLocaleString()}</p>
+            <p className={`text-[11px] mt-2 ${activeTab === s.key ? 'text-[#007038]/80' : 'text-slate-400'}`}>{s.description}</p>
+            <span className={`text-[10px] font-semibold ${activeTab === s.key ? 'text-[#007038]' : 'text-slate-400'}`}>
+              {activeTab === s.key ? 'Filtering table below ✓' : 'Click to filter table below →'}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* FILTERS */}
+      <div className="border-b border-slate-200 pb-4">
+        <div className="flex items-center gap-1.5 mb-2.5">
+          <Filter size={13} className="text-slate-400" />
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Filters</span>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-500">Type:</span>
+              <select
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+                className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+              >
+                <option value="All">All</option>
+                <option value="Package">Packages</option>
+                <option value="Short Order">Short Orders</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-500">Method:</span>
+              <select
+                value={methodFilter}
+                onChange={(e) => setMethodFilter(e.target.value)}
+                className="border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+              >
+                <option value="All">All</option>
+                <option value="Cash">Cash</option>
+                <option value="GCash">GCash</option>
+                <option value="Bank Transfer">Bank Transfer</option>
+                <option value="Refund">Refund</option>
+              </select>
+            </div>
+          </div>
+          <DateRangeFilter
+            preset={datePreset}
+            customStart={customStart}
+            customEnd={customEnd}
+            rangeStart={dateRangeStart}
+            rangeEnd={dateRangeEnd}
+            onPresetChange={setDatePreset}
+            onCustomStartChange={setCustomStart}
+            onCustomEndChange={setCustomEnd}
+            onClear={() => { setDatePreset('All Time'); setCustomStart(''); setCustomEnd(''); }}
+          />
         </div>
       </div>
 
@@ -926,7 +1077,7 @@ export default function Payments() {
                           {payment.pay_status === 'Pending Verification' && (
                             <>
                               <button
-                                onClick={() => handleVerifyPaymentRow(payment)}
+                                onClick={() => openVerifyModal(payment)}
                                 disabled={isVerifying}
                                 className="text-green-600 hover:text-green-800 transition-colors disabled:opacity-50"
                                 title="Verify Payment"
@@ -946,16 +1097,16 @@ export default function Payments() {
                           <button
                             onClick={() => openEditModal(payment)}
                             className="text-slate-400 hover:text-[#008A45] transition-colors"
-                            title="Edit"
+                            title={isPaymentLedgerLocked(payment.booking?.booking_status) ? `Locked — payments can't be edited once a booking is ${payment.booking.booking_status}` : 'Edit'}
                           >
-                            <Edit size={16} />
+                            {isPaymentLedgerLocked(payment.booking?.booking_status) ? <Lock size={16} /> : <Edit size={16} />}
                           </button>
                           <button
                             onClick={() => handleDelete(payment.payment_id)}
                             className="text-slate-400 hover:text-red-600 transition-colors"
-                            title="Delete"
+                            title={isPaymentLedgerLocked(payment.booking?.booking_status) ? `Locked — payments can't be deleted once a booking is ${payment.booking.booking_status}` : 'Delete'}
                           >
-                            <Trash2 size={16} />
+                            {isPaymentLedgerLocked(payment.booking?.booking_status) ? <Lock size={16} /> : <Trash2 size={16} />}
                           </button>
                         </div>
                       </td>
@@ -1278,44 +1429,78 @@ export default function Payments() {
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-6 text-left">
-              {/* Booking Selection with Search */}
+              {/* Booking Selection with Search — same pattern as picking a
+                  customer when adding a booking/order: search box, a
+                  floating list of matches, click to pick. */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Select Booking</label>
-                <div className="relative mb-2">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                  <input
-                    type="text"
-                    placeholder="Search by customer name or order ID..."
-                    value={bookingSearchTerm}
-                    onChange={(e) => setBookingSearchTerm(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
-                  />
-                </div>
-                <select
-                  name="booking_id"
-                  value={formData.booking_id}
-                  onChange={handleInputChange}
-                  required
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
-                >
-                  <option value="">-- Select Order --</option>
-                  {filteredBookings.map((b) => {
-                    const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
-                    const paid = payments
-                      .filter(p => p.booking_id === b.booking_id)
-                      .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-                    const remaining = Math.max(0, (b.total_amount || 0) - paid);
-                    return (
-                      <option key={b.booking_id} value={b.booking_id}>
-                        {b.booking_id.slice(0, 8)} - {customerName} ({b.booking_type}) - Remaining: ₱{remaining.toLocaleString()}
-                      </option>
-                    );
-                  })}
-                  {filteredBookings.length === 0 && bookings.length > 0 && (
-                    <option disabled>No matching orders found</option>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Select Booking *</label>
+                <div className="relative">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input
+                      type="text"
+                      placeholder="Search by customer name or booking ref..."
+                      value={bookingSearchTerm}
+                      onChange={(e) => {
+                        setBookingSearchTerm(e.target.value);
+                        setShowBookingList(true);
+                        if (formData.booking_id) setFormData(prev => ({ ...prev, booking_id: '' }));
+                      }}
+                      onFocus={() => setShowBookingList(true)}
+                      className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
+                      required
+                    />
+                  </div>
+                  {showBookingList && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                      {filteredBookings.length > 0 ? (
+                        filteredBookings.map((b) => {
+                          const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
+                          const remaining = getRemainingBalance(b.booking_id);
+                          return (
+                            <button
+                              key={b.booking_id}
+                              type="button"
+                              onClick={() => selectBooking(b)}
+                              className="w-full text-left px-4 py-2.5 hover:bg-slate-50 border-b border-slate-100 last:border-0 transition-colors"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-medium text-slate-900">{bookingRefFor(b)} — {customerName}</span>
+                                <span className={`shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold border ${b.booking_type === 'Short Order' ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-violet-50 text-violet-700 border-violet-200'}`}>
+                                  {b.booking_type === 'Short Order' ? 'Short Order' : 'Package'}
+                                </span>
+                              </div>
+                              <div className="flex items-center flex-wrap gap-1.5 text-[11px] text-slate-500 mt-1">
+                                <span className={`px-1.5 py-0.5 rounded-full font-semibold border ${getOrderStatusBadge(b.booking_status)}`}>
+                                  {b.booking_status}
+                                </span>
+                                {b.booking_status === 'Completed' && (
+                                  <span className="px-1.5 py-0.5 rounded-full font-semibold border bg-amber-50 text-amber-700 border-amber-200">
+                                    Balance Due
+                                  </span>
+                                )}
+                                <span>Remaining: <b className="text-slate-700">₱{remaining.toLocaleString()}</b></span>
+                              </div>
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div className="p-3 text-center text-sm text-slate-500">No matching bookings with a balance due.</div>
+                      )}
+                    </div>
                   )}
-                </select>
-                <p className="text-xs text-slate-400 mt-1">Type to filter the list above</p>
+                </div>
+                {!formData.booking_id && (
+                  <p className="text-xs text-slate-400 mt-1">Type to search by customer name or booking ref (e.g. {bookingRefFor(bookings[0]) !== 'N/A' ? bookingRefFor(bookings[0]) : 'BKG-0001'}).</p>
+                )}
+                {formData.booking_id && selectedBooking && (
+                  <p className="text-xs text-green-600 mt-1 font-medium">
+                    ✅ Selected: {bookingRefFor(selectedBooking)} — {selectedBooking.customer ? `${selectedBooking.customer.first_name} ${selectedBooking.customer.last_name}` : 'Unknown'}
+                    {selectedBooking.booking_status === 'Completed' && (
+                      <span className="ml-2 text-amber-600">(Completed — ₱{remainingBalanceForSelected.toLocaleString()} still owed)</span>
+                    )}
+                  </p>
+                )}
               </div>
 
               {/* Booking Details Preview */}
@@ -1504,6 +1689,88 @@ export default function Payments() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ===== VERIFY PAYMENT MODAL ===== */}
+      {isVerifyModalOpen && verifyTarget && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-900">Verify Payment</h2>
+              <button onClick={() => setIsVerifyModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 text-left">
+              <p className="text-sm text-slate-600">Review the proof and confirm this payment from {getClientName(verifyTarget)} is legitimate.</p>
+
+              <div className="flex gap-4 items-center bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = getProofUrl(verifyTarget.pay_proof);
+                    if (url) { setProofModalUrl(url); setIsProofModalOpen(true); }
+                  }}
+                  className="shrink-0 w-20 h-20 rounded-lg border border-slate-200 overflow-hidden bg-white flex items-center justify-center hover:shadow-md transition-shadow"
+                  title="Click to view full proof"
+                >
+                  {verifyTarget.pay_proof && verifyTarget.pay_proof !== 'placeholder.png' && verifyTarget.pay_proof !== 'refund_placeholder.png' ? (
+                    <img src={getProofUrl(verifyTarget.pay_proof)} alt="Payment proof" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-[10px] text-slate-400 italic px-1 text-center">No proof</span>
+                  )}
+                </button>
+                <div className="flex-1 space-y-1.5">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Amount</span>
+                    <span className="font-bold text-[#008A45]">₱{(verifyTarget.amount_paid || 0).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Booking Total</span>
+                    <span className="font-semibold text-slate-900">₱{(verifyTarget.booking?.total_amount || 0).toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Payment Method *</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {['Cash', 'GCash', 'Bank Transfer'].map((method) => (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={() => setVerifyMethod(method)}
+                      className={`flex items-center justify-center gap-1.5 p-2.5 rounded-lg border-2 font-semibold text-xs transition-all ${
+                        verifyMethod === method
+                          ? 'border-[#008A45] bg-[#EAF3F2] text-slate-900'
+                          : 'border-slate-300 text-slate-500 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className={`w-3 h-3 rounded-full border flex items-center justify-center ${verifyMethod === method ? 'border-[#008A45]' : 'border-slate-400'}`}>
+                        {verifyMethod === method && <div className="w-1.5 h-1.5 rounded-full bg-[#008A45]" />}
+                      </div>
+                      {method}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setIsVerifyModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleVerifyConfirm}
+                  disabled={isVerifying}
+                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
+                >
+                  {isVerifying ? 'Verifying...' : 'Verify Payment'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>,
         document.body

@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../supabase';
 import {
   LayoutDashboard,
   CalendarDays,
@@ -16,6 +17,7 @@ import {
   ChevronDown,
   User,
   X,
+  ArrowUp,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -48,6 +50,31 @@ export default function ManagerLayout() {
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
   const closeSidebar = () => setIsSidebarOpen(false);
 
+  // --- Scroll-to-top, shared by every page under this layout — the actual
+  // page content scrolls inside <main>, not the window, so we track that
+  // element directly. Lives here (not per-page) so it's automatically
+  // consistent everywhere and pages can trigger it via a
+  // `data-scroll-target` element if they want a "jump to results" action.
+  const mainRef = useRef(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    const handleScroll = () => setShowScrollTop(el.scrollTop > 400);
+    el.addEventListener('scroll', handleScroll);
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Reset the button (and actual scroll position) on every navigation so a
+  // page doesn't inherit a stale "scrolled down" state from the last one.
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0 });
+    setShowScrollTop(false);
+  }, [location.pathname]);
+
+  const scrollToTop = () => mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (profileRef.current && !profileRef.current.contains(event.target)) {
@@ -56,6 +83,39 @@ export default function ManagerLayout() {
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Payments submitted from the mobile app land as "Pending Verification"
+  // and need a manager to check the proof — unlike a payment the manager
+  // records themselves here, which is verified by definition. Surface a
+  // live count on the Payments nav item so these don't go unnoticed just
+  // because nobody happened to open that page.
+  const [pendingVerificationCount, setPendingVerificationCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchPendingVerificationCount = async () => {
+      try {
+        const { count, error } = await supabase
+          .from('payment')
+          .select('*', { count: 'exact', head: true })
+          .eq('pay_status', 'Pending Verification');
+        if (!error && !cancelled) setPendingVerificationCount(count || 0);
+      } catch (err) {
+        console.error('Pending verification count fetch failed:', err);
+      }
+    };
+    fetchPendingVerificationCount();
+
+    const channel = supabase
+      .channel('payment-verification-badge')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'payment' }, fetchPendingVerificationCount)
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const navLinks = [
@@ -100,6 +160,11 @@ export default function ManagerLayout() {
           {isActive && <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-full bg-[#008A45]" />}
           <Icon size={18} className={isActive ? 'text-[#008A45]' : 'text-slate-400'} />
           {link.name}
+          {link.path === '/app/payments' && pendingVerificationCount > 0 && (
+            <span className="ml-auto flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-bold animate-pulse">
+              {pendingVerificationCount > 99 ? '99+' : pendingVerificationCount}
+            </span>
+          )}
         </Link>
       );
     });
@@ -256,12 +321,26 @@ export default function ManagerLayout() {
           </div>
         </aside>
 
-        <main className={styles.contentWindow}>
+        <main ref={mainRef} className={styles.contentWindow}>
           <div key={location.pathname} className="page-transition h-full">
             <Outlet />
           </div>
         </main>
       </div>
+
+      {/* SCROLL TO TOP — sits outside the page-transition wrapper on
+          purpose: that wrapper animates with a CSS transform, and any
+          transform on an ancestor turns `position: fixed` into "fixed to
+          that ancestor" instead of the viewport. */}
+      {showScrollTop && (
+        <button
+          onClick={scrollToTop}
+          className="fixed bottom-6 right-6 z-40 w-11 h-11 rounded-full bg-[#008A45] hover:bg-[#007038] text-white shadow-lg flex items-center justify-center transition-all hover:scale-105"
+          title="Back to top"
+        >
+          <ArrowUp size={20} />
+        </button>
+      )}
     </div>
   );
 }
