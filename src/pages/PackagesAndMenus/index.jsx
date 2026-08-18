@@ -1,5 +1,6 @@
 // src/pages/PackagesAndMenus/index.jsx
 import { useState, useEffect } from 'react';
+import { Search } from 'lucide-react';
 import { supabase } from '../../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../../contexts/ConfirmContext';
@@ -25,6 +26,16 @@ export default function PackagesAndMenus() {
   const [equipment, setEquipment] = useState([]);
   const [packageEquipment, setPackageEquipment] = useState({});
   const [packageCategories, setPackageCategories] = useState({});
+  const [packageCategoryIds, setPackageCategoryIds] = useState({});
+
+  // --- Search/filter — search by name/description, plus a category filter
+  // (checks a menu item's own category, or a package's included categories).
+  // Pricing Type only makes sense for packages (menu items have no pricing
+  // type of their own), so it's kept separate and only shown/applied on the
+  // Catering Packages tab. ---
+  const [searchTerm, setSearchTerm] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [pricingTypeFilter, setPricingTypeFilter] = useState('All'); // 'All' | 'per_pax' | 'fixed' — packages only
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState('Package');
@@ -85,6 +96,7 @@ export default function PackagesAndMenus() {
     if (!packagesData || packagesData.length === 0) {
       setPackageEquipment({});
       setPackageCategories({});
+      setPackageCategoryIds({});
       return;
     }
     const packageIds = packagesData.map(p => p.package_id);
@@ -103,12 +115,16 @@ export default function PackagesAndMenus() {
       });
 
       const catMap = {};
+      const catIdMap = {};
       catData.forEach(row => {
         if (!catMap[row.package_id]) catMap[row.package_id] = [];
+        if (!catIdMap[row.package_id]) catIdMap[row.package_id] = [];
         const name = catNameMap[row.category_id] || row.category_id;
         catMap[row.package_id].push(name);
+        catIdMap[row.package_id].push(row.category_id);
       });
       setPackageCategories(catMap);
+      setPackageCategoryIds(catIdMap);
 
       // --- Equipment ---
       const { data: equipData, error: equipError } = await supabase
@@ -931,22 +947,82 @@ export default function PackagesAndMenus() {
 
   // --- FILTER LOGIC ---
   const getDisplayedPackages = () => {
-    if (activeTab === 'Archived') return packages.filter(p => p.pkg_availability === 'Archived');
-    if (activeTab === 'Catering Packages') return packages.filter(p => p.pkg_availability !== 'Archived');
-    return packages;
+    let list;
+    if (activeTab === 'Archived') list = packages.filter(p => p.pkg_availability === 'Archived');
+    else if (activeTab === 'Catering Packages') list = packages.filter(p => p.pkg_availability !== 'Archived');
+    else list = packages;
+
+    if (categoryFilter !== 'All') {
+      list = list.filter(p => (packageCategoryIds[p.package_id] || []).includes(categoryFilter));
+    }
+    if (pricingTypeFilter !== 'All') {
+      list = list.filter(p => (p.pricing_type || 'per_pax') === pricingTypeFilter);
+    }
+    if (searchTerm.trim()) {
+      const term = searchTerm.trim().toLowerCase();
+      list = list.filter(p =>
+        (p.pkg_name || '').toLowerCase().includes(term) ||
+        (p.pkg_description || '').toLowerCase().includes(term)
+      );
+    }
+    return list;
   };
 
   const getDisplayedMenuItems = () => {
-    if (activeTab === 'Archived') return menuItems.filter(m => m.menu_availability === 'Archived');
-    if (activeTab === 'Menu Items') return menuItems.filter(m => m.menu_availability !== 'Archived');
-    if (activeTab === 'All') return menuItems;
-    return [];
+    let list;
+    if (activeTab === 'Archived') list = menuItems.filter(m => m.menu_availability === 'Archived');
+    else if (activeTab === 'Menu Items') list = menuItems.filter(m => m.menu_availability !== 'Archived');
+    else if (activeTab === 'All') list = menuItems;
+    else list = [];
+
+    if (categoryFilter !== 'All') {
+      list = list.filter(m => m.category_id === categoryFilter);
+    }
+    if (searchTerm.trim()) {
+      const term = searchTerm.trim().toLowerCase();
+      list = list.filter(m =>
+        (m.menu_name || '').toLowerCase().includes(term) ||
+        (m.menu_description || '').toLowerCase().includes(term)
+      );
+    }
+    return list;
   };
 
   const displayedPackages = getDisplayedPackages();
   const displayedMenuItems = getDisplayedMenuItems();
   const showPackages = activeTab === 'All' || activeTab === 'Catering Packages' || activeTab === 'Archived';
   const showMenuItems = activeTab === 'All' || activeTab === 'Menu Items' || (activeTab === 'Archived' && displayedMenuItems.length > 0);
+
+  const isPackagesTab = activeTab === 'Catering Packages';
+  const isMenuItemsTab = activeTab === 'Menu Items';
+
+  const activeCatalogFilterCount = (searchTerm.trim() ? 1 : 0)
+    + (categoryFilter !== 'All' ? 1 : 0)
+    + (isPackagesTab && pricingTypeFilter !== 'All' ? 1 : 0);
+
+  const clearCatalogFilters = () => {
+    setSearchTerm('');
+    setCategoryFilter('All');
+    setPricingTypeFilter('All');
+  };
+
+  // Switching tabs resets the search/category so a filter picked while
+  // looking at packages doesn't silently keep hiding menu items (and vice
+  // versa) — Pricing Type is packages-only so it's always reset here too.
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setSearchTerm('');
+    setCategoryFilter('All');
+    setPricingTypeFilter('All');
+  };
+
+  // --- Stat counts — always over the FULL dataset, not the current tab/
+  // filter, so the cards read as "how many exist" rather than shifting
+  // around every time a filter changes. ---
+  const totalActivePackages = packages.filter(p => p.pkg_availability !== 'Archived').length;
+  const totalActiveMenuItems = menuItems.filter(m => m.menu_availability !== 'Archived').length;
+  const totalArchived = packages.filter(p => p.pkg_availability === 'Archived').length
+    + menuItems.filter(m => m.menu_availability === 'Archived').length;
 
   // --- useEffect to load data on mount ---
   useEffect(() => {
@@ -989,13 +1065,95 @@ export default function PackagesAndMenus() {
         </div>
       </div>
 
+      {/* STAT CARDS */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <button
+          onClick={() => handleTabChange('Catering Packages')}
+          className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
+        >
+          <p className="text-xs font-semibold text-slate-600 mb-1">Total Packages</p>
+          <h3 className="text-3xl font-extrabold text-[#008A45]">{totalActivePackages}</h3>
+          <p className="text-[10px] text-slate-400 group-hover:text-[#008A45] transition-colors mt-1">Click to view</p>
+        </button>
+        <button
+          onClick={() => handleTabChange('Menu Items')}
+          className="bg-white border border-slate-200 border-l-4 border-l-blue-500 rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
+        >
+          <p className="text-xs font-semibold text-slate-600 mb-1">Total Menu Items</p>
+          <h3 className="text-3xl font-extrabold text-blue-700">{totalActiveMenuItems}</h3>
+          <p className="text-[10px] text-slate-400 group-hover:text-blue-600 transition-colors mt-1">Click to view</p>
+        </button>
+        <button
+          onClick={() => handleTabChange('Archived')}
+          className="bg-white border border-slate-200 border-l-4 border-l-slate-400 rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
+        >
+          <p className="text-xs font-semibold text-slate-600 mb-1">Archived</p>
+          <h3 className="text-3xl font-extrabold text-slate-600">{totalArchived}</h3>
+          <p className="text-[10px] text-slate-400 group-hover:text-slate-600 transition-colors mt-1">Click to view</p>
+        </button>
+      </div>
+
+      {/* SEARCH / FILTER — the options shown depend on which tab is active:
+      Catering Packages gets a Pricing Type filter (packages have one, menu
+      items don't), Menu Items gets just Category (a menu item only ever
+      belongs to one category, unlike a package which can span several).
+      All/Archived mix both types, so they get the generic combined set. */}
+      <div className={`bg-white rounded-2xl border p-4 flex flex-wrap items-center gap-3 ${activeCatalogFilterCount > 0 ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200'}`}>
+        {activeCatalogFilterCount > 0 && (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shrink-0">
+            {activeCatalogFilterCount} active
+          </span>
+        )}
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+          <input
+            type="text"
+            placeholder={isPackagesTab ? 'Search packages by name or description...' : isMenuItemsTab ? 'Search menu items by name or description...' : 'Search by name or description...'}
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className={`w-full pl-8 pr-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${searchTerm.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
+          />
+        </div>
+        <select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+          title={isPackagesTab ? 'Filter by a category included in the package' : 'Filter by category'}
+          className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${categoryFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
+        >
+          <option value="All">All categories</option>
+          {categories.map(cat => (
+            <option key={cat.category_id} value={cat.category_id}>{cat.category_name}</option>
+          ))}
+        </select>
+        {isPackagesTab && (
+          <select
+            value={pricingTypeFilter}
+            onChange={(e) => setPricingTypeFilter(e.target.value)}
+            title="Filter by pricing type"
+            className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${pricingTypeFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
+          >
+            <option value="All">All pricing types</option>
+            <option value="per_pax">Per Pax</option>
+            <option value="fixed">Fixed Price</option>
+          </select>
+        )}
+        {activeCatalogFilterCount > 0 && (
+          <button
+            onClick={clearCatalogFilters}
+            className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors cursor-pointer"
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
+
       {/* TABS */}
       <div className="border-b border-slate-200">
         <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
           {['All', 'Catering Packages', 'Menu Items', 'Archived'].map((tab) => (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => handleTabChange(tab)}
               className={`
                 whitespace-nowrap py-3 px-1 border-b-2 font-semibold text-sm transition-colors
                 ${activeTab === tab
@@ -1027,7 +1185,9 @@ export default function PackagesAndMenus() {
                 <h3 className="text-lg font-bold text-slate-900 border-b pb-2">Catering Packages</h3>
               )}
               {displayedPackages.length === 0 && (
-                <p className="text-sm text-slate-500 italic">No packages found.</p>
+                <p className="text-sm text-slate-500 italic">
+                  {activeCatalogFilterCount > 0 ? 'No packages match your search/filter.' : 'No packages found.'}
+                </p>
               )}
               {displayedPackages.map((pkg) => (
                 <PackageCard
@@ -1055,7 +1215,9 @@ export default function PackagesAndMenus() {
                 <h3 className="text-lg font-bold text-slate-900 mb-4 border-b pb-2">Individual Menu Items (Short Orders)</h3>
               )}
               {displayedMenuItems.length === 0 ? (
-                <p className="text-sm text-slate-500 italic">No menu items found.</p>
+                <p className="text-sm text-slate-500 italic">
+                  {activeCatalogFilterCount > 0 ? 'No menu items match your search/filter.' : 'No menu items found.'}
+                </p>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
                   {displayedMenuItems.map((item) => (

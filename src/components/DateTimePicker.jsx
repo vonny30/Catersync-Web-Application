@@ -11,13 +11,21 @@
 // native `min`, instead of only catching it after the fact on submit.
 import { errorInputClass } from '../utils/formErrors';
 
-function todayDateStr() {
+function dateStrOffsetDays(days) {
   const now = new Date();
+  now.setDate(now.getDate() + days);
   const offsetMs = now.getTimezoneOffset() * 60000;
   return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
 }
 
-export default function DateTimePicker({ name, value, onChange, hasError, disablePast = true, required }) {
+/**
+ * `minLeadDays` traps the calendar itself at PG's minimum-notice policy —
+ * events can't be booked for fewer than that many days out — instead of
+ * only catching a too-soon date after the fact on submit. Defaults to 0
+ * (today), the same as before this existed; pass 3 for the booking/order
+ * event date fields per the lead-time policy.
+ */
+export default function DateTimePicker({ name, value, onChange, hasError, disablePast = true, minLeadDays = 0, required }) {
   const [datePart = '', timePart = ''] = value ? value.split('T') : [];
 
   const emit = (nextDate, nextTime) => {
@@ -33,7 +41,7 @@ export default function DateTimePicker({ name, value, onChange, hasError, disabl
       <input
         type="date"
         value={datePart}
-        min={disablePast ? todayDateStr() : undefined}
+        min={disablePast ? dateStrOffsetDays(minLeadDays) : undefined}
         onChange={(e) => emit(e.target.value, timePart)}
         className={dateClass}
         required={required}

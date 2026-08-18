@@ -1,11 +1,61 @@
 // src/pages/Reports/DetailModal.jsx
+import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { ExternalLink } from 'lucide-react';
-import { formatCurrency, formatDate } from './helpers';
+import { ExternalLink, Search } from 'lucide-react';
+import { formatCurrency, formatDate, getRangeBounds, isWithinRange } from './helpers';
+import DateRangeFilter from './DateRangeFilter';
 
 export default function DetailModal({ detailModal, onClose }) {
   const navigate = useNavigate();
+
+  // --- Search/filter — same pattern as Payments.jsx's summary modals and
+  // Dashboard.jsx's stats modal, applied here so every card-click record
+  // list filters the same way.
+  const [searchTerm, setSearchTerm] = useState('');
+  const [typeFilter, setTypeFilter] = useState('All'); // 'All' | 'Package' | 'Short Order'
+  const [statusFilter, setStatusFilter] = useState('All'); // revenue view only
+  const [datePreset, setDatePreset] = useState('All Time');
+  const [dateCustomStart, setDateCustomStart] = useState('');
+  const [dateCustomEnd, setDateCustomEnd] = useState('');
+
+  const resetFilters = () => {
+    setSearchTerm('');
+    setTypeFilter('All');
+    setStatusFilter('All');
+    setDatePreset('All Time');
+    setDateCustomStart('');
+    setDateCustomEnd('');
+  };
+
+  // Reset filters the moment the modal transitions closed -> open, without a
+  // useEffect (adjusting state during render, per React's own guidance for
+  // this exact "reset on prop change" case).
+  const [prevOpen, setPrevOpen] = useState(detailModal.open);
+  if (detailModal.open !== prevOpen) {
+    setPrevOpen(detailModal.open);
+    if (detailModal.open) resetFilters();
+  }
+
+  const { start: dateRangeStart, end: dateRangeEnd } = getRangeBounds(datePreset, dateCustomStart, dateCustomEnd);
+
+  const filteredData = detailModal.data.filter((item) => {
+    if (typeFilter !== 'All') {
+      const itemType = item.type === 'Short Order' ? 'Short Order' : 'Package';
+      if (itemType !== typeFilter) return false;
+    }
+    if (detailModal.type === 'revenue' && statusFilter !== 'All' && item.status !== statusFilter) return false;
+    if (datePreset !== 'All Time' && !isWithinRange(item.eventDate, dateRangeStart, dateRangeEnd)) return false;
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase();
+      const customer = (item.customer || '').toLowerCase();
+      const ref = (item.bookingRef || '').toLowerCase();
+      if (!customer.includes(term) && !ref.includes(term)) return false;
+    }
+    return true;
+  });
+  const activeFilterCount = (searchTerm.trim() ? 1 : 0) + (typeFilter !== 'All' ? 1 : 0) + (detailModal.type === 'revenue' && statusFilter !== 'All' ? 1 : 0) + (datePreset !== 'All Time' ? 1 : 0);
+
   if (!detailModal.open) return null;
 
   const goToBookingDetails = (id, type) => {
@@ -20,7 +70,7 @@ export default function DetailModal({ detailModal, onClose }) {
           <div>
             <h2 className="text-lg font-bold text-slate-900">{detailModal.title}</h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Excludes Rejected and Cancelled bookings • {detailModal.data.length} records found
+              Excludes Rejected and Cancelled bookings • {filteredData.length} of {detailModal.data.length} records shown
             </p>
           </div>
           <button
@@ -33,9 +83,77 @@ export default function DetailModal({ detailModal, onClose }) {
           </button>
         </div>
 
+        {detailModal.data.length > 0 && (
+          <div className={`px-6 py-3 border-b space-y-2 shrink-0 ${activeFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-200'}`}>
+            <div className="flex flex-wrap items-center gap-3">
+              {activeFilterCount > 0 && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shrink-0">
+                  {activeFilterCount} active
+                </span>
+              )}
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                <input
+                  type="text"
+                  placeholder="Search by customer or booking ref..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className={`w-full pl-8 pr-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${searchTerm.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
+                />
+              </div>
+              <select
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+                className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${typeFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
+              >
+                <option value="All">All types</option>
+                <option value="Package">Package</option>
+                <option value="Short Order">Short Order</option>
+              </select>
+              {detailModal.type === 'revenue' && (
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${statusFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
+                >
+                  <option value="All">All statuses</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Approved">Approved</option>
+                  <option value="Confirmed">Confirmed</option>
+                  <option value="Completed">Completed</option>
+                </select>
+              )}
+              {activeFilterCount > 0 && (
+                <button
+                  onClick={resetFilters}
+                  className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors cursor-pointer"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+            <div className="flex flex-col items-start gap-1">
+              <p className="text-xs font-semibold text-slate-600">Filter by event date:</p>
+              <DateRangeFilter
+                preset={datePreset}
+                customStart={dateCustomStart}
+                customEnd={dateCustomEnd}
+                rangeStart={dateRangeStart}
+                rangeEnd={dateRangeEnd}
+                onPresetChange={setDatePreset}
+                onCustomStartChange={setDateCustomStart}
+                onCustomEndChange={setDateCustomEnd}
+                onClear={() => { setDatePreset('All Time'); setDateCustomStart(''); setDateCustomEnd(''); }}
+              />
+            </div>
+          </div>
+        )}
+
         <div className="p-6 overflow-y-auto flex-1">
           {detailModal.data.length === 0 ? (
             <div className="text-center py-10 text-slate-500">No records found for this category.</div>
+          ) : filteredData.length === 0 ? (
+            <div className="text-center py-10 text-slate-500">No records match your search/filter.</div>
           ) : (
             <div className="space-y-4">
               {detailModal.type === 'revenue' && (
@@ -51,7 +169,7 @@ export default function DetailModal({ detailModal, onClose }) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
-                    {detailModal.data.map((item) => (
+                    {filteredData.map((item) => (
                       <tr key={item.id} className="hover:bg-slate-50">
                         <td className="p-3">
                           <button
@@ -81,7 +199,7 @@ export default function DetailModal({ detailModal, onClose }) {
                   <tfoot className="bg-slate-50 border-t-2 border-slate-200">
                     <tr>
                       <td colSpan="4" className="p-3 text-right font-bold text-slate-700">Total:</td>
-                      <td className="p-3 text-right font-bold text-emerald-700">{formatCurrency(detailModal.data.reduce((sum, item) => sum + item.total, 0))}</td>
+                      <td className="p-3 text-right font-bold text-emerald-700">{formatCurrency(filteredData.reduce((sum, item) => sum + item.total, 0))}</td>
                       <td className="p-3"></td>
                     </tr>
                   </tfoot>
@@ -90,7 +208,7 @@ export default function DetailModal({ detailModal, onClose }) {
 
               {detailModal.type === 'collected' && (
                 <div className="space-y-6">
-                  {detailModal.data.map((item) => (
+                  {filteredData.map((item) => (
                     <div key={item.id} className="border border-slate-200 rounded-lg p-4 hover:shadow-sm transition-shadow">
                       <div className="flex justify-between items-start mb-3">
                         <div>
@@ -128,7 +246,7 @@ export default function DetailModal({ detailModal, onClose }) {
                   ))}
                   <div className="border-t pt-4 flex justify-end">
                     <p className="text-lg font-bold text-slate-900">
-                      Total Collected: <span className="text-emerald-600">{formatCurrency(detailModal.data.reduce((sum, item) => sum + item.paid, 0))}</span>
+                      Total Collected: <span className="text-emerald-600">{formatCurrency(filteredData.reduce((sum, item) => sum + item.paid, 0))}</span>
                     </p>
                   </div>
                 </div>
@@ -148,7 +266,7 @@ export default function DetailModal({ detailModal, onClose }) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
-                    {detailModal.data.map((item) => (
+                    {filteredData.map((item) => (
                       <tr key={item.id} className="hover:bg-slate-50">
                         <td className="p-3">
                           <button
@@ -175,7 +293,7 @@ export default function DetailModal({ detailModal, onClose }) {
                   <tfoot className="bg-slate-50 border-t-2 border-slate-200">
                     <tr>
                       <td colSpan="6" className="p-3 text-right font-bold text-slate-700">Total Outstanding:</td>
-                      <td className="p-3 text-right font-bold text-red-600">{formatCurrency(detailModal.data.reduce((sum, item) => sum + item.outstanding, 0))}</td>
+                      <td className="p-3 text-right font-bold text-red-600">{formatCurrency(filteredData.reduce((sum, item) => sum + item.outstanding, 0))}</td>
                     </tr>
                   </tfoot>
                 </table>

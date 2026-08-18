@@ -10,6 +10,7 @@ import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { sumVerifiedPositivePayments } from '../utils/payments';
+import { STATUS_ORDER } from '../utils/bookingStatus';
 
 export function useConfirmationHandlers({ booking, payments, fetchData }) {
   const { showConfirm } = useConfirm();
@@ -29,9 +30,17 @@ export function useConfirmationHandlers({ booking, payments, fetchData }) {
     }
 
     const isFullyPaid = paid >= totalAmount;
+    // Package bookings can have equipment allocated — once Confirmed, the
+    // booking's own edit lock (isPaymentLedgerLocked) also freezes Equipment
+    // Allocation on this page, so the manager needs to know that BEFORE
+    // confirming, not discover it afterward when the Assign button is
+    // already locked.
+    const equipmentWarning = booking.booking_type !== 'Short Order'
+      ? ' Equipment assignments will also be locked — no more adding, editing, or removing equipment after this.'
+      : '';
     const confirmed = await showConfirm({
       title: 'Confirm This Event?',
-      message: `This booking has ${isFullyPaid ? 'been paid in full' : 'a verified downpayment of at least 50%'} (₱${paid.toLocaleString()} of ₱${totalAmount.toLocaleString()}). Marking it Confirmed locks the event in — cancellation only becomes available after this point. Continue?`,
+      message: `This ${booking.booking_type === 'Short Order' ? 'order' : 'booking'} has ${isFullyPaid ? 'been paid in full' : 'a verified downpayment of at least 50%'} (₱${paid.toLocaleString()} of ₱${totalAmount.toLocaleString()}). Marking it Confirmed locks the event in — cancellation only becomes available after this point.${equipmentWarning} Continue?`,
       confirmLabel: 'Yes, Confirm Event',
       cancelLabel: 'Cancel',
       confirmVariant: 'success',
@@ -42,7 +51,7 @@ export function useConfirmationHandlers({ booking, payments, fetchData }) {
     try {
       const { error } = await supabase
         .from('booking')
-        .update({ booking_status: 'Confirmed', is_read: true })
+        .update({ booking_status: 'Confirmed', status_order: STATUS_ORDER.Confirmed, is_read: true })
         .eq('booking_id', booking.booking_id);
       if (error) throw error;
       toast.success('Event confirmed!');

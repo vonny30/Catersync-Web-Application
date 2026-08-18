@@ -1135,9 +1135,11 @@ export default function ShortOrderDetails() {
                   value={editFormData.event_datetime}
                   onChange={handleEditInputChange}
                   hasError={!!editFieldErrors.event_datetime}
+                  minLeadDays={3}
                   required
                 />
                 {editFieldErrors.event_datetime && <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.event_datetime}</p>}
+                <p className="text-[11px] text-slate-400 mt-1">Orders must be placed at least 3 days before the event — PG's catering policy.</p>
               </div>
 
               <div>

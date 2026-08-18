@@ -8,7 +8,7 @@ import toast from 'react-hot-toast';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { isManager, loading: authLoading } = useAuth();
+  const { isManager, loading: authLoading, sessionConflictMessage, clearSessionConflictMessage } = useAuth();
 
   const [formData, setFormData] = useState({
     email: '',
@@ -40,6 +40,18 @@ export default function Login() {
       navigate('/app', { replace: true });
     }
   }, [authLoading, isManager, navigate]);
+
+  // A fresh login can be rejected because the account is already active
+  // elsewhere (single-session enforcement) — AuthContext discovers this
+  // asynchronously, after signInWithPassword already succeeded, so it's
+  // surfaced here rather than inside handleSubmit's own try/catch.
+  useEffect(() => {
+    if (sessionConflictMessage) {
+      setErrorMsg(sessionConflictMessage);
+      setIsLoading(false);
+      clearSessionConflictMessage();
+    }
+  }, [sessionConflictMessage, clearSessionConflictMessage]);
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;

@@ -87,6 +87,12 @@ export default function Payments() {
   const [summaryModalData, setSummaryModalData] = useState([]);
   const [summaryModalTitle, setSummaryModalTitle] = useState('');
   const [summaryModalType, setSummaryModalType] = useState(''); // 'collected', 'pending', 'fullypaid'
+  const [summarySearchTerm, setSummarySearchTerm] = useState('');
+  const [summaryTypeFilter, setSummaryTypeFilter] = useState('All'); // 'All' | 'Package' | 'Short Order'
+  const [summaryMethodFilter, setSummaryMethodFilter] = useState('All'); // 'All' | 'Cash' | 'GCash' | 'Bank Transfer' | 'Refund' — only meaningful for Collected/Fully Paid (payment-level records); Pending is booking-level and has no pay_method
+  const [summaryDatePreset, setSummaryDatePreset] = useState('All Time');
+  const [summaryDateCustomStart, setSummaryDateCustomStart] = useState('');
+  const [summaryDateCustomEnd, setSummaryDateCustomEnd] = useState('');
 
   // --- PAYMENT DETAIL MODAL STATE ---
   const [isPaymentDetailModalOpen, setIsPaymentDetailModalOpen] = useState(false);
@@ -755,6 +761,34 @@ export default function Payments() {
     </button>
   );
 
+  // --- Summary modal search/filter — every card that opens a record list
+  // gets the same search-by-client/ref + type filter, matching the main
+  // table's filter pattern above. ---
+  const { start: summaryDateRangeStart, end: summaryDateRangeEnd } = getRangeBounds(summaryDatePreset, summaryDateCustomStart, summaryDateCustomEnd);
+
+  const filteredSummaryModalData = summaryModalData.filter(item => {
+    if (summaryTypeFilter !== 'All') {
+      const itemType = item.booking_type === 'Short Order' ? 'Short Order' : 'Package';
+      if (itemType !== summaryTypeFilter) return false;
+    }
+    if (summaryMethodFilter !== 'All' && item.pay_method !== summaryMethodFilter) return false;
+    if (summaryDatePreset !== 'All Time') {
+      // Collected/Fully Paid are payment rows (pay_datetime); Pending
+      // Balance is a booking-level aggregate with no payment date, so it
+      // filters by event date instead.
+      const dateField = summaryModalType === 'pending' ? item.event_datetime : item.pay_datetime;
+      if (!isWithinRange(dateField, summaryDateRangeStart, summaryDateRangeEnd)) return false;
+    }
+    if (summarySearchTerm.trim()) {
+      const term = summarySearchTerm.toLowerCase();
+      const clientName = (item.clientName || getClientName(item) || '').toLowerCase();
+      const ref = (item.bookingRef || getBookingRef(item) || '').toLowerCase();
+      if (!clientName.includes(term) && !ref.includes(term)) return false;
+    }
+    return true;
+  });
+  const activeSummaryFilterCount = (summarySearchTerm.trim() ? 1 : 0) + (summaryTypeFilter !== 'All' ? 1 : 0) + (summaryMethodFilter !== 'All' ? 1 : 0) + (summaryDatePreset !== 'All Time' ? 1 : 0);
+
   // --- Updated renderProof: opens modal instead of new tab ---
   const renderProof = (proofUrl) => {
     if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
@@ -813,10 +847,22 @@ export default function Payments() {
         ...p,
         clientName: getClientName(p),
         bookingRef: getBookingRef(p),
+        // p's own booking_type lives at p.booking.booking_type (nested) —
+        // hoist it to the top level so the modal's Type badge (which reads
+        // item.booking_type for every summary type, including the 'pending'
+        // one where it IS already top-level) doesn't silently fall back to
+        // "Package" for every Short Order payment.
+        booking_type: p.booking?.booking_type,
       }));
     setSummaryModalData(data);
     setSummaryModalTitle('Net Collected – Detailed Payments (active orders only)');
     setSummaryModalType('collected');
+    setSummarySearchTerm('');
+    setSummaryTypeFilter('All');
+    setSummaryMethodFilter('All');
+    setSummaryDatePreset('All Time');
+    setSummaryDateCustomStart('');
+    setSummaryDateCustomEnd('');
     setIsSummaryModalOpen(true);
   };
 
@@ -832,12 +878,18 @@ export default function Payments() {
         remaining,
         paid,
         clientName: b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown',
-        bookingRef: b.booking_type === 'Short Order' ? `SO-${b.booking_id.slice(0, 8)}` : `BKG-${b.booking_id.slice(0, 8)}`,
+        bookingRef: bookingRefFor(b),
       };
     }).filter(b => b.remaining > 0);
     setSummaryModalData(data);
     setSummaryModalTitle('Pending Balance – Orders with Outstanding Amount');
     setSummaryModalType('pending');
+    setSummarySearchTerm('');
+    setSummaryTypeFilter('All');
+    setSummaryMethodFilter('All');
+    setSummaryDatePreset('All Time');
+    setSummaryDateCustomStart('');
+    setSummaryDateCustomEnd('');
     setIsSummaryModalOpen(true);
   };
 
@@ -860,11 +912,18 @@ export default function Payments() {
         ...p,
         clientName: getClientName(p),
         bookingRef: getBookingRef(p),
+        booking_type: p.booking?.booking_type,
       }));
 
     setSummaryModalData(data);
     setSummaryModalTitle('Fully Paid Orders – Payment Details');
     setSummaryModalType('fullypaid');
+    setSummarySearchTerm('');
+    setSummaryTypeFilter('All');
+    setSummaryMethodFilter('All');
+    setSummaryDatePreset('All Time');
+    setSummaryDateCustomStart('');
+    setSummaryDateCustomEnd('');
     setIsSummaryModalOpen(true);
   };
 
@@ -881,6 +940,12 @@ export default function Payments() {
   const closeSummaryModal = () => {
     setIsSummaryModalOpen(false);
     setSummaryModalData([]);
+    setSummarySearchTerm('');
+    setSummaryTypeFilter('All');
+    setSummaryMethodFilter('All');
+    setSummaryDatePreset('All Time');
+    setSummaryDateCustomStart('');
+    setSummaryDateCustomEnd('');
   };
 
   // --- Jump to the full booking/short order detail page ---
@@ -1383,7 +1448,7 @@ export default function Payments() {
             <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0 bg-white">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">{summaryModalTitle}</h2>
-                <p className="text-xs text-slate-500 mt-0.5">{summaryModalData.length} record(s) found</p>
+                <p className="text-xs text-slate-500 mt-0.5">{filteredSummaryModalData.length} of {summaryModalData.length} record(s) shown</p>
               </div>
               <button
                 onClick={closeSummaryModal}
@@ -1393,9 +1458,84 @@ export default function Payments() {
               </button>
             </div>
 
+            <div className={`px-6 py-3 border-b space-y-2 shrink-0 ${activeSummaryFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-200'}`}>
+              <div className="flex flex-wrap items-center gap-3">
+                {activeSummaryFilterCount > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shrink-0">
+                    {activeSummaryFilterCount} active
+                  </span>
+                )}
+                <div className="relative flex-1 min-w-[200px]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                  <input
+                    type="text"
+                    placeholder="Search by client name or booking ref..."
+                    value={summarySearchTerm}
+                    onChange={(e) => setSummarySearchTerm(e.target.value)}
+                    className={`w-full pl-8 pr-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${summarySearchTerm.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
+                  />
+                </div>
+                <select
+                  value={summaryTypeFilter}
+                  onChange={(e) => setSummaryTypeFilter(e.target.value)}
+                  className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${summaryTypeFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
+                >
+                  <option value="All">All types</option>
+                  <option value="Package">Package</option>
+                  <option value="Short Order">Short Order</option>
+                </select>
+                {summaryModalType !== 'pending' && (
+                  <select
+                    value={summaryMethodFilter}
+                    onChange={(e) => setSummaryMethodFilter(e.target.value)}
+                    className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${summaryMethodFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
+                  >
+                    <option value="All">All methods</option>
+                    <option value="Cash">Cash</option>
+                    <option value="GCash">GCash</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                    <option value="Refund">Refund</option>
+                  </select>
+                )}
+                {activeSummaryFilterCount > 0 && (
+                  <button
+                    onClick={() => {
+                      setSummarySearchTerm('');
+                      setSummaryTypeFilter('All');
+                      setSummaryMethodFilter('All');
+                      setSummaryDatePreset('All Time');
+                      setSummaryDateCustomStart('');
+                      setSummaryDateCustomEnd('');
+                    }}
+                    className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors cursor-pointer"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-col items-start gap-1">
+                <p className="text-xs font-semibold text-slate-600">
+                  Filter by {summaryModalType === 'pending' ? 'event date' : 'payment date'}:
+                </p>
+                <DateRangeFilter
+                  preset={summaryDatePreset}
+                  customStart={summaryDateCustomStart}
+                  customEnd={summaryDateCustomEnd}
+                  rangeStart={summaryDateRangeStart}
+                  rangeEnd={summaryDateRangeEnd}
+                  onPresetChange={setSummaryDatePreset}
+                  onCustomStartChange={setSummaryDateCustomStart}
+                  onCustomEndChange={setSummaryDateCustomEnd}
+                  onClear={() => { setSummaryDatePreset('All Time'); setSummaryDateCustomStart(''); setSummaryDateCustomEnd(''); }}
+                />
+              </div>
+            </div>
+
             <div className="p-6 overflow-y-auto flex-1">
               {summaryModalData.length === 0 ? (
                 <div className="text-center py-10 text-slate-500">No records found.</div>
+              ) : filteredSummaryModalData.length === 0 ? (
+                <div className="text-center py-10 text-slate-500">No records match your search/filter.</div>
               ) : (
                 <>
                   {/* Collected & Fully Paid – show payment list */}
@@ -1413,7 +1553,7 @@ export default function Payments() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-sm">
-                        {summaryModalData.map((item, idx) => (
+                        {filteredSummaryModalData.map((item, idx) => (
                           <tr
                             key={idx}
                             className="hover:bg-slate-50 transition-colors cursor-pointer"
@@ -1451,7 +1591,7 @@ export default function Payments() {
                         <tr>
                           <td colSpan="4" className="p-3 text-right font-bold text-slate-700">Total:</td>
                           <td className="p-3 text-right font-bold text-emerald-700">
-                            ₱{summaryModalData.reduce((sum, p) => sum + (p.amount_paid || 0), 0).toLocaleString()}
+                            ₱{filteredSummaryModalData.reduce((sum, p) => sum + (p.amount_paid || 0), 0).toLocaleString()}
                           </td>
                           <td colSpan="2"></td>
                         </tr>
@@ -1473,7 +1613,7 @@ export default function Payments() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-sm">
-                        {summaryModalData.map((item, idx) => (
+                        {filteredSummaryModalData.map((item, idx) => (
                           <tr
                             key={idx}
                             className="hover:bg-slate-50 transition-colors cursor-pointer"
@@ -1500,7 +1640,7 @@ export default function Payments() {
                         <tr>
                           <td colSpan="5" className="p-3 text-right font-bold text-slate-700">Total Pending:</td>
                           <td className="p-3 text-right font-bold text-red-600">
-                            ₱{summaryModalData.reduce((sum, b) => sum + (b.remaining || 0), 0).toLocaleString()}
+                            ₱{filteredSummaryModalData.reduce((sum, b) => sum + (b.remaining || 0), 0).toLocaleString()}
                           </td>
                         </tr>
                       </tfoot>

@@ -18,7 +18,7 @@ import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
 import { isPaymentLedgerLocked } from '../utils/payments';
-import { bookingEditLockedMessage, MAX_SHORT_ORDERS_PER_DAY } from '../utils/bookingStatus';
+import { bookingEditLockedMessage, MAX_SHORT_ORDERS_PER_DAY, STATUS_ORDER } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import { getBookingsOnDate } from '../utils/availability';
 import DateRangeFilter from './Reports/DateRangeFilter';
@@ -157,10 +157,12 @@ export default function ShortOrders() {
         query = query.eq('booking_status', activeTab);
       }
 
+      // Pending -> Approved -> Confirmed -> Completed -> Rejected -> Cancelled
+      // (status_order encodes exactly this priority), then oldest-created
+      // first within each status group.
       query = query
         .order('status_order', { ascending: true })
-        .order('is_read', { ascending: true })
-        .order('book_datetime', { ascending: false })
+        .order('book_datetime', { ascending: true })
         .range(from, to);
 
       const { data: ordersData, count, error: ordersError } = await query;
@@ -688,18 +690,15 @@ export default function ShortOrders() {
         setFieldErrors({ event_datetime: 'This date has already passed.' });
         setIsSubmitting(false);
         return;
-      } else if (diffDays >= 0 && diffDays < 3) {
-        const proceed = await showConfirm({
-          title: '⚠️ Order is Very Soon',
-          message: `This event is ${diffDays} day${diffDays !== 1 ? 's' : ''} away (within 2 days). Please confirm if you still want to proceed with this order.`,
-          confirmLabel: 'Yes, Proceed',
-          cancelLabel: 'Cancel',
-          confirmVariant: 'warning',
-        });
-        if (!proceed) {
-          setIsSubmitting(false);
-          return;
-        }
+      } else if (diffDays < 3) {
+        // Hard block, not a soft warning — PG requires at least 3 days'
+        // notice for any order. The date picker itself already refuses to
+        // let a date this close be selected; this is the backstop in case
+        // the field value was set some other way.
+        toast.error('Orders must be placed at least 3 days before the event date — this is PG\'s catering policy.');
+        setFieldErrors({ event_datetime: 'Must be at least 3 days from today.' });
+        setIsSubmitting(false);
+        return;
       }
     }
 
@@ -869,7 +868,7 @@ export default function ShortOrders() {
     try {
       const { error } = await supabase
         .from('booking')
-        .update({ booking_status: 'Confirmed', is_read: true })
+        .update({ booking_status: 'Confirmed', status_order: STATUS_ORDER.Confirmed, is_read: true })
         .eq('booking_id', id);
       if (error) throw error;
       toast.success('Order confirmed!');
@@ -908,7 +907,7 @@ export default function ShortOrders() {
     // 1. Update booking status
     const { error } = await supabase
       .from('booking')
-      .update({ booking_status: 'Completed', is_read: true })
+      .update({ booking_status: 'Completed', status_order: STATUS_ORDER.Completed, is_read: true })
       .eq('booking_id', id);
     if (error) throw error;
 
@@ -1669,8 +1668,9 @@ export default function ShortOrders() {
               {/* Event Date & Time */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Event Date & Time *</label>
-                <DateTimePicker name="event_datetime" value={formData.event_datetime} onChange={handleInputChange} hasError={!!fieldErrors.event_datetime} required />
+                <DateTimePicker name="event_datetime" value={formData.event_datetime} onChange={handleInputChange} hasError={!!fieldErrors.event_datetime} minLeadDays={3} required />
                 {fieldErrors.event_datetime && <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.event_datetime}</p>}
+                <p className="text-[11px] text-slate-400 mt-1">Orders must be placed at least 3 days before the event — PG's catering policy.</p>
                 <p className="text-[11px] text-slate-400 mt-1">
                   Only {MAX_SHORT_ORDERS_PER_DAY} Short Orders can be approved per day.
                   {formData.event_datetime && !dateOrderCountLoading && dateOrderCount !== null && (
@@ -1768,19 +1768,19 @@ export default function ShortOrders() {
                 <p className="text-xs text-slate-400 mt-1">Quantity = number of trays. Each tray serves 35‑50 pax.</p>
               </div>
 
-              {/* Total Amount (editable) */}
+              {/* Total Amount (auto-calculated) */}
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                <label className="block text-xs font-bold text-slate-700 mb-1">Total Amount (editable)</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Total Amount (auto-calculated)</label>
                 <input
                   type="number"
                   name="total_amount"
                   value={formData.total_amount}
-                  onChange={handleInputChange}
                   placeholder="Auto-calculated"
                   step="0.01"
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                  disabled
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none bg-slate-100 text-slate-600"
                 />
-                <p className="text-xs text-slate-400 mt-1">Auto-calculated from menu items × quantity + delivery fee. You can adjust.</p>
+                <p className="text-xs text-slate-400 mt-1">Auto-calculated from menu items × quantity + delivery fee.</p>
               </div>
 
               {/* Notes */}

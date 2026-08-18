@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
+import { STATUS_ORDER } from '../utils/bookingStatus';
 
 export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData }) {
   const { showConfirm } = useConfirm();
@@ -140,6 +141,7 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
         .from('booking')
         .update({
           booking_status: 'Rejected',
+          status_order: STATUS_ORDER.Rejected,
           notes: updatedNotes,
           is_read: true,
         })

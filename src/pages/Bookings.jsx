@@ -19,7 +19,7 @@ import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
 import { isPaymentLedgerLocked } from '../utils/payments';
-import { bookingEditLockedMessage } from '../utils/bookingStatus';
+import { bookingEditLockedMessage, STATUS_ORDER } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds } from './Reports/helpers';
@@ -180,10 +180,12 @@ export default function Bookings() {
         query = query.eq('booking_status', activeTab);
       }
 
+      // Pending -> Approved -> Confirmed -> Completed -> Rejected -> Cancelled
+      // (status_order encodes exactly this priority), then oldest-created
+      // first within each status group.
       query = query
         .order('status_order', { ascending: true })
-        .order('is_read', { ascending: true })
-        .order('book_datetime', { ascending: false })
+        .order('book_datetime', { ascending: true })
         .range(from, to);
 
       const { data: bookingsData, count, error: bookingsError } = await query;
@@ -746,18 +748,15 @@ export default function Bookings() {
         setFieldErrors({ event_datetime: 'This date has already passed.' });
         setIsSubmitting(false);
         return;
-      } else if (diffDays >= 0 && diffDays < 3) {
-        const proceed = await showConfirm({
-          title: '⚠️ Booking is Very Soon',
-          message: `This event is ${diffDays} day${diffDays !== 1 ? 's' : ''} away (within 2 days). Please confirm if you still want to proceed with this booking.`,
-          confirmLabel: 'Yes, Proceed',
-          cancelLabel: 'Cancel',
-          confirmVariant: 'warning',
-        });
-        if (!proceed) {
-          setIsSubmitting(false);
-          return;
-        }
+      } else if (diffDays < 3) {
+        // Hard block, not a soft warning — PG requires at least 3 days'
+        // notice for any booking. The date picker itself already refuses to
+        // let a date this close be selected; this is the backstop in case
+        // the field value was set some other way.
+        toast.error('Bookings must be made at least 3 days before the event date — this is PG\'s catering policy.');
+        setFieldErrors({ event_datetime: 'Must be at least 3 days from today.' });
+        setIsSubmitting(false);
+        return;
       }
     }
 
@@ -946,7 +945,7 @@ export default function Bookings() {
     const isFullyPaid = paid >= totalAmount;
     const confirmed = await showConfirm({
       title: 'Confirm This Event?',
-      message: `This booking has ${isFullyPaid ? 'been paid in full' : 'a verified downpayment of at least 50%'} (₱${paid.toLocaleString()} of ₱${totalAmount.toLocaleString()}). Marking it Confirmed locks the event in — cancellation only becomes available after this point. Continue?`,
+      message: `This booking has ${isFullyPaid ? 'been paid in full' : 'a verified downpayment of at least 50%'} (₱${paid.toLocaleString()} of ₱${totalAmount.toLocaleString()}). Marking it Confirmed locks the event in — cancellation only becomes available after this point. Equipment assignments will also be locked — no more adding, editing, or removing equipment after this. Continue?`,
       confirmLabel: 'Yes, Confirm Event',
       cancelLabel: 'Cancel',
       confirmVariant: 'success',
@@ -955,7 +954,7 @@ export default function Bookings() {
     try {
       const { error } = await supabase
         .from('booking')
-        .update({ booking_status: 'Confirmed', is_read: true })
+        .update({ booking_status: 'Confirmed', status_order: STATUS_ORDER.Confirmed, is_read: true })
         .eq('booking_id', id);
       if (error) throw error;
       toast.success('Event confirmed!');
@@ -994,7 +993,7 @@ const handleMarkCompleted = async (id) => {
     // 1. Update booking status
     const { error } = await supabase
       .from('booking')
-      .update({ booking_status: 'Completed', is_read: true })
+      .update({ booking_status: 'Completed', status_order: STATUS_ORDER.Completed, is_read: true })
       .eq('booking_id', id);
     if (error) throw error;
 
@@ -1842,9 +1841,11 @@ const handleMarkCompleted = async (id) => {
                   value={formData.event_datetime}
                   onChange={handleInputChange}
                   hasError={!!fieldErrors.event_datetime}
+                  minLeadDays={3}
                   required
                 />
                 {fieldErrors.event_datetime && <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.event_datetime}</p>}
+                <p className="text-[11px] text-slate-400 mt-1">Bookings must be made at least 3 days before the event — PG's catering policy.</p>
               </div>
 
               {/* Venue */}
@@ -1930,20 +1931,20 @@ const handleMarkCompleted = async (id) => {
                   })()}
                 </div>
                 <div className="col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Total Amount (editable)</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Total Amount (auto-calculated)</label>
                   <input
                     type="number"
                     name="total_amount"
                     value={formData.total_amount}
-                    onChange={handleInputChange}
                     placeholder="Auto-calculated"
                     step="0.01"
-                    className={errorInputClass(!!fieldErrors.total_amount, 'w-full border rounded-lg p-2.5 text-sm outline-none')}
+                    disabled
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none bg-slate-50 text-slate-600"
                   />
                   {fieldErrors.total_amount ? (
                     <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.total_amount}</p>
                   ) : (
-                    <p className="text-xs text-slate-400 mt-1">Auto-calculated based on package pricing. You can adjust.</p>
+                    <p className="text-xs text-slate-400 mt-1">Based on package pricing and pax count. Fees/discounts are applied when approving the booking.</p>
                   )}
                 </div>
               </div>

@@ -761,6 +761,10 @@ export default function BookingDetails() {
 
   // --- Equipment Assignment Handlers (unique) ---
   const openAssignEquipModal = () => {
+    if (isPaymentLedgerLocked(booking.booking_status)) {
+      toast.error(`Equipment can't be assigned anymore — this booking is ${booking.booking_status}.`);
+      return;
+    }
     const fetchEquipmentList = async () => {
       try {
         const { data, error } = await supabase
@@ -818,6 +822,10 @@ export default function BookingDetails() {
   };
 
   const handleRemoveEquipment = async (assignmentId) => {
+    if (isPaymentLedgerLocked(booking.booking_status)) {
+      toast.error(`Equipment can't be removed anymore — this booking is ${booking.booking_status}.`);
+      return;
+    }
     const confirmed = await showConfirm({
       title: 'Remove Equipment?',
       message: 'Are you sure you want to remove this equipment assignment? This action cannot be undone.',
@@ -848,6 +856,10 @@ export default function BookingDetails() {
 
   // --- Edit Equipment Assignment ---
   const openEditEquipModal = (assignment) => {
+    if (isPaymentLedgerLocked(booking.booking_status)) {
+      toast.error(`Equipment can't be edited anymore — this booking is ${booking.booking_status}.`);
+      return;
+    }
     setEditingAssignment(assignment);
     setEditEquipData({ quantity: assignment.quantity });
     setIsEditEquipModalOpen(true);
@@ -1440,14 +1452,15 @@ export default function BookingDetails() {
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-sm font-bold text-slate-900">Equipment Allocation</h3>
               <div className="flex items-center gap-2">
-                {booking.booking_status !== 'Rejected' && booking.booking_status !== 'Cancelled' && (
-                  <button
-                    onClick={openAssignEquipModal}
-                    className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm"
-                  >
-                    <ClipboardList size={14} /> Assign Equipment
-                  </button>
-                )}
+                <button
+                  onClick={openAssignEquipModal}
+                  className={isPaymentLedgerLocked(booking.booking_status)
+                    ? 'bg-slate-100 text-slate-400 font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors'
+                    : 'bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm'}
+                  title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be assigned once a booking is ${booking.booking_status}` : undefined}
+                >
+                  {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} Assign Equipment
+                </button>
                 <span className="text-xs font-medium text-slate-500">{equipment.length} item{equipment.length !== 1 ? 's' : ''}</span>
               </div>
             </div>
@@ -1465,13 +1478,21 @@ export default function BookingDetails() {
                       <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${item.returned ? 'bg-green-100 border border-green-200 text-green-700' : 'bg-amber-100 border border-amber-200 text-amber-700'}`}>
                         {item.returned ? '✅ Returned' : '📌 Assigned'}
                       </span>
-                      {!item.returned && booking.booking_status !== 'Rejected' && booking.booking_status !== 'Cancelled' && (
+                      {!item.returned && (
                         <div className="flex gap-2">
-                          <button onClick={() => openEditEquipModal(item)} className="text-blue-500 hover:text-blue-700" title="Edit quantity">
-                            <Edit size={14} />
+                          <button
+                            onClick={() => openEditEquipModal(item)}
+                            className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-blue-500 hover:text-blue-700'}
+                            title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be edited once a booking is ${booking.booking_status}` : 'Edit quantity'}
+                          >
+                            {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
                           </button>
-                          <button onClick={() => handleRemoveEquipment(item.assignment_id)} className="text-red-400 hover:text-red-600" title="Remove">
-                            <Trash2 size={14} />
+                          <button
+                            onClick={() => handleRemoveEquipment(item.assignment_id)}
+                            className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-red-400 hover:text-red-600'}
+                            title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be removed once a booking is ${booking.booking_status}` : 'Remove'}
+                          >
+                            {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Trash2 size={14} />}
                           </button>
                         </div>
                       )}
@@ -1568,8 +1589,10 @@ export default function BookingDetails() {
                   value={editFormData.event_datetime}
                   onChange={handleEditInputChange}
                   hasError={!!editFieldErrors.event_datetime}
+                  minLeadDays={3}
                 />
                 {editFieldErrors.event_datetime && <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.event_datetime}</p>}
+                <p className="text-[11px] text-slate-400 mt-1">Bookings must be made at least 3 days before the event — PG's catering policy.</p>
               </div>
 
               <div>
@@ -1610,14 +1633,14 @@ export default function BookingDetails() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Total Amount</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Total Amount (auto-calculated)</label>
                   <input
                     type="number"
                     name="total_amount"
                     value={editFormData.total_amount}
-                    onChange={handleEditInputChange}
-                    placeholder="0.00"
-                    className={errorInputClass(!!editFieldErrors.total_amount, 'w-full border rounded-lg p-2.5 text-sm outline-none')}
+                    placeholder="Auto-calculated"
+                    disabled
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none bg-slate-50 text-slate-600"
                   />
                   {editFieldErrors.total_amount && <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.total_amount}</p>}
                 </div>

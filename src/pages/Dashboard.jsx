@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Calendar as CalendarIcon, Clock, CheckCircle, TrendingUp, ChevronLeft, ChevronRight, RefreshCw, X, ArrowRight, Eye } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, CheckCircle, TrendingUp, ChevronLeft, ChevronRight, RefreshCw, X, ArrowRight, Eye, Search } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -10,6 +10,8 @@ import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { isUnverifiedPayment } from '../utils/payments';
+import DateRangeFilter from './Reports/DateRangeFilter';
+import { getRangeBounds, isWithinRange } from './Reports/helpers';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -36,6 +38,12 @@ export default function Dashboard() {
   const [statsModalData, setStatsModalData] = useState([]);
   const [statsModalTitle, setStatsModalTitle] = useState('');
   const [statsModalType, setStatsModalType] = useState('');
+  const [statsSearchTerm, setStatsSearchTerm] = useState('');
+  const [statsTypeFilter, setStatsTypeFilter] = useState('All'); // 'All' | 'Package' | 'Short Order'
+  const [statsMethodFilter, setStatsMethodFilter] = useState('All'); // revenue view only
+  const [statsDatePreset, setStatsDatePreset] = useState('All Time');
+  const [statsDateCustomStart, setStatsDateCustomStart] = useState('');
+  const [statsDateCustomEnd, setStatsDateCustomEnd] = useState('');
 
   // --- Helper ---
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
@@ -54,11 +62,12 @@ export default function Dashboard() {
       const startOfMonthStr = startOfMonth.toISOString().split('T')[0];
       const endOfMonthStr = endOfMonth.toISOString().split('T')[0];
 
-      // --- Calendar events (Package only) ---
+      // --- Calendar events (Package + Short Order — the calendar tracks
+      // per-date what type(s) are on it, not just a count, so the day dot
+      // can show which type the events actually are) ---
       const { data: monthBookings, error: monthError } = await supabase
         .from('booking')
-        .select('event_datetime, booking_status')
-        .eq('booking_type', 'Package')
+        .select('event_datetime, booking_status, booking_type')
         .gte('event_datetime', startOfMonthStr)
         .lte('event_datetime', endOfMonthStr)
         .in('booking_status', ['Pending', ...ACTIVE_BOOKING_STATUSES]);
@@ -69,8 +78,13 @@ export default function Dashboard() {
       (monthBookings || []).forEach(b => {
         if (b.event_datetime) {
           const date = new Date(b.event_datetime).toISOString().split('T')[0];
-          if (!eventMap[date]) eventMap[date] = 0;
-          eventMap[date]++;
+          if (!eventMap[date]) eventMap[date] = { count: 0, hasPackage: false, hasShortOrder: false };
+          eventMap[date].count++;
+          if (b.booking_type === 'Short Order') {
+            eventMap[date].hasShortOrder = true;
+          } else {
+            eventMap[date].hasPackage = true;
+          }
         }
       });
       setEventDates(eventMap);
@@ -251,10 +265,13 @@ export default function Dashboard() {
     }
     for (let i = 1; i <= daysInMonth; i++) {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+      const dayEvents = eventDates[dateStr];
       days.push({
         day: i,
         date: dateStr,
-        hasEvent: !!eventDates[dateStr],
+        hasEvent: !!dayEvents,
+        hasPackage: !!dayEvents?.hasPackage,
+        hasShortOrder: !!dayEvents?.hasShortOrder,
         isToday: dateStr === new Date().toISOString().split('T')[0],
       });
     }
@@ -276,13 +293,13 @@ export default function Dashboard() {
         .select(`
           booking_id,
           booking_number,
+          booking_type,
           venue,
           pax_count,
           event_datetime,
           booking_status,
           customer:customer_id (first_name, last_name)
         `)
-        .eq('booking_type', 'Package')
         .in('booking_status', ['Pending', ...ACTIVE_BOOKING_STATUSES, 'Completed'])
         .gte('event_datetime', `${dateStr} 00:00:00`)
         .lt('event_datetime', `${dateStr} 23:59:59`)
@@ -356,6 +373,7 @@ export default function Dashboard() {
       setStatsModalData(data || []);
       setStatsModalTitle("Today's Events");
       setStatsModalType('today');
+      resetStatsFilters();
       setIsStatsModalOpen(true);
     } catch (error) {
       handleError(error, 'Failed to load today\'s events.');
@@ -382,6 +400,7 @@ export default function Dashboard() {
       setStatsModalData(data || []);
       setStatsModalTitle('Pending Orders (All Types)');
       setStatsModalType('pending');
+      resetStatsFilters();
       setIsStatsModalOpen(true);
     } catch (error) {
       handleError(error, 'Failed to load pending orders.');
@@ -414,6 +433,7 @@ export default function Dashboard() {
       setStatsModalData(data || []);
       setStatsModalTitle('Upcoming Events (7 days)');
       setStatsModalType('upcoming');
+      resetStatsFilters();
       setIsStatsModalOpen(true);
     } catch (error) {
       handleError(error, 'Failed to load upcoming events.');
@@ -447,19 +467,67 @@ export default function Dashboard() {
         .lte('pay_datetime', endOfMonthStr)
         .order('pay_datetime', { ascending: false });
       if (error) throw error;
-      setStatsModalData(data || []);
-      setStatsModalTitle(`Revenue This Month (${today.toLocaleString('default', { month: 'long', year: 'numeric' })})`);
+      // Match the card total: Pending Verification / Proof Rejected rows
+      // aren't real collected money yet.
+      setStatsModalData((data || []).filter(p => !isUnverifiedPayment(p)));
+      setStatsModalTitle(`Net Collected This Month (${today.toLocaleString('default', { month: 'long', year: 'numeric' })})`);
       setStatsModalType('revenue');
+      resetStatsFilters();
       setIsStatsModalOpen(true);
     } catch (error) {
       handleError(error, 'Failed to load revenue data.');
     }
   };
 
+  const resetStatsFilters = () => {
+    setStatsSearchTerm('');
+    setStatsTypeFilter('All');
+    setStatsMethodFilter('All');
+    setStatsDatePreset('All Time');
+    setStatsDateCustomStart('');
+    setStatsDateCustomEnd('');
+  };
+
   const closeStatsModal = () => {
     setIsStatsModalOpen(false);
     setStatsModalData([]);
+    resetStatsFilters();
   };
+
+  // --- Stats modal search/filter — same pattern as Payments.jsx's summary
+  // modals, applied here so every card-click record list filters the same way.
+  const { start: statsDateRangeStart, end: statsDateRangeEnd } = getRangeBounds(statsDatePreset, statsDateCustomStart, statsDateCustomEnd);
+
+  const filteredStatsModalData = statsModalData.filter(item => {
+    if (statsModalType === 'revenue') {
+      const itemType = item.booking?.booking_type === 'Short Order' ? 'Short Order' : 'Package';
+      if (statsTypeFilter !== 'All' && itemType !== statsTypeFilter) return false;
+      if (statsMethodFilter !== 'All' && item.pay_method !== statsMethodFilter) return false;
+      if (statsDatePreset !== 'All Time' && !isWithinRange(item.pay_datetime, statsDateRangeStart, statsDateRangeEnd)) return false;
+      if (statsSearchTerm.trim()) {
+        const term = statsSearchTerm.toLowerCase();
+        const customerName = item.booking?.customer
+          ? `${item.booking.customer.first_name} ${item.booking.customer.last_name}`.toLowerCase()
+          : '';
+        const ref = (item.booking?.booking_number || item.booking?.booking_id || '').toLowerCase();
+        const venue = (item.booking?.venue || '').toLowerCase();
+        if (!customerName.includes(term) && !ref.includes(term) && !venue.includes(term)) return false;
+      }
+      return true;
+    }
+    const itemType = item.booking_type === 'Short Order' ? 'Short Order' : 'Package';
+    if (statsTypeFilter !== 'All' && itemType !== statsTypeFilter) return false;
+    if (statsDatePreset !== 'All Time' && !isWithinRange(item.event_datetime, statsDateRangeStart, statsDateRangeEnd)) return false;
+    if (statsSearchTerm.trim()) {
+      const term = statsSearchTerm.toLowerCase();
+      const customerName = getClientName(item).toLowerCase();
+      const ref = getBookingRef(item).toLowerCase();
+      const venue = (item.venue || '').toLowerCase();
+      if (!customerName.includes(term) && !ref.includes(term) && !venue.includes(term)) return false;
+    }
+    return true;
+  });
+  const activeStatsFilterCount = (statsSearchTerm.trim() ? 1 : 0) + (statsTypeFilter !== 'All' ? 1 : 0) + (statsModalType === 'revenue' && statsMethodFilter !== 'All' ? 1 : 0) + (statsDatePreset !== 'All Time' ? 1 : 0);
 
   const handleStatsRowClick = (item) => {
     if (item.booking_id) {
@@ -558,7 +626,7 @@ export default function Dashboard() {
           <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
         </button>
 
-        {/* Revenue This Month */}
+        {/* Net Collected This Month */}
         <button
           onClick={handleRevenueClick}
           className="relative overflow-hidden bg-white border border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-[#008A45]/40 transition-all cursor-pointer group"
@@ -570,7 +638,7 @@ export default function Dashboard() {
           <span className="text-3xl font-extrabold text-slate-900 mb-1">
             ₱{stats.revenueThisMonth.toLocaleString()}
           </span>
-          <span className="text-sm font-medium text-slate-600">Revenue This Month</span>
+          <span className="text-sm font-medium text-slate-600">Net Collected This Month</span>
           <ArrowRight size={14} className="absolute top-3 right-3 text-[#008A45] opacity-0 group-hover:opacity-100 transition-opacity" />
           <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
         </button>
@@ -602,11 +670,26 @@ export default function Dashboard() {
                   `}
                 >
                   {day?.day}
-                  {day?.hasEvent && !day?.isToday && (
-                    <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-1.5 h-1.5 bg-[#008A45] rounded-full"></span>
+                  {day?.hasEvent && (
+                    <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 flex items-center gap-0.5">
+                      {day.hasPackage && (
+                        <span className={`w-1.5 h-1.5 rounded-full ${day.isToday ? 'bg-white' : 'bg-[#008A45]'}`}></span>
+                      )}
+                      {day.hasShortOrder && (
+                        <span className={`w-1.5 h-1.5 rounded-full ${day.isToday ? 'bg-white/70' : 'bg-purple-500'}`}></span>
+                      )}
+                    </span>
                   )}
                 </div>
               ))}
+            </div>
+            <div className="flex items-center justify-center gap-4 mt-3">
+              <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#008A45]"></span> Package
+              </span>
+              <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
+                <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span> Short Order
+              </span>
             </div>
           </div>
 
@@ -730,27 +813,35 @@ export default function Dashboard() {
                 <p className="text-sm text-slate-500 italic text-center py-8">No events on this day.</p>
               ) : (
                 <div className="space-y-3">
-                  {selectedDateEvents.map(event => (
-                    <div
-                      key={event.booking_id}
-                      onClick={() => {
-                        setShowDateModal(false);
-                        navigate(`/app/bookings/${event.booking_id}`);
-                      }}
-                      className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex justify-between items-center cursor-pointer hover:bg-slate-100 transition-colors"
-                    >
-                      <div>
-                        <p className="font-bold text-slate-900 text-sm">{getClientName(event)}</p>
-                        <p className="text-xs text-slate-500">{event.venue || 'No venue'} · {event.pax_count || 0} pax</p>
+                  {selectedDateEvents.map(event => {
+                    const isShortOrder = event.booking_type === 'Short Order';
+                    return (
+                      <div
+                        key={event.booking_id}
+                        onClick={() => {
+                          setShowDateModal(false);
+                          navigate(`${isShortOrder ? '/app/orders' : '/app/bookings'}/${event.booking_id}`);
+                        }}
+                        className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex justify-between items-center cursor-pointer hover:bg-slate-100 transition-colors"
+                      >
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <p className="font-bold text-slate-900 text-sm">{getClientName(event)}</p>
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${isShortOrder ? 'bg-purple-100 text-purple-700 border border-purple-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
+                              {isShortOrder ? 'Short Order' : 'Package'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500">{event.venue || 'No venue'} · {event.pax_count || 0} pax</p>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-xs text-slate-600">{formatTime(event.event_datetime)}</span>
+                          <span className={`block text-xs font-medium ${event.booking_status === 'Approved' ? 'text-green-600' : event.booking_status === 'Confirmed' ? 'text-emerald-600' : event.booking_status === 'Completed' ? 'text-blue-600' : 'text-amber-600'}`}>
+                            {event.booking_status}
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-xs text-slate-600">{formatTime(event.event_datetime)}</span>
-                        <span className={`block text-xs font-medium ${event.booking_status === 'Approved' ? 'text-green-600' : event.booking_status === 'Confirmed' ? 'text-emerald-600' : event.booking_status === 'Completed' ? 'text-blue-600' : 'text-amber-600'}`}>
-                          {event.booking_status}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -766,7 +857,7 @@ export default function Dashboard() {
             <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0 bg-white">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">{statsModalTitle}</h2>
-                <p className="text-xs text-slate-500 mt-0.5">{statsModalData.length} record(s) found</p>
+                <p className="text-xs text-slate-500 mt-0.5">{filteredStatsModalData.length} of {statsModalData.length} record(s) shown</p>
               </div>
               <button
                 onClick={closeStatsModal}
@@ -775,9 +866,80 @@ export default function Dashboard() {
                 <X size={18} />
               </button>
             </div>
+
+            {statsModalData.length > 0 && (
+              <div className={`px-6 py-3 border-b space-y-2 shrink-0 ${activeStatsFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-200'}`}>
+                <div className="flex flex-wrap items-center gap-3">
+                  {activeStatsFilterCount > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shrink-0">
+                      {activeStatsFilterCount} active
+                    </span>
+                  )}
+                  <div className="relative flex-1 min-w-[200px]">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                    <input
+                      type="text"
+                      placeholder="Search by client name, ref, or venue..."
+                      value={statsSearchTerm}
+                      onChange={(e) => setStatsSearchTerm(e.target.value)}
+                      className={`w-full pl-8 pr-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${statsSearchTerm.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
+                    />
+                  </div>
+                  <select
+                    value={statsTypeFilter}
+                    onChange={(e) => setStatsTypeFilter(e.target.value)}
+                    className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${statsTypeFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
+                  >
+                    <option value="All">All types</option>
+                    <option value="Package">Package</option>
+                    <option value="Short Order">Short Order</option>
+                  </select>
+                  {statsModalType === 'revenue' && (
+                    <select
+                      value={statsMethodFilter}
+                      onChange={(e) => setStatsMethodFilter(e.target.value)}
+                      className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${statsMethodFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
+                    >
+                      <option value="All">All methods</option>
+                      <option value="Cash">Cash</option>
+                      <option value="GCash">GCash</option>
+                      <option value="Bank Transfer">Bank Transfer</option>
+                      <option value="Refund">Refund</option>
+                    </select>
+                  )}
+                  {activeStatsFilterCount > 0 && (
+                    <button
+                      onClick={resetStatsFilters}
+                      className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors cursor-pointer"
+                    >
+                      Clear filters
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-col items-start gap-1">
+                  <p className="text-xs font-semibold text-slate-600">
+                    Filter by {statsModalType === 'revenue' ? 'payment date' : 'event date'}:
+                  </p>
+                  <DateRangeFilter
+                    preset={statsDatePreset}
+                    customStart={statsDateCustomStart}
+                    customEnd={statsDateCustomEnd}
+                    rangeStart={statsDateRangeStart}
+                    rangeEnd={statsDateRangeEnd}
+                    onPresetChange={setStatsDatePreset}
+                    onCustomStartChange={setStatsDateCustomStart}
+                    onCustomEndChange={setStatsDateCustomEnd}
+                    onClear={() => { setStatsDatePreset('All Time'); setStatsDateCustomStart(''); setStatsDateCustomEnd(''); }}
+                  />
+                </div>
+              </div>
+            )}
+
             <div className="p-6 overflow-y-auto flex-1">
               {statsModalData.length === 0 ? (
                 <div className="text-center py-10 text-slate-500">No records found for this category.</div>
+              ) : filteredStatsModalData.length === 0 ? (
+                <div className="text-center py-10 text-slate-500">No records match your search/filter.</div>
               ) : (
                 <>
                   {/* Today's Events / Pending / Upcoming - Booking list */}
@@ -796,7 +958,7 @@ export default function Dashboard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-sm">
-                        {statsModalData.map((item) => {
+                        {filteredStatsModalData.map((item) => {
                           const isShortOrder = item.booking_type === 'Short Order';
                           const detailPath = isShortOrder ? '/app/orders' : '/app/bookings';
                           return (
@@ -842,14 +1004,14 @@ export default function Dashboard() {
                       <tfoot className="bg-slate-50 border-t-2 border-slate-200">
                         <tr>
                           <td colSpan="8" className="p-3 text-right font-bold text-slate-700">
-                            Total: {statsModalData.length} record(s)
+                            Total: {filteredStatsModalData.length} record(s)
                           </td>
                         </tr>
                       </tfoot>
                     </table>
                   )}
 
-                  {/* Revenue - Payment list */}
+                  {/* Net Collected - Payment list */}
                   {statsModalType === 'revenue' && (
                     <table className="w-full text-left border-collapse">
                       <thead>
@@ -865,7 +1027,7 @@ export default function Dashboard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-sm">
-                        {statsModalData.map((payment) => {
+                        {filteredStatsModalData.map((payment) => {
                           const booking = payment.booking;
                           const customerName = booking?.customer
                             ? `${booking.customer.first_name} ${booking.customer.last_name}`
@@ -918,9 +1080,9 @@ export default function Dashboard() {
                       </tbody>
                       <tfoot className="bg-slate-50 border-t-2 border-slate-200">
                         <tr>
-                          <td colSpan="3" className="p-3 text-right font-bold text-slate-700">Total Revenue:</td>
+                          <td colSpan="3" className="p-3 text-right font-bold text-slate-700">Total Net Collected:</td>
                           <td className="p-3 text-right font-bold text-emerald-700">
-                            ₱{statsModalData.reduce((sum, p) => sum + (p.amount_paid || 0), 0).toLocaleString()}
+                            ₱{filteredStatsModalData.reduce((sum, p) => sum + (p.amount_paid || 0), 0).toLocaleString()}
                           </td>
                           <td colSpan="4" className="p-3"></td>
                         </tr>

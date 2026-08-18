@@ -12,6 +12,22 @@
 // those checks.
 export const ACTIVE_BOOKING_STATUSES = ['Approved', 'Confirmed'];
 
+// The `booking.status_order` DB column drives the Bookings/ShortOrders list
+// pages' primary sort (Pending first, then Approved, Confirmed, Completed,
+// Cancelled, Rejected, with newest-created first inside each group) — it
+// exists because PostgREST can't ORDER BY an arbitrary CASE expression, so
+// this needs a real column. It is NOT auto-maintained by the database —
+// every place that changes booking_status must also set the matching
+// status_order value here, or that row stops sorting into the right group.
+export const STATUS_ORDER = {
+  Pending: 1,
+  Approved: 2,
+  Confirmed: 3,
+  Completed: 4,
+  Rejected: 5,
+  Cancelled: 6,
+};
+
 // Business rule: the kitchen can only handle 4 Short Orders on any one
 // calendar day. This caps how many Short Orders can be Approved/Confirmed
 // (i.e. ACTIVE_BOOKING_STATUSES) for the same event date — enforced as a

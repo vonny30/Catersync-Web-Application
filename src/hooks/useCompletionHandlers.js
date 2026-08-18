@@ -16,6 +16,7 @@ import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { sumVerifiedPositivePayments } from '../utils/payments';
+import { STATUS_ORDER } from '../utils/bookingStatus';
 
 export function useCompletionHandlers({ booking, payments, fetchData, noun = 'booking' }) {
   const { showConfirm } = useConfirm();
@@ -48,7 +49,7 @@ export function useCompletionHandlers({ booking, payments, fetchData, noun = 'bo
     try {
       const { error } = await supabase
         .from('booking')
-        .update({ booking_status: 'Completed', is_read: true })
+        .update({ booking_status: 'Completed', status_order: STATUS_ORDER.Completed, is_read: true })
         .eq('booking_id', booking.booking_id);
       if (error) throw error;
 

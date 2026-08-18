@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { allocateEquipmentForBooking, getEquipmentAvailabilityPreview } from '../utils/equipment';
 import { sumVerifiedPositivePayments } from '../utils/payments';
-import { ACTIVE_BOOKING_STATUSES, MAX_SHORT_ORDERS_PER_DAY } from '../utils/bookingStatus';
+import { ACTIVE_BOOKING_STATUSES, MAX_SHORT_ORDERS_PER_DAY, STATUS_ORDER } from '../utils/bookingStatus';
 
 export function useApprovalHandlers({ booking, payments, fetchData }) {
   const { showConfirm } = useConfirm();
@@ -220,7 +220,7 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
       // clicking into the row or opening the detail page, so a booking
       // acted on straight from a modal (like this one) would otherwise
       // keep showing as unread forever despite clearly being handled.
-      let updatePayload = { booking_status: 'Approved', is_read: true };
+      let updatePayload = { booking_status: 'Approved', status_order: STATUS_ORDER.Approved, is_read: true };
       if (approvalType === 'package') {
         const newPax = approvalBooking.pax_count + (approvalData.extraPax || 0);
         updatePayload.pax_count = newPax;

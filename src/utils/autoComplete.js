@@ -13,6 +13,7 @@
 // the fact that money is still owed; a human needs to chase that, not have
 // it silently marked done.
 import { supabase } from '../supabase';
+import { STATUS_ORDER } from './bookingStatus';
 
 export const AUTO_COMPLETE_GRACE_HOURS = 5;
 
@@ -46,7 +47,7 @@ export async function autoCompletePastEvents(records) {
 
   const ids = eligible.map(r => r.booking_id);
   try {
-    const { error } = await supabase.from('booking').update({ booking_status: 'Completed', is_read: true }).in('booking_id', ids);
+    const { error } = await supabase.from('booking').update({ booking_status: 'Completed', status_order: STATUS_ORDER.Completed, is_read: true }).in('booking_id', ids);
     if (error) throw error;
 
     const { error: equipReturnError } = await supabase

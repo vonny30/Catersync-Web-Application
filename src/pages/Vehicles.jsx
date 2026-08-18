@@ -1,5 +1,5 @@
 // src/pages/Vehicles.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import {
@@ -650,6 +650,17 @@ export default function Vehicles() {
     setActiveTableTab('assignments');
   };
 
+  // --- Jump to the Availability tab (Vehicles deployed / free stat cards) —
+  // switching the tab alone is invisible when it's already the active tab
+  // (the default), which is why those cards read as "not clickable"; the
+  // scroll + a status filter give a visible reaction every time. ---
+  const availabilityPanelRef = useRef(null);
+  const scrollToAvailability = (statusFilter) => {
+    setActiveTableTab('availability');
+    setAvailabilityStatusFilter(statusFilter);
+    availabilityPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   // ============================================================
   // --- DATE-SCOPED STATS ---
   // ============================================================
@@ -936,7 +947,7 @@ export default function Vehicles() {
             <p className="text-[10px] text-slate-400 group-hover:text-[#008A45] transition-colors mt-1">Click to view</p>
           </button>
           <button
-            onClick={() => setActiveTableTab('availability')}
+            onClick={() => scrollToAvailability('deployed')}
             className="bg-white border border-slate-200 border-l-4 border-l-blue-500 rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
           >
             <p className="text-xs font-semibold text-slate-600 mb-1">Vehicles deployed</p>
@@ -944,7 +955,7 @@ export default function Vehicles() {
             <p className="text-[10px] text-slate-400 group-hover:text-blue-600 transition-colors mt-1">on this date → Availability tab</p>
           </button>
           <button
-            onClick={() => setActiveTableTab('availability')}
+            onClick={() => scrollToAvailability('free')}
             className="bg-white border border-slate-200 border-l-4 border-l-emerald-500 rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
           >
             <p className="text-xs font-semibold text-slate-600 mb-1">Vehicles free</p>
@@ -960,7 +971,7 @@ export default function Vehicles() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
 
       {/* --- TAB CONTROL --- */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <div ref={availabilityPanelRef} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-2 bg-slate-50 border-b border-slate-200">
           <div className="flex items-center gap-1">
             <button

@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import {
-  claimManagerSession,
+  claimManagerSessionIfFree,
   verifyOrReclaimManagerSession,
   releaseManagerSessionClaim,
   releaseManagerSessionClaimBeacon,
@@ -21,6 +21,14 @@ export const AuthProvider = ({ children }) => {
   // blanking the whole app, so the UI doesn't flicker/reload mid-flow.
   const [initializing, setInitializing] = useState(true);
   const [isManager, setIsManager] = useState(false);
+  // Set when a fresh login attempt is rejected because the account is
+  // already signed in elsewhere. Login.jsx surfaces this as its own
+  // inline error banner (same spot as "wrong password", etc.) instead of
+  // a toast, since the person seeing it is sitting right there on the
+  // login form.
+  const [sessionConflictMessage, setSessionConflictMessage] = useState(null);
+  const clearSessionConflictMessage = () => setSessionConflictMessage(null);
+  const isBlockedRef = useRef(false);
   const kickedAtRef = useRef(null);
   const isCreatingWalkIn = useRef(false);
   const inactivityTimerRef = useRef(null);
@@ -181,13 +189,29 @@ export const AuthProvider = ({ children }) => {
       // --- Single active session enforcement ---
       let lockResult;
       if (isFreshSignIn) {
-        // A fresh login always claims the session outright, kicking out
-        // whatever device/tab was previously logged in as this manager.
-        // The kicked side gets a clear notification (see the 'kicked'
-        // toast below) — no confirmation prompt on this side.
-        const tabSessionId = await claimManagerSession(manager.manager_id);
-        console.log('[session-lock] Claimed (fresh sign-in):', tabSessionId);
-        lockResult = { status: 'claimed', tabSessionId };
+        // A fresh login only succeeds while the account is unclaimed —
+        // if it's already active elsewhere, THIS attempt is rejected;
+        // the other side is never touched.
+        const claim = await claimManagerSessionIfFree(manager.manager_id);
+        if (!claim.claimed) {
+          console.log('[session-lock] Blocked — account already active elsewhere.', claim);
+          isBlockedRef.current = true;
+          const since = claim.activeSince
+            ? new Date(claim.activeSince).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+            : null;
+          setSessionConflictMessage(
+            since
+              ? `This account is already signed in on another device or browser (since ${since}). Please log out there first, or wait for that session to end.`
+              : 'This account is already signed in on another device or browser. Please log out there first, or wait for that session to end.'
+          );
+          // Local-scope only — this brand-new sign-in never should have
+          // been granted app access, but revoking globally would also
+          // invalidate the OTHER, still-legitimate session's tokens.
+          await supabase.auth.signOut({ scope: 'local' });
+          return false;
+        }
+        console.log('[session-lock] Claimed (fresh sign-in):', claim.tabSessionId);
+        lockResult = { status: 'claimed', tabSessionId: claim.tabSessionId };
       } else {
         lockResult = await verifyOrReclaimManagerSession(manager.manager_id);
         console.log('[session-lock] verifyOrReclaim result:', lockResult.status, lockResult.tabSessionId);
@@ -298,6 +322,11 @@ if (event === 'SIGNED_OUT') {
             );
             isKickedRef.current = false;
             kickedAtRef.current = null;
+          } else if (isBlockedRef.current) {
+            // Rejected fresh-login attempt — the specific reason is
+            // already shown via sessionConflictMessage (Login.jsx renders
+            // it as its own inline error), so skip the generic toast here.
+            isBlockedRef.current = false;
           } else {
             // Only show this if they're not already on the login page —
             // avoids toast spam when we force a logout during email/password
@@ -395,7 +424,7 @@ if (event === 'SIGNED_OUT') {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, initializing, isManager, login, logout, withWalkInCreation }}>
+    <AuthContext.Provider value={{ user, loading, initializing, isManager, login, logout, withWalkInCreation, sessionConflictMessage, clearSessionConflictMessage }}>
       {children}
     </AuthContext.Provider>
   );

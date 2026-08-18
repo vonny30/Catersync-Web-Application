@@ -1,11 +1,17 @@
 // src/utils/managerSession.js
 //
-// Enforces "one active device/tab per manager account" by storing a
+// Enforces "one active session per manager account" by storing a
 // per-login session id on manager.active_session_id and comparing it
-// against a tab-scoped id kept in sessionStorage. Opening ANY second tab
-// (even of the same browser) is treated as a takeover and kicks out
-// whatever was previously logged in, notifying it with a toast — simple,
-// strict, single-session-anywhere enforcement.
+// against a tab-scoped id kept in sessionStorage.
+//
+// A fresh login (claimManagerSessionIfFree) only succeeds while the
+// account is unclaimed — if someone else is already signed in, the new
+// attempt is rejected outright instead of stealing the slot and forcing
+// the other side out. The claim is released when that other side logs
+// out normally, or automatically when their tab/browser closes (see
+// releaseManagerSessionClaimBeacon, wired up on `pagehide` in
+// AuthContext) — so a blocked login attempt is never a permanent lockout,
+// just "try again once the other session actually ends."
 //
 // Requires the SQL migration in sql/manager_session_lock.sql to be run
 // against the Supabase project (adds the column + enables Realtime on
@@ -22,21 +28,49 @@ function writeTabSessionId(id) {
   sessionStorage.setItem(TAB_SESSION_KEY, id);
 }
 
-// Unconditionally takes ownership of the manager's active session,
-// kicking out whatever device/tab was previously logged in as them.
-// Only call this right after a fresh, fully-authenticated login.
-export async function claimManagerSession(managerId) {
+// Claims the manager's session slot ONLY if nobody else currently holds
+// it. Only call this right after a fresh, fully-authenticated login.
+//
+// Returns { claimed: true, tabSessionId } on success, or
+// { claimed: false, activeSince } if another device/browser already
+// holds the claim — the caller is responsible for rejecting this login
+// attempt (sign the just-created auth session back out) rather than
+// granting access.
+export async function claimManagerSessionIfFree(managerId) {
   const tabSessionId = crypto.randomUUID();
-  writeTabSessionId(tabSessionId);
-  const { error } = await supabase
+
+  // Read first so a rejected attempt can tell the user *when* the other
+  // session started, for a clearer message.
+  const { data: existing, error: readError } = await supabase
+    .from('manager')
+    .select('active_session_id, active_session_started_at')
+    .eq('manager_id', managerId)
+    .maybeSingle();
+  if (readError) throw readError;
+
+  if (existing?.active_session_id) {
+    return { claimed: false, activeSince: existing.active_session_started_at || null };
+  }
+
+  // Conditional write — only succeeds if still unclaimed by the time this
+  // lands, closing the race where two logins both read "free" at once.
+  const { data: updated, error: updateError } = await supabase
     .from('manager')
     .update({
       active_session_id: tabSessionId,
       active_session_started_at: new Date().toISOString(),
     })
-    .eq('manager_id', managerId);
-  if (error) throw error;
-  return tabSessionId;
+    .eq('manager_id', managerId)
+    .is('active_session_id', null)
+    .select('manager_id');
+  if (updateError) throw updateError;
+
+  if (!updated || updated.length === 0) {
+    return { claimed: false, activeSince: null };
+  }
+
+  writeTabSessionId(tabSessionId);
+  return { claimed: true, tabSessionId };
 }
 
 // Called on page load / token refresh (NOT a fresh login). If nobody else

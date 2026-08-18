@@ -3,6 +3,7 @@ import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { sumVerifiedPositivePayments } from '../utils/payments';
+import { STATUS_ORDER } from '../utils/bookingStatus';
 
 export function useCancellationHandlers({ booking, payments, fetchData }) {
   const { showConfirm } = useConfirm();
@@ -114,7 +115,7 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
 
       const { error: updateError } = await supabase
         .from('booking')
-        .update({ booking_status: 'Cancelled', notes: updatedNotes, is_read: true })
+        .update({ booking_status: 'Cancelled', status_order: STATUS_ORDER.Cancelled, notes: updatedNotes, is_read: true })
         .eq('booking_id', booking.booking_id);
       if (updateError) throw updateError;
 
