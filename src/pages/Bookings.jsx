@@ -955,7 +955,7 @@ export default function Bookings() {
     try {
       const { error } = await supabase
         .from('booking')
-        .update({ booking_status: 'Confirmed' })
+        .update({ booking_status: 'Confirmed', is_read: true })
         .eq('booking_id', id);
       if (error) throw error;
       toast.success('Event confirmed!');
@@ -994,7 +994,7 @@ const handleMarkCompleted = async (id) => {
     // 1. Update booking status
     const { error } = await supabase
       .from('booking')
-      .update({ booking_status: 'Completed' })
+      .update({ booking_status: 'Completed', is_read: true })
       .eq('booking_id', id);
     if (error) throw error;
 
@@ -1128,6 +1128,7 @@ const handleMarkCompleted = async (id) => {
 
   const STATUS_LIST = ['Pending', 'Approved', 'Confirmed', 'Completed', 'Rejected', 'Cancelled'];
   const hasActiveFilters = datePreset !== 'All Time' || filters.customerId || filters.packageId || filters.venue;
+  const activeFilterCount = [!!searchTerm, datePreset !== 'All Time', !!filters.customerId, !!filters.packageId, !!filters.venue].filter(Boolean).length;
 
   const getStatusBadge = (status) => {
     const map = {
@@ -1240,11 +1241,16 @@ const handleMarkCompleted = async (id) => {
       </div>
 
       {/* FILTERS */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+      <div className={`bg-white rounded-2xl border shadow-sm p-5 transition-colors ${activeFilterCount > 0 ? 'border-[#008A45]/30' : 'border-slate-200'}`}>
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <Filter size={13} className="text-slate-400" />
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#EAF3F2] text-[#007038] text-[10px] font-bold border border-[#008A45]/30">
+                {activeFilterCount} active
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {(hasActiveFilters || searchTerm) && (
@@ -1274,26 +1280,26 @@ const handleMarkCompleted = async (id) => {
 
         <div className="flex flex-wrap items-start gap-3">
           <div className="relative flex-1 min-w-[220px]">
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Search</label>
+            <label className={`block text-[11px] font-semibold mb-1 ${searchTerm ? 'text-[#007038]' : 'text-slate-500'}`}>Search</label>
             <div className="relative">
               <input
                 type="text"
                 placeholder="Client name or booking ref..."
                 value={searchTerm}
                 onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-                className="w-full border border-slate-300 rounded-lg py-2.5 pl-4 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] bg-white"
+                className={`w-full border rounded-lg py-2.5 pl-4 pr-10 text-sm outline-none transition-colors ${searchTerm ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-300 bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
               />
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             </div>
           </div>
 
           <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Customer</label>
+            <label className={`block text-[11px] font-semibold mb-1 ${filters.customerId ? 'text-[#007038]' : 'text-slate-500'}`}>Customer</label>
             <select
               name="customerId"
               value={filters.customerId}
               onChange={handleFilterChange}
-              className="border border-slate-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+              className={`border rounded-lg px-3 py-2.5 text-sm outline-none transition-colors ${filters.customerId ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-300 bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
             >
               <option value="">All Customers</option>
               {customers.map(c => (
@@ -1303,12 +1309,12 @@ const handleMarkCompleted = async (id) => {
           </div>
 
           <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Package</label>
+            <label className={`block text-[11px] font-semibold mb-1 ${filters.packageId ? 'text-[#007038]' : 'text-slate-500'}`}>Package</label>
             <select
               name="packageId"
               value={filters.packageId}
               onChange={handleFilterChange}
-              className="border border-slate-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+              className={`border rounded-lg px-3 py-2.5 text-sm outline-none transition-colors ${filters.packageId ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-300 bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
             >
               <option value="">All Packages</option>
               {packages.map(p => (
@@ -1318,19 +1324,19 @@ const handleMarkCompleted = async (id) => {
           </div>
 
           <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Venue</label>
+            <label className={`block text-[11px] font-semibold mb-1 ${filters.venue ? 'text-[#007038]' : 'text-slate-500'}`}>Venue</label>
             <input
               type="text"
               name="venue"
               value={filters.venue}
               onChange={handleFilterChange}
               placeholder="e.g. Grand Pavilion"
-              className="border border-slate-300 rounded-lg px-3 py-2.5 text-sm w-40 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+              className={`border rounded-lg px-3 py-2.5 text-sm w-40 outline-none transition-colors ${filters.venue ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-300 bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
             />
           </div>
 
           <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Event Date</label>
+            <label className={`block text-[11px] font-semibold mb-1 ${datePreset !== 'All Time' ? 'text-[#007038]' : 'text-slate-500'}`}>Event Date</label>
             <DateRangeFilter
               preset={datePreset}
               customStart={customStart}

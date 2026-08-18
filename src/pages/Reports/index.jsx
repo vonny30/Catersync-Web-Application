@@ -3,6 +3,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabase';
 import toast from 'react-hot-toast';
 import { getBookingRef, getRangeBounds, isWithinRange } from './helpers';
+import { isUnverifiedPayment } from '../../utils/payments';
+import { ACTIVE_BOOKING_STATUSES } from '../../utils/bookingStatus';
 import DateRangeFilter from './DateRangeFilter';
 import DetailModal from './DetailModal';
 import SimpleDetailModal from './SimpleDetailModal';
@@ -67,9 +69,9 @@ export default function Reports() {
         supabase.from('category').select('*'),
         supabase.from('package_category').select('package_id, category_id'),
         supabase.from('equipment').select('equipment_id, eqm_name, quantity_available, damaged_quantity, maintenance_quantity'),
-        supabase.from('booking_equipment').select('equipment_id, quantity, returned').eq('returned', false),
+        supabase.from('booking_equipment').select('equipment_id, quantity, returned, booking:booking_id (booking_status)').eq('returned', false),
         supabase.from('vehicle').select('vehicle_id, plate_number, vehicle_type, vehicle_status'),
-        supabase.from('vehicle_assign').select('vehicle_id, booking_id, assignment_status'),
+        supabase.from('vehicle_assign').select('vehicle_id, booking_id, assignment_status, booking:booking_id (booking_status)'),
       ]);
 
       const allResults = [
@@ -115,15 +117,21 @@ export default function Reports() {
     const bookingsInEventRange = bookings.filter(b => !rangeStart && !rangeEnd ? true : isWithinRange(b.event_datetime, rangeStart, rangeEnd));
     // Bookings SUBMITTED in range (funnel/customer-acquisition anchor).
     const bookingsInSubmitRange = bookings.filter(b => !rangeStart && !rangeEnd ? true : isWithinRange(b.book_datetime, rangeStart, rangeEnd));
+
+    // Pending Verification / Proof Rejected rows aren't real collected money
+    // yet — matches sumVerifiedPositivePayments' definition used everywhere
+    // else in the app (booking detail pages, Payments.jsx), so "Revenue
+    // Collected" here means the same thing it means there.
+    const verifiedPayments = payments.filter(p => !isUnverifiedPayment(p));
     // Payments RECEIVED in range.
-    const paymentsInRange = payments.filter(p => !rangeStart && !rangeEnd ? true : isWithinRange(p.pay_datetime, rangeStart, rangeEnd));
+    const paymentsInRange = verifiedPayments.filter(p => !rangeStart && !rangeEnd ? true : isWithinRange(p.pay_datetime, rangeStart, rangeEnd));
 
     const activeBookingsInRange = bookingsInEventRange.filter(b => !CANCELLED_STATUSES.includes(b.booking_status));
     const activeBookingIds = new Set(activeBookingsInRange.map(b => b.booking_id));
 
     // --- FINANCIAL ---
     const paymentMap = {};
-    payments.forEach(p => {
+    verifiedPayments.forEach(p => {
       if (!activeBookingIds.has(p.booking_id)) return;
       paymentMap[p.booking_id] = (paymentMap[p.booking_id] || 0) + p.amount_paid;
     });
@@ -147,7 +155,7 @@ export default function Reports() {
       };
       revenueBreakdown.push(bookingInfo);
       if (paid > 0) {
-        const paymentDetails = payments.filter(p => p.booking_id === b.booking_id && activeBookingIds.has(p.booking_id));
+        const paymentDetails = verifiedPayments.filter(p => p.booking_id === b.booking_id && activeBookingIds.has(p.booking_id));
         collectedBreakdown.push({ ...bookingInfo, paymentDetails });
       }
       if (outstanding > 0) outstandingBreakdown.push(bookingInfo);
@@ -276,10 +284,16 @@ export default function Reports() {
     const categoryPopularityData = Object.values(categoryCounts).sort((a, b) => b.bookings - a.bookings);
 
     // --- EQUIPMENT UTILIZATION (live snapshot, not date-filtered) ---
+    // Only counts gear tied to a booking that's actually Approved/Confirmed
+    // right now — matches how Equipment.jsx's own availability view defines
+    // "committed", so this number doesn't disagree with what that page
+    // shows for the same equipment.
     const deployedMap = {};
-    bookingEquipment.forEach(d => {
-      deployedMap[d.equipment_id] = (deployedMap[d.equipment_id] || 0) + d.quantity;
-    });
+    bookingEquipment
+      .filter(d => d.booking?.booking_status && ACTIVE_BOOKING_STATUSES.includes(d.booking.booking_status))
+      .forEach(d => {
+        deployedMap[d.equipment_id] = (deployedMap[d.equipment_id] || 0) + d.quantity;
+      });
     const equipmentUtilizationData = equipment.map(eq => {
       const deployed = deployedMap[eq.equipment_id] || 0;
       const available = eq.quantity_available || 0;
@@ -290,10 +304,17 @@ export default function Reports() {
     });
 
     // --- VEHICLE UTILIZATION (live snapshot, not date-filtered) ---
+    // Same cross-check Vehicles.jsx itself applies: a Scheduled assignment
+    // only counts as "really active" if the booking it's tied to is still
+    // Approved/Confirmed — otherwise a vehicle scheduled for a since-
+    // rejected/cancelled booking would keep showing as dispatched here even
+    // though Vehicles.jsx no longer treats it that way.
     const activeAssignmentsByVehicle = {};
-    vehicleAssignments.filter(v => v.assignment_status === 'Scheduled').forEach(v => {
-      activeAssignmentsByVehicle[v.vehicle_id] = (activeAssignmentsByVehicle[v.vehicle_id] || 0) + 1;
-    });
+    vehicleAssignments
+      .filter(v => v.assignment_status === 'Scheduled' && v.booking?.booking_status && ACTIVE_BOOKING_STATUSES.includes(v.booking.booking_status))
+      .forEach(v => {
+        activeAssignmentsByVehicle[v.vehicle_id] = (activeAssignmentsByVehicle[v.vehicle_id] || 0) + 1;
+      });
     const vehicleUtilizationData = vehicles.map(v => ({
       id: v.vehicle_id,
       plateNumber: v.plate_number,

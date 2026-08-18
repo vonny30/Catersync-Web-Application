@@ -357,6 +357,148 @@ export const getEquipmentAvailabilityPreview = async (eventDate, packageId, paxC
 };
 
 /**
+ * Full per-item availability snapshot for a single calendar date — powers
+ * the Equipment page's date-based "Availability" view. For every piece of
+ * equipment in inventory, computes how many units are committed to active
+ * (Approved/Confirmed) bookings whose event falls on that date, and what's
+ * left free. `quantity_available` is static total stock (see comment at the
+ * top of this file) — it is never decremented by assignments, so free stock
+ * for a date can only be computed, not read off a column.
+ *
+ * Uses the same double-counting guard as checkEquipmentCapacityForDate /
+ * getEquipmentAvailabilityPreview: a booking's real booking_equipment rows
+ * are used if it has any, otherwise its package template is recomputed for
+ * the theoretical demand — never both, or a normal booking's demand would
+ * get counted twice.
+ *
+ * Returns:
+ *   {
+ *     items: [{ equipment_id, eqm_name, eqm_description, equipment_type,
+ *               quantity_available, damaged_quantity, maintenance_quantity,
+ *               pax_per_unit, committed, free,
+ *               events: [{ booking_id, assignment_id, ref, customerName,
+ *                          venue, event_datetime, quantity, source }] }],
+ *     eventsOnDate: [{ booking_id, ref, customerName, venue, event_datetime,
+ *                      pax_count, booking_type }]
+ *   }
+ * `free` is intentionally not clamped at 0 — a negative value is exactly
+ * how an overbooked item on that date is surfaced to the caller.
+ */
+export const getDailyEquipmentSnapshot = async (dateStr) => {
+  if (!dateStr) return { items: [], eventsOnDate: [] };
+
+  const startOfDay = new Date(dateStr);
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(dateStr);
+  endOfDay.setHours(23, 59, 59, 999);
+
+  const { data: inventory, error: invError } = await supabase
+    .from('equipment')
+    .select('equipment_id, eqm_name, eqm_description, equipment_type, quantity_available, damaged_quantity, maintenance_quantity, pax_per_unit')
+    .order('eqm_name');
+  if (invError) throw invError;
+
+  const { data: bookings, error: bookingError } = await supabase
+    .from('booking')
+    .select(`
+      booking_id, booking_number, booking_type, package_id, pax_count, venue, event_datetime,
+      customer:customer_id (first_name, last_name)
+    `)
+    .in('booking_status', ACTIVE_BOOKING_STATUSES)
+    .gte('event_datetime', startOfDay.toISOString())
+    .lte('event_datetime', endOfDay.toISOString());
+  if (bookingError) throw bookingError;
+
+  const refFor = (b) => b.booking_number || `${b.booking_type === 'Short Order' ? 'SO' : 'BKG'}-${b.booking_id.slice(0, 8)}`;
+  const nameFor = (b) => b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
+
+  const eventsOnDate = (bookings || []).map(b => ({
+    booking_id: b.booking_id,
+    ref: refFor(b),
+    customerName: nameFor(b),
+    venue: b.venue,
+    event_datetime: b.event_datetime,
+    pax_count: b.pax_count,
+    booking_type: b.booking_type,
+  }));
+
+  if (!bookings || bookings.length === 0) {
+    return {
+      items: (inventory || []).map(inv => ({ ...inv, committed: 0, free: inv.quantity_available || 0, events: [] })),
+      eventsOnDate: [],
+    };
+  }
+
+  const bookingIds = bookings.map(b => b.booking_id);
+  const { data: realAssignments, error: assignError } = await supabase
+    .from('booking_equipment')
+    .select('assignment_id, booking_id, equipment_id, quantity')
+    .in('booking_id', bookingIds)
+    .eq('returned', false);
+  if (assignError) throw assignError;
+
+  const bookingMap = Object.fromEntries(bookings.map(b => [b.booking_id, b]));
+  const bookingIdsWithRealAllocations = new Set((realAssignments || []).map(a => a.booking_id));
+
+  const committed = {};
+  const eventsByEquipment = {};
+  const pushEvent = (equipmentId, entry) => {
+    if (!eventsByEquipment[equipmentId]) eventsByEquipment[equipmentId] = [];
+    eventsByEquipment[equipmentId].push(entry);
+  };
+
+  (realAssignments || []).forEach(a => {
+    committed[a.equipment_id] = (committed[a.equipment_id] || 0) + a.quantity;
+    const b = bookingMap[a.booking_id];
+    if (b) {
+      pushEvent(a.equipment_id, {
+        booking_id: b.booking_id,
+        booking_type: b.booking_type,
+        assignment_id: a.assignment_id,
+        ref: refFor(b),
+        customerName: nameFor(b),
+        venue: b.venue,
+        event_datetime: b.event_datetime,
+        quantity: a.quantity,
+        source: 'manual',
+      });
+    }
+  });
+
+  for (const b of bookings) {
+    if (b.package_id && !bookingIdsWithRealAllocations.has(b.booking_id)) {
+      const demand = await computeEquipmentDemand(b.package_id, b.pax_count);
+      for (const [eqId, qty] of Object.entries(demand)) {
+        committed[eqId] = (committed[eqId] || 0) + qty;
+        pushEvent(eqId, {
+          booking_id: b.booking_id,
+          booking_type: b.booking_type,
+          assignment_id: null,
+          ref: refFor(b),
+          customerName: nameFor(b),
+          venue: b.venue,
+          event_datetime: b.event_datetime,
+          quantity: qty,
+          source: 'estimated',
+        });
+      }
+    }
+  }
+
+  const items = (inventory || []).map(inv => {
+    const committedQty = committed[inv.equipment_id] || 0;
+    return {
+      ...inv,
+      committed: committedQty,
+      free: (inv.quantity_available || 0) - committedQty,
+      events: (eventsByEquipment[inv.equipment_id] || []).sort((a, b) => new Date(a.event_datetime) - new Date(b.event_datetime)),
+    };
+  });
+
+  return { items, eventsOnDate };
+};
+
+/**
  * Calculate the recommended quantity for a specific equipment item
  * based on pax count and the equipment's pax_per_unit.
  * 

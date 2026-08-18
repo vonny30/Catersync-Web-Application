@@ -9,6 +9,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
+import { isUnverifiedPayment } from '../utils/payments';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -158,15 +159,19 @@ export default function Dashboard() {
       if (upcomingError) throw upcomingError;
       setStats(prev => ({ ...prev, upcomingEvents: upcomingData?.length || 0 }));
 
-      // --- Revenue This Month (all payments) ---
+      // --- Revenue This Month (verified payments only — Pending
+      // Verification / Proof Rejected rows aren't real collected money
+      // yet, matching sumVerifiedPositivePayments used everywhere else) ---
       const { data: revenueData, error: revenueError } = await supabase
         .from('payment')
-        .select('amount_paid')
+        .select('amount_paid, pay_status')
         .gte('pay_datetime', startOfMonthStr)
         .lte('pay_datetime', endOfMonthStr);
 
       if (revenueError) throw revenueError;
-      const totalRevenue = (revenueData || []).reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+      const totalRevenue = (revenueData || [])
+        .filter(p => !isUnverifiedPayment(p))
+        .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
       setStats(prev => ({ ...prev, revenueThisMonth: totalRevenue }));
 
     } catch (error) {

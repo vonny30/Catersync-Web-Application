@@ -12,6 +12,12 @@
 // those checks.
 export const ACTIVE_BOOKING_STATUSES = ['Approved', 'Confirmed'];
 
+// Business rule: the kitchen can only handle 4 Short Orders on any one
+// calendar day. This caps how many Short Orders can be Approved/Confirmed
+// (i.e. ACTIVE_BOOKING_STATUSES) for the same event date — enforced as a
+// hard block at approval time, not just a soft warning.
+export const MAX_SHORT_ORDERS_PER_DAY = 4;
+
 // Editing structural fields (total_amount, pax_count, package, event date,
 // etc.) on a booking/order after real payment history exists would silently
 // desync the record from the payments already made against it — the fee

@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { allocateEquipmentForBooking, getEquipmentAvailabilityPreview } from '../utils/equipment';
 import { sumVerifiedPositivePayments } from '../utils/payments';
+import { ACTIVE_BOOKING_STATUSES, MAX_SHORT_ORDERS_PER_DAY } from '../utils/bookingStatus';
 
 export function useApprovalHandlers({ booking, payments, fetchData }) {
   const { showConfirm } = useConfirm();
@@ -180,8 +181,46 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
         }
       }
 
-      // 2. Update booking – compute new total properly
-      let updatePayload = { booking_status: 'Approved' };
+      // 1.6 Short Order daily-capacity hard-block: the kitchen can only
+      // handle MAX_SHORT_ORDERS_PER_DAY Short Orders on any one calendar
+      // day. Same "no override" pattern as the equipment block above —
+      // the manager has to resolve/reject a conflicting order first, then
+      // come back and approve.
+      if (approvalType === 'shortorder' && approvalBooking.event_datetime) {
+        const startOfDay = new Date(approvalBooking.event_datetime);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(approvalBooking.event_datetime);
+        endOfDay.setHours(23, 59, 59, 999);
+
+        const { count: sameDayCount, error: countError } = await supabase
+          .from('booking')
+          .select('*', { count: 'exact', head: true })
+          .eq('booking_type', 'Short Order')
+          .in('booking_status', ACTIVE_BOOKING_STATUSES)
+          .gte('event_datetime', startOfDay.toISOString())
+          .lte('event_datetime', endOfDay.toISOString())
+          .neq('booking_id', approvalBooking.booking_id);
+        if (countError) throw countError;
+
+        if ((sameDayCount || 0) >= MAX_SHORT_ORDERS_PER_DAY) {
+          await showConfirm({
+            title: 'Daily Short Order Limit Reached',
+            message: `${eventDate ? eventDate.toLocaleDateString() : 'This date'} already has ${sameDayCount} approved Short Order(s) — the maximum is ${MAX_SHORT_ORDERS_PER_DAY} per day. This order can't be approved for this date.\n\nEither reschedule it to a different date, or resolve/reject one of the other orders on this date first.`,
+            confirmLabel: 'Got it',
+            cancelLabel: 'Close',
+            confirmVariant: 'danger',
+          });
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      // 2. Update booking – compute new total properly. Also clears the
+      // "NEW" badge/bold-row state — is_read is otherwise only flipped by
+      // clicking into the row or opening the detail page, so a booking
+      // acted on straight from a modal (like this one) would otherwise
+      // keep showing as unread forever despite clearly being handled.
+      let updatePayload = { booking_status: 'Approved', is_read: true };
       if (approvalType === 'package') {
         const newPax = approvalBooking.pax_count + (approvalData.extraPax || 0);
         updatePayload.pax_count = newPax;
@@ -233,7 +272,8 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
 
       setIsApprovalModalOpen(false);
       fetchData();
-      toast.success(paidTotal > 0 ? `Booking approved. Payments marked as ${newStatus}.` : 'Booking approved. The customer can now proceed to payment.');
+      const noun = approvalType === 'shortorder' ? 'Order' : 'Booking';
+      toast.success(paidTotal > 0 ? `${noun} approved. Payments marked as ${newStatus}.` : `${noun} approved. The customer can now proceed to payment.`);
     } catch (error) {
       console.error(error);
       toast.error('Failed to approve booking.');

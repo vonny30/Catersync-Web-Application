@@ -1,9 +1,17 @@
 // src/pages/Reports/DetailModal.jsx
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
+import { ExternalLink } from 'lucide-react';
 import { formatCurrency, formatDate } from './helpers';
 
 export default function DetailModal({ detailModal, onClose }) {
+  const navigate = useNavigate();
   if (!detailModal.open) return null;
+
+  const goToBookingDetails = (id, type) => {
+    if (!id) return;
+    navigate(`/app/${type === 'Short Order' ? 'orders' : 'bookings'}/${id}`);
+  };
 
   return createPortal(
     <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-150">
@@ -45,7 +53,15 @@ export default function DetailModal({ detailModal, onClose }) {
                   <tbody className="divide-y divide-slate-100 text-sm">
                     {detailModal.data.map((item) => (
                       <tr key={item.id} className="hover:bg-slate-50">
-                        <td className="p-3 font-mono text-xs font-semibold text-slate-800">{item.bookingRef}</td>
+                        <td className="p-3">
+                          <button
+                            onClick={() => goToBookingDetails(item.id, item.type)}
+                            className="font-mono text-xs font-bold text-[#008A45] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                            title="View full booking details"
+                          >
+                            {item.bookingRef} <ExternalLink size={10} />
+                          </button>
+                        </td>
                         <td className="p-3 font-medium text-slate-900">{item.customer}</td>
                         <td className="p-3">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${item.type === 'Short Order' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
@@ -78,8 +94,14 @@ export default function DetailModal({ detailModal, onClose }) {
                     <div key={item.id} className="border border-slate-200 rounded-lg p-4 hover:shadow-sm transition-shadow">
                       <div className="flex justify-between items-start mb-3">
                         <div>
-                          <h4 className="font-bold text-slate-900">
-                            <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded mr-2">{item.bookingRef}</span>
+                          <h4 className="font-bold text-slate-900 flex items-center gap-2">
+                            <button
+                              onClick={() => goToBookingDetails(item.id, item.type)}
+                              className="font-mono text-xs bg-slate-100 hover:bg-emerald-50 hover:text-[#008A45] px-2 py-0.5 rounded inline-flex items-center gap-1 cursor-pointer transition-colors"
+                              title="View full booking details"
+                            >
+                              {item.bookingRef} <ExternalLink size={10} />
+                            </button>
                             {item.customer}
                           </h4>
                           <p className="text-xs text-slate-500">Event: {formatDate(item.eventDate)} · {item.type}</p>
@@ -128,7 +150,15 @@ export default function DetailModal({ detailModal, onClose }) {
                   <tbody className="divide-y divide-slate-100 text-sm">
                     {detailModal.data.map((item) => (
                       <tr key={item.id} className="hover:bg-slate-50">
-                        <td className="p-3 font-mono text-xs font-semibold text-slate-800">{item.bookingRef}</td>
+                        <td className="p-3">
+                          <button
+                            onClick={() => goToBookingDetails(item.id, item.type)}
+                            className="font-mono text-xs font-bold text-[#008A45] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                            title="View full booking details"
+                          >
+                            {item.bookingRef} <ExternalLink size={10} />
+                          </button>
+                        </td>
                         <td className="p-3 font-medium text-slate-900">{item.customer}</td>
                         <td className="p-3">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${item.type === 'Short Order' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>

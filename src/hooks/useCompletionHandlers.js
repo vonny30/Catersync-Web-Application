@@ -48,7 +48,7 @@ export function useCompletionHandlers({ booking, payments, fetchData, noun = 'bo
     try {
       const { error } = await supabase
         .from('booking')
-        .update({ booking_status: 'Completed' })
+        .update({ booking_status: 'Completed', is_read: true })
         .eq('booking_id', booking.booking_id);
       if (error) throw error;
 

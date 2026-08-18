@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, Upload, X, Image as ImageIcon, Edit, Trash2, Lock, Check, DollarSign, RefreshCw, Eye, Filter, LayoutGrid, RotateCcw } from 'lucide-react';
+import { Search, Upload, X, Image as ImageIcon, Edit, Trash2, Lock, Check, DollarSign, RefreshCw, Eye, Filter, LayoutGrid, RotateCcw, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -23,6 +23,20 @@ export default function Payments() {
   const [activeTab, setActiveTab] = useState('All');
   const [typeFilter, setTypeFilter] = useState('All'); // 'All', 'Package', 'Short Order'
   const [methodFilter, setMethodFilter] = useState('All'); // 'All', 'Cash', 'GCash', 'Bank Transfer', 'Refund'
+  const [tableSearchTerm, setTableSearchTerm] = useState(''); // filters the payments table by client name / booking ref
+
+  // --- TABLE SORT — click a column header to sort; click again to flip
+  // direction. null = default order (newest first, as fetched). ---
+  const [sortField, setSortField] = useState(null); // null | 'client' | 'date'
+  const [sortDirection, setSortDirection] = useState('desc'); // 'asc' | 'desc'
+  const toggleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection(field === 'client' ? 'asc' : 'desc');
+    }
+  };
 
   // Status cards jump straight to the results below when clicked.
   const tableRef = useRef(null);
@@ -213,9 +227,16 @@ export default function Payments() {
     fetchData();
   }, []);
 
-  // --- FILTER LOGIC (type + method + date, independent of status) ---
+  // --- FILTER LOGIC (search + type + method + date, independent of status) ---
   const { start: dateRangeStart, end: dateRangeEnd } = getRangeBounds(datePreset, customStart, customEnd);
+  const activePaymentFilterCount = [!!tableSearchTerm, typeFilter !== 'All', methodFilter !== 'All', datePreset !== 'All Time'].filter(Boolean).length;
   const typeAndDateFiltered = payments.filter(p => {
+    if (tableSearchTerm) {
+      const search = tableSearchTerm.toLowerCase();
+      const clientName = p.booking?.customer ? `${p.booking.customer.first_name} ${p.booking.customer.last_name}`.toLowerCase() : '';
+      const ref = bookingRefFor(p.booking).toLowerCase();
+      if (!clientName.includes(search) && !ref.includes(search)) return false;
+    }
     if (typeFilter !== 'All') {
       const bookingType = p.booking?.booking_type;
       if (typeFilter === 'Package' && bookingType !== 'Package') return false;
@@ -326,12 +347,17 @@ export default function Payments() {
 
   // --- Get selected booking details and remaining balance ---
   const selectedBooking = bookings.find(b => b.booking_id === formData.booking_id);
+  // Excludes the row being edited — otherwise its own amount is still
+  // counted as "already paid," making the displayed remaining balance/Max
+  // hint understate how much room is actually available (the real submit
+  // validation already excludes it correctly; this keeps the on-screen
+  // hints consistent with what will actually be accepted).
   const getRemainingBalance = (bookingId) => {
     if (!bookingId) return 0;
     const booking = bookings.find(b => b.booking_id === bookingId);
     if (!booking) return 0;
     const paid = payments
-      .filter(p => p.booking_id === bookingId && !UNVERIFIED_PAY_STATUSES.includes(p.pay_status))
+      .filter(p => p.booking_id === bookingId && p.payment_id !== editingId && !UNVERIFIED_PAY_STATUSES.includes(p.pay_status))
       .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
     return Math.max(0, (booking.total_amount || 0) - paid);
   };
@@ -339,7 +365,7 @@ export default function Payments() {
 
   const getTotalPaidForBooking = (bookingId) => {
     if (!bookingId) return 0;
-    return sumVerifiedPositivePayments(payments.filter(p => p.booking_id === bookingId));
+    return sumVerifiedPositivePayments(payments.filter(p => p.booking_id === bookingId && p.payment_id !== editingId));
   };
   const totalPaidForSelected = getTotalPaidForBooking(formData.booking_id);
   const isFirstPaymentForSelected = totalPaidForSelected === 0;
@@ -492,34 +518,19 @@ export default function Payments() {
     const isAmountEqualRemaining = Math.abs(amount - remainingBalance) < 0.01;
     const isAmountEqualTotal = Math.abs(amount - totalAmount) < 0.01;
 
-    // First payment equals full total → ask to mark as Fully Paid
+    // An amount that fully covers the balance IS a full payment, regardless
+    // of which status was selected in the form — matches the same
+    // auto-correct behavior in usePaymentHandlers.js (used by the
+    // Bookings/Short Orders detail pages), so this page's own separate
+    // record-payment form doesn't diverge and leave the ledger saying
+    // "Downpayment" on a booking that's actually paid off.
+    let autoMarkedFullyPaid = false;
     if (status === 'Downpayment' && isFirstPayment && isAmountEqualTotal) {
-      const confirm = await showConfirm({
-        title: 'Full Payment?',
-        message: `This is the first payment and the amount (₱${amount.toLocaleString()}) equals the full total. Would you like to mark it as Fully Paid instead?`,
-        confirmLabel: 'Yes, Mark Fully Paid',
-        cancelLabel: 'No, Keep as Downpayment',
-        confirmVariant: 'success',
-      });
-      if (confirm) {
-        finalPayStatus = 'Fully Paid';
-        setFormData(prev => ({ ...prev, pay_status: 'Fully Paid' }));
-      }
-    }
-
-    // Subsequent payment equals remaining balance → ask to mark as Fully Paid
-    if (status === 'Downpayment' && isAmountEqualRemaining && !isFirstPayment) {
-      const confirm = await showConfirm({
-        title: 'Full Payment?',
-        message: `This payment amount (₱${amount.toLocaleString()}) equals the remaining balance. Would you like to mark it as Fully Paid instead?`,
-        confirmLabel: 'Yes, Mark Fully Paid',
-        cancelLabel: 'No, Keep as Downpayment',
-        confirmVariant: 'success',
-      });
-      if (confirm) {
-        finalPayStatus = 'Fully Paid';
-        setFormData(prev => ({ ...prev, pay_status: 'Fully Paid' }));
-      }
+      finalPayStatus = 'Fully Paid';
+      autoMarkedFullyPaid = true;
+    } else if (status === 'Downpayment' && !isFirstPayment && isAmountEqualRemaining) {
+      finalPayStatus = 'Fully Paid';
+      autoMarkedFullyPaid = true;
     }
 
     try {
@@ -559,19 +570,21 @@ export default function Payments() {
         customer_id: selectedBooking?.customer?.customer_id || null,
       };
 
+      const autoMarkedMessage = `marked as Fully Paid — the amount entered covers the full ${isFirstPayment ? 'total' : 'remaining'} balance.`;
+
       if (editingId) {
         const { error } = await supabase
           .from('payment')
           .update(payload)
           .eq('payment_id', editingId);
         if (error) throw error;
-        toast.success('Payment updated successfully!');
+        toast.success(autoMarkedFullyPaid ? `Payment updated and ${autoMarkedMessage}` : 'Payment updated successfully!');
       } else {
         const { error } = await supabase
           .from('payment')
           .insert([payload]);
         if (error) throw error;
-        toast.success('Payment recorded successfully!');
+        toast.success(autoMarkedFullyPaid ? `Payment recorded and ${autoMarkedMessage}` : 'Payment recorded successfully!');
       }
 
       closeModal();
@@ -718,6 +731,30 @@ export default function Payments() {
     return map[status] || 'bg-slate-100 text-slate-600 border-slate-200';
   };
 
+  const sortedPayments = sortField ? [...filteredPayments].sort((a, b) => {
+    let result = 0;
+    if (sortField === 'client') {
+      result = getClientName(a).localeCompare(getClientName(b));
+    } else if (sortField === 'date') {
+      result = new Date(a.pay_datetime || 0) - new Date(b.pay_datetime || 0);
+    }
+    return sortDirection === 'asc' ? result : -result;
+  }) : filteredPayments;
+
+  const renderSortHeader = (field, label) => (
+    <button
+      onClick={() => toggleSort(field)}
+      className="flex items-center gap-1 font-bold hover:text-[#008A45] transition-colors cursor-pointer"
+    >
+      {label}
+      {sortField === field ? (
+        sortDirection === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
+      ) : (
+        <ArrowUpDown size={12} className="text-slate-400" />
+      )}
+    </button>
+  );
+
   // --- Updated renderProof: opens modal instead of new tab ---
   const renderProof = (proofUrl) => {
     if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
@@ -846,15 +883,17 @@ export default function Payments() {
     setSummaryModalData([]);
   };
 
+  // --- Jump to the full booking/short order detail page ---
+  const goToBookingDetails = (id, type) => {
+    if (!id) return;
+    navigate(`/app/${type === 'Short Order' ? 'orders' : 'bookings'}/${id}`);
+  };
+
   const handleSummaryRowClick = (item) => {
     if (item.booking_id) {
       const type = item.booking_type || (item.booking?.booking_type);
       const id = item.booking_id || item.booking?.booking_id;
-      if (type === 'Short Order') {
-        navigate(`/app/orders/${id}`);
-      } else {
-        navigate(`/app/bookings/${id}`);
-      }
+      goToBookingDetails(id, type);
     }
   };
 
@@ -975,16 +1014,21 @@ export default function Payments() {
       </div>
 
       {/* FILTERS */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+      <div className={`bg-white rounded-2xl border shadow-sm p-5 transition-colors ${activePaymentFilterCount > 0 ? 'border-[#008A45]/30' : 'border-slate-200'}`}>
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <Filter size={13} className="text-slate-400" />
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Filters</span>
+            {activePaymentFilterCount > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#EAF3F2] text-[#007038] text-[10px] font-bold border border-[#008A45]/30">
+                {activePaymentFilterCount} active
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
-            {(typeFilter !== 'All' || methodFilter !== 'All' || datePreset !== 'All Time') && (
+            {activePaymentFilterCount > 0 && (
               <button
-                onClick={() => { setTypeFilter('All'); setMethodFilter('All'); setDatePreset('All Time'); setCustomStart(''); setCustomEnd(''); }}
+                onClick={() => { setTableSearchTerm(''); setTypeFilter('All'); setMethodFilter('All'); setDatePreset('All Time'); setCustomStart(''); setCustomEnd(''); }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
               >
                 <RotateCcw size={13} /> Clear all
@@ -1000,12 +1044,26 @@ export default function Payments() {
         </div>
 
         <div className="flex flex-wrap items-start gap-3">
+          <div className="relative flex-1 min-w-[220px]">
+            <label className={`block text-[11px] font-semibold mb-1 ${tableSearchTerm ? 'text-[#007038]' : 'text-slate-500'}`}>Search</label>
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Client name or booking ref..."
+                value={tableSearchTerm}
+                onChange={(e) => setTableSearchTerm(e.target.value)}
+                className={`w-full border rounded-lg py-2.5 pl-4 pr-10 text-sm outline-none transition-colors ${tableSearchTerm ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-300 bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
+              />
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+            </div>
+          </div>
+
           <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Type</label>
+            <label className={`block text-[11px] font-semibold mb-1 ${typeFilter !== 'All' ? 'text-[#007038]' : 'text-slate-500'}`}>Type</label>
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
-              className="border border-slate-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+              className={`border rounded-lg px-3 py-2.5 text-sm outline-none transition-colors ${typeFilter !== 'All' ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-300 bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
             >
               <option value="All">All</option>
               <option value="Package">Packages</option>
@@ -1014,11 +1072,11 @@ export default function Payments() {
           </div>
 
           <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Method</label>
+            <label className={`block text-[11px] font-semibold mb-1 ${methodFilter !== 'All' ? 'text-[#007038]' : 'text-slate-500'}`}>Method</label>
             <select
               value={methodFilter}
               onChange={(e) => setMethodFilter(e.target.value)}
-              className="border border-slate-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+              className={`border rounded-lg px-3 py-2.5 text-sm outline-none transition-colors ${methodFilter !== 'All' ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-300 bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
             >
               <option value="All">All</option>
               <option value="Cash">Cash</option>
@@ -1029,7 +1087,7 @@ export default function Payments() {
           </div>
 
           <div>
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">Payment Date</label>
+            <label className={`block text-[11px] font-semibold mb-1 ${datePreset !== 'All Time' ? 'text-[#007038]' : 'text-slate-500'}`}>Payment Date</label>
             <DateRangeFilter
               preset={datePreset}
               customStart={customStart}
@@ -1055,14 +1113,14 @@ export default function Payments() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
-                <th className="p-4 font-bold">Client</th>
+                <th className="p-4">{renderSortHeader('client', 'Client')}</th>
                 <th className="p-4 font-bold">Order Ref</th>
                 <th className="p-4 font-bold">Status</th>
                 <th className="p-4 font-bold">Type</th>
                 <th className="p-4 font-bold">Method</th>
                 <th className="p-4 font-bold">Amount</th>
                 <th className="p-4 font-bold">Payment Status</th>
-                <th className="p-4 font-bold">Date</th>
+                <th className="p-4">{renderSortHeader('date', 'Date')}</th>
                 <th className="p-4 font-bold text-center">Proof</th>
                 <th className="p-4 font-bold text-right">Actions</th>
               </tr>
@@ -1073,7 +1131,7 @@ export default function Payments() {
               ) : filteredPayments.length === 0 ? (
                 <tr><td colSpan="10" className="p-6 text-center text-slate-500 italic">No payments found.</td></tr>
               ) : (
-                filteredPayments.map((payment) => {
+                sortedPayments.map((payment) => {
                   const refund = isRefund(payment);
                   const orderStatus = payment.booking?.booking_status || 'Unknown';
                   const isCancelledOrRejected = orderStatus === 'Rejected' || orderStatus === 'Cancelled';
@@ -1086,7 +1144,15 @@ export default function Payments() {
                       <td className="p-4">
                         <p className="font-bold text-slate-900">{getClientName(payment)}</p>
                       </td>
-                      <td className="p-4 text-slate-600">{getBookingRef(payment)}</td>
+                      <td className="p-4 text-slate-600">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); goToBookingDetails(payment.booking_id, payment.booking?.booking_type); }}
+                          className="text-[#008A45] hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
+                          title="View full booking details"
+                        >
+                          {getBookingRef(payment)} <ExternalLink size={11} />
+                        </button>
+                      </td>
                       <td className="p-4">
                         <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium border ${getOrderStatusBadge(orderStatus)}`}>
                           {orderStatus}
@@ -1242,7 +1308,16 @@ export default function Payments() {
                   <p>{selectedPaymentDetail.pay_datetime ? new Date(selectedPaymentDetail.pay_datetime).toLocaleString() : 'N/A'}</p>
                 </div>
                 <div className="col-span-2">
-                  <span className="font-medium text-slate-500">Order</span>
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-slate-500">Order</span>
+                    <button
+                      onClick={() => goToBookingDetails(selectedPaymentDetail.booking_id, selectedPaymentDetail.booking?.booking_type)}
+                      className="text-xs font-semibold text-[#008A45] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                      title="View full booking details"
+                    >
+                      View full details <ExternalLink size={11} />
+                    </button>
+                  </div>
                   <p>
                     <span className="font-semibold">{getBookingRef(selectedPaymentDetail)}</span>
                     <span className={`ml-2 inline-block px-2 py-0.5 rounded-full text-xs font-medium border ${getOrderStatusBadge(selectedPaymentDetail.booking?.booking_status)}`}>
@@ -1650,7 +1725,7 @@ export default function Payments() {
                     <option value="Downpayment">Downpayment</option>
                     <option value="Fully Paid">Fully Paid</option>
                   </select>
-                  <p className="text-xs text-slate-400 mt-1">Status cannot be edited after recording</p>
+                  <p className="text-xs text-slate-400 mt-1">Marking Fully Paid requires the amount to cover the full remaining balance.</p>
                 </div>
               </div>
 

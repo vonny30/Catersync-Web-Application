@@ -187,32 +187,18 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     const isAmountEqualRemaining = Math.abs(amount - remainingBalance) < 0.01;
     const isAmountEqualTotal = Math.abs(amount - totalAmount) < 0.01;
 
+    // An amount that fully covers the balance IS a full payment, regardless
+    // of which status the manager had selected in the form — asking
+    // "are you sure?" here only invites a wrong answer that leaves the
+    // ledger saying "Downpayment" on a booking that's actually paid off.
+    // Auto-correct it and tell the manager why, instead of asking.
+    let autoMarkedFullyPaid = false;
     if (status === 'Downpayment' && isFirstPayment && isAmountEqualTotal) {
-      const confirm = await showConfirm({
-        title: 'Full Payment?',
-        message: `This is the first payment and the amount (₱${amount.toLocaleString()}) equals the full total. Would you like to mark it as Fully Paid instead?`,
-        confirmLabel: 'Yes, Mark Fully Paid',
-        cancelLabel: 'No, Keep as Downpayment',
-        confirmVariant: 'success',
-      });
-      if (confirm) {
-        finalPayStatus = 'Fully Paid';
-        setPaymentFormData(prev => ({ ...prev, pay_status: 'Fully Paid' }));
-      }
-    }
-
-    if (status === 'Downpayment' && isAmountEqualRemaining && !isFirstPayment) {
-      const confirm = await showConfirm({
-        title: 'Full Payment?',
-        message: `This payment amount (₱${amount.toLocaleString()}) equals the remaining balance. Would you like to mark it as Fully Paid instead?`,
-        confirmLabel: 'Yes, Mark Fully Paid',
-        cancelLabel: 'No, Keep as Downpayment',
-        confirmVariant: 'success',
-      });
-      if (confirm) {
-        finalPayStatus = 'Fully Paid';
-        setPaymentFormData(prev => ({ ...prev, pay_status: 'Fully Paid' }));
-      }
+      finalPayStatus = 'Fully Paid';
+      autoMarkedFullyPaid = true;
+    } else if (status === 'Downpayment' && !isFirstPayment && isAmountEqualRemaining) {
+      finalPayStatus = 'Fully Paid';
+      autoMarkedFullyPaid = true;
     }
 
     try {
@@ -263,7 +249,13 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
 
       setIsPaymentModalOpen(false);
       fetchData();
-      toast.success(finalPayStatus === 'Fully Paid' ? 'Payment recorded and marked as Fully Paid!' : 'Payment recorded successfully!');
+      toast.success(
+        autoMarkedFullyPaid
+          ? `Payment recorded and marked as Fully Paid — the amount entered covers the full ${isFirstPayment ? 'total' : 'remaining'} balance.`
+          : finalPayStatus === 'Fully Paid'
+          ? 'Payment recorded and marked as Fully Paid!'
+          : 'Payment recorded successfully!'
+      );
     } catch (error) {
       console.error(error);
       toast.error(error.message || 'Failed to record payment.');

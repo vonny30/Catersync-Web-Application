@@ -42,7 +42,7 @@ export function useConfirmationHandlers({ booking, payments, fetchData }) {
     try {
       const { error } = await supabase
         .from('booking')
-        .update({ booking_status: 'Confirmed' })
+        .update({ booking_status: 'Confirmed', is_read: true })
         .eq('booking_id', booking.booking_id);
       if (error) throw error;
       toast.success('Event confirmed!');

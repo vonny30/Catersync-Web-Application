@@ -27,6 +27,7 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
       return;
     }
 
+    const noun = booking.booking_type === 'Short Order' ? 'order' : 'booking';
     setIsCancelling(true);
     try {
       const eventDate = booking.event_datetime ? new Date(booking.event_datetime) : null;
@@ -59,7 +60,7 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
       const enteredAmount = parseFloat(refundAmount) || 0;
       if (enteredAmount > 0) {
         if (maxRefundable <= 0) {
-          toast.error('No refundable amount available for this booking.');
+          toast.error(`No refundable amount available for this ${noun}.`);
           setIsCancelling(false);
           return;
         }
@@ -113,7 +114,7 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
 
       const { error: updateError } = await supabase
         .from('booking')
-        .update({ booking_status: 'Cancelled', notes: updatedNotes })
+        .update({ booking_status: 'Cancelled', notes: updatedNotes, is_read: true })
         .eq('booking_id', booking.booking_id);
       if (updateError) throw updateError;
 
@@ -139,10 +140,10 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
 
       setIsCancelModalOpen(false);
       fetchData();
-      toast.success(`Booking cancelled successfully. ${refundNote}`);
+      toast.success(`${noun === 'order' ? 'Order' : 'Booking'} cancelled successfully. ${refundNote}`);
     } catch (error) {
       console.error('Cancellation error:', error);
-      toast.error(error.message || 'Failed to cancel booking.');
+      toast.error(error.message || `Failed to cancel ${noun}.`);
     } finally {
       setIsCancelling(false);
     }

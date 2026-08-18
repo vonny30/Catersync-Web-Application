@@ -12,9 +12,10 @@
 // currently adjusted in the modal (base pax + extra pax), not the original
 // booking value, so it stays accurate while the manager is still editing.
 import { useState, useEffect, useRef } from 'react';
-import { Calendar, Clock, Users, PackageCheck, MapPin, Loader2 } from 'lucide-react';
+import { Calendar, Clock, Users, PackageCheck, MapPin, Loader2, AlertTriangle, Check } from 'lucide-react';
 import { getBookingsOnDate } from '../utils/availability';
 import { getEquipmentAvailabilityPreview } from '../utils/equipment';
+import { MAX_SHORT_ORDERS_PER_DAY } from '../utils/bookingStatus';
 
 export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, onEquipmentStatusChange }) {
   const [dayBookings, setDayBookings] = useState([]);
@@ -93,7 +94,14 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
   if (!booking) return null;
 
   const isConflict = dayBookings.some(b => b.isCloseInTime);
-  const dayStatus = loadingDay ? 'loading' : dayBookings.length === 0 ? 'clear' : isConflict ? 'warning' : 'info';
+  const isShortOrder = booking.booking_type === 'Short Order';
+  // dayBookings is already scoped to same-type bookings only (bookingType
+  // param above), so for a Short Order this is exactly "other Short Orders
+  // already Approved/Confirmed on this date" — +1 counts this one too.
+  const shortOrdersOnDate = dayBookings.length + 1;
+  const atDailyLimit = isShortOrder && shortOrdersOnDate > MAX_SHORT_ORDERS_PER_DAY;
+  const slotsLeft = Math.max(0, MAX_SHORT_ORDERS_PER_DAY - dayBookings.length);
+  const dayStatus = loadingDay ? 'loading' : atDailyLimit ? 'warning' : dayBookings.length === 0 ? 'clear' : isConflict ? 'warning' : 'info';
 
   const dayTheme = {
     loading: { wrap: 'border-slate-200 bg-slate-50', bar: 'bg-slate-300', icon: 'text-slate-400', pill: 'bg-slate-200 text-slate-600' },
@@ -128,7 +136,11 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
             </div>
             {!loadingDay && (
               <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${dayTheme.pill}`}>
-                {dayBookings.length === 0
+                {isShortOrder
+                  ? atDailyLimit
+                    ? `Full (${dayBookings.length}/${MAX_SHORT_ORDERS_PER_DAY})`
+                    : `${dayBookings.length} of ${MAX_SHORT_ORDERS_PER_DAY} booked`
+                  : dayBookings.length === 0
                   ? 'Clear day'
                   : `${dayBookings.length} other event${dayBookings.length > 1 ? 's' : ''}${isConflict ? ' — check time' : ''}`}
               </span>
@@ -144,6 +156,18 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
           <p className="text-[10px] text-slate-400 mb-2">
             Only showing other {booking.booking_type === 'Short Order' ? 'Short Order' : 'Package'} events — {booking.booking_type === 'Short Order' ? 'Package bookings are' : 'Short Orders are'} tracked separately.
           </p>
+
+          {!loadingDay && isShortOrder && (
+            atDailyLimit ? (
+              <p className="text-red-700 text-xs font-bold flex items-center gap-1.5 mb-2">
+                <AlertTriangle size={12} /> Full — only {MAX_SHORT_ORDERS_PER_DAY} Short Orders allowed per day, and this date already has all {MAX_SHORT_ORDERS_PER_DAY}.
+              </p>
+            ) : (
+              <p className="text-emerald-700 text-xs font-bold flex items-center gap-1.5 mb-2">
+                <Check size={12} /> Still open — only {MAX_SHORT_ORDERS_PER_DAY} Short Orders allowed per day, {slotsLeft} slot{slotsLeft !== 1 ? 's' : ''} left today.
+              </p>
+            )
+          )}
 
           {loadingDay ? (
             <p className="text-slate-500 text-xs flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Checking the schedule for this date...</p>

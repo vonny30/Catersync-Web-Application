@@ -23,17 +23,18 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
       return;
     }
 
+    const noun = booking.booking_type === 'Short Order' ? 'order' : 'booking';
     const { positivePayments = 0, downpaymentPaid = 0 } = getPaymentSummary(id) || {};
     const totalAmount = booking.total_amount || 0;
     const percentage = totalAmount > 0 ? (positivePayments / totalAmount) * 100 : 0;
 
-    let warningMessage = `Are you sure you want to reject this booking? This will cancel it and cannot be undone.`;
+    let warningMessage = `Are you sure you want to reject this ${noun}? This will cancel it and cannot be undone.`;
     if (positivePayments > 0) {
-      warningMessage = `This booking has payments totaling ₱${positivePayments.toLocaleString()} (${percentage.toFixed(1)}% of total). Rejecting this booking will keep the payments recorded. You may need to process refunds separately. Do you still want to reject?`;
+      warningMessage = `This ${noun} has payments totaling ₱${positivePayments.toLocaleString()} (${percentage.toFixed(1)}% of total). Rejecting this ${noun} will keep the payments recorded. You may need to process refunds separately. Do you still want to reject?`;
     }
 
     const confirmed = await showConfirm({
-      title: 'Reject Booking?',
+      title: `Reject ${noun === 'order' ? 'Order' : 'Booking'}?`,
       message: warningMessage,
       confirmLabel: 'Yes, Continue',
       cancelLabel: 'Cancel',
@@ -73,6 +74,7 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
     if (!id) return;
     const booking = getBooking(id);
     if (!booking) return;
+    const noun = booking.booking_type === 'Short Order' ? 'order' : 'booking';
 
     // --- ✅ VALIDATE: Rejection reason is required ---
     if (!rejectionReason || rejectionReason.trim() === '') {
@@ -139,6 +141,7 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
         .update({
           booking_status: 'Rejected',
           notes: updatedNotes,
+          is_read: true,
         })
         .eq('booking_id', id);
       if (error) throw error;
@@ -169,11 +172,11 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
           .eq('booking_id', id);
       }
 
-      toast.success('Booking rejected.');
+      toast.success(`${noun === 'order' ? 'Order' : 'Booking'} rejected.`);
       if (fetchData) fetchData();
     } catch (error) {
       console.error('Rejection error:', error);
-      toast.error('Failed to reject booking.');
+      toast.error(`Failed to reject ${noun}.`);
     }
   };
 

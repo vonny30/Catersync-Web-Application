@@ -1,7 +1,7 @@
 // src/pages/BookingDetails.jsx
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Image as ImageIcon, Search } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -66,6 +66,7 @@ export default function BookingDetails() {
   const [equipmentList, setEquipmentList] = useState([]);
   const [assignEquipData, setAssignEquipData] = useState({ equipment_id: '', quantity: 1, notes: '' });
   const [isAssignSubmitting, setIsAssignSubmitting] = useState(false);
+  const [equipSearchTerm, setEquipSearchTerm] = useState('');
 
   // --- Edit Equipment Assignment modal state (unique) ---
   const [isEditEquipModalOpen, setIsEditEquipModalOpen] = useState(false);
@@ -764,7 +765,7 @@ export default function BookingDetails() {
       try {
         const { data, error } = await supabase
           .from('equipment')
-          .select('equipment_id, eqm_name, quantity_available')
+          .select('equipment_id, eqm_name, quantity_available, equipment_type')
           .order('eqm_name');
         if (error) throw error;
         setEquipmentList(data || []);
@@ -775,6 +776,7 @@ export default function BookingDetails() {
     };
     fetchEquipmentList();
     setAssignEquipData({ equipment_id: '', quantity: 1, notes: '' });
+    setEquipSearchTerm('');
     setIsAssignEquipModalOpen(true);
   };
 
@@ -1677,13 +1679,23 @@ export default function BookingDetails() {
             </div>
             <form onSubmit={handleAssignEquipSubmit} className="p-6 space-y-5 text-left">
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-sm">
-                <p><span className="font-medium">Booking:</span> {booking.booking_id.slice(0, 8)} – {booking.customer?.first_name} {booking.customer?.last_name}</p>
+                <p><span className="font-medium">Booking:</span> {booking.booking_number || `BKG-${booking.booking_id.slice(0, 8)}`} – {booking.customer?.first_name} {booking.customer?.last_name}</p>
                 <p className="text-xs text-slate-500 mt-1">Equipment will be assigned to this booking only.</p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Select Equipment</label>
+                  <div className="relative mb-1.5">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+                    <input
+                      type="text"
+                      placeholder="Search equipment..."
+                      value={equipSearchTerm}
+                      onChange={(e) => setEquipSearchTerm(e.target.value)}
+                      className="w-full pl-7 pr-2 py-1.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
+                    />
+                  </div>
                   <select
                     name="equipment_id"
                     value={assignEquipData.equipment_id}
@@ -1692,11 +1704,13 @@ export default function BookingDetails() {
                     required
                   >
                     <option value="">Choose equipment...</option>
-                    {equipmentList.map((eq) => (
-                      <option key={eq.equipment_id} value={eq.equipment_id}>
-                        {eq.eqm_name} ({eq.quantity_available} total)
-                      </option>
-                    ))}
+                    {equipmentList
+                      .filter(eq => eq.eqm_name.toLowerCase().includes(equipSearchTerm.toLowerCase()))
+                      .map((eq) => (
+                        <option key={eq.equipment_id} value={eq.equipment_id}>
+                          {eq.eqm_name} — {eq.quantity_available} in stock{eq.equipment_type === 'Decoration' ? ' (Decoration)' : ''}
+                        </option>
+                      ))}
                   </select>
                 </div>
                 <div>
@@ -2237,7 +2251,7 @@ export default function BookingDetails() {
             </div>
             <form onSubmit={handleRefundSubmit} className="p-6 space-y-4">
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-sm">
-                <p><span className="font-medium">Booking:</span> {booking.booking_id.slice(0, 8)} – {booking.customer?.first_name} {booking.customer?.last_name}</p>
+                <p><span className="font-medium">Booking:</span> {booking.booking_number || `BKG-${booking.booking_id.slice(0, 8)}`} – {booking.customer?.first_name} {booking.customer?.last_name}</p>
                 <p className="text-xs text-slate-500 mt-1">Refundable amount: ₱{remainingRefundableAmount.toLocaleString()}</p>
               </div>
 
