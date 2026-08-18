@@ -14,7 +14,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { errorInputClass } from '../utils/formErrors';
-import { getDailyEquipmentSnapshot } from '../utils/equipment.jsx';
+import { getDailyEquipmentSnapshot, checkEquipmentAvailabilityImpact } from '../utils/equipment.jsx';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange } from './Reports/helpers';
 
@@ -29,6 +29,22 @@ const tomorrowISO = () => {
   const d = new Date();
   d.setDate(d.getDate() + 1);
   return toDateInputValue(d);
+};
+
+// Turns checkEquipmentAvailabilityImpact's conflict list into the specific,
+// accurate reason a stock change is blocked — naming the actual date(s)
+// and booking(s) so the manager knows exactly what to resolve, instead of
+// a vague "some bookings might be affected" warning.
+const describeEquipmentConflicts = (conflicts, proposedAvailable) => {
+  const first = conflicts[0];
+  const dateLabel = new Date(`${first.date}T00:00:00`).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  const eventPreview = first.events
+    .slice(0, 2)
+    .map(e => `${e.ref} (${e.quantity} unit${e.quantity !== 1 ? 's' : ''})`)
+    .join(', ');
+  const moreEvents = first.events.length > 2 ? `, and ${first.events.length - 2} more` : '';
+  const moreDates = conflicts.length > 1 ? ` (and ${conflicts.length - 1} other date${conflicts.length > 2 ? 's' : ''} would also fall short)` : '';
+  return `Can't save this — on ${dateLabel}, ${first.committed} unit(s) are already needed for ${eventPreview}${moreEvents}, but this change would leave only ${proposedAvailable} available${moreDates}. Reassign equipment away from a lower-priority booking or reduce the Damaged/Maintenance count first.`;
 };
 
 export default function Equipment() {
@@ -532,29 +548,18 @@ export default function Equipment() {
 
     const available = qty - damaged - maintenance;
 
-    // Warn if the new available quantity would drop below what's already
-    // committed to active (not yet returned) bookings — otherwise this
-    // silently creates an oversold state with no signal until event day.
+    // Block outright if the new available quantity would fall short of
+    // what's genuinely committed on some specific date — see
+    // checkEquipmentAvailabilityImpact for why this is date-aware rather
+    // than a single global sum.
     try {
-      const { data: activeAssignments, error: assignError } = await supabase
-        .from('booking_equipment')
-        .select('quantity')
-        .eq('equipment_id', editFormData.equipment_id)
-        .eq('returned', false);
-      if (assignError) throw assignError;
-      const committedQty = (activeAssignments || []).reduce((sum, a) => sum + (a.quantity || 0), 0);
-      if (available < committedQty) {
-        const proceed = await showConfirm({
-          title: '⚠️ Stock Below Committed Amount',
-          message: `This equipment is currently committed to active bookings for ${committedQty} unit(s), but the new available quantity would only be ${available}. This may cause shortages on event day.\n\nDo you still want to proceed?`,
-          confirmLabel: 'Yes, Proceed Anyway',
-          cancelLabel: 'Cancel',
-          confirmVariant: 'warning',
-        });
-        if (!proceed) {
-          setIsSubmitting(false);
-          return;
-        }
+      const conflicts = await checkEquipmentAvailabilityImpact(editFormData.equipment_id, available);
+      if (conflicts.length > 0) {
+        const message = describeEquipmentConflicts(conflicts, available);
+        toast.error(message, { duration: 8000 });
+        setEditFieldErrors({ damaged_quantity: 'Would cause a shortage — see message.', maintenance_quantity: 'Would cause a shortage — see message.' });
+        setIsSubmitting(false);
+        return;
       }
     } catch (checkError) {
       console.warn('Committed-quantity check failed:', checkError);
@@ -634,27 +639,15 @@ export default function Equipment() {
     const available = total - damaged - maintenance;
     setIsSubmitting(true);
 
-    // Same committed-quantity safety check as the full Edit flow.
+    // Same date-accurate blocking check as the full Edit flow.
     try {
-      const { data: activeAssignments, error: assignError } = await supabase
-        .from('booking_equipment')
-        .select('quantity')
-        .eq('equipment_id', flagIssueItem.equipment_id)
-        .eq('returned', false);
-      if (assignError) throw assignError;
-      const committedQty = (activeAssignments || []).reduce((sum, a) => sum + (a.quantity || 0), 0);
-      if (available < committedQty) {
-        const proceed = await showConfirm({
-          title: '⚠️ Stock Below Committed Amount',
-          message: `This equipment is currently committed to active bookings for ${committedQty} unit(s), but flagging this issue would leave only ${available} available. This may cause shortages on event day.\n\nDo you still want to proceed?`,
-          confirmLabel: 'Yes, Proceed Anyway',
-          cancelLabel: 'Cancel',
-          confirmVariant: 'warning',
-        });
-        if (!proceed) {
-          setIsSubmitting(false);
-          return;
-        }
+      const conflicts = await checkEquipmentAvailabilityImpact(flagIssueItem.equipment_id, available);
+      if (conflicts.length > 0) {
+        const message = describeEquipmentConflicts(conflicts, available);
+        toast.error(message, { duration: 8000 });
+        setFlagIssueErrors({ damaged_quantity: 'Would cause a shortage — see message.', maintenance_quantity: 'Would cause a shortage — see message.' });
+        setIsSubmitting(false);
+        return;
       }
     } catch (checkError) {
       console.warn('Committed-quantity check failed:', checkError);

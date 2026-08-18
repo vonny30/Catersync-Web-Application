@@ -102,6 +102,7 @@ export default function Vehicles() {
   const [isFlagIssueModalOpen, setIsFlagIssueModalOpen] = useState(false);
   const [flagIssueVehicle, setFlagIssueVehicle] = useState(null);
   const [flagIssueStatus, setFlagIssueStatus] = useState('Maintenance');
+  const [flagIssueError, setFlagIssueError] = useState('');
 
   const [isUsageModalOpen, setIsUsageModalOpen] = useState(false);
   const [selectedVehicleForUsage, setSelectedVehicleForUsage] = useState(null);
@@ -375,12 +376,41 @@ export default function Vehicles() {
     setIsEditModalOpen(true);
   };
 
-  const activeAssignmentsFor = (vehicleId) => assignments.filter(a =>
-    a.vehicle_id === vehicleId &&
-    a.assignment_status !== 'Completed' &&
-    a.booking?.booking_status !== 'Rejected' &&
-    a.booking?.booking_status !== 'Cancelled'
-  );
+  // A vehicle is a single physical unit, so ANY non-completed assignment
+  // to it is a real, unambiguous conflict with taking it out of service —
+  // unlike equipment (a shared stock pool where two non-overlapping dates
+  // can reuse the same units), there's no "it's actually fine" case here.
+  // The one exception: an assignment whose event date has already passed
+  // is an overdue-return bookkeeping issue (already surfaced separately
+  // in the sidebar), not a real scheduling conflict — it shouldn't block
+  // an unrelated status change today.
+  const activeAssignmentsFor = (vehicleId) => assignments.filter(a => {
+    if (a.vehicle_id !== vehicleId) return false;
+    if (a.assignment_status === 'Completed') return false;
+    if (a.booking?.booking_status === 'Rejected' || a.booking?.booking_status === 'Cancelled') return false;
+    if (!a.booking?.event_datetime) return true;
+    const eventDay = new Date(a.booking.event_datetime);
+    eventDay.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return eventDay >= today;
+  });
+
+  // Builds the specific, accurate reason a status change is blocked —
+  // naming the actual event(s) so the manager knows exactly what to
+  // reassign, instead of a vague "N active event(s)" count.
+  const describeActiveAssignments = (activeAssigns, newStatus) => {
+    const preview = activeAssigns
+      .slice(0, 3)
+      .map(a => {
+        const ref = a.booking?.booking_number || 'a booking';
+        const when = a.booking?.event_datetime ? new Date(a.booking.event_datetime).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'an unscheduled date';
+        return `${ref} (${when})`;
+      })
+      .join(', ');
+    const more = activeAssigns.length > 3 ? `, and ${activeAssigns.length - 3} more` : '';
+    return `Can't mark this vehicle ${newStatus} — it's still dispatched to ${activeAssigns.length} upcoming event(s): ${preview}${more}. Reassign or complete those first.`;
+  };
 
   const handleEditSubmit = async (e) => {
     e.preventDefault();
@@ -396,14 +426,10 @@ export default function Vehicles() {
     if (goingOutOfService) {
       const activeAssigns = activeAssignmentsFor(editVehicleForm.vehicle_id);
       if (activeAssigns.length > 0) {
-        const proceed = await showConfirm({
-          title: 'Vehicle Has Active Assignments',
-          message: `This vehicle is assigned to ${activeAssigns.length} active event(s). Changing status to ${editVehicleForm.vehicle_status} won't cancel those — reassign them first if this vehicle really can't go out. Continue anyway?`,
-          confirmLabel: 'Yes, Change Status',
-          cancelLabel: 'Cancel',
-          confirmVariant: 'warning',
-        });
-        if (!proceed) return;
+        const message = describeActiveAssignments(activeAssigns, editVehicleForm.vehicle_status);
+        toast.error(message, { duration: 7000 });
+        setEditFieldErrors({ vehicle_status: `Still dispatched to ${activeAssigns.length} upcoming event(s).` });
+        return;
       }
     }
 
@@ -433,25 +459,23 @@ export default function Vehicles() {
   const handleFlagIssueClick = (vehicle) => {
     setFlagIssueVehicle(vehicle);
     setFlagIssueStatus(vehicle.vehicle_status === 'Available' ? 'Maintenance' : vehicle.vehicle_status);
+    setFlagIssueError('');
     setIsFlagIssueModalOpen(true);
   };
 
   const handleFlagIssueSubmit = async (e) => {
     e.preventDefault();
     if (!flagIssueVehicle) return;
+    setFlagIssueError('');
 
     const goingOutOfService = flagIssueStatus === 'Maintenance' || flagIssueStatus === 'Unavailable';
     if (goingOutOfService) {
       const activeAssigns = activeAssignmentsFor(flagIssueVehicle.vehicle_id);
       if (activeAssigns.length > 0) {
-        const proceed = await showConfirm({
-          title: 'Vehicle Has Active Assignments',
-          message: `This vehicle is assigned to ${activeAssigns.length} active event(s). Changing status to ${flagIssueStatus} won't cancel those — reassign them first if this vehicle really can't go out. Continue anyway?`,
-          confirmLabel: 'Yes, Change Status',
-          cancelLabel: 'Cancel',
-          confirmVariant: 'warning',
-        });
-        if (!proceed) return;
+        const message = describeActiveAssignments(activeAssigns, flagIssueStatus);
+        toast.error(message, { duration: 7000 });
+        setFlagIssueError(message);
+        return;
       }
     }
 
@@ -1810,12 +1834,21 @@ export default function Vehicles() {
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Base Status</label>
-                <select name="vehicle_status" value={editVehicleForm.vehicle_status} onChange={handleEditVehicleChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none">
+                <select
+                  name="vehicle_status"
+                  value={editVehicleForm.vehicle_status}
+                  onChange={handleEditVehicleChange}
+                  className={errorInputClass(!!editFieldErrors.vehicle_status, 'w-full border rounded-lg p-2.5 text-sm bg-white focus:ring-2 outline-none')}
+                >
                   <option value="Available">Available</option>
                   <option value="Maintenance">Maintenance</option>
                   <option value="Unavailable">Unavailable</option>
                 </select>
-                <p className="text-xs text-slate-400 mt-1">Base status overrides auto-status when set to Maintenance or Unavailable.</p>
+                {editFieldErrors.vehicle_status ? (
+                  <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.vehicle_status}</p>
+                ) : (
+                  <p className="text-xs text-slate-400 mt-1">Base status overrides auto-status when set to Maintenance or Unavailable.</p>
+                )}
               </div>
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
                 <button type="button" onClick={() => setIsEditModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors cursor-pointer">Cancel</button>
@@ -1850,13 +1883,14 @@ export default function Vehicles() {
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Status</label>
                 <select
                   value={flagIssueStatus}
-                  onChange={(e) => setFlagIssueStatus(e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                  onChange={(e) => { setFlagIssueStatus(e.target.value); setFlagIssueError(''); }}
+                  className={errorInputClass(!!flagIssueError, 'w-full border rounded-lg p-2.5 text-sm bg-white focus:ring-2 outline-none')}
                 >
                   <option value="Available">Available</option>
                   <option value="Maintenance">Maintenance</option>
                   <option value="Unavailable">Unavailable</option>
                 </select>
+                {flagIssueError && <p className="text-xs text-red-600 font-semibold mt-1">{flagIssueError}</p>}
               </div>
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
                 <button type="button" onClick={() => setIsFlagIssueModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors cursor-pointer">Cancel</button>

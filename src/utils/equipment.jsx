@@ -499,6 +499,117 @@ export const getDailyEquipmentSnapshot = async (dateStr) => {
 };
 
 /**
+ * Checks whether reducing an equipment item's available stock (by flagging
+ * units Damaged/In Repair) would actually clash with anything real, so a
+ * status change can be BLOCKED with an accurate reason instead of a vague
+ * "some things might be affected somewhere" warning.
+ *
+ * Naively summing every `returned: false` booking_equipment row (as a
+ * simpler check might) is wrong in two ways: (1) it never excludes
+ * Rejected/Cancelled bookings, whose rows are never cleaned up, so stale
+ * commitments inflate the count; (2) it collapses every date into one
+ * total, even though the same physical units can cover two events on
+ * different, non-overlapping dates without conflict. Both mistakes only
+ * ever make the check MORE trigger-happy than reality — never less — so
+ * this instead groups commitments by the actual calendar date (mirroring
+ * getDailyEquipmentSnapshot) and only reports a conflict where the
+ * proposed available stock genuinely falls short FOR THAT DATE.
+ *
+ * Past dates are excluded on purpose — a booking whose event already
+ * happened but hasn't been marked "returned" yet is an overdue-return
+ * bookkeeping gap (already surfaced separately), not a real scheduling
+ * conflict that should block today's status change.
+ *
+ * Returns an array of conflicts (empty if the change is safe):
+ *   [{ date, committed, events: [{ ref, customerName, venue, event_datetime, quantity }] }]
+ */
+export const checkEquipmentAvailabilityImpact = async (equipmentId, proposedAvailable) => {
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  // 1. Real manual assignments for this item, still out, tied to a
+  // currently-active booking.
+  const { data: realAssignments, error: assignError } = await supabase
+    .from('booking_equipment')
+    .select(`
+      assignment_id, booking_id, quantity,
+      booking:booking_id (
+        booking_id, booking_number, booking_type, venue, event_datetime, booking_status,
+        customer:customer_id (first_name, last_name)
+      )
+    `)
+    .eq('equipment_id', equipmentId)
+    .eq('returned', false);
+  if (assignError) throw assignError;
+
+  const activeRealAssignments = (realAssignments || []).filter(
+    a => a.booking && ACTIVE_BOOKING_STATUSES.includes(a.booking.booking_status)
+  );
+  const bookingIdsWithRealAllocations = new Set(activeRealAssignments.map(a => a.booking_id));
+
+  // 2. Active bookings whose PACKAGE includes this item but that don't
+  // have real rows yet — same theoretical-demand fallback used elsewhere.
+  const { data: packageLinks, error: linkError } = await supabase
+    .from('package_equipment')
+    .select('package_id')
+    .eq('equipment_id', equipmentId);
+  if (linkError) throw linkError;
+  const relevantPackageIds = [...new Set((packageLinks || []).map(l => l.package_id))];
+
+  let theoreticalBookings = [];
+  if (relevantPackageIds.length > 0) {
+    const { data: candidateBookings, error: bookingError } = await supabase
+      .from('booking')
+      .select(`
+        booking_id, booking_number, booking_type, venue, event_datetime, booking_status, package_id, pax_count,
+        customer:customer_id (first_name, last_name)
+      `)
+      .in('booking_status', ACTIVE_BOOKING_STATUSES)
+      .in('package_id', relevantPackageIds);
+    if (bookingError) throw bookingError;
+    theoreticalBookings = (candidateBookings || []).filter(b => !bookingIdsWithRealAllocations.has(b.booking_id));
+  }
+
+  // 3. Group commitments by calendar date (today or later only).
+  const refFor = (b) => b.booking_number || `${b.booking_type === 'Short Order' ? 'SO' : 'BKG'}-${b.booking_id.slice(0, 8)}`;
+  const nameFor = (b) => b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
+
+  const byDate = {};
+  const addCommitment = (dateStr, qty, entry) => {
+    if (dateStr < todayStr) return;
+    if (!byDate[dateStr]) byDate[dateStr] = { total: 0, events: [] };
+    byDate[dateStr].total += qty;
+    byDate[dateStr].events.push(entry);
+  };
+
+  activeRealAssignments.forEach(a => {
+    const b = a.booking;
+    if (!b.event_datetime) return;
+    const dateStr = new Date(b.event_datetime).toISOString().slice(0, 10);
+    addCommitment(dateStr, a.quantity, { ref: refFor(b), customerName: nameFor(b), venue: b.venue, event_datetime: b.event_datetime, quantity: a.quantity });
+  });
+
+  for (const b of theoreticalBookings) {
+    if (!b.event_datetime) continue;
+    const dateStr = new Date(b.event_datetime).toISOString().slice(0, 10);
+    if (dateStr < todayStr) continue;
+    const demand = await computeEquipmentDemand(b.package_id, b.pax_count);
+    const qty = demand[equipmentId] || 0;
+    if (qty <= 0) continue;
+    addCommitment(dateStr, qty, { ref: refFor(b), customerName: nameFor(b), venue: b.venue, event_datetime: b.event_datetime, quantity: qty });
+  }
+
+  // 4. Only dates where the proposed stock would actually fall short.
+  return Object.entries(byDate)
+    .filter(([, info]) => info.total > proposedAvailable)
+    .map(([date, info]) => ({
+      date,
+      committed: info.total,
+      events: info.events.sort((x, y) => new Date(x.event_datetime) - new Date(y.event_datetime)),
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+};
+
+/**
  * Calculate the recommended quantity for a specific equipment item
  * based on pax count and the equipment's pax_per_unit.
  * 
