@@ -9,9 +9,22 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
-import { isUnverifiedPayment } from '../utils/payments';
+import { isUnverifiedPayment, sumVerifiedPositivePayments, sumVerifiedDownpayments } from '../utils/payments';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange } from './Reports/helpers';
+
+// `date.toISOString().split('T')[0]` converts to UTC before slicing the
+// date portion — for any UTC+ timezone (PG's Catering is PHT, UTC+8),
+// that silently shifts local midnight back onto the previous day. Used
+// instead of that pattern everywhere this file needs a "YYYY-MM-DD" for
+// date-range queries or comparisons, so "today"/"this month" actually
+// mean today/this month in local time, not shifted by the UTC offset.
+const toLocalDateStr = (d) => {
+  const yr = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  return `${yr}-${mo}-${da}`;
+};
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -58,9 +71,9 @@ export default function Dashboard() {
       const today = new Date();
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
       const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-      const todayStr = today.toISOString().split('T')[0];
-      const startOfMonthStr = startOfMonth.toISOString().split('T')[0];
-      const endOfMonthStr = endOfMonth.toISOString().split('T')[0];
+      const todayStr = toLocalDateStr(today);
+      const startOfMonthStr = toLocalDateStr(startOfMonth);
+      const endOfMonthStr = toLocalDateStr(endOfMonth);
 
       // --- Calendar events (Package + Short Order — the calendar tracks
       // per-date what type(s) are on it, not just a count, so the day dot
@@ -68,8 +81,8 @@ export default function Dashboard() {
       const { data: monthBookings, error: monthError } = await supabase
         .from('booking')
         .select('event_datetime, booking_status, booking_type')
-        .gte('event_datetime', startOfMonthStr)
-        .lte('event_datetime', endOfMonthStr)
+        .gte('event_datetime', `${startOfMonthStr} 00:00:00`)
+        .lte('event_datetime', `${endOfMonthStr} 23:59:59`)
         .in('booking_status', ['Pending', ...ACTIVE_BOOKING_STATUSES]);
 
       if (monthError) throw monthError;
@@ -77,7 +90,7 @@ export default function Dashboard() {
       const eventMap = {};
       (monthBookings || []).forEach(b => {
         if (b.event_datetime) {
-          const date = new Date(b.event_datetime).toISOString().split('T')[0];
+          const date = toLocalDateStr(new Date(b.event_datetime));
           if (!eventMap[date]) eventMap[date] = { count: 0, hasPackage: false, hasShortOrder: false };
           eventMap[date].count++;
           if (b.booking_type === 'Short Order') {
@@ -158,6 +171,25 @@ export default function Dashboard() {
       // Combine and sort by event_datetime
       const combined = [...(pendingPackages || []), ...(pendingShortOrders || [])];
       combined.sort((a, b) => new Date(a.event_datetime) - new Date(b.event_datetime));
+
+      // Attach each item's payment totals so getPaymentSummary (used by the
+      // Reject flow's refund-eligibility calc) has real numbers to read —
+      // it used to be a hardcoded { positivePayments: 0, downpaymentPaid: 0 }
+      // stub, which meant rejecting a Pending item with an existing verified
+      // downpayment never warned about it and never allowed a refund amount.
+      if (combined.length > 0) {
+        const { data: pendingPayments, error: pendingPaymentsError } = await supabase
+          .from('payment')
+          .select('booking_id, amount_paid, pay_status')
+          .in('booking_id', combined.map(b => b.booking_id));
+        if (pendingPaymentsError) throw pendingPaymentsError;
+        combined.forEach(item => {
+          const itemPayments = (pendingPayments || []).filter(p => p.booking_id === item.booking_id);
+          item.positivePayments = sumVerifiedPositivePayments(itemPayments);
+          item.downpaymentPaid = sumVerifiedDownpayments(itemPayments);
+        });
+      }
+
       setPendingItems(combined);
       setStats(prev => ({ ...prev, pendingBookings: combined.length }));
 
@@ -168,7 +200,7 @@ export default function Dashboard() {
         .eq('booking_type', 'Package')
         .in('booking_status', ACTIVE_BOOKING_STATUSES)
         .gte('event_datetime', `${todayStr} 00:00:00`)
-        .lt('event_datetime', `${new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]} 00:00:00`);
+        .lt('event_datetime', `${toLocalDateStr(new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000))} 00:00:00`);
 
       if (upcomingError) throw upcomingError;
       setStats(prev => ({ ...prev, upcomingEvents: upcomingData?.length || 0 }));
@@ -179,8 +211,8 @@ export default function Dashboard() {
       const { data: revenueData, error: revenueError } = await supabase
         .from('payment')
         .select('amount_paid, pay_status')
-        .gte('pay_datetime', startOfMonthStr)
-        .lte('pay_datetime', endOfMonthStr);
+        .gte('pay_datetime', `${startOfMonthStr} 00:00:00`)
+        .lte('pay_datetime', `${endOfMonthStr} 23:59:59`);
 
       if (revenueError) throw revenueError;
       const totalRevenue = (revenueData || [])
@@ -201,7 +233,10 @@ export default function Dashboard() {
   };
 
   const getPaymentSummary = (bookingId) => {
-    return { positivePayments: 0, downpaymentPaid: 0 };
+    const item = getBooking(bookingId);
+    return item
+      ? { positivePayments: item.positivePayments || 0, downpaymentPaid: item.downpaymentPaid || 0 }
+      : { positivePayments: 0, downpaymentPaid: 0 };
   };
 
   // --- Approval & Rejection hooks ---
@@ -272,7 +307,7 @@ export default function Dashboard() {
         hasEvent: !!dayEvents,
         hasPackage: !!dayEvents?.hasPackage,
         hasShortOrder: !!dayEvents?.hasShortOrder,
-        isToday: dateStr === new Date().toISOString().split('T')[0],
+        isToday: dateStr === toLocalDateStr(new Date()),
       });
     }
     setCalendarDays(days);
@@ -352,7 +387,7 @@ export default function Dashboard() {
   const handleTodayEventsClick = async () => {
     try {
       const today = new Date();
-      const todayStr = today.toISOString().split('T')[0];
+      const todayStr = toLocalDateStr(today);
       const { data, error } = await supabase
         .from('booking')
         .select(`
@@ -410,9 +445,9 @@ export default function Dashboard() {
   const handleUpcomingEventsClick = async () => {
     try {
       const today = new Date();
-      const todayStr = today.toISOString().split('T')[0];
+      const todayStr = toLocalDateStr(today);
       const futureDate = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
-      const futureStr = futureDate.toISOString().split('T')[0];
+      const futureStr = toLocalDateStr(futureDate);
       const { data, error } = await supabase
         .from('booking')
         .select(`
@@ -445,8 +480,8 @@ export default function Dashboard() {
       const today = new Date();
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
       const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-      const startOfMonthStr = startOfMonth.toISOString().split('T')[0];
-      const endOfMonthStr = endOfMonth.toISOString().split('T')[0];
+      const startOfMonthStr = toLocalDateStr(startOfMonth);
+      const endOfMonthStr = toLocalDateStr(endOfMonth);
       const { data, error } = await supabase
         .from('payment')
         .select(`
@@ -463,8 +498,8 @@ export default function Dashboard() {
             customer:customer_id (first_name, last_name)
           )
         `)
-        .gte('pay_datetime', startOfMonthStr)
-        .lte('pay_datetime', endOfMonthStr)
+        .gte('pay_datetime', `${startOfMonthStr} 00:00:00`)
+        .lte('pay_datetime', `${endOfMonthStr} 23:59:59`)
         .order('pay_datetime', { ascending: false });
       if (error) throw error;
       // Match the card total: Pending Verification / Proof Rejected rows

@@ -622,6 +622,23 @@ export default function Payments() {
     const remainingBeforeThis = Math.max(0, totalAmount - alreadyVerified);
     const finalStatus = payment.amount_paid >= remainingBeforeThis ? 'Fully Paid' : 'Downpayment';
 
+    // The amount itself isn't editable here (it's whatever the customer
+    // submitted) — the manual Record Payment form blocks an over-balance
+    // amount outright, but this flow can only warn and let the admin
+    // decide, since rejecting the proof is the only other option and that
+    // might not be what a genuine (if unusual) overpayment calls for.
+    const overpaidBy = payment.amount_paid - remainingBeforeThis;
+    if (overpaidBy > 0) {
+      const proceed = await showConfirm({
+        title: 'Verifying This Overpays the Booking',
+        message: `This payment (₱${payment.amount_paid.toLocaleString()}) is ₱${overpaidBy.toLocaleString()} more than the ₱${remainingBeforeThis.toLocaleString()} still remaining on this booking. Verify anyway?`,
+        confirmLabel: 'Yes, Verify Anyway',
+        cancelLabel: 'Cancel',
+        confirmVariant: 'warning',
+      });
+      if (!proceed) return;
+    }
+
     setIsVerifying(true);
     try {
       const { error } = await supabase
@@ -841,7 +858,12 @@ export default function Payments() {
     const data = payments
       .filter(p => {
         const status = p.booking?.booking_status;
-        return p.amount_paid > 0 && status !== 'Rejected' && status !== 'Cancelled';
+        // Must match the card's own total (totalCollected, computed from
+        // verifiedActivePayments in fetchData) — this filter used to skip
+        // the unverified-payment exclusion, so a Pending Verification/Proof
+        // Rejected row could show up in the modal's list even though it was
+        // never counted in the card's number above it.
+        return p.amount_paid > 0 && status !== 'Rejected' && status !== 'Cancelled' && !UNVERIFIED_PAY_STATUSES.includes(p.pay_status);
       })
       .map(p => ({
         ...p,
@@ -905,9 +927,9 @@ export default function Payments() {
       })
       .map(b => b.booking_id);
 
-    // 3b. Filter payments to those belonging to fully paid bookings (positive amounts only)
+    // 3b. Filter payments to those belonging to fully paid bookings (verified, positive amounts only)
     const data = payments
-      .filter(p => fullyPaidBookingIds.includes(p.booking_id) && p.amount_paid > 0)
+      .filter(p => fullyPaidBookingIds.includes(p.booking_id) && p.amount_paid > 0 && !UNVERIFIED_PAY_STATUSES.includes(p.pay_status))
       .map(p => ({
         ...p,
         clientName: getClientName(p),

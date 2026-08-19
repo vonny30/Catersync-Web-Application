@@ -765,9 +765,18 @@ export default function PackagesAndMenus() {
         }
         await supabase.from('package_category').delete().eq('package_id', id);
         await supabase.from('package_equipment').delete().eq('package_id', id);
+        await supabase.from('package_menu').delete().eq('package_id', id);
         await supabase.from('package').delete().eq('package_id', id);
         toast.success('Package deleted.');
       } else {
+        // package_menu is a real table in the schema, but this app's own
+        // package save flow never writes to it — packages include a whole
+        // CATEGORY (package_category) instead, and any available item in
+        // that category becomes selectable. Kept as a harmless extra check
+        // in case something else populates it, but the check that actually
+        // matters for THIS app's data model is below: would deleting this
+        // item leave an active package's included category with nothing
+        // left to offer.
         const { count, error: countError } = await supabase
           .from('package_menu')
           .select('*', { count: 'exact', head: true })
@@ -776,6 +785,24 @@ export default function PackagesAndMenus() {
         if (count > 0) {
           toast.error(`Cannot delete this menu item because it is included in ${count} package(s).`);
           return;
+        }
+
+        const target = menuItems.find(m => m.menu_item_id === id);
+        if (target?.category_id) {
+          const siblingCount = menuItems.filter(m =>
+            m.category_id === target.category_id && m.menu_item_id !== id && m.menu_availability !== 'Archived'
+          ).length;
+          if (siblingCount === 0) {
+            const { count: packageCategoryCount, error: categoryError } = await supabase
+              .from('package_category')
+              .select('*', { count: 'exact', head: true })
+              .eq('category_id', target.category_id);
+            if (categoryError) throw categoryError;
+            if (packageCategoryCount > 0) {
+              toast.error(`Cannot delete this menu item — it's the last available item in its category, which is included in ${packageCategoryCount} package(s). Add another item to the category first, or archive this one instead.`);
+              return;
+            }
+          }
         }
 
         const bookingUsageCount = await checkMenuItemUsedInBookings(id);

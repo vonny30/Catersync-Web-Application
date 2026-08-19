@@ -575,9 +575,18 @@ export default function ShortOrderDetails() {
     const now = new Date();
     const eventDay = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    if (eventDay < today) {
+    const diffDays = Math.round((eventDay - today) / (1000 * 60 * 60 * 24));
+    if (diffDays < 0) {
       toast.error('The event date cannot be in the past. Please choose today or a later date.');
       setEditFieldErrors({ event_datetime: 'This date has already passed.' });
+      setIsSubmitting(false);
+      return;
+    } else if (diffDays < 3) {
+      // Same hard block as the ShortOrders list page's Add/Edit form — this
+      // Details-page edit form never had it, so editing an order's date
+      // here could silently violate PG's 3-day notice policy.
+      toast.error('Orders must be placed at least 3 days before the event date — this is PG\'s catering policy.');
+      setEditFieldErrors({ event_datetime: 'Must be at least 3 days from today.' });
       setIsSubmitting(false);
       return;
     }

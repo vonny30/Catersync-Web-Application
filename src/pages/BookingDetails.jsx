@@ -14,7 +14,7 @@ import { useCancellationHandlers } from '../hooks/useCancellationHandlers';
 import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
-import { checkEquipmentCapacityForDate, allocateEquipmentForBooking } from '../utils/equipment';
+import { allocateEquipmentForBooking } from '../utils/equipment';
 import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked } from '../utils/payments';
 import { bookingEditLockedMessage } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
@@ -677,9 +677,18 @@ export default function BookingDetails() {
       const now = new Date();
       const eventDay = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      if (eventDay < today) {
+      const diffDays = Math.round((eventDay - today) / (1000 * 60 * 60 * 24));
+      if (diffDays < 0) {
         toast.error('The event date cannot be in the past. Please choose today or a later date.');
         setEditFieldErrors({ event_datetime: 'This date has already passed.' });
+        setIsSubmitting(false);
+        return;
+      } else if (diffDays < 3) {
+        // Same hard block as the Bookings list page's Add/Edit form — this
+        // Details-page edit form never had it, so editing a booking's date
+        // here could silently violate PG's 3-day notice policy.
+        toast.error('Bookings must be made at least 3 days before the event date — this is PG\'s catering policy.');
+        setEditFieldErrors({ event_datetime: 'Must be at least 3 days from today.' });
         setIsSubmitting(false);
         return;
       }
@@ -794,17 +803,57 @@ export default function BookingDetails() {
 
   const handleAssignEquipSubmit = async (e) => {
     e.preventDefault();
+
+    if (!assignEquipData.equipment_id) {
+      toast.error('Please select an equipment item.');
+      return;
+    }
+    const quantity = assignEquipData.quantity;
+    if (!quantity || quantity < 1) {
+      toast.error('Quantity must be at least 1.');
+      return;
+    }
+
     setIsAssignSubmitting(true);
     try {
       const selectedEquip = equipmentList.find(eq => eq.equipment_id === assignEquipData.equipment_id);
       if (!selectedEquip) throw new Error('Equipment not found');
+
+      // Quantity-aware stock check — equipment isn't exclusive to one event
+      // per day, there's just a finite amount of it in total. Same check
+      // the Edit Equipment flow does for a quantity increase; this Assign
+      // flow never had it, so a fresh assignment could silently oversell
+      // the equipment for the date.
+      if (booking?.event_datetime) {
+        const eventDate = new Date(booking.event_datetime);
+        const { data: otherAssignments, error: otherError } = await supabase
+          .from('booking_equipment')
+          .select('quantity, booking:booking_id (event_datetime)')
+          .eq('equipment_id', assignEquipData.equipment_id)
+          .eq('returned', false);
+        if (otherError) throw otherError;
+
+        const alreadyCommitted = (otherAssignments || [])
+          .filter(a => a.booking?.event_datetime && new Date(a.booking.event_datetime).toDateString() === eventDate.toDateString())
+          .reduce((sum, a) => sum + (a.quantity || 0), 0);
+
+        const totalNeeded = alreadyCommitted + quantity;
+        if (totalNeeded > selectedEquip.quantity_available) {
+          toast.error(
+            `"${selectedEquip.eqm_name}": ${alreadyCommitted} already committed to other events on ${eventDate.toLocaleDateString()}, ` +
+            `plus ${quantity} requested exceeds the ${selectedEquip.quantity_available} in stock.`
+          );
+          setIsAssignSubmitting(false);
+          return;
+        }
+      }
 
       const { error: insertError } = await supabase
         .from('booking_equipment')
         .insert([{
           booking_id: id,
           equipment_id: assignEquipData.equipment_id,
-          quantity: assignEquipData.quantity,
+          quantity,
           notes: assignEquipData.notes || null,
           returned: false,
         }]);

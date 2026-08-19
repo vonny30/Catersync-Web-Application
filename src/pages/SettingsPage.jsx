@@ -7,6 +7,7 @@ import {
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { getPasswordPolicyError } from '../utils/passwordPolicy';
+import { verifyPassword } from '../utils/verifyPassword';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { useAuth } from '../contexts/AuthContext';
 import PasswordChecklist from '../components/PasswordChecklist';
@@ -219,12 +220,12 @@ export default function SettingsPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // 1. Verify current password
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: user.email,
-        password: passwordForm.currentPassword,
-      });
-      if (signInError) {
+      // 1. Verify current password — via the isolated throwaway client
+      // (see utils/verifyPassword.js), not the shared app client, so this
+      // doesn't fire a real SIGNED_IN event through the single-session-lock
+      // logic in AuthContext.jsx.
+      const isCorrect = await verifyPassword(user.email, passwordForm.currentPassword);
+      if (!isCorrect) {
         toast.error('Current password is incorrect.');
         setIsSaving(false);
         return;
