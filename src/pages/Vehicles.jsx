@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import {
   Edit, Trash2, X, Settings, ClipboardList, RefreshCw, Undo2,
   Calendar, MapPin, Users, Search, CalendarClock, LayoutGrid, AlertTriangle,
-  ChevronRight, Wrench, CheckCircle2, History, ExternalLink,
+  ChevronRight, Wrench, CheckCircle2, History, ExternalLink, Lock,
   ArrowUpDown, ArrowUp, ArrowDown, Car, Truck, Clock,
 } from 'lucide-react';
 import { supabase } from '../supabase';
@@ -29,6 +29,33 @@ const tomorrowISO = () => {
   const d = new Date();
   d.setDate(d.getDate() + 1);
   return toDateInputValue(d);
+};
+
+// A vehicle can't physically come back until the event it's dispatched for
+// is actually happening or over — same 3-hour-past-the-event grace period
+// as Equipment's Return trap, for the same reason (covers events running
+// long) and the same consistency. No event_datetime at all is treated as
+// returnable rather than permanently locked out.
+const RETURN_GRACE_MS = 3 * 60 * 60 * 1000;
+const getReturnAvailability = (eventDatetimeStr) => {
+  if (!eventDatetimeStr) return { canReturn: true, opensAt: null };
+  const opensAt = new Date(new Date(eventDatetimeStr).getTime() + RETURN_GRACE_MS);
+  return { canReturn: Date.now() >= opensAt.getTime(), opensAt };
+};
+const formatReturnOpensAt = (opensAt) =>
+  opensAt ? opensAt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+
+// Mirrors Equipment.jsx's getEquipmentAssignmentStatus — "Scheduled" used
+// to cover literally any not-completed assignment, so a vehicle reserved
+// for an event three days out looked identical to one actually out on the
+// road right now. Keeps this page's own existing terms (Scheduled /
+// Completed) and just adds the missing middle state.
+const getVehicleAssignmentStatus = (isCompleted, eventDatetimeStr) => {
+  if (isCompleted) return { key: 'completed', label: 'Completed' };
+  if (eventDatetimeStr && new Date(eventDatetimeStr) > new Date()) {
+    return { key: 'scheduled', label: 'Scheduled' };
+  }
+  return { key: 'in_use', label: 'In Use' };
 };
 
 export default function Vehicles() {
@@ -75,7 +102,7 @@ export default function Vehicles() {
 
   // --- History tab — full assignment log (Scheduled + Completed) ---
   const [historySearch, setHistorySearch] = useState('');
-  const [historyStatusFilter, setHistoryStatusFilter] = useState('All'); // 'All' | 'Scheduled' | 'Completed'
+  const [historyStatusFilter, setHistoryStatusFilter] = useState('All'); // 'All' | 'Scheduled' | 'In Use' | 'Completed'
   const [historyDatePreset, setHistoryDatePreset] = useState('All Time');
   const [historyDateCustomStart, setHistoryDateCustomStart] = useState('');
   const [historyDateCustomEnd, setHistoryDateCustomEnd] = useState('');
@@ -623,6 +650,13 @@ export default function Vehicles() {
 
   // --- RETURN VEHICLE (single) ---
   const handleReturnVehicle = async (assignmentId) => {
+    const assignment = assignments.find(a => a.assignment_id === assignmentId);
+    const { canReturn, opensAt } = getReturnAvailability(assignment?.booking?.event_datetime);
+    if (!canReturn) {
+      toast.error(`Can't return this yet — available starting 3 hours after the event, at ${formatReturnOpensAt(opensAt)}.`);
+      return;
+    }
+
     const confirmed = await showConfirm({
       title: 'Return Vehicle?',
       message: 'Mark this assignment as completed. The vehicle will be available for future events.',
@@ -647,6 +681,13 @@ export default function Vehicles() {
 
   // --- RETURN ALL VEHICLES FOR ONE EVENT ---
   const handleReturnAllForBooking = async (bookingId, itemCount) => {
+    const sampleAssignment = assignments.find(a => a.booking_id === bookingId);
+    const { canReturn, opensAt } = getReturnAvailability(sampleAssignment?.booking?.event_datetime);
+    if (!canReturn) {
+      toast.error(`Can't return these yet — available starting 3 hours after the event, at ${formatReturnOpensAt(opensAt)}.`);
+      return;
+    }
+
     const confirmed = await showConfirm({
       title: 'Return All Vehicles?',
       message: `Mark all ${itemCount} vehicle(s) for this event as returned?`,
@@ -810,7 +851,8 @@ export default function Vehicles() {
     const eventDate = g.booking?.event_datetime ? new Date(g.booking.event_datetime) : null;
     const isOverdue = eventDate ? eventDate < now : false;
     const isToday = eventDate ? eventDate.toDateString() === now.toDateString() : false;
-    return { ...g, eventDate, isOverdue, isToday };
+    const { canReturn, opensAt: returnOpensAt } = getReturnAvailability(g.booking?.event_datetime);
+    return { ...g, eventDate, isOverdue, isToday, canReturn, returnOpensAt };
   }).sort((a, b) => {
     const rank = (g) => g.isOverdue ? 0 : g.isToday ? 1 : 2;
     const rankDiff = rank(a) - rank(b);
@@ -869,8 +911,11 @@ export default function Vehicles() {
 
   const filteredHistoryRows = assignments
     .filter(a => {
-      if (historyStatusFilter === 'Scheduled' && a.assignment_status === 'Completed') return false;
-      if (historyStatusFilter === 'Completed' && a.assignment_status !== 'Completed') return false;
+      if (historyStatusFilter !== 'All') {
+        const status = getVehicleAssignmentStatus(a.assignment_status === 'Completed', a.booking?.event_datetime);
+        const filterKey = historyStatusFilter === 'Scheduled' ? 'scheduled' : historyStatusFilter === 'In Use' ? 'in_use' : 'completed';
+        if (status.key !== filterKey) return false;
+      }
       if (historyDatePreset !== 'All Time' && !isWithinRange(a.booking?.event_datetime, historyRangeStart, historyRangeEnd)) return false;
       if (historySearch.trim()) {
         const term = historySearch.toLowerCase();
@@ -1399,9 +1444,12 @@ export default function Vehicles() {
                       <button
                         type="button"
                         onClick={(e) => { e.preventDefault(); handleReturnAllForBooking(group.booking_id, group.items.length); }}
-                        className="text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 border border-blue-200 rounded-lg px-2.5 py-1 hover:bg-blue-50 transition-colors"
+                        className={group.canReturn
+                          ? 'text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 border border-blue-200 rounded-lg px-2.5 py-1 hover:bg-blue-50 transition-colors'
+                          : 'text-xs font-semibold text-slate-400 flex items-center gap-1 border border-slate-200 rounded-lg px-2.5 py-1 transition-colors'}
+                        title={group.canReturn ? undefined : `Locked — returns open 3 hours after the event, at ${formatReturnOpensAt(group.returnOpensAt)}`}
                       >
-                        <Undo2 size={13} /> Return all
+                        {group.canReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return all
                       </button>
                     </div>
                   </summary>
@@ -1416,9 +1464,12 @@ export default function Vehicles() {
                         </span>
                         <button
                           onClick={() => handleReturnVehicle(a.assignment_id)}
-                          className="text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1 text-xs font-medium"
+                          className={group.canReturn
+                            ? 'text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1 text-xs font-medium'
+                            : 'text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-1 text-xs font-medium'}
+                          title={group.canReturn ? undefined : `Locked — returns open 3 hours after the event, at ${formatReturnOpensAt(group.returnOpensAt)}`}
                         >
-                          <Undo2 size={13} /> Return
+                          {group.canReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return
                         </button>
                       </div>
                     ))}
@@ -1452,7 +1503,7 @@ export default function Vehicles() {
                   />
                 </div>
                 <div className="flex items-center gap-1">
-                  {['All', 'Scheduled', 'Completed'].map(opt => (
+                  {['All', 'Scheduled', 'In Use', 'Completed'].map(opt => (
                     <button
                       key={opt}
                       onClick={() => setHistoryStatusFilter(opt)}
@@ -1536,9 +1587,14 @@ export default function Vehicles() {
                               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600">
                                 <CheckCircle2 size={12} /> Completed
                               </span>
-                            ) : (
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">Scheduled</span>
-                            )}
+                            ) : (() => {
+                              const status = getVehicleAssignmentStatus(false, a.booking?.event_datetime);
+                              return (
+                                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${status.key === 'in_use' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                                  {status.label}
+                                </span>
+                              );
+                            })()}
                           </td>
                         </tr>
                       );
@@ -1688,14 +1744,17 @@ export default function Vehicles() {
                           <p className="text-xs text-slate-400 italic">No vehicles assigned to this booking yet.</p>
                         ) : (
                           <div className="space-y-1">
-                            {eventVehicles.map(vi => (
-                              <div key={vi.assignment_id} className="flex items-center justify-between text-xs">
-                                <span className="text-slate-700 font-medium">{vi.plate_number} {vi.dispatch_datetime ? `· dispatch ${new Date(vi.dispatch_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}</span>
-                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold ${vi.completed ? 'bg-slate-100 text-slate-500' : 'bg-emerald-50 text-emerald-700'}`}>
-                                  {vi.completed ? <><CheckCircle2 size={11} /> Returned</> : 'Scheduled'}
-                                </span>
-                              </div>
-                            ))}
+                            {eventVehicles.map(vi => {
+                              const viStatus = getVehicleAssignmentStatus(vi.completed, ev.event_datetime);
+                              return (
+                                <div key={vi.assignment_id} className="flex items-center justify-between text-xs">
+                                  <span className="text-slate-700 font-medium">{vi.plate_number} {vi.dispatch_datetime ? `· dispatch ${new Date(vi.dispatch_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}</span>
+                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold ${vi.completed ? 'bg-slate-100 text-slate-500' : viStatus.key === 'in_use' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700'}`}>
+                                    {vi.completed ? <><CheckCircle2 size={11} /> Returned</> : viStatus.label}
+                                  </span>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -1733,12 +1792,20 @@ export default function Vehicles() {
                   </button>
                   <p className="text-xs text-slate-500">Dispatch: {availabilityDetailVehicle.assignment.dispatch_datetime ? new Date(availabilityDetailVehicle.assignment.dispatch_datetime).toLocaleString() : 'N/A'}</p>
                   <div className="pt-2">
-                    <button
-                      onClick={async () => { await handleReturnVehicle(availabilityDetailVehicle.assignment.assignment_id); setIsAvailabilityDetailOpen(false); }}
-                      className="text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1 text-xs font-medium"
-                    >
-                      <Undo2 size={13} /> Return
-                    </button>
+                    {(() => {
+                      const { canReturn: detailCanReturn, opensAt: detailOpensAt } = getReturnAvailability(availabilityDetailVehicle.assignment.event_datetime);
+                      return (
+                        <button
+                          onClick={async () => { await handleReturnVehicle(availabilityDetailVehicle.assignment.assignment_id); setIsAvailabilityDetailOpen(false); }}
+                          className={detailCanReturn
+                            ? 'text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1 text-xs font-medium'
+                            : 'text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-1 text-xs font-medium'}
+                          title={detailCanReturn ? undefined : `Locked — returns open 3 hours after the event, at ${formatReturnOpensAt(detailOpensAt)}`}
+                        >
+                          {detailCanReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
               ) : (
@@ -2151,16 +2218,18 @@ export default function Vehicles() {
                     const customerName = booking?.customer ? `${booking.customer.first_name} ${booking.customer.last_name}` : 'Unknown';
                     const bookingRef = booking?.booking_number ||
                       (booking?.booking_id ? (booking.booking_type === 'Short Order' ? 'SO' : 'BKG') + '-' + booking.booking_id.slice(0, 8) : 'N/A');
+                    const isCompleted = record.assignment_status === 'Completed';
+                    const status = getVehicleAssignmentStatus(isCompleted, booking?.event_datetime);
                     return (
-                      <div key={record.assignment_id} className={`border rounded-lg p-3 flex justify-between items-center ${record.assignment_status === 'Completed' ? 'bg-slate-50 border-slate-200' : 'bg-amber-50 border-amber-200'}`}>
+                      <div key={record.assignment_id} className={`border rounded-lg p-3 flex justify-between items-center ${isCompleted ? 'bg-slate-50 border-slate-200' : status.key === 'in_use' ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
                         <div>
                           <p className="font-bold text-slate-900 text-sm">{customerName}</p>
                           <p className="text-xs text-slate-500">{booking?.venue || 'No venue'} · {booking?.event_datetime ? new Date(booking.event_datetime).toLocaleDateString() : 'N/A'}</p>
                           <p className="text-xs text-slate-500">Booking: {bookingRef} · Dispatch: {record.dispatch_datetime ? new Date(record.dispatch_datetime).toLocaleString() : 'N/A'}</p>
                         </div>
                         <div className="text-right">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${record.assignment_status === 'Completed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                            {record.assignment_status === 'Completed' ? 'Returned' : 'Scheduled'}
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${isCompleted ? 'bg-green-100 text-green-700' : status.key === 'in_use' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {isCompleted ? 'Returned' : status.label}
                           </span>
                         </div>
                       </div>
