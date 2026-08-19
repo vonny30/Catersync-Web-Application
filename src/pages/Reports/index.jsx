@@ -188,11 +188,21 @@ export default function Reports() {
     const methodMap = {};
     const refunds = [];
     paymentsInRange.forEach(p => {
-      if (!activeBookingIds.has(p.booking_id)) return;
       if (p.amount_paid < 0) {
+        // Refunds happen almost exclusively when a booking is Rejected or
+        // Cancelled (see useRejectionHandlers.js / useCancellationHandlers.js
+        // — the refund row is inserted in the same action that sets the
+        // booking to that status). Applying the "active bookings only"
+        // filter here excluded a refund the instant its own booking left
+        // active status, which is precisely when almost every refund
+        // exists — the Refunds panel was silently dropping nearly all of
+        // them. Refunds are tracked regardless of the booking's current
+        // status; only the Payment Methods breakdown below stays
+        // active-bookings-only.
         refunds.push(p);
         return;
       }
+      if (!activeBookingIds.has(p.booking_id)) return;
       const method = p.pay_method || 'Unspecified';
       if (!methodMap[method]) methodMap[method] = { method, count: 0, total: 0 };
       methodMap[method].count += 1;
