@@ -56,8 +56,10 @@ const BROWSER_SESSION_KEY = 'cs_browser_session_id';
 // has to be before a claim is considered abandoned. The gap between them
 // (3x) tolerates a couple of missed ticks (a slow network, a backgrounded
 // tab getting throttled) without falsely evicting a still-active session.
-export const HEARTBEAT_INTERVAL_MS = 60 * 1000;
-export const STALE_SESSION_MS = 3 * 60 * 1000;
+// Kept short on purpose: a closed browser should free the account for
+// someone else within seconds, not minutes.
+export const HEARTBEAT_INTERVAL_MS = 10 * 1000;
+export const STALE_SESSION_MS = 30 * 1000;
 
 function readBrowserSessionId() {
   return localStorage.getItem(BROWSER_SESSION_KEY);
