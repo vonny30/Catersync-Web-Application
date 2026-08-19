@@ -57,6 +57,10 @@ export default function ShortOrders() {
   const [datePreset, setDatePreset] = useState('All Time');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
+  // Which date column the range filter above applies to — the event date
+  // (when it happens) or the created/submitted date (when the order was
+  // made). Defaults to event date, the original behavior.
+  const [dateFilterField, setDateFilterField] = useState('event_datetime'); // 'event_datetime' | 'book_datetime'
   // Lightweight rows (status + event_datetime only) matching every filter
   // except status itself — powers the status cards and the Today/Upcoming
   // quick filters without re-fetching full order records per status.
@@ -142,8 +146,8 @@ export default function ShortOrders() {
       // paginated query and the lightweight status-count query.
       const applyCommonFilters = (q) => {
         q = q.eq('booking_type', 'Short Order');
-        if (dateStart) q = q.gte('event_datetime', dateStart.toISOString());
-        if (dateEnd) q = q.lte('event_datetime', dateEnd.toISOString());
+        if (dateStart) q = q.gte(dateFilterField, dateStart.toISOString());
+        if (dateEnd) q = q.lte(dateFilterField, dateEnd.toISOString());
         if (filters.customerId) q = q.eq('customer_id', filters.customerId);
         if (filters.venue) q = q.ilike('venue', `%${filters.venue}%`);
         if (searchCustomerIds) q = q.in('customer_id', searchCustomerIds);
@@ -331,7 +335,7 @@ export default function ShortOrders() {
   // 4. Fetch data when dependencies change
   useEffect(() => {
     fetchData();
-  }, [currentPage, activeTab, searchTerm, filters, datePreset, customStart, customEnd]);
+  }, [currentPage, activeTab, searchTerm, filters, datePreset, customStart, customEnd, dateFilterField]);
 
   // Live count of other active Short Orders on the date picked in the
   // New/Edit form, so the daily cap is visible before submitting.
@@ -561,6 +565,7 @@ export default function ShortOrders() {
     setDatePreset('All Time');
     setCustomStart('');
     setCustomEnd('');
+    setDateFilterField('event_datetime');
     setSearchTerm('');
     setCurrentPage(1);
   };
@@ -573,6 +578,7 @@ export default function ShortOrders() {
     setDatePreset('Custom');
     setCustomStart(todayISO);
     setCustomEnd(todayISO);
+    setDateFilterField('event_datetime');
     setActiveTab('All');
     setCurrentPage(1);
     scrollToTable();
@@ -586,6 +592,7 @@ export default function ShortOrders() {
     setDatePreset('Custom');
     setCustomStart(todayISO);
     setCustomEnd('');
+    setDateFilterField('event_datetime');
     setActiveTab('Confirmed');
     setCurrentPage(1);
     scrollToTable();
@@ -1233,7 +1240,17 @@ export default function ShortOrders() {
           </div>
 
           <div>
-            <label className={`block text-[11px] font-semibold mb-1 ${datePreset !== 'All Time' ? 'text-[#007038]' : 'text-slate-500'}`}>Event Date</label>
+            <div className="flex items-center gap-1.5 mb-1">
+              <label className={`text-[11px] font-semibold ${datePreset !== 'All Time' ? 'text-[#007038]' : 'text-slate-500'}`}>Filter by</label>
+              <select
+                value={dateFilterField}
+                onChange={(e) => { setDateFilterField(e.target.value); setCurrentPage(1); }}
+                className={`text-[11px] font-semibold border rounded px-1 py-0.5 outline-none cursor-pointer ${datePreset !== 'All Time' ? 'text-[#007038] border-[#008A45]/40 bg-[#EAF3F2]' : 'text-slate-500 border-slate-300 bg-white'}`}
+              >
+                <option value="event_datetime">Event Date</option>
+                <option value="book_datetime">Date Created</option>
+              </select>
+            </div>
             <DateRangeFilter
               preset={datePreset}
               customStart={customStart}
