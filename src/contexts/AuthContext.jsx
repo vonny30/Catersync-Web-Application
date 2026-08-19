@@ -7,7 +7,9 @@ import {
   verifyOrReclaimManagerSession,
   releaseManagerSessionClaim,
   releaseManagerSessionClaimBeacon,
+  refreshManagerSessionHeartbeat,
   subscribeManagerSession,
+  HEARTBEAT_INTERVAL_MS,
 } from '../utils/managerSession';
 
 const AuthContext = createContext();
@@ -54,6 +56,7 @@ export const AuthProvider = ({ children }) => {
   const managerIdRef = useRef(null);
   const tabSessionIdRef = useRef(null);
   const realtimeUnsubRef = useRef(null);
+  const heartbeatIntervalRef = useRef(null);
 
   const INACTIVITY_TIMEOUT = 30 * 60 * 1000;
 
@@ -101,6 +104,10 @@ export const AuthProvider = ({ children }) => {
     if (realtimeUnsubRef.current) {
       realtimeUnsubRef.current();
       realtimeUnsubRef.current = null;
+    }
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
     }
     managerIdRef.current = null;
     tabSessionIdRef.current = null;
@@ -196,13 +203,16 @@ export const AuthProvider = ({ children }) => {
         if (!claim.claimed) {
           console.log('[session-lock] Blocked — account already active elsewhere.', claim);
           isBlockedRef.current = true;
-          const since = claim.activeSince
+          // activeSince is a rolling heartbeat, not the original login
+          // time — worded as "active as of" rather than "signed in since"
+          // so it doesn't read as a much-older login than it really is.
+          const activeAsOf = claim.activeSince
             ? new Date(claim.activeSince).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
             : null;
           setSessionConflictMessage(
-            since
-              ? `This account is already signed in on another device or browser (since ${since}). Please log out there first, or wait for that session to end.`
-              : 'This account is already signed in on another device or browser. Please log out there first, or wait for that session to end.'
+            activeAsOf
+              ? `This account is already signed in on another device or browser (active as of ${activeAsOf}). Please log out there first, or wait a few minutes for that session to expire.`
+              : 'This account is already signed in on another device or browser. Please log out there first, or wait a few minutes for that session to expire.'
           );
           // Local-scope only — this brand-new sign-in never should have
           // been granted app access, but revoking globally would also
@@ -227,6 +237,12 @@ export const AuthProvider = ({ children }) => {
       managerIdRef.current = manager.manager_id;
       tabSessionIdRef.current = lockResult.tabSessionId;
       realtimeUnsubRef.current = subscribeManagerSession(manager.manager_id, handleKicked);
+      // Keeps the claim looking "alive" while this tab is open — see the
+      // top-of-file comment in managerSession.js for why this is needed
+      // (the unload-time release beacon isn't reliable enough on its own).
+      heartbeatIntervalRef.current = setInterval(() => {
+        refreshManagerSessionHeartbeat(managerIdRef.current, tabSessionIdRef.current);
+      }, HEARTBEAT_INTERVAL_MS);
 
       setUser(authUser);
       setIsManager(true);
