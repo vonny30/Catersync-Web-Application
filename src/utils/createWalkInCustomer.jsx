@@ -89,8 +89,12 @@ export async function createWalkInCustomer(walkInData) {
       counter++;
     }
 
-    // 4. Create Supabase Auth user (temporary password)
-    const defaultPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
+    // 4. Create Supabase Auth user (fixed default password — walk-in
+    // customers are created in person at the counter, so a consistent,
+    // known password the staff can tell them on the spot is more useful
+    // than a random one they'd have to reset via email before they could
+    // ever log in).
+    const defaultPassword = 'Password123!';
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: walkInData.email_address,
       password: defaultPassword,
