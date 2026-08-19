@@ -158,11 +158,29 @@ export const AuthProvider = ({ children }) => {
     };
   }, [user]);
 
+  // checkManager can be triggered by more than one Supabase auth event in
+  // quick succession (e.g. SIGNED_IN immediately followed by a
+  // TOKEN_REFRESHED) — if two invocations ran concurrently, they'd race on
+  // the SAME localStorage key: verifyOrReclaimManagerSession generates and
+  // WRITES its own random id the moment it finds the key empty, and if
+  // that lands in the narrow window before claimManagerSessionIfFree's own
+  // write (from the OTHER, real-login invocation), it clobbers it — the
+  // second invocation then reads the DB, sees a mismatch against the id it
+  // just made up, and signs the user right back out. checkManagerQueueRef
+  // forces every call through one at a time so this can never happen.
+  const checkManagerQueueRef = useRef(Promise.resolve());
+  const checkManager = (authUser, isRetry = false, isFreshSignIn = false) => {
+    const run = () => checkManagerImpl(authUser, isRetry, isFreshSignIn);
+    const queued = checkManagerQueueRef.current.then(run, run);
+    checkManagerQueueRef.current = queued.catch(() => {});
+    return queued;
+  };
+
   // isFreshSignIn === true means "this call is completing an actual login"
   // — in that case we CLAIM the session, kicking out whatever device/tab
   // was previously logged in as this manager. Any other call (page load,
   // token refresh) only verifies/reclaims, never steals.
-  const checkManager = async (authUser, isRetry = false, isFreshSignIn = false) => {
+  const checkManagerImpl = async (authUser, isRetry = false, isFreshSignIn = false) => {
     try {
       const { data: manager, error } = await supabase
         .from('manager')
@@ -171,7 +189,13 @@ export const AuthProvider = ({ children }) => {
         .maybeSingle();
 
       if (error) {
-        if (error.status === 403 || error.status === 401) {
+        // Supabase/PostgREST query errors carry .code/.message, not an
+        // HTTP .status — checking .status here never actually matched
+        // anything, so an expired/invalid JWT fell through to the generic
+        // retry path (and ultimately the "fail open" fallback below)
+        // instead of being recognized and signed out cleanly.
+        const msg = error.message?.toLowerCase() || '';
+        if (error.code === 'PGRST301' || msg.includes('jwt') || msg.includes('expired')) {
           throw new Error('Session expired');
         }
         throw error;
@@ -255,7 +279,10 @@ export const AuthProvider = ({ children }) => {
         retryCount.current++;
         console.log(`Retrying manager check (attempt ${retryCount.current})...`);
         await new Promise(resolve => setTimeout(resolve, 1500));
-        return checkManager(authUser, true, isFreshSignIn);
+        // Calls the impl directly, not the queued wrapper — we're still
+        // inside a queued turn right now, so this stays serialized with
+        // everything else without re-entering the queue.
+        return checkManagerImpl(authUser, true, isFreshSignIn);
       }
 
       if (!isRetry) {
