@@ -1586,7 +1586,7 @@ export default function ShortOrders() {
                           </button>
                         </div>
                         <p className="text-xs text-amber-600 -mt-2">
-                          ⚠️ Account will be created with a temporary password (password123). The customer can reset it via email.
+                          ⚠️ Account will be created with the default password (Password123!). The customer can reset it via email.
                         </p>
                         <div className="grid grid-cols-2 gap-3">
                           <div>

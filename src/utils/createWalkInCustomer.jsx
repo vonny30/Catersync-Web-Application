@@ -153,7 +153,7 @@ export async function createWalkInCustomer(walkInData) {
     await new Promise((resolve) => setTimeout(resolve, 500));
 
     toast.success(
-      `Customer account created! Temporary password: ${defaultPassword} (they can reset it via email)`
+      `Customer account created! Default password: ${defaultPassword} (they can reset it via email)`
     );
 
     return newCustomer.customer_id;
