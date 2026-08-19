@@ -6,7 +6,6 @@ import {
   claimManagerSessionIfFree,
   verifyOrReclaimManagerSession,
   releaseManagerSessionClaim,
-  releaseManagerSessionClaimBeacon,
   refreshManagerSessionHeartbeat,
   subscribeManagerSession,
   HEARTBEAT_INTERVAL_MS,
@@ -50,11 +49,10 @@ export const AuthProvider = ({ children }) => {
   // auth event fires in quick succession (e.g. during a password change).
   const AUTH_TOAST_ID = 'auth-status';
 
-  // Latest session (for the access token used by the tab-close beacon).
-  const sessionRef = useRef(null);
-  // Identifies which manager / tab-session this browser tab currently owns.
+  // Identifies which manager / browser-session this browser currently owns
+  // (shared across every tab of it — see managerSession.js).
   const managerIdRef = useRef(null);
-  const tabSessionIdRef = useRef(null);
+  const browserSessionIdRef = useRef(null);
   const realtimeUnsubRef = useRef(null);
   const heartbeatIntervalRef = useRef(null);
 
@@ -110,7 +108,7 @@ export const AuthProvider = ({ children }) => {
       heartbeatIntervalRef.current = null;
     }
     managerIdRef.current = null;
-    tabSessionIdRef.current = null;
+    browserSessionIdRef.current = null;
   };
 
   // Called on every realtime UPDATE to this manager's row, including ones
@@ -119,12 +117,12 @@ export const AuthProvider = ({ children }) => {
   // (not a value captured earlier) or a stale comparison could make a tab
   // sign itself out right after successfully claiming the session.
   const handleKicked = (newSessionId, startedAt) => {
-    if (!newSessionId || newSessionId === tabSessionIdRef.current) {
-      console.log('[session-lock] Ignoring realtime update — this is our own claim.', { newSessionId, ours: tabSessionIdRef.current });
+    if (!newSessionId || newSessionId === browserSessionIdRef.current) {
+      console.log('[session-lock] Ignoring realtime update — this is our own claim.', { newSessionId, ours: browserSessionIdRef.current });
       return;
     }
     if (isKickedRef.current) return; // already handling
-    console.log('[session-lock] Kicked — another device/tab claimed the session.', { newSessionId, ours: tabSessionIdRef.current, startedAt });
+    console.log('[session-lock] Kicked — another device/tab claimed the session.', { newSessionId, ours: browserSessionIdRef.current, startedAt });
     isKickedRef.current = true;
     kickedAtRef.current = startedAt || null;
     teardownSessionLock();
@@ -140,29 +138,10 @@ export const AuthProvider = ({ children }) => {
       window.addEventListener(event, updateActivity, { passive: true });
     });
 
-    // Best-effort: release this tab's claim on the account when the tab is
-    // closed or refreshed, so a plain reload doesn't leave a stale lock
-    // (verifyOrReclaimManagerSession silently reclaims it on the next load
-    // if nobody else has logged in during the gap — refresh keeps working).
-    // event.persisted means the page is going into the back/forward cache,
-    // not actually closing, so skip the release in that case.
-    const handlePageHide = (event) => {
-      if (event.persisted) return;
-      if (managerIdRef.current && tabSessionIdRef.current && sessionRef.current?.access_token) {
-        releaseManagerSessionClaimBeacon(
-          managerIdRef.current,
-          tabSessionIdRef.current,
-          sessionRef.current.access_token
-        );
-      }
-    };
-    window.addEventListener('pagehide', handlePageHide);
-
     return () => {
       activityEvents.forEach(event => {
         window.removeEventListener(event, updateActivity);
       });
-      window.removeEventListener('pagehide', handlePageHide);
       clearInactivityTimer();
     };
   }, [user]);
@@ -220,11 +199,11 @@ export const AuthProvider = ({ children }) => {
           await supabase.auth.signOut({ scope: 'local' });
           return false;
         }
-        console.log('[session-lock] Claimed (fresh sign-in):', claim.tabSessionId);
-        lockResult = { status: 'claimed', tabSessionId: claim.tabSessionId };
+        console.log('[session-lock] Claimed (fresh sign-in):', claim.browserSessionId);
+        lockResult = { status: 'claimed', browserSessionId: claim.browserSessionId };
       } else {
         lockResult = await verifyOrReclaimManagerSession(manager.manager_id);
-        console.log('[session-lock] verifyOrReclaim result:', lockResult.status, lockResult.tabSessionId);
+        console.log('[session-lock] verifyOrReclaim result:', lockResult.status, lockResult.browserSessionId);
       }
 
       if (lockResult.status === 'kicked') {
@@ -235,13 +214,13 @@ export const AuthProvider = ({ children }) => {
 
       teardownSessionLock();
       managerIdRef.current = manager.manager_id;
-      tabSessionIdRef.current = lockResult.tabSessionId;
+      browserSessionIdRef.current = lockResult.browserSessionId;
       realtimeUnsubRef.current = subscribeManagerSession(manager.manager_id, handleKicked);
-      // Keeps the claim looking "alive" while this tab is open — see the
-      // top-of-file comment in managerSession.js for why this is needed
-      // (the unload-time release beacon isn't reliable enough on its own).
+      // Keeps the claim looking "alive" for as long as any tab of this
+      // browser is open — see the top-of-file comment in managerSession.js
+      // for why this replaces trying to release on tab/browser close.
       heartbeatIntervalRef.current = setInterval(() => {
-        refreshManagerSessionHeartbeat(managerIdRef.current, tabSessionIdRef.current);
+        refreshManagerSessionHeartbeat(managerIdRef.current, browserSessionIdRef.current);
       }, HEARTBEAT_INTERVAL_MS);
 
       setUser(authUser);
@@ -283,7 +262,6 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        sessionRef.current = session;
         if (session?.user) {
           await checkManager(session.user);
         } else {
@@ -308,7 +286,6 @@ export const AuthProvider = ({ children }) => {
         }
 
         console.log('Auth event:', event);
-        sessionRef.current = session;
 
 if (event === 'SIGNED_OUT') {
           clearInactivityTimer();
@@ -430,8 +407,8 @@ if (event === 'SIGNED_OUT') {
         isInactiveLogoutRef.current = true;
       }
     }
-    if (managerIdRef.current && tabSessionIdRef.current) {
-      await releaseManagerSessionClaim(managerIdRef.current, tabSessionIdRef.current);
+    if (managerIdRef.current && browserSessionIdRef.current) {
+      await releaseManagerSessionClaim(managerIdRef.current, browserSessionIdRef.current);
     }
     teardownSessionLock();
     localStorage.removeItem('supabase.auth.token');
