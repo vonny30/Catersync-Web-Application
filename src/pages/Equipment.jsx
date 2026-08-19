@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import {
   Plus, Edit, Trash2, X, Settings, ClipboardList, RefreshCw, Undo2,
   Calendar, MapPin, Users, Search, CalendarClock, LayoutGrid, AlertTriangle,
-  ChevronRight, Wrench, CheckCircle2, History, ExternalLink,
+  ChevronRight, Wrench, CheckCircle2, History, ExternalLink, Lock,
   ArrowUpDown, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { supabase } from '../supabase';
@@ -46,6 +46,21 @@ const describeEquipmentConflicts = (conflicts, proposedAvailable) => {
   const moreDates = conflicts.length > 1 ? ` (and ${conflicts.length - 1} other date${conflicts.length > 2 ? 's' : ''} would also fall short)` : '';
   return `Can't save this — on ${dateLabel}, ${first.committed} unit(s) are already needed for ${eventPreview}${moreEvents}, but this change would leave only ${proposedAvailable} available${moreDates}. Reassign equipment away from a lower-priority booking or reduce the Damaged/Maintenance count first.`;
 };
+
+// Equipment can't physically come back until the event it's out for is
+// actually happening or over — returning it "early" (before the event
+// even starts) had no trap at all before this. Gives a 3-hour grace period
+// past the event's start (covers events that run long) before Return
+// becomes usable. No event_datetime at all (shouldn't normally happen) is
+// treated as returnable, rather than permanently locking the item out.
+const RETURN_GRACE_MS = 3 * 60 * 60 * 1000;
+const getReturnAvailability = (eventDatetimeStr) => {
+  if (!eventDatetimeStr) return { canReturn: true, opensAt: null };
+  const opensAt = new Date(new Date(eventDatetimeStr).getTime() + RETURN_GRACE_MS);
+  return { canReturn: Date.now() >= opensAt.getTime(), opensAt };
+};
+const formatReturnOpensAt = (opensAt) =>
+  opensAt ? opensAt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
 
 export default function Equipment() {
   const navigate = useNavigate();
@@ -887,6 +902,13 @@ export default function Equipment() {
 
   // --- RETURN EQUIPMENT (single) ---
   const handleReturnEquipment = async (assignmentId) => {
+    const assignment = assignments.find(a => a.assignment_id === assignmentId);
+    const { canReturn, opensAt } = getReturnAvailability(assignment?.booking?.event_datetime);
+    if (!canReturn) {
+      toast.error(`Can't return this yet — available starting 3 hours after the event, at ${formatReturnOpensAt(opensAt)}.`);
+      return;
+    }
+
     const confirmed = await showConfirm({
       title: 'Return Equipment?',
       message: 'Are you sure you want to mark this equipment as returned?',
@@ -911,6 +933,13 @@ export default function Equipment() {
 
   // --- RETURN ALL ITEMS FOR ONE EVENT ---
   const handleReturnAllForBooking = async (bookingId, itemCount) => {
+    const sampleAssignment = assignments.find(a => a.booking_id === bookingId);
+    const { canReturn, opensAt } = getReturnAvailability(sampleAssignment?.booking?.event_datetime);
+    if (!canReturn) {
+      toast.error(`Can't return these yet — available starting 3 hours after the event, at ${formatReturnOpensAt(opensAt)}.`);
+      return;
+    }
+
     const confirmed = await showConfirm({
       title: 'Return All Items?',
       message: `Mark all ${itemCount} item${itemCount !== 1 ? 's' : ''} for this event as returned?`,
@@ -1096,7 +1125,8 @@ export default function Equipment() {
     const eventDate = g.booking?.event_datetime ? new Date(g.booking.event_datetime) : null;
     const isOverdue = eventDate ? eventDate < now : false;
     const isToday = eventDate ? eventDate.toDateString() === now.toDateString() : false;
-    return { ...g, eventDate, isOverdue, isToday };
+    const { canReturn, opensAt: returnOpensAt } = getReturnAvailability(g.booking?.event_datetime);
+    return { ...g, eventDate, isOverdue, isToday, canReturn, returnOpensAt };
   }).sort((a, b) => {
     const rank = (g) => g.isOverdue ? 0 : g.isToday ? 1 : 2;
     const rankDiff = rank(a) - rank(b);
@@ -1729,9 +1759,12 @@ export default function Equipment() {
                       <button
                         type="button"
                         onClick={(e) => { e.preventDefault(); handleReturnAllForBooking(group.booking_id, group.items.length); }}
-                        className="text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 border border-blue-200 rounded-lg px-2.5 py-1 hover:bg-blue-50 transition-colors"
+                        className={group.canReturn
+                          ? 'text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 border border-blue-200 rounded-lg px-2.5 py-1 hover:bg-blue-50 transition-colors'
+                          : 'text-xs font-semibold text-slate-400 flex items-center gap-1 border border-slate-200 rounded-lg px-2.5 py-1 transition-colors'}
+                        title={group.canReturn ? undefined : `Locked — returns open 3 hours after the event, at ${formatReturnOpensAt(group.returnOpensAt)}`}
                       >
-                        <Undo2 size={13} /> Return all
+                        {group.canReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return all
                       </button>
                     </div>
                   </summary>
@@ -1741,9 +1774,12 @@ export default function Equipment() {
                         <span className="font-medium text-slate-700">{a.equipment?.eqm_name || 'Unknown'} × <span className="font-bold text-[#008A45]">{a.quantity}</span></span>
                         <button
                           onClick={() => handleReturnEquipment(a.assignment_id)}
-                          className="text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1 text-xs font-medium"
+                          className={group.canReturn
+                            ? 'text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1 text-xs font-medium'
+                            : 'text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-1 text-xs font-medium'}
+                          title={group.canReturn ? undefined : `Locked — returns open 3 hours after the event, at ${formatReturnOpensAt(group.returnOpensAt)}`}
                         >
-                          <Undo2 size={13} /> Return
+                          {group.canReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return
                         </button>
                       </div>
                     ))}
@@ -2056,7 +2092,9 @@ export default function Equipment() {
               {availabilityDetailItem.events.length === 0 ? (
                 <p className="text-sm text-slate-500 italic text-center py-8">No events using this item on this date.</p>
               ) : (
-                availabilityDetailItem.events.map((ev, idx) => (
+                availabilityDetailItem.events.map((ev, idx) => {
+                  const { canReturn: evCanReturn, opensAt: evReturnOpensAt } = getReturnAvailability(ev.event_datetime);
+                  return (
                   <div key={idx} className="border border-slate-200 rounded-lg p-3 flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="font-bold text-slate-900 text-sm truncate">{ev.customerName}</p>
@@ -2079,16 +2117,20 @@ export default function Equipment() {
                       {ev.assignment_id ? (
                         <button
                           onClick={async () => { await handleReturnEquipment(ev.assignment_id); setIsAvailabilityDetailOpen(false); }}
-                          className="text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1 text-xs font-medium"
+                          className={evCanReturn
+                            ? 'text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1 text-xs font-medium'
+                            : 'text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-1 text-xs font-medium'}
+                          title={evCanReturn ? undefined : `Locked — returns open 3 hours after the event, at ${formatReturnOpensAt(evReturnOpensAt)}`}
                         >
-                          <Undo2 size={13} /> Return
+                          {evCanReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return
                         </button>
                       ) : (
                         <span className="text-[10px] text-slate-400">No return action</span>
                       )}
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
