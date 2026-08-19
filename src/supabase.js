@@ -10,22 +10,20 @@ export const supabaseAnonKey = supabaseKey;
 console.log("Supabase URL is:", supabaseUrl);
 console.log("Supabase Key is:", supabaseKey ? "Found!" : "Missing!");
 
-// Auth token lives in sessionStorage so each browser TAB is its own
-// login — combined with the single-active-session lock in
-// src/utils/managerSession.js, this means only one tab/device can be
-// signed in at a time anywhere, for the strictest, simplest security.
-const customStorage = {
-  getItem: (key) => sessionStorage.getItem(key),
-  setItem: (key, value) => sessionStorage.setItem(key, value),
-  removeItem: (key) => {
-    localStorage.removeItem(key); // clean up any leftover tokens
-    sessionStorage.removeItem(key);
-  },
-};
-
+// The auth token uses Supabase's default localStorage-backed storage —
+// deliberately NOT overridden to sessionStorage. Storing it per-tab used
+// to be how this app tried to enforce "one login at a time", but it broke
+// in a much worse way than it fixed: duplicating/ctrl-clicking a tab
+// copies sessionStorage, so both tabs would start out holding an
+// IDENTICAL COPY of the same refresh token. Supabase rotates refresh
+// tokens on every use (each one is single-use), so whichever tab
+// refreshed first silently invalidated the other tab's copy — causing
+// that tab to get randomly signed out with no relation to anything in
+// this app's own code. The single-active-session rule is now enforced
+// separately and correctly by manager.active_session_id (see
+// src/utils/managerSession.js), which doesn't have this problem.
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
-    storage: customStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
