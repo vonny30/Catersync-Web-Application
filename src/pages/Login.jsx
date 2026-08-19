@@ -8,7 +8,7 @@ import toast from 'react-hot-toast';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { isManager, loading: authLoading, sessionConflictMessage, clearSessionConflictMessage } = useAuth();
+  const { isManager, loading: authLoading, sessionConflictMessage, clearSessionConflictMessage, markFreshLoginAttempt } = useAuth();
 
   const [formData, setFormData] = useState({
     email: '',
@@ -89,6 +89,10 @@ export default function Login() {
     }
 
  try {
+      // Marks the very next SIGNED_IN event as a real login attempt, so
+      // AuthContext knows to enforce the single-session check on it —
+      // see the comment on freshLoginAttemptRef in AuthContext.jsx.
+      markFreshLoginAttempt();
       const { data, error } = await supabase.auth.signInWithPassword({
         email: email,
         password: password,

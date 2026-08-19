@@ -29,6 +29,18 @@ export const AuthProvider = ({ children }) => {
   // login form.
   const [sessionConflictMessage, setSessionConflictMessage] = useState(null);
   const clearSessionConflictMessage = () => setSessionConflictMessage(null);
+  // Supabase fires the SAME 'SIGNED_IN' event both for an actual credential
+  // login AND for a brand-new tab picking up an already-valid session from
+  // shared storage — there's no way to tell them apart from the event
+  // itself. Login.jsx sets this flag right before calling
+  // signInWithPassword so the listener below knows the very next SIGNED_IN
+  // is a real login attempt (and should go through the strict
+  // claim-or-reject check) rather than just a new tab opening (which
+  // should join the existing session, not compete with it).
+  const freshLoginAttemptRef = useRef(false);
+  const markFreshLoginAttempt = () => {
+    freshLoginAttemptRef.current = true;
+  };
   const isBlockedRef = useRef(false);
   const kickedAtRef = useRef(null);
   const isCreatingWalkIn = useRef(false);
@@ -351,8 +363,10 @@ if (event === 'SIGNED_OUT') {
 
         if (event === 'SIGNED_IN') {
           if (session?.user) {
+            const isFreshSignIn = freshLoginAttemptRef.current;
+            freshLoginAttemptRef.current = false;
             setLoading(true);
-            await checkManager(session.user, false, true);
+            await checkManager(session.user, false, isFreshSignIn);
             setLoading(false);
           }
           return;
@@ -417,7 +431,7 @@ if (event === 'SIGNED_OUT') {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, initializing, isManager, login, logout, withWalkInCreation, sessionConflictMessage, clearSessionConflictMessage }}>
+    <AuthContext.Provider value={{ user, loading, initializing, isManager, login, logout, withWalkInCreation, sessionConflictMessage, clearSessionConflictMessage, markFreshLoginAttempt }}>
       {children}
     </AuthContext.Provider>
   );
