@@ -2,12 +2,20 @@
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell,
 } from 'recharts';
+import { useNavigate } from 'react-router-dom';
+import { ExternalLink } from 'lucide-react';
 import { formatCurrency, formatDate, cardColorClasses } from './helpers';
 
 const COLORS = ['#008A45', '#2d9b5e', '#5cb885', '#8cd4a8', '#b5e8ca', '#d4f0e0'];
 
 export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
+  const navigate = useNavigate();
   const { financialSummary, monthlyRevenueData, paymentMethodData, refunds, totalRefunded, bookingSummaryData } = derived;
+
+  const goToBookingDetails = (id, type) => {
+    if (!id) return;
+    navigate(`/app/${type === 'Short Order' ? 'orders' : 'bookings'}/${id}`);
+  };
 
   return (
     <>
@@ -113,6 +121,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-[#EAF3F2] text-slate-800 text-xs font-bold border-b border-slate-200">
+                  <th className="p-3">Booking</th>
                   <th className="p-3">Date</th>
                   <th className="p-3">Method</th>
                   <th className="p-3 text-right">Amount</th>
@@ -127,12 +136,26 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
                       description: `From the payment table: a negative amount_paid entry recorded ${formatDate(r.pay_datetime)}.`,
                       badge: { label: 'Refund', variant: 'danger' },
                       fields: [
+                        { label: 'Booking', value: r.bookingRef || 'Unknown' },
                         { label: 'Amount refunded', value: formatCurrency(Math.abs(r.amount_paid)), emphasis: true },
                         { label: 'Method', value: r.pay_method || 'Unspecified' },
                       ],
                     })}
                     className="hover:bg-slate-50 cursor-pointer"
                   >
+                    <td className="p-3">
+                      {r.bookingRef ? (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); goToBookingDetails(r.booking_id, r.bookingType); }}
+                          className="font-mono text-xs font-bold text-[#008A45] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                          title="View full booking details"
+                        >
+                          {r.bookingRef} <ExternalLink size={10} />
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-400">Unknown</span>
+                      )}
+                    </td>
                     <td className="p-3 text-slate-600">{formatDate(r.pay_datetime)}</td>
                     <td className="p-3 text-slate-600">{r.pay_method || 'Unspecified'}</td>
                     <td className="p-3 text-right font-semibold text-red-600">{formatCurrency(Math.abs(r.amount_paid))}</td>

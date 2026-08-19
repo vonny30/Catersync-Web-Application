@@ -113,6 +113,12 @@ export default function Reports() {
 
     const { bookings, payments, menuItems, categories, packageCategories, equipment, bookingEquipment, vehicles, vehicleAssignments } = rawData;
 
+    // Lookup for attaching a booking ref/type to a payment/refund row that
+    // only carries booking_id — used so the Refunds panel can link
+    // straight to the booking/order it came from.
+    const bookingsById = {};
+    bookings.forEach(b => { bookingsById[b.booking_id] = b; });
+
     // Bookings whose EVENT falls in range (revenue/menu/summary anchor).
     const bookingsInEventRange = bookings.filter(b => !rangeStart && !rangeEnd ? true : isWithinRange(b.event_datetime, rangeStart, rangeEnd));
     // Bookings SUBMITTED in range (funnel/customer-acquisition anchor).
@@ -199,7 +205,12 @@ export default function Reports() {
         // them. Refunds are tracked regardless of the booking's current
         // status; only the Payment Methods breakdown below stays
         // active-bookings-only.
-        refunds.push(p);
+        const refundBooking = bookingsById[p.booking_id];
+        refunds.push({
+          ...p,
+          bookingRef: refundBooking ? getBookingRef(refundBooking) : null,
+          bookingType: refundBooking?.booking_type || 'Package',
+        });
         return;
       }
       if (!activeBookingIds.has(p.booking_id)) return;
