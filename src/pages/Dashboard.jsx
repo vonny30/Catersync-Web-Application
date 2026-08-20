@@ -65,19 +65,25 @@ export default function Dashboard() {
   };
 
   // --- Fetch Dashboard Data ---
-  const fetchDashboardData = async () => {
-    setLoading(true);
+  // --- Calendar events (Package + Short Order — the calendar tracks
+  // per-date what type(s) are on it, not just a count, so the day dot can
+  // show which type the events actually are) ---
+  //
+  // Deliberately separate from fetchDashboardData: that function always
+  // scopes its month to `new Date()` (the real current month), so it was
+  // the only source for eventDates — meaning navigating the calendar to
+  // ANY other month (e.g. September while it's still August) never
+  // fetched that month's events at all, so newly-added records for it
+  // never showed up no matter how many existed. This instead fetches
+  // whichever month is actually being VIEWED (see the effect below that
+  // calls it whenever currentMonth changes).
+  const fetchCalendarEvents = async (monthDate) => {
     try {
-      const today = new Date();
-      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-      const todayStr = toLocalDateStr(today);
+      const startOfMonth = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+      const endOfMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
       const startOfMonthStr = toLocalDateStr(startOfMonth);
       const endOfMonthStr = toLocalDateStr(endOfMonth);
 
-      // --- Calendar events (Package + Short Order — the calendar tracks
-      // per-date what type(s) are on it, not just a count, so the day dot
-      // can show which type the events actually are) ---
       const { data: monthBookings, error: monthError } = await supabase
         .from('booking')
         .select('event_datetime, booking_status, booking_type')
@@ -101,6 +107,16 @@ export default function Dashboard() {
         }
       });
       setEventDates(eventMap);
+    } catch (error) {
+      handleError(error, 'Failed to load calendar events.');
+    }
+  };
+
+  const fetchDashboardData = async () => {
+    setLoading(true);
+    try {
+      const today = new Date();
+      const todayStr = toLocalDateStr(today);
 
       // --- Today's Events (Package only) ---
       const { data: todayData, error: todayError } = await supabase
@@ -282,6 +298,13 @@ export default function Dashboard() {
     const interval = setInterval(fetchDashboardData, 60000);
     return () => clearInterval(interval);
   }, []);
+
+  // Refetches the calendar's event dots whenever the viewed month changes
+  // (prev/next arrows), not just once for whatever month happened to be
+  // current when the page loaded.
+  useEffect(() => {
+    fetchCalendarEvents(currentMonth);
+  }, [currentMonth]);
 
   // --- Calendar generation ---
   useEffect(() => {
