@@ -117,6 +117,12 @@ export default function Dashboard() {
     try {
       const today = new Date();
       const todayStr = toLocalDateStr(today);
+      // Always the real current month — "Net Collected This Month" isn't
+      // tied to whatever month the calendar happens to be showing.
+      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      const startOfMonthStr = toLocalDateStr(startOfMonth);
+      const endOfMonthStr = toLocalDateStr(endOfMonth);
 
       // --- Today's Events (Package only) ---
       const { data: todayData, error: todayError } = await supabase
