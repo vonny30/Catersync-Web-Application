@@ -50,7 +50,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
       </div>
 
       <div className="bg-white border border-slate-200 rounded-2xl p-6">
-        <h3 className="text-base font-bold text-slate-900 mb-4">Monthly Revenue (Net Collected)</h3>
+        <h3 className="text-base font-bold text-slate-900 mb-4">Monthly Payments Received</h3>
         {monthlyRevenueData.length === 0 ? (
           <div className="h-64 flex items-center justify-center text-slate-400 text-sm">No payment data available.</div>
         ) : (
@@ -69,7 +69,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
             </BarChart>
           </ResponsiveContainer>
         )}
-        <div className="mt-2 text-xs text-slate-500 text-right">Bar shows total payments received per month (net collected)</div>
+        <div className="mt-2 text-xs text-slate-500 text-right">Each bar is the total verified payments received in that month, net of refunds</div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
