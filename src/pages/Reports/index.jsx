@@ -22,6 +22,14 @@ const TABS = [
 
 const CANCELLED_STATUSES = ['Rejected', 'Cancelled'];
 
+// Group-by-month helpers. The KEY is numeric and locale-independent so it
+// can be sorted arithmetically; the LABEL is for display only and is never
+// parsed back into a Date. Keeping those two jobs in separate values is the
+// whole point — a localized string like "Aug 2026" is not a reliable sort
+// key, and is not reliably parseable at all outside an English locale.
+const monthSortKey = (date) => date.getFullYear() * 12 + date.getMonth();
+const monthLabel = (date) => date.toLocaleString('default', { month: 'short', year: 'numeric' });
+
 export default function Reports() {
   const [activeTab, setActiveTab] = useState('Overview');
   const [isLoading, setIsLoading] = useState(true);
@@ -198,17 +206,26 @@ export default function Reports() {
       _outstandingBreakdown: outstandingBreakdown,
     };
 
-    // Monthly revenue (net collected), from payments actually received in range.
+    // Monthly revenue (payments actually received in range).
+    //
+    // Months are grouped by a NUMERIC key and sorted on it. The previous
+    // version grouped by the display string ("Aug 2026") and then sorted by
+    // re-parsing it with new Date("Aug 2026") — parsing a format like that
+    // is implementation-defined in JavaScript, so it only worked by luck.
+    // Under a non-English browser locale toLocaleString emits "ago 2026" /
+    // "8月 2026", new Date() returns Invalid Date, the comparator gets NaN,
+    // and the chart renders its months in arbitrary order. The label is now
+    // kept purely for display and never parsed back.
     const monthMap = {};
     paymentsInRange.forEach(p => {
       if (!activeBookingIds.has(p.booking_id)) return;
       if (!p.pay_datetime || p.amount_paid <= 0) return;
       const date = new Date(p.pay_datetime);
-      const monthKey = date.toLocaleString('default', { month: 'short', year: 'numeric' });
-      monthMap[monthKey] = (monthMap[monthKey] || 0) + p.amount_paid;
+      const sortKey = monthSortKey(date);
+      if (!monthMap[sortKey]) monthMap[sortKey] = { month: monthLabel(date), revenue: 0, sortKey };
+      monthMap[sortKey].revenue += p.amount_paid;
     });
-    const monthlyRevenueData = Object.entries(monthMap)
-      .map(([month, revenue]) => ({ month, revenue, sortKey: new Date(month) }))
+    const monthlyRevenueData = Object.values(monthMap)
       .sort((a, b) => a.sortKey - b.sortKey)
       .map(({ month, revenue }) => ({ month, revenue }));
 
@@ -482,12 +499,19 @@ export default function Reports() {
     const oneTimeCustomers = customerList.filter(c => c.bookings === 1).length;
 
     // --- BOOKING SUMMARY (completed events only, by event month) ---
+    // Same numeric-key grouping as monthlyRevenueData above, and sorted
+    // newest-first. This list was previously left in whatever order the
+    // object keys happened to land in — which is the order bookings were
+    // encountered, not chronological. That mattered twice over: the Booking
+    // Summary tab listed months in an arbitrary order, and the Financial
+    // tab's panel does .slice(0, 3) on this array, so it was showing three
+    // arbitrary months while being titled a summary of the recent ones.
     const monthGroup = {};
     bookingsInEventRange.filter(b => b.booking_status === 'Completed' && b.event_datetime).forEach(b => {
       const date = new Date(b.event_datetime);
-      const monthKey = date.toLocaleString('default', { month: 'short', year: 'numeric' });
-      if (!monthGroup[monthKey]) monthGroup[monthKey] = { bookings: 0, revenue: 0, packageCounts: {} };
-      const group = monthGroup[monthKey];
+      const sortKey = monthSortKey(date);
+      if (!monthGroup[sortKey]) monthGroup[sortKey] = { month: monthLabel(date), sortKey, bookings: 0, revenue: 0, packageCounts: {} };
+      const group = monthGroup[sortKey];
       group.bookings += 1;
       group.revenue += b.total_amount || 0;
       if (b.booking_type === 'Package' && b.package_id) {
@@ -495,13 +519,15 @@ export default function Reports() {
         group.packageCounts[pkgName] = (group.packageCounts[pkgName] || 0) + 1;
       }
     });
-    const bookingSummaryData = Object.entries(monthGroup).map(([month, data], index) => {
-      let topPackage = 'None', maxCount = 0;
-      Object.entries(data.packageCounts).forEach(([pkg, count]) => {
-        if (count > maxCount) { maxCount = count; topPackage = pkg; }
+    const bookingSummaryData = Object.values(monthGroup)
+      .sort((a, b) => b.sortKey - a.sortKey)
+      .map((data, index) => {
+        let topPackage = 'None', maxCount = 0;
+        Object.entries(data.packageCounts).forEach(([pkg, count]) => {
+          if (count > maxCount) { maxCount = count; topPackage = pkg; }
+        });
+        return { id: `RPT-${index + 1}`, month: data.month, bookings: data.bookings, revenue: data.revenue, topPackage };
       });
-      return { id: `RPT-${index + 1}`, month, bookings: data.bookings, revenue: data.revenue, topPackage };
-    });
 
     return {
       financialSummary, monthlyRevenueData, paymentMethodData, refunds, totalRefunded,
