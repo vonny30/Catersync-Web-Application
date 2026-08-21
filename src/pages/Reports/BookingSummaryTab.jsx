@@ -17,9 +17,14 @@ export default function BookingSummaryTab({ derived, onOpenDetail }) {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-[#EAF3F2] text-slate-800 text-xs font-bold border-b border-slate-200">
-                <th className="p-4">Accounting Month</th>
+                {/* "Accounting Month" implied a closed accounting period, and
+                    nothing in this system closes one — these rows are grouped by
+                    the month the event happened in. "Gross Revenue" implied a
+                    net figure exists to compare it against; with no cost data
+                    anywhere, none does. */}
+                <th className="p-4">Event Month</th>
                 <th className="p-4">Total Completed Bookings</th>
-                <th className="p-4">Gross Revenue</th>
+                <th className="p-4">Revenue Earned</th>
                 <th className="p-4">Top Package</th>
               </tr>
             </thead>

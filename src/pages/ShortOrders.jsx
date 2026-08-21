@@ -1140,7 +1140,7 @@ export default function ShortOrders() {
 
         <div className="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t border-slate-100">
           <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wide">
-            <CalendarClock size={13} /> Quick looks
+            <CalendarClock size={13} /> Quick filters
           </span>
           <button
             onClick={applyTodayFilter}
@@ -1203,7 +1203,7 @@ export default function ShortOrders() {
             <div className="relative">
               <input
                 type="text"
-                placeholder="Client name or order ref..."
+                placeholder="Customer name or reference"
                 value={searchTerm}
                 onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                 className={`w-full border rounded-lg py-2.5 pl-4 pr-10 text-sm outline-none transition-colors ${searchTerm ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-300 bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
@@ -1285,7 +1285,7 @@ export default function ShortOrders() {
                     disabled={orders.length === 0}
                   />
                 </th>
-                <th className="p-4 font-bold min-w-[130px]">Client</th>
+                <th className="p-4 font-bold min-w-[130px]">Customer</th>
                 <th className="p-4 font-bold min-w-[120px]">Created</th>
                 <th className="p-4 font-bold min-w-[120px]">Event Date</th>
                 <th className="p-4 font-bold min-w-[100px]">Venue</th>
@@ -1868,8 +1868,8 @@ export default function ShortOrders() {
                 <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
               </div>
               <div className="text-sm text-slate-500">
-                <p>Down payment (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
-                <p className="text-xs mt-1">* Down payment may be required for large orders (subject to business policy).</p>
+                <p>Downpayment (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
+                <p className="text-xs mt-1">Downpayment may be required for large orders.</p>
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">

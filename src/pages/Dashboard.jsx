@@ -117,7 +117,7 @@ export default function Dashboard() {
     try {
       const today = new Date();
       const todayStr = toLocalDateStr(today);
-      // Always the real current month — "Net Collected This Month" isn't
+      // Always the real current month — "Payments Received This Month" isn't
       // tied to whatever month the calendar happens to be showing.
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
       const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
@@ -398,7 +398,7 @@ export default function Dashboard() {
     if (booking.customer) {
       return `${booking.customer.first_name} ${booking.customer.last_name}`;
     }
-    return 'Unknown Client';
+    return 'Unknown customer';
   };
 
   const getVenueDisplay = (booking) => {
@@ -534,7 +534,7 @@ export default function Dashboard() {
       // Match the card total: Pending Verification / Proof Rejected rows
       // aren't real collected money yet.
       setStatsModalData((data || []).filter(p => !isUnverifiedPayment(p)));
-      setStatsModalTitle(`Net Collected This Month (${today.toLocaleString('default', { month: 'long', year: 'numeric' })})`);
+      setStatsModalTitle(`Payments Received This Month (${today.toLocaleString('default', { month: 'long', year: 'numeric' })})`);
       setStatsModalType('revenue');
       resetStatsFilters();
       setIsStatsModalOpen(true);
@@ -620,7 +620,7 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
-          Good Day, PG's Catering Owner!
+          Good day, PG's Catering Manager
           <span className="text-sm font-normal text-slate-500 block mt-1">
             {new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
           </span>
@@ -690,7 +690,7 @@ export default function Dashboard() {
           <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
         </button>
 
-        {/* Net Collected This Month */}
+        {/* Payments Received This Month */}
         <button
           onClick={handleRevenueClick}
           className="relative overflow-hidden bg-white border border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-[#008A45]/40 transition-all cursor-pointer group"
@@ -702,7 +702,7 @@ export default function Dashboard() {
           <span className="text-3xl font-extrabold text-slate-900 mb-1">
             ₱{stats.revenueThisMonth.toLocaleString()}
           </span>
-          <span className="text-sm font-medium text-slate-600">Net Collected This Month</span>
+          <span className="text-sm font-medium text-slate-600">Payments Received This Month</span>
           <ArrowRight size={14} className="absolute top-3 right-3 text-[#008A45] opacity-0 group-hover:opacity-100 transition-opacity" />
           <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
         </button>
@@ -943,7 +943,7 @@ export default function Dashboard() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                     <input
                       type="text"
-                      placeholder="Search by client name, ref, or venue..."
+                      placeholder="Search by customer name, reference, or venue"
                       value={statsSearchTerm}
                       onChange={(e) => setStatsSearchTerm(e.target.value)}
                       className={`w-full pl-8 pr-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${statsSearchTerm.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
@@ -1011,7 +1011,7 @@ export default function Dashboard() {
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
-                          <th className="p-3">Ref</th>
+                          <th className="p-3">Reference</th>
                           <th className="p-3">Customer</th>
                           <th className="p-3">Type</th>
                           <th className="p-3">Venue</th>
@@ -1075,12 +1075,12 @@ export default function Dashboard() {
                     </table>
                   )}
 
-                  {/* Net Collected - Payment list */}
+                  {/* Payments Received - payment list */}
                   {statsModalType === 'revenue' && (
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
-                          <th className="p-3">Booking Ref</th>
+                          <th className="p-3">Reference</th>
                           <th className="p-3">Customer</th>
                           <th className="p-3">Venue</th>
                           <th className="p-3 text-right">Amount</th>
@@ -1144,7 +1144,7 @@ export default function Dashboard() {
                       </tbody>
                       <tfoot className="bg-slate-50 border-t-2 border-slate-200">
                         <tr>
-                          <td colSpan="3" className="p-3 text-right font-bold text-slate-700">Total Net Collected:</td>
+                          <td colSpan="3" className="p-3 text-right font-bold text-slate-700">Total received:</td>
                           <td className="p-3 text-right font-bold text-emerald-700">
                             ₱{filteredStatsModalData.reduce((sum, p) => sum + (p.amount_paid || 0), 0).toLocaleString()}
                           </td>
@@ -1210,7 +1210,7 @@ export default function Dashboard() {
                 {approvalBooking.booking_type === 'Package' ? (
                   <>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Extra Pax (additional headcount)</label>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Extra Pax (additional guests)</label>
                       <input
                         type="number"
                         name="extraPax"
@@ -1285,8 +1285,8 @@ export default function Dashboard() {
                 <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
               </div>
               <div className="text-sm text-slate-500">
-                <p>Down payment (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
-                <p className="text-xs mt-1">* Down payment is required to secure the order (non-refundable within 3 days of event).</p>
+                <p>Downpayment (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
+                <p className="text-xs mt-1">Downpayment is required to secure the order. Non-refundable within 3 days of the event.</p>
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">

@@ -226,11 +226,11 @@ export default function ManagerLayout() {
             <div className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-white/40 flex-shrink-0 bg-white/10">
               <img
                 src="/logo.svg"
-                alt="Catersync"
+                alt="CaterSync"
                 className="w-full h-full object-cover"
               />
             </div>
-            <h1 className="text-xl font-bold tracking-wide">Catersync</h1>
+            <h1 className="text-xl font-bold tracking-wide">CaterSync</h1>
           </Link>
         </div>
 
@@ -257,7 +257,7 @@ export default function ManagerLayout() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-slate-900 truncate">
-                    {user?.email || 'Owner'}
+                    {user?.email || 'Manager'}
                   </p>
                   <p className="text-xs text-slate-500">Manager</p>
                 </div>
@@ -299,9 +299,9 @@ export default function ManagerLayout() {
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0 bg-gradient-to-r from-[#00753b] to-[#009c4d]">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full overflow-hidden ring-2 ring-white/40 bg-white/10">
-                <img src="/logo.svg" alt="Catersync" className="w-full h-full object-cover" />
+                <img src="/logo.svg" alt="CaterSync" className="w-full h-full object-cover" />
               </div>
-              <span className="font-bold text-white">Catersync</span>
+              <span className="font-bold text-white">CaterSync</span>
             </div>
             <button
               onClick={closeSidebar}

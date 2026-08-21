@@ -925,7 +925,7 @@ export default function ShortOrderDetails() {
           </div>
 
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
-            <h3 className="text-sm font-bold text-slate-900 mb-4">Client Details</h3>
+            <h3 className="text-sm font-bold text-slate-900 mb-4">Customer Details</h3>
             <div className="space-y-2 text-sm">
               <div className="grid grid-cols-3">
                 <span className="text-slate-700 font-bold">Name</span>
@@ -1536,7 +1536,7 @@ export default function ShortOrderDetails() {
                   value={cancelReason}
                   onChange={(e) => setCancelReason(e.target.value)}
                   rows="3"
-                  placeholder="e.g., Client cancelled, rescheduled, budget issues, etc."
+                  placeholder="e.g. Customer cancelled, rescheduled, budget issues"
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
                   required
                 />
@@ -1767,8 +1767,8 @@ export default function ShortOrderDetails() {
                 <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
               </div>
               <div className="text-sm text-slate-500">
-                <p>Down payment (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
-                <p className="text-xs mt-1">* Down payment may be required for large orders (subject to business policy).</p>
+                <p>Downpayment (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
+                <p className="text-xs mt-1">Downpayment may be required for large orders.</p>
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">

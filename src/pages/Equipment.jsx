@@ -222,13 +222,13 @@ export default function Equipment() {
     const damaged = item.damaged_quantity || 0;
     const maintenance = item.maintenance_quantity || 0;
     if (damaged > 0 && maintenance > 0) {
-      return { label: `${damaged} damaged, ${maintenance} in repair`, dbValue: 'Needs Attention', className: 'bg-red-50 border-red-200 text-red-600' };
+      return { label: `${damaged} damaged, ${maintenance} under maintenance`, dbValue: 'Needs Attention', className: 'bg-red-50 border-red-200 text-red-600' };
     }
     if (damaged > 0) {
       return { label: `${damaged} damaged`, dbValue: 'Damaged', className: 'bg-red-50 border-red-200 text-red-600' };
     }
     if (maintenance > 0) {
-      return { label: `${maintenance} in repair`, dbValue: 'Under Maintenance', className: 'bg-amber-50 border-amber-200 text-amber-700' };
+      return { label: `${maintenance} under maintenance`, dbValue: 'Under Maintenance', className: 'bg-amber-50 border-amber-200 text-amber-700' };
     }
     return { label: 'Good condition', dbValue: 'Good Condition', className: 'bg-[#CBDEDD]/60 border-[#a3c7c4] text-slate-800' };
   };
@@ -655,14 +655,14 @@ export default function Equipment() {
 
     if (damaged < 0 || maintenance < 0) {
       const msg = 'Cannot be negative.';
-      toast.error('Damaged and In repair quantities cannot be negative.');
+      toast.error('Damaged and maintenance quantities cannot be negative.');
       setFlagIssueErrors({ damaged_quantity: damaged < 0 ? msg : undefined, maintenance_quantity: maintenance < 0 ? msg : undefined });
       return;
     }
 
     if (damaged + maintenance > total) {
       const msg = `Cannot exceed the total stock of ${total}.`;
-      toast.error(`Damaged + In repair cannot exceed the total stock (${total}).`);
+      toast.error(`Damaged + maintenance cannot exceed the total stock (${total}).`);
       setFlagIssueErrors({ damaged_quantity: msg, maintenance_quantity: msg });
       return;
     }
@@ -1050,11 +1050,21 @@ export default function Equipment() {
   // ============================================================
   // --- AVAILABILITY TAB: status + sort ---
   // ============================================================
+  // These labels describe how much stock is COMMITTED, not how much is left,
+  // which is why the old wording read backwards: "Almost full" fired when an
+  // item was nearly all promised out — i.e. nearly gone — but plainly reads as
+  // "plenty in stock", the opposite of what it means. "None left" said stock
+  // had vanished when it is only spoken for, and "Overbooked!" put an
+  // exclamation mark in a data label without saying by how much.
+  //
+  // The shortfall is now named: "Short by 12" tells the manager what to fix.
+  // Keys are unchanged — filters, sorting and row highlighting key off those,
+  // not off the label text.
   const getAvailabilityStatus = (item) => {
     const total = item.quantity_available || 0;
-    if (item.committed > total) return { key: 'overbooked', label: 'Overbooked!', rank: 0, barColor: 'bg-red-600', textColor: 'text-red-700', pillClass: 'bg-red-100 border-red-300 text-red-700' };
-    if (total > 0 && item.free === 0) return { key: 'fully', label: 'None left', rank: 1, barColor: 'bg-amber-500', textColor: 'text-amber-700', pillClass: 'bg-amber-100 border-amber-300 text-amber-700' };
-    if (total > 0 && item.free / total < 0.2) return { key: 'tight', label: 'Almost full', rank: 1, barColor: 'bg-amber-500', textColor: 'text-amber-700', pillClass: 'bg-amber-100 border-amber-300 text-amber-700' };
+    if (item.committed > total) return { key: 'overbooked', label: `Short by ${item.committed - total}`, rank: 0, barColor: 'bg-red-600', textColor: 'text-red-700', pillClass: 'bg-red-100 border-red-300 text-red-700' };
+    if (total > 0 && item.free === 0) return { key: 'fully', label: 'Fully committed', rank: 1, barColor: 'bg-amber-500', textColor: 'text-amber-700', pillClass: 'bg-amber-100 border-amber-300 text-amber-700' };
+    if (total > 0 && item.free / total < 0.2) return { key: 'tight', label: 'Low stock', rank: 1, barColor: 'bg-amber-500', textColor: 'text-amber-700', pillClass: 'bg-amber-100 border-amber-300 text-amber-700' };
     return { key: 'available', label: 'Available', rank: 2, barColor: 'bg-emerald-500', textColor: 'text-emerald-700', pillClass: 'bg-emerald-100 border-emerald-300 text-emerald-700' };
   };
 
@@ -1415,8 +1425,8 @@ export default function Equipment() {
               <div className="flex items-center gap-1">
                 {[
                   { key: 'All', label: 'All' },
-                  { key: 'overbooked', label: `Overbooked (${availabilityStatusCounts.overbooked})` },
-                  { key: 'tight', label: `Almost full / none left (${availabilityStatusCounts.tight})` },
+                  { key: 'overbooked', label: `Short (${availabilityStatusCounts.overbooked})` },
+                  { key: 'tight', label: `Low or fully committed (${availabilityStatusCounts.tight})` },
                   { key: 'available', label: `Available (${availabilityStatusCounts.available})` },
                 ].map(opt => (
                   <button
@@ -1447,8 +1457,8 @@ export default function Equipment() {
                 <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
                   <th className="p-4">{renderSortHeader(availabilitySort, toggleAvailabilitySort, 'name', 'Equipment')}</th>
                   <th className="p-4 font-bold text-center">Total stock</th>
-                  <th className="p-4 font-bold text-center">Damaged / in repair</th>
-                  <th className="p-4 font-bold text-center">Used today</th>
+                  <th className="p-4 font-bold text-center">Damaged / Under Maintenance</th>
+                  <th className="p-4 font-bold text-center">In use on this date</th>
                   <th className="p-4 text-center">{renderSortHeader(availabilitySort, toggleAvailabilitySort, 'free', 'Free to use', 'justify-center mx-auto')}</th>
                   <th className="p-4 font-bold">Status</th>
                   <th className="p-4 font-bold w-8"></th>
@@ -1488,8 +1498,8 @@ export default function Equipment() {
                         <td className="p-4 text-center font-semibold text-slate-800">{total}</td>
                         <td className="p-4 text-center text-slate-600">
                           {outOfService > 0 ? (
-                            <span title={`${item.damaged_quantity || 0} damaged, ${item.maintenance_quantity || 0} in repair`}>
-                              {item.damaged_quantity || 0} damaged, {item.maintenance_quantity || 0} in repair
+                            <span title={`${item.damaged_quantity || 0} damaged, ${item.maintenance_quantity || 0} under maintenance`}>
+                              {item.damaged_quantity || 0} damaged, {item.maintenance_quantity || 0} under maintenance
                             </span>
                           ) : <span className="text-slate-400">None</span>}
                         </td>
@@ -1564,9 +1574,9 @@ export default function Equipment() {
                     <th className="p-4">{renderSortHeader(inventorySort, toggleInventorySort, 'name', 'Equipment')}</th>
                     <th className="p-4 font-bold text-center">Total stock</th>
                     <th className="p-4 font-bold text-center">Damaged</th>
-                    <th className="p-4 font-bold text-center">In repair</th>
+                    <th className="p-4 font-bold text-center">Under Maintenance</th>
                     <th className="p-4 font-bold text-center">Type</th>
-                    <th className="p-4 font-bold text-center">Pax/Unit</th>
+                    <th className="p-4 font-bold text-center">Guests per Unit</th>
                     <th className="p-4 font-bold text-center">Usage</th>
                     <th className="p-4 font-bold text-right">Actions</th>
                   </tr>
@@ -1970,7 +1980,7 @@ export default function Equipment() {
                   >
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-slate-800 truncate">{eq.eqm_name}</p>
-                      <p className="text-xs text-slate-500">{damaged > 0 && maintenance > 0 ? 'Damaged & in repair' : damaged > 0 ? 'Damaged' : 'In repair'}</p>
+                      <p className="text-xs text-slate-500">{damaged > 0 && maintenance > 0 ? 'Damaged & under maintenance' : damaged > 0 ? 'Damaged' : 'Under maintenance'}</p>
                     </div>
                     <span className="shrink-0 inline-flex items-center justify-center min-w-[1.75rem] h-7 px-2 rounded-full text-xs font-bold bg-red-100 text-red-700">{damaged + maintenance}</span>
                   </button>
@@ -2391,7 +2401,7 @@ export default function Equipment() {
                   {flagIssueErrors.damaged_quantity && <p className="text-xs text-red-600 font-semibold mt-1">{flagIssueErrors.damaged_quantity}</p>}
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">In repair</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Under Maintenance</label>
                   <input
                     type="number"
                     name="maintenance_quantity"
@@ -2526,7 +2536,7 @@ export default function Equipment() {
                       </span>
                     </div>
                     <div className="flex items-center gap-2 col-span-2">
-                      <span className="text-slate-600 font-medium">Ref:</span>
+                      <span className="text-slate-600 font-medium">Reference:</span>
                       <span className="font-mono text-xs font-bold text-slate-800">{getBookingRef(selectedBooking)}</span>
                       <span className="ml-2 text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-700 border border-blue-200 rounded-full">
                         Package
@@ -2780,7 +2790,7 @@ export default function Equipment() {
                     <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
                       <th className="p-3">Equipment</th>
                       <th className="p-3 text-center">Damaged</th>
-                      <th className="p-3 text-center">In repair</th>
+                      <th className="p-3 text-center">Under Maintenance</th>
                       <th className="p-3 text-center">Available</th>
                     </tr>
                   </thead>

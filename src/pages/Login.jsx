@@ -160,15 +160,15 @@ export default function Login() {
       <header className="bg-[#008A45] text-white h-[72px] flex items-center px-6 w-full shrink-0 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-sm flex-shrink-0">
-            <img src="/logo.svg" alt="Catersync" className="w-full h-full object-cover" />
+            <img src="/logo.svg" alt="CaterSync" className="w-full h-full object-cover" />
           </div>
-          <h1 className="text-2xl font-bold tracking-wide">Catersync</h1>
+          <h1 className="text-2xl font-bold tracking-wide">CaterSync</h1>
         </div>
       </header>
 
       <main className="flex-1 flex flex-col items-center justify-center px-4 py-12">
         <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-slate-900 mb-2">Welcome back, Owner!</h2>
+          <h2 className="text-3xl font-bold text-slate-900 mb-2">Welcome back</h2>
           <p className="text-lg text-slate-700">Sign-in to your account</p>
         </div>
 

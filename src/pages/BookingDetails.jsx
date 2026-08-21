@@ -1313,7 +1313,7 @@ export default function BookingDetails() {
           </div>
 
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
-            <h3 className="text-sm font-bold text-slate-900 mb-4">Client Details</h3>
+            <h3 className="text-sm font-bold text-slate-900 mb-4">Customer Details</h3>
             <div className="space-y-2 text-sm">
               <div className="grid grid-cols-3">
                 <span className="text-slate-700 font-bold">Name</span>
@@ -2109,7 +2109,7 @@ export default function BookingDetails() {
                   value={cancelReason}
                   onChange={(e) => setCancelReason(e.target.value)}
                   rows="3"
-                  placeholder="e.g., Client cancelled, rescheduled, budget issues, etc."
+                  placeholder="e.g. Customer cancelled, rescheduled, budget issues"
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
                   required
                 />
@@ -2416,7 +2416,7 @@ export default function BookingDetails() {
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Extra Pax (additional headcount)</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Extra Pax (additional guests)</label>
                   <input
                     type="number"
                     name="extraPax"
@@ -2447,8 +2447,8 @@ export default function BookingDetails() {
                 <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
               </div>
               <div className="text-sm text-slate-500">
-                <p>Down payment (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
-                <p className="text-xs mt-1">* Down payment is required to secure the booking (non-refundable within 3 days of event).</p>
+                <p>Downpayment (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
+                <p className="text-xs mt-1">Downpayment is required to secure the booking. Non-refundable within 3 days of the event.</p>
               </div>
 
               {approvalEquipmentStatus.applicable && !approvalEquipmentStatus.loading && !approvalEquipmentStatus.sufficient && (

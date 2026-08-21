@@ -160,7 +160,7 @@ export default function DetailModal({ detailModal, onClose }) {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
-                      <th className="p-3">Booking Ref</th>
+                      <th className="p-3">Reference</th>
                       <th className="p-3">Customer</th>
                       <th className="p-3">Type</th>
                       <th className="p-3">Event Date</th>
@@ -256,7 +256,7 @@ export default function DetailModal({ detailModal, onClose }) {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
-                      <th className="p-3">Booking Ref</th>
+                      <th className="p-3">Reference</th>
                       <th className="p-3">Customer</th>
                       <th className="p-3">Type</th>
                       <th className="p-3">Event Date</th>

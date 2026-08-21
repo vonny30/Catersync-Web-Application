@@ -2070,7 +2070,7 @@ export default function Vehicles() {
                       </span>
                     </div>
                     <div className="flex items-center gap-2 col-span-2">
-                      <span className="text-slate-600 font-medium">Ref:</span>
+                      <span className="text-slate-600 font-medium">Reference:</span>
                       <span className="font-mono text-xs font-bold text-slate-800">{getBookingRef(selectedBooking)}</span>
                       <span className={`ml-2 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${selectedBooking.booking_type === 'Short Order' ? 'bg-sky-100 text-sky-700 border border-sky-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
                         {selectedBooking.booking_type || 'Package'}

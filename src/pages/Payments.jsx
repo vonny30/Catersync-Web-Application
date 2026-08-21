@@ -188,7 +188,7 @@ export default function Payments() {
       if (bookingsError) throw bookingsError;
       setBookings(bookingsData || []);
 
-      // Calculate Net Collected: only from bookings that are NOT Rejected or
+      // Calculate Payments Received: only from bookings that are NOT Rejected or
       // Cancelled, and only counting verified funds (Pending Verification /
       // Proof Rejected rows aren't real money in hand yet).
       const activePayments = paymentsData.filter(p => {
@@ -261,7 +261,7 @@ export default function Payments() {
     { key: 'All', label: 'All Payments', description: 'Every payment record, any status', match: () => true },
     { key: 'Pending Verification', label: 'Pending Verification', description: 'Submitted from mobile, awaiting review', match: (p) => p.pay_status === 'Pending Verification' },
     { key: 'Downpayment', label: 'Downpayment', description: 'Partial payments recorded so far', match: (p) => p.pay_status === 'Downpayment' },
-    { key: 'Full Payment', label: 'Full Payment', description: 'Records paid in full', match: (p) => p.pay_status === 'Fully Paid' },
+    { key: 'Full Payment', label: 'Fully Paid', description: 'Records paid in full', match: (p) => p.pay_status === 'Fully Paid' },
   ];
   const statusStats = statusTabs.map(t => {
     const rows = typeAndDateFiltered.filter(t.match);
@@ -724,7 +724,7 @@ export default function Payments() {
     if (payment.booking?.customer) {
       return `${payment.booking.customer.first_name} ${payment.booking.customer.last_name}`;
     }
-    return 'Unknown Client';
+    return 'Unknown customer';
   };
 
   const getBookingRef = (payment) => bookingRefFor(payment.booking);
@@ -853,7 +853,7 @@ export default function Payments() {
 
   // --- Summary Card Click Handlers ---
 
-  // 1. Net Collected – shows all positive payments from active (non-rejected/cancelled) orders
+  // 1. Payments Received – all positive payments from active (non-rejected/cancelled) records
   const handleCollectedClick = () => {
     const data = payments
       .filter(p => {
@@ -877,7 +877,7 @@ export default function Payments() {
         booking_type: p.booking?.booking_type,
       }));
     setSummaryModalData(data);
-    setSummaryModalTitle('Net Collected – Detailed Payments (active orders only)');
+    setSummaryModalTitle('Payments Received – active bookings & orders');
     setSummaryModalType('collected');
     setSummarySearchTerm('');
     setSummaryTypeFilter('All');
@@ -888,7 +888,7 @@ export default function Payments() {
     setIsSummaryModalOpen(true);
   };
 
-  // 2. Pending Balance – shows orders with outstanding amount
+  // 2. Outstanding Balance – records with an unpaid balance
   const handlePendingClick = () => {
     const data = bookings.map(b => {
       const paid = payments
@@ -904,7 +904,7 @@ export default function Payments() {
       };
     }).filter(b => b.remaining > 0);
     setSummaryModalData(data);
-    setSummaryModalTitle('Pending Balance – Orders with Outstanding Amount');
+    setSummaryModalTitle('Outstanding Balance – bookings & orders with a balance due');
     setSummaryModalType('pending');
     setSummarySearchTerm('');
     setSummaryTypeFilter('All');
@@ -1016,7 +1016,7 @@ export default function Payments() {
         </div>
       </div>
 
-      {/* SUMMARY CARDS — "Needs Review" only exists when there's something
+      {/* SUMMARY CARDS — "Awaiting Verification" only exists when there's something
           to review, so the grid drops to 3 columns then instead of leaving
           a blank fourth slot. */}
       <div className={`grid grid-cols-1 gap-6 ${pendingVerificationCount > 0 ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
@@ -1029,7 +1029,7 @@ export default function Payments() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
             </span>
-            <p className="text-xs font-bold text-red-700 mb-1 uppercase tracking-wide">Needs Review</p>
+            <p className="text-xs font-bold text-red-700 mb-1 uppercase tracking-wide">Awaiting Verification</p>
             <h3 className="text-3xl font-extrabold text-red-700">{pendingVerificationCount}</h3>
             <p className="text-xs text-red-600 mt-2 font-medium">Submitted from the mobile app — awaiting verification</p>
             <span className="text-[10px] text-red-500 font-semibold group-hover:text-red-700 transition-colors">Click to review now →</span>
@@ -1039,18 +1039,21 @@ export default function Payments() {
           onClick={handleCollectedClick}
           className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-2xl p-5 text-left shadow-sm hover:shadow-md transition-all cursor-pointer group"
         >
-          <p className="text-xs font-semibold text-slate-600 mb-1">Net Collected</p>
+          <p className="text-xs font-semibold text-slate-600 mb-1">Payments Received</p>
           <h3 className="text-3xl font-extrabold text-slate-900">₱{totalCollected.toLocaleString()}</h3>
-          <p className="text-xs text-slate-500 mt-2">After refunds (active orders only)</p>
+          <p className="text-xs text-slate-500 mt-2">Net of refunds · active bookings &amp; orders</p>
           <span className="text-[10px] text-slate-400 group-hover:text-[#008A45] transition-colors">Click to view details</span>
         </button>
         <button
           onClick={handlePendingClick}
           className="bg-white border border-slate-200 border-l-4 border-l-amber-500 rounded-2xl p-5 text-left shadow-sm hover:shadow-md transition-all cursor-pointer group"
         >
-          <p className="text-xs font-semibold text-slate-600 mb-1">Pending Balance</p>
+          {/* "Pending Balance" collided with the booking status called Pending:
+              this figure has nothing to do with Pending bookings — it is the
+              unpaid balance across every active record, whatever its status. */}
+          <p className="text-xs font-semibold text-slate-600 mb-1">Outstanding Balance</p>
           <h3 className="text-3xl font-extrabold text-slate-900">₱{pendingBalance.toLocaleString()}</h3>
-          <p className="text-xs text-slate-500 mt-2">Outstanding from active orders</p>
+          <p className="text-xs text-slate-500 mt-2">Unpaid balance on active bookings &amp; orders</p>
           <span className="text-[10px] text-slate-400 group-hover:text-amber-600 transition-colors">Click to view details</span>
         </button>
         <button
@@ -1136,7 +1139,7 @@ export default function Payments() {
             <div className="relative">
               <input
                 type="text"
-                placeholder="Client name or booking ref..."
+                placeholder="Customer name or reference"
                 value={tableSearchTerm}
                 onChange={(e) => setTableSearchTerm(e.target.value)}
                 className={`w-full border rounded-lg py-2.5 pl-4 pr-10 text-sm outline-none transition-colors ${tableSearchTerm ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-300 bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
@@ -1200,8 +1203,8 @@ export default function Payments() {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
-                <th className="p-4">{renderSortHeader('client', 'Client')}</th>
-                <th className="p-4 font-bold">Order Ref</th>
+                <th className="p-4">{renderSortHeader('client', 'Customer')}</th>
+                <th className="p-4 font-bold">Reference</th>
                 <th className="p-4 font-bold">Status</th>
                 <th className="p-4 font-bold">Type</th>
                 <th className="p-4 font-bold">Method</th>
@@ -1491,7 +1494,7 @@ export default function Payments() {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                   <input
                     type="text"
-                    placeholder="Search by client name or booking ref..."
+                    placeholder="Search by customer name or reference"
                     value={summarySearchTerm}
                     onChange={(e) => setSummarySearchTerm(e.target.value)}
                     className={`w-full pl-8 pr-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${summarySearchTerm.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
@@ -1565,8 +1568,8 @@ export default function Payments() {
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
-                          <th className="p-3">Order Ref</th>
-                          <th className="p-3">Client</th>
+                          <th className="p-3">Reference</th>
+                          <th className="p-3">Customer</th>
                           <th className="p-3">Type</th>
                           <th className="p-3">Method</th>
                           <th className="p-3 text-right">Amount</th>
@@ -1621,13 +1624,13 @@ export default function Payments() {
                     </table>
                   )}
 
-                  {/* Pending Balance – show order list with remaining */}
+                  {/* Outstanding Balance – records with the amount still due */}
                   {summaryModalType === 'pending' && (
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
-                          <th className="p-3">Order Ref</th>
-                          <th className="p-3">Client</th>
+                          <th className="p-3">Reference</th>
+                          <th className="p-3">Customer</th>
                           <th className="p-3">Type</th>
                           <th className="p-3 text-right">Total</th>
                           <th className="p-3 text-right">Paid</th>
@@ -1660,7 +1663,7 @@ export default function Payments() {
                       </tbody>
                       <tfoot className="bg-slate-50 border-t-2 border-slate-200">
                         <tr>
-                          <td colSpan="5" className="p-3 text-right font-bold text-slate-700">Total Pending:</td>
+                          <td colSpan="5" className="p-3 text-right font-bold text-slate-700">Total outstanding:</td>
                           <td className="p-3 text-right font-bold text-red-600">
                             ₱{filteredSummaryModalData.reduce((sum, b) => sum + (b.remaining || 0), 0).toLocaleString()}
                           </td>
