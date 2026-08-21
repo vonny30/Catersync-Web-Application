@@ -18,6 +18,11 @@ export const formatDate = (dateString) => {
   });
 };
 
+// One decimal place, so a set of shares still visibly adds to 100.0% —
+// rounding to whole numbers makes a four-row table total 99% or 101% and
+// leaves the reader wondering which figure is wrong.
+export const formatPercent = (value, digits = 1) => `${(value || 0).toFixed(digits)}%`;
+
 export const getBookingRef = (booking) => {
   if (booking.booking_number) return booking.booking_number;
   const prefix = booking.booking_type === 'Short Order' ? 'SO' : 'BKG';

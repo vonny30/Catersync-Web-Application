@@ -16,7 +16,7 @@ import VehicleUtilizationTab from './VehicleUtilizationTab';
 import BookingSummaryTab from './BookingSummaryTab';
 
 const TABS = [
-  'Overview', 'Financial', 'Menu Performance',
+  'Overview', 'Financial', 'Menu & Packages',
   'Equipment Utilization', 'Vehicle Utilization', 'Booking Summary',
 ];
 
@@ -59,7 +59,7 @@ export default function Reports() {
       ] = await Promise.all([
         supabase.from('booking').select(`
           booking_id, booking_number, booking_type, event_datetime, book_datetime,
-          total_amount, booking_status, package_id, customer_id, menu_selections,
+          total_amount, delivery_fee, booking_status, package_id, customer_id, menu_selections,
           package:package_id (pkg_name, pricing_type),
           customer:customer_id (first_name, last_name)
         `),
@@ -231,21 +231,90 @@ export default function Reports() {
     const cancelledCount = (statusCounts['Rejected'] || 0) + (statusCounts['Cancelled'] || 0);
     const cancellationRate = totalSubmitted > 0 ? Math.round((cancelledCount / totalSubmitted) * 1000) / 10 : 0;
 
-    // --- MENU PERFORMANCE (packages) ---
+    // ============================================================
+    // --- PRODUCT MIX ---
+    // A package and a menu item are not the same kind of quantity. A package
+    // is sold once per event at price x pax; a menu item is sold by the tray.
+    // Ranking them in one list makes every tray look like a failure next to
+    // any package, and the old share (revenue / biggest row's revenue) made
+    // the top row read exactly 100% no matter what it actually sold — a bar
+    // that means "this one is largest" but reads as "this is all of it".
+    //
+    // So each set is measured against its OWN total. Every share column below
+    // adds up to 100%, which is what makes a percentage here worth reading.
+    // ============================================================
+    const packageBookings = activeBookingsInRange.filter(b => b.booking_type === 'Package' && b.package_id);
+    const shortOrderBookings = activeBookingsInRange.filter(b => b.booking_type === 'Short Order');
+
+    const sumTotalAmount = rows => rows.reduce((sum, b) => sum + (b.total_amount || 0), 0);
+    const packageRevenue = sumTotalAmount(packageBookings);
+    const shortOrderRevenue = sumTotalAmount(shortOrderBookings);
+    const combinedRevenue = packageRevenue + shortOrderRevenue;
+
+    // Attaches share-of-total columns to a list already sorted by revenue.
+    // cumulativeShare is the running total down the list — where it crosses
+    // 80% is the line between what the business actually runs on and the tail
+    // worth reviewing. countKey lets the "how often" column be bookings for
+    // packages and trays for menu items, since those are the units each is
+    // really ordered in.
+    const withShares = (rows, totalRevenue, totalCount, countKey = 'count') => {
+      let running = 0;
+      return rows.map((row, index) => {
+        const revenueShare = totalRevenue > 0 ? (row.revenue / totalRevenue) * 100 : 0;
+        running += revenueShare;
+        return {
+          ...row,
+          rank: index + 1,
+          revenueShare,
+          countShare: totalCount > 0 ? ((row[countKey] || 0) / totalCount) * 100 : 0,
+          cumulativeShare: running,
+        };
+      });
+    };
+
+    // The one place packages and short orders belong in the same table:
+    // here they genuinely are two parts of one whole.
+    const productLineMix = [
+      { key: 'Package', name: 'Packages', count: packageBookings.length, revenue: packageRevenue },
+      { key: 'Short Order', name: 'Short Orders', count: shortOrderBookings.length, revenue: shortOrderRevenue },
+    ].map(line => ({
+      ...line,
+      revenueShare: combinedRevenue > 0 ? (line.revenue / combinedRevenue) * 100 : 0,
+    }));
+
+    // --- PACKAGE MIX (each package against all package revenue) ---
     const packageMap = {};
-    activeBookingsInRange.filter(b => b.booking_type === 'Package' && b.package_id).forEach(b => {
+    packageBookings.forEach(b => {
       const pkgId = b.package_id;
       if (!packageMap[pkgId]) {
-        packageMap[pkgId] = { name: b.package?.pkg_name || 'Unknown', type: 'Package', orders: 0, revenue: 0, packageId: pkgId };
+        packageMap[pkgId] = { id: pkgId, packageId: pkgId, name: b.package?.pkg_name || 'Unknown', count: 0, revenue: 0 };
       }
-      packageMap[pkgId].orders += 1;
+      packageMap[pkgId].count += 1;
       packageMap[pkgId].revenue += b.total_amount || 0;
     });
+    const packageMix = withShares(
+      Object.values(packageMap).sort((a, b) => b.revenue - a.revenue),
+      packageRevenue,
+      packageBookings.length,
+    ).map(row => ({ ...row, averageValue: row.count > 0 ? row.revenue / row.count : 0 }));
 
-    // --- MENU PERFORMANCE (short order items) ---
+    // --- MENU ITEM MIX (each item against all menu-item revenue) ---
+    // menu_selections stores only {menu_item_id, quantity} — there is no price
+    // snapshot — so a line has to start from today's menu_price. Left there,
+    // raising a price would silently restate last year's revenue and the item
+    // totals would never add up to what customers actually paid.
+    //
+    // Instead each order's food revenue (total_amount minus its delivery fee)
+    // is allocated across its lines in proportion to price x quantity. Item
+    // revenues then sum to real money received, and any approval-time fee
+    // adjustment is carried along with them. Tray counts are exact either way
+    // — which is why the tab ranks by trays as well as by pesos.
     const menuItemMap = {};
     const menuItemLookup = Object.fromEntries(menuItems.map(m => [m.menu_item_id, m]));
-    activeBookingsInRange.filter(b => b.booking_type === 'Short Order').forEach(b => {
+    let deliveryFeeTotal = 0;
+    let hasEstimatedMenuRevenue = false;
+
+    shortOrderBookings.forEach(b => {
       let selections = [];
       try {
         if (b.menu_selections) {
@@ -254,39 +323,61 @@ export default function Reports() {
       } catch {
         selections = [];
       }
-      selections.forEach(sel => {
-        const itemId = sel.menu_item_id;
-        const qty = sel.quantity || 1;
-        const menuItem = menuItemLookup[itemId];
-        const price = menuItem?.menu_price || 0;
-        const name = menuItem?.menu_name || 'Unknown Item';
-        if (!menuItemMap[itemId]) menuItemMap[itemId] = { name, type: 'Menu Item', orders: 0, quantity: 0, revenue: 0 };
-        menuItemMap[itemId].orders += 1;
-        menuItemMap[itemId].quantity += qty;
-        menuItemMap[itemId].revenue += price * qty;
+      if (selections.length === 0) return;
+
+      const deliveryFee = b.delivery_fee || 0;
+      deliveryFeeTotal += deliveryFee;
+      const foodRevenue = Math.max(0, (b.total_amount || 0) - deliveryFee);
+
+      const lines = selections.map(sel => {
+        const menuItem = menuItemLookup[sel.menu_item_id];
+        const quantity = sel.quantity || 1;
+        return {
+          itemId: sel.menu_item_id,
+          name: menuItem?.menu_name || 'Unknown item',
+          quantity,
+          listValue: (menuItem?.menu_price || 0) * quantity,
+        };
+      });
+      const orderListValue = lines.reduce((sum, line) => sum + line.listValue, 0);
+      // Nothing to allocate in proportion to — every item on the order was
+      // deleted from the menu, or priced at zero. Fall back to list value and
+      // flag it, rather than inventing a split.
+      const canAllocate = orderListValue > 0 && foodRevenue > 0;
+      if (!canAllocate) hasEstimatedMenuRevenue = true;
+
+      lines.forEach(line => {
+        if (!menuItemMap[line.itemId]) {
+          menuItemMap[line.itemId] = { id: line.itemId, name: line.name, count: 0, quantity: 0, revenue: 0 };
+        }
+        const entry = menuItemMap[line.itemId];
+        entry.count += 1;
+        entry.quantity += line.quantity;
+        entry.revenue += canAllocate ? foodRevenue * (line.listValue / orderListValue) : line.listValue;
       });
     });
 
-    const combinedMenuPerf = [
-      ...Object.values(packageMap).map(pkg => ({ ...pkg, quantity: pkg.orders })),
-      ...Object.values(menuItemMap),
-    ].sort((a, b) => b.revenue - a.revenue);
+    const menuItemList = Object.values(menuItemMap);
+    const menuItemRevenue = menuItemList.reduce((sum, item) => sum + item.revenue, 0);
+    const traysSold = menuItemList.reduce((sum, item) => sum + item.quantity, 0);
+    const menuItemMix = withShares(
+      menuItemList.sort((a, b) => b.revenue - a.revenue),
+      menuItemRevenue,
+      traysSold,
+      'quantity',
+    );
+    // The most-ordered item and the highest-earning item are usually not the
+    // same item. One column can never show both, which is exactly what the
+    // old single "Popularity Metric" column tried to do.
+    const topSellingItem = [...menuItemMix].sort((a, b) => b.quantity - a.quantity)[0] || null;
 
-    const maxRevenue = combinedMenuPerf.length > 0 ? Math.max(...combinedMenuPerf.map(d => d.revenue)) : 1;
-    const menuPerformanceData = combinedMenuPerf.map((item, index) => ({
-      id: `PERF-${index + 1}`,
-      name: item.name,
-      type: item.type,
-      performance: Math.round((item.revenue / maxRevenue) * 100),
-      totalOrders: item.orders,
-      quantity: item.quantity || item.orders,
-      revenueGenerated: item.revenue,
-      status: item.revenue < maxRevenue * 0.1 ? 'warning' : 'good',
-    }));
-
-    // --- CATEGORY POPULARITY ---
-    // Each Package booking's package may span several categories; a booking
-    // counts toward every category its package includes.
+    // --- CATEGORY DEMAND ---
+    // One package spans several categories, so a booking counts toward every
+    // category its package includes. That makes categories impossible to
+    // express as shares of each other — these counts deliberately add up to
+    // more than the number of bookings. The honest denominator is the number
+    // of package bookings: a category included in every booking reads 100%,
+    // one in a quarter of them reads 25%.
     const categoriesByPackage = {};
     packageCategories.forEach(row => {
       if (!categoriesByPackage[row.package_id]) categoriesByPackage[row.package_id] = [];
@@ -294,15 +385,18 @@ export default function Reports() {
     });
     const categoryNameLookup = Object.fromEntries(categories.map(c => [c.category_id, c.category_name]));
     const categoryCounts = {};
-    Object.values(packageMap).forEach(pkg => {
+    packageMix.forEach(pkg => {
       const catIds = categoriesByPackage[pkg.packageId] || [];
       catIds.forEach(catId => {
         const name = categoryNameLookup[catId] || 'Unknown';
         if (!categoryCounts[name]) categoryCounts[name] = { name, bookings: 0 };
-        categoryCounts[name].bookings += pkg.orders;
+        categoryCounts[name].bookings += pkg.count;
       });
     });
-    const categoryPopularityData = Object.values(categoryCounts).sort((a, b) => b.bookings - a.bookings);
+    const totalPackageBookings = packageBookings.length;
+    const categoryDemandData = Object.values(categoryCounts)
+      .map(cat => ({ ...cat, share: totalPackageBookings > 0 ? (cat.bookings / totalPackageBookings) * 100 : 0 }))
+      .sort((a, b) => b.bookings - a.bookings);
 
     // --- EQUIPMENT UTILIZATION (live snapshot, not date-filtered) ---
     // Only counts gear tied to a booking that's actually Approved/Confirmed
@@ -390,7 +484,10 @@ export default function Reports() {
     return {
       financialSummary, monthlyRevenueData, paymentMethodData, refunds, totalRefunded,
       totalSubmitted, cancellationRate,
-      menuPerformanceData, categoryPopularityData,
+      productLineMix, packageMix, menuItemMix, categoryDemandData,
+      packageRevenue, shortOrderRevenue, combinedRevenue,
+      menuItemRevenue, deliveryFeeTotal, traysSold, topSellingItem,
+      hasEstimatedMenuRevenue, totalPackageBookings,
       equipmentUtilizationData, vehicleUtilizationData, totalVehicles, dispatchedVehicles,
       repeatCustomers, oneTimeCustomers, totalCustomers: customerList.length,
       bookingSummaryData,
@@ -466,7 +563,7 @@ export default function Reports() {
         <div className="animate-in fade-in duration-200 space-y-6">
           {activeTab === 'Overview' && <OverviewTab derived={derived} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Financial' && <FinancialTab derived={derived} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
-          {activeTab === 'Menu Performance' && <MenuPerformanceTab derived={derived} onOpenDetail={openSimpleModal} />}
+          {activeTab === 'Menu & Packages' && <MenuPerformanceTab derived={derived} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Equipment Utilization' && <EquipmentUtilizationTab derived={derived} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Vehicle Utilization' && <VehicleUtilizationTab derived={derived} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Booking Summary' && <BookingSummaryTab derived={derived} onOpenDetail={openSimpleModal} />}

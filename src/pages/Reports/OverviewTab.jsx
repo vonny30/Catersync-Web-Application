@@ -1,5 +1,5 @@
 // src/pages/Reports/OverviewTab.jsx
-import { formatCurrency, cardColorClasses } from './helpers';
+import { formatCurrency, formatPercent, cardColorClasses } from './helpers';
 
 function StatCard({ label, value, sub, color, onClick }) {
   return (
@@ -16,12 +16,17 @@ function StatCard({ label, value, sub, color, onClick }) {
 
 export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
   const {
-    financialSummary, totalSubmitted, cancellationRate, menuPerformanceData,
+    financialSummary, totalSubmitted, cancellationRate,
+    packageMix, menuItemMix, topSellingItem,
     equipmentUtilizationData, totalVehicles, dispatchedVehicles, totalCustomers, repeatCustomers, oneTimeCustomers,
     bookingSummaryData,
   } = derived;
 
-  const topPerformer = menuPerformanceData[0];
+  // Two leaders, not one. A package and a tray of food are different kinds of
+  // sale and can't be ranked against each other — see MenuPerformanceTab.
+  const topPackage = packageMix[0] || null;
+  const topItem = menuItemMix[0] || null;
+  const hasTopSellers = Boolean(topPackage || topItem);
   const totalEquipmentDeployed = equipmentUtilizationData.reduce((sum, e) => sum + e.deployed, 0);
   const totalEquipmentUnits = equipmentUtilizationData.reduce((sum, e) => sum + e.total, 0);
   const equipmentUsageRate = totalEquipmentUnits > 0 ? Math.round((totalEquipmentDeployed / totalEquipmentUnits) * 100) : 0;
@@ -106,26 +111,44 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <button
-          onClick={() => topPerformer && onOpenDetail({
-            title: topPerformer.name,
-            description: topPerformer.type === 'Package'
-              ? 'From the booking table: the Package with the most total revenue across its bookings in this period.'
-              : 'From short-order bookings\' menu_selections: the menu item with the most total revenue in this period.',
-            badge: { label: topPerformer.type, variant: topPerformer.type === 'Package' ? 'info' : 'neutral' },
+          onClick={() => hasTopSellers && onOpenDetail({
+            title: 'Top Sellers',
+            description: 'The highest-earning package and the highest-earning menu item, each measured against its own product line — a package and a tray are different kinds of sale and are never ranked against each other.',
             fields: [
-              { label: 'Revenue generated', value: formatCurrency(topPerformer.revenueGenerated), emphasis: true },
-              { label: topPerformer.type === 'Menu Item' ? 'Quantity ordered' : 'Total orders', value: topPerformer.type === 'Menu Item' ? `${topPerformer.quantity} trays` : topPerformer.totalOrders },
+              ...(topPackage ? [
+                { label: 'Top package', value: topPackage.name, emphasis: true },
+                { label: 'Share of package revenue', value: formatPercent(topPackage.revenueShare) },
+                { label: 'Revenue', value: formatCurrency(topPackage.revenue) },
+              ] : []),
+              ...(topItem ? [
+                { label: 'Top menu item', value: topItem.name, emphasis: true },
+                { label: 'Share of menu item revenue', value: formatPercent(topItem.revenueShare) },
+                { label: 'Revenue', value: formatCurrency(topItem.revenue) },
+              ] : []),
+              ...(topSellingItem && topItem && topSellingItem.id !== topItem.id ? [
+                { label: 'Most ordered item', value: `${topSellingItem.name} · ${topSellingItem.quantity} trays` },
+              ] : []),
             ],
           })}
-          disabled={!topPerformer}
+          disabled={!hasTopSellers}
           className={`border rounded-2xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 disabled:cursor-default disabled:hover:shadow-none ${cardColorClasses('purple')}`}
         >
-          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-2">Top Performer</p>
-          {topPerformer ? (
-            <>
-              <h3 className="text-lg font-bold text-slate-900">{topPerformer.name}</h3>
-              <p className="text-sm text-slate-500 mt-1">{topPerformer.type} · {formatCurrency(topPerformer.revenueGenerated)} generated</p>
-            </>
+          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-2">Top Sellers</p>
+          {hasTopSellers ? (
+            <div className="space-y-1.5">
+              {topPackage && (
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 leading-tight">{topPackage.name}</h3>
+                  <p className="text-xs text-slate-500">{formatPercent(topPackage.revenueShare)} of package revenue</p>
+                </div>
+              )}
+              {topItem && (
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 leading-tight">{topItem.name}</h3>
+                  <p className="text-xs text-slate-500">{formatPercent(topItem.revenueShare)} of menu item revenue</p>
+                </div>
+              )}
+            </div>
           ) : (
             <p className="text-sm text-slate-400 italic">No sales data in this period.</p>
           )}
