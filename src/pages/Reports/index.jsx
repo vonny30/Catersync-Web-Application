@@ -6,6 +6,7 @@ import { getBookingRef, getRangeBounds, isWithinRange } from './helpers';
 import { isUnverifiedPayment } from '../../utils/payments';
 import { getPaymentsReceived } from '../../utils/reportMetrics';
 import { ACTIVE_BOOKING_STATUSES } from '../../utils/bookingStatus';
+import { getStockBreakdown } from '../../utils/equipment.jsx';
 import DateRangeFilter from './DateRangeFilter';
 import DetailModal from './DetailModal';
 import SimpleDetailModal from './SimpleDetailModal';
@@ -471,13 +472,27 @@ export default function Reports() {
       .forEach(d => {
         deployedMap[d.equipment_id] = (deployedMap[d.equipment_id] || 0) + d.quantity;
       });
+    // `quantity_available` already means USABLE units — it is not reduced when
+    // gear is assigned to a booking, because commitments live in
+    // booking_equipment and are per date. Adding `deployed` back into the total
+    // therefore counted every committed unit twice and inflated the fleet size,
+    // which in turn understated utilisation. getStockBreakdown owns the
+    // identity: total = usable + out of service.
     const equipmentUtilizationData = equipment.map(eq => {
       const deployed = deployedMap[eq.equipment_id] || 0;
-      const available = eq.quantity_available || 0;
-      const damaged = eq.damaged_quantity || 0;
-      const maintenance = eq.maintenance_quantity || 0;
-      const total = available + deployed + damaged + maintenance;
-      return { id: eq.equipment_id, name: eq.eqm_name, total, available, deployed, damaged, maintenance };
+      const { total, usable, damaged, maintenance, outOfService } = getStockBreakdown(eq);
+      return {
+        id: eq.equipment_id,
+        name: eq.eqm_name,
+        total,
+        usable,
+        deployed,
+        // Free right now: usable stock that isn't already promised out.
+        free: usable - deployed,
+        damaged,
+        maintenance,
+        outOfService,
+      };
     });
 
     // --- VEHICLE UTILIZATION (live snapshot, not date-filtered) ---

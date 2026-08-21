@@ -384,6 +384,43 @@ export const getEquipmentAvailabilityPreview = async (eventDate, packageId, paxC
  * `free` is intentionally not clamped at 0 — a negative value is exactly
  * how an overbooked item on that date is surfaced to the caller.
  */
+// The stock identity, in one place.
+//
+// `equipment.quantity_available` stores USABLE units — the add, edit and flag
+// handlers all write `total - damaged - maintenance` into it — while the true
+// number owned is that plus the two out-of-service counts. Commitments are per
+// date and live in booking_equipment; they never touch the equipment row.
+//
+// Getting this wrong is what made the page contradict itself: the Availability
+// tab showed `quantity_available` under a column headed "Total stock" while the
+// Inventory tab showed the real total under the same heading, so an item with
+// 20 owned and 5 damaged read as "15 total, 5 damaged, 15 free".
+//
+//   total  =  usable + outOfService
+//   free   =  usable - committed        (on the date being viewed)
+//
+// Both lines hold for every row, which is what lets a manager check the numbers
+// by eye instead of trusting them.
+export const getStockBreakdown = (item, committedOverride) => {
+  const usable = item?.quantity_available || 0;
+  const damaged = item?.damaged_quantity || 0;
+  const maintenance = item?.maintenance_quantity || 0;
+  const outOfService = damaged + maintenance;
+  const committed = committedOverride != null ? committedOverride : (item?.committed || 0);
+  return {
+    total: usable + outOfService,
+    usable,
+    damaged,
+    maintenance,
+    outOfService,
+    committed,
+    // Negative means more is promised than the business can actually supply —
+    // surfaced as "Short by N" rather than clamped away, because that is
+    // precisely the case a manager has to act on.
+    free: usable - committed,
+  };
+};
+
 export const getDailyEquipmentSnapshot = async (dateStr) => {
   if (!dateStr) return { items: [], eventsOnDate: [] };
 

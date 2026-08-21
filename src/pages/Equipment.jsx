@@ -14,7 +14,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { errorInputClass } from '../utils/formErrors';
-import { getDailyEquipmentSnapshot, checkEquipmentAvailabilityImpact } from '../utils/equipment.jsx';
+import { getDailyEquipmentSnapshot, checkEquipmentAvailabilityImpact, getStockBreakdown } from '../utils/equipment.jsx';
 import { getAssignmentStatus } from '../utils/statusLabels';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange } from './Reports/helpers';
@@ -510,7 +510,10 @@ export default function Equipment() {
 
   // --- EDIT EQUIPMENT ---
   const handleEditClick = (item) => {
-    const total = item.quantity_available + (item.damaged_quantity || 0) + (item.maintenance_quantity || 0);
+    // The form's "Total Quantity" field means units OWNED, while the column
+    // stores usable units — so the two out-of-service counts are added back
+    // here and subtracted again on submit. getStockBreakdown owns that sum.
+    const { total } = getStockBreakdown(item);
     setEditFormData({
       equipment_id: item.equipment_id,
       eqm_name: item.eqm_name,
@@ -635,7 +638,7 @@ export default function Equipment() {
     if (!flagIssueItem) return;
     setFlagIssueErrors({});
 
-    const total = flagIssueItem.quantity_available + (flagIssueItem.damaged_quantity || 0) + (flagIssueItem.maintenance_quantity || 0);
+    const { total } = getStockBreakdown(flagIssueItem);
     const damaged = parseInt(flagIssueForm.damaged_quantity) || 0;
     const maintenance = parseInt(flagIssueForm.maintenance_quantity) || 0;
 
@@ -991,9 +994,13 @@ export default function Equipment() {
   // ============================================================
   // --- DATE-SCOPED STATS ---
   // ============================================================
-  const totalStockAll = equipmentList.reduce((sum, eq) => sum + (eq.quantity_available || 0), 0);
+  // usableStockAll, not "total stock": it excludes anything flagged damaged or
+  // under maintenance, which is exactly why Free to use can be well below the
+  // number of units the business owns.
+  const usableStockAll = equipmentList.reduce((sum, eq) => sum + (eq.quantity_available || 0), 0);
+  const ownedStockAll = equipmentList.reduce((sum, eq) => sum + getStockBreakdown(eq).total, 0);
   const unitsCommitted = snapshot.items.reduce((sum, item) => sum + (item.committed || 0), 0);
-  const unitsFree = totalStockAll - unitsCommitted;
+  const unitsFree = usableStockAll - unitsCommitted;
   const needsAttentionUnits = equipmentList.reduce((sum, eq) => sum + (eq.damaged_quantity || 0) + (eq.maintenance_quantity || 0), 0);
 
   // Top few problem items for the sidebar panel — live/always-current, not
@@ -1046,11 +1053,22 @@ export default function Equipment() {
   // The shortfall is now named: "Short by 12" tells the manager what to fix.
   // Keys are unchanged — filters, sorting and row highlighting key off those,
   // not off the label text.
+  // Measured against USABLE stock, never the total owned: damaged and
+  // under-maintenance units cannot be sent to an event, so counting them here
+  // would report an item as fine while the usable half of it is already
+  // promised elsewhere.
   const getAvailabilityStatus = (item) => {
-    const total = item.quantity_available || 0;
-    if (item.committed > total) return { key: 'overbooked', label: `Short by ${item.committed - total}`, rank: 0, barColor: 'bg-red-600', textColor: 'text-red-700', pillClass: 'bg-red-100 border-red-300 text-red-700' };
-    if (total > 0 && item.free === 0) return { key: 'fully', label: 'Fully committed', rank: 1, barColor: 'bg-amber-500', textColor: 'text-amber-700', pillClass: 'bg-amber-100 border-amber-300 text-amber-700' };
-    if (total > 0 && item.free / total < 0.2) return { key: 'tight', label: 'Low stock', rank: 1, barColor: 'bg-amber-500', textColor: 'text-amber-700', pillClass: 'bg-amber-100 border-amber-300 text-amber-700' };
+    const { usable, committed, free } = getStockBreakdown(item);
+    if (committed > usable) return { key: 'overbooked', label: `Short by ${committed - usable}`, rank: 0, barColor: 'bg-red-600', textColor: 'text-red-700', pillClass: 'bg-red-100 border-red-300 text-red-700' };
+    // Every unit owned is damaged or under maintenance. Nothing can go out,
+    // which is emphatically not "Available" — but with both later checks
+    // guarded on `usable > 0`, that is exactly what this used to fall
+    // through to: a green Available pill on an item with zero usable stock.
+    // Grouped under the 'fully' key so it lands in the existing warning
+    // filter bucket rather than the healthy one.
+    if (usable === 0) return { key: 'fully', label: 'None usable', rank: 1, barColor: 'bg-slate-400', textColor: 'text-slate-600', pillClass: 'bg-slate-200 border-slate-300 text-slate-700' };
+    if (usable > 0 && free === 0) return { key: 'fully', label: 'Fully committed', rank: 1, barColor: 'bg-amber-500', textColor: 'text-amber-700', pillClass: 'bg-amber-100 border-amber-300 text-amber-700' };
+    if (usable > 0 && free / usable < 0.2) return { key: 'tight', label: 'Low stock', rank: 1, barColor: 'bg-amber-500', textColor: 'text-amber-700', pillClass: 'bg-amber-100 border-amber-300 text-amber-700' };
     return { key: 'available', label: 'Available', rank: 2, barColor: 'bg-emerald-500', textColor: 'text-emerald-700', pillClass: 'bg-emerald-100 border-emerald-300 text-emerald-700' };
   };
 
@@ -1323,12 +1341,18 @@ export default function Equipment() {
             onClick={() => scrollToAvailability('available')}
             className="bg-white border border-slate-200 border-l-4 border-l-emerald-500 rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
           >
-            <p className="text-xs font-semibold text-slate-600 mb-1">Free to use</p>
+            <p className="text-xs font-semibold text-slate-600 mb-1">Available</p>
             <h3 className={`text-3xl font-extrabold ${unitsFree < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{unitsFree}</h3>
-            <p className="text-[10px] text-slate-400 group-hover:text-emerald-600 transition-colors mt-1">units left → Availability tab</p>
+            <p className="text-[10px] text-slate-500 mt-1 font-medium">
+              {usableStockAll} usable − {unitsCommitted} in use
+            </p>
+            <p className="text-[10px] text-slate-400 group-hover:text-emerald-600 transition-colors">→ Availability tab</p>
           </button>
         </div>
         <p className="text-center text-[11px] font-semibold text-blue-500 mt-2">Date-scoped — follows the date selected above</p>
+        <p className="text-center text-[11px] text-slate-500 mt-1">
+          {ownedStockAll} units owned = {usableStockAll} usable + {needsAttentionUnits} out of service (damaged or under maintenance)
+        </p>
       </div>
 
       {/* --- MAIN WORKSPACE: tabbed panel takes priority on the left; live
@@ -1442,25 +1466,37 @@ export default function Equipment() {
               <thead>
                 <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
                   <th className="p-4">{renderSortHeader(availabilitySort, toggleAvailabilitySort, 'name', 'Equipment')}</th>
-                  <th className="p-4 font-bold text-center">Total stock</th>
-                  <th className="p-4 font-bold text-center">Damaged / Under Maintenance</th>
+                  <th className="p-4 font-bold text-center">Owned</th>
+                  <th className="p-4 font-bold text-center">Out of service</th>
+                  <th className="p-4 font-bold text-center">Usable</th>
                   <th className="p-4 font-bold text-center">In use on this date</th>
-                  <th className="p-4 text-center">{renderSortHeader(availabilitySort, toggleAvailabilitySort, 'free', 'Free to use', 'justify-center mx-auto')}</th>
+                  <th className="p-4 text-center">{renderSortHeader(availabilitySort, toggleAvailabilitySort, 'free', 'Available', 'justify-center mx-auto')}</th>
                   <th className="p-4 font-bold">Status</th>
                   <th className="p-4 font-bold w-8"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
                 {isLoading || snapshotLoading ? (
-                  <tr><td colSpan="7" className="p-6 text-center text-slate-400">Calculating availability…</td></tr>
+                  <tr><td colSpan="8" className="p-6 text-center text-slate-400">Calculating availability…</td></tr>
                 ) : filteredAvailabilityItems.length === 0 ? (
-                  <tr><td colSpan="7" className="p-6 text-center text-slate-400 italic">No equipment matches your search/filter.</td></tr>
+                  <tr><td colSpan="8" className="p-6 text-center text-slate-400 italic">No equipment matches your search/filter.</td></tr>
                 ) : (
                   sortedFilteredAvailabilityItems.map((item) => {
                     const status = getAvailabilityStatus(item);
-                    const outOfService = (item.damaged_quantity || 0) + (item.maintenance_quantity || 0);
-                    const total = item.quantity_available || 0;
-                    const usedRatio = total > 0 ? Math.min(1, item.committed / total) : (item.committed > 0 ? 1 : 0);
+                    const stock = getStockBreakdown(item);
+                    const outOfService = stock.outOfService;
+                    // The bar shows how much of the USABLE stock is spoken for.
+                    // The bar reads as "how much of this item is still
+                    // available", not how much is used. Filled by usage, an
+                    // item with nothing committed drew an EMPTY bar — so the
+                    // healthiest possible row looked identical to one with
+                    // nothing in it, and the colour carried all the meaning.
+                    // Now full stock reads as a full green bar and drains as
+                    // the item gets committed, which is the direction people
+                    // read a level indicator.
+                    const availableRatio = stock.usable > 0
+                      ? Math.max(0, Math.min(1, stock.free / stock.usable))
+                      : 0;
                     return (
                       <tr
                         key={item.equipment_id}
@@ -1481,25 +1517,31 @@ export default function Equipment() {
                             <p className="text-xs text-slate-400 mt-0.5">Not used on this date</p>
                           )}
                         </td>
-                        <td className="p-4 text-center font-semibold text-slate-800">{total}</td>
+                        <td className="p-4 text-center font-semibold text-slate-800">{stock.total}</td>
                         <td className="p-4 text-center text-slate-600">
                           {outOfService > 0 ? (
-                            <span title={`${item.damaged_quantity || 0} damaged, ${item.maintenance_quantity || 0} under maintenance`}>
-                              {item.damaged_quantity || 0} damaged, {item.maintenance_quantity || 0} under maintenance
+                            <span className="inline-flex flex-col leading-tight">
+                              <span className="font-semibold text-slate-700">−{outOfService}</span>
+                              <span className="text-[10px] text-slate-500">
+                                {stock.damaged > 0 && `${stock.damaged} damaged`}
+                                {stock.damaged > 0 && stock.maintenance > 0 && ', '}
+                                {stock.maintenance > 0 && `${stock.maintenance} under maintenance`}
+                              </span>
                             </span>
                           ) : <span className="text-slate-400">None</span>}
                         </td>
-                        <td className="p-4 text-center font-semibold text-slate-700">{item.committed} <span className="text-slate-400 font-normal">units</span></td>
+                        <td className="p-4 text-center font-bold text-slate-900">{stock.usable}</td>
+                        <td className="p-4 text-center font-semibold text-slate-700">{stock.committed} <span className="text-slate-400 font-normal">units</span></td>
                         <td className="p-4 text-center">
                           <span className={`inline-flex items-center justify-center min-w-[3rem] px-3 py-1 rounded-full text-xl font-extrabold ${status.key === 'overbooked' ? 'bg-red-100 text-red-700' : status.rank === 1 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                            {item.free}
+                            {stock.free}
                           </span>
                         </td>
                         <td className="p-4">
                           <div className="flex items-center gap-2">
                             <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${status.pillClass}`}>{status.label}</span>
                             <div className="w-14 h-1.5 rounded-full bg-slate-200 overflow-hidden shrink-0">
-                              <div className={`h-full ${status.barColor}`} style={{ width: `${Math.round(usedRatio * 100)}%` }} />
+                              <div className={`h-full ${status.barColor}`} style={{ width: `${Math.round(availableRatio * 100)}%` }} />
                             </div>
                           </div>
                         </td>
@@ -1558,9 +1600,10 @@ export default function Equipment() {
                 <thead>
                   <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
                     <th className="p-4">{renderSortHeader(inventorySort, toggleInventorySort, 'name', 'Equipment')}</th>
-                    <th className="p-4 font-bold text-center">Total stock</th>
+                    <th className="p-4 font-bold text-center">Owned</th>
                     <th className="p-4 font-bold text-center">Damaged</th>
                     <th className="p-4 font-bold text-center">Under Maintenance</th>
+                    <th className="p-4 font-bold text-center">Usable</th>
                     <th className="p-4 font-bold text-center">Type</th>
                     <th className="p-4 font-bold text-center">Guests per Unit</th>
                     <th className="p-4 font-bold text-center">Usage</th>
@@ -1569,13 +1612,13 @@ export default function Equipment() {
                 </thead>
                 <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
                   {isLoading ? (
-                    <tr><td colSpan="8" className="p-6 text-center text-slate-400">Loading equipment...</td></tr>
+                    <tr><td colSpan="9" className="p-6 text-center text-slate-400">Loading equipment...</td></tr>
                   ) : filteredInventory.length === 0 ? (
-                    <tr><td colSpan="8" className="p-6 text-center text-slate-400 italic">No equipment found.</td></tr>
+                    <tr><td colSpan="9" className="p-6 text-center text-slate-400 italic">No equipment found.</td></tr>
                   ) : (
                     sortedFilteredInventory.map((item) => {
                       const usageCount = assignments.filter(a => a.equipment_id === item.equipment_id && !a.returned).length;
-                      const total = item.quantity_available + (item.damaged_quantity || 0) + (item.maintenance_quantity || 0);
+                      const stock = getStockBreakdown(item);
                       const condition = getConditionSummary(item);
                       return (
                         <tr key={item.equipment_id} className="hover:bg-slate-50 transition-colors">
@@ -1590,9 +1633,10 @@ export default function Equipment() {
                             </div>
                             <p className="text-xs text-slate-500 mt-0.5">{item.eqm_description}</p>
                           </td>
-                          <td className="p-4 text-center font-semibold text-slate-800">{total}</td>
-                          <td className="p-4 text-center font-semibold text-red-600">{item.damaged_quantity || 0}</td>
-                          <td className="p-4 text-center font-semibold text-amber-600">{item.maintenance_quantity || 0}</td>
+                          <td className="p-4 text-center font-semibold text-slate-800">{stock.total}</td>
+                          <td className="p-4 text-center font-semibold text-red-600">{stock.damaged}</td>
+                          <td className="p-4 text-center font-semibold text-amber-600">{stock.maintenance}</td>
+                          <td className="p-4 text-center font-bold text-slate-900">{stock.usable}</td>
                           <td className="p-4 text-center">
                             <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${item.equipment_type === 'Decoration' ? 'bg-purple-50 border-purple-200 text-purple-700' : 'bg-blue-50 border-blue-200 text-blue-700'}`}>
                               {item.equipment_type === 'Decoration' ? 'Decoration' : 'Countable'}
@@ -2371,7 +2415,8 @@ export default function Equipment() {
             </div>
             <form onSubmit={handleFlagIssueSubmit} className="p-6 space-y-4 text-left">
               <p className="text-xs text-slate-500 -mt-1">
-                Set how many units are damaged or under maintenance. The rest of the total stock ({flagIssueItem.quantity_available + (flagIssueItem.damaged_quantity || 0) + (flagIssueItem.maintenance_quantity || 0)} units) stays available automatically.
+                This item has <span className="font-semibold text-slate-700">{getStockBreakdown(flagIssueItem).total} units</span> in
+                total. Whatever you don't flag here stays usable and can still be assigned to events.
               </p>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -2777,7 +2822,7 @@ export default function Equipment() {
                       <th className="p-3">Equipment</th>
                       <th className="p-3 text-center">Damaged</th>
                       <th className="p-3 text-center">Under Maintenance</th>
-                      <th className="p-3 text-center">Available</th>
+                      <th className="p-3 text-center">Usable</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
