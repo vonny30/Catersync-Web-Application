@@ -50,49 +50,71 @@ export default function Reports() {
   };
 
   // ========== FETCH ALL RAW DATA (once) ==========
+  //
+  // PostgREST caps every response at 1000 rows by default and returns the
+  // truncated set WITHOUT an error. These queries used to run unbounded, so
+  // the moment any table passed 1000 rows every figure derived from it went
+  // silently wrong — no throw, no warning, just quietly missing data that
+  // gets worse as the business grows. (Bookings.jsx and ShortOrders.jsx
+  // already paginate; Reports never did.)
+  //
+  // fetchAll pages through with .range() until a short page comes back.
+  // Each caller must supply a stable .order() — Postgres gives no ordering
+  // guarantee without ORDER BY, so paging an unordered query can repeat or
+  // skip rows between pages. Ordering by primary key is the cheap, safe
+  // choice since nothing here depends on the fetch order.
+  const PAGE_SIZE = 1000;
+  const MAX_PAGES = 200; // 200k rows — a guard against an unterminated loop
+
+  const fetchAll = async (buildQuery) => {
+    const rows = [];
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const from = page * PAGE_SIZE;
+      const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      const batch = data || [];
+      rows.push(...batch);
+      if (batch.length < PAGE_SIZE) return rows;
+    }
+    console.warn(`[Reports] fetchAll hit the ${MAX_PAGES}-page ceiling; results may be truncated.`);
+    return rows;
+  };
+
   const fetchRawData = async () => {
     setIsLoading(true);
     try {
       const [
-        bookingsRes, paymentsRes, packagesRes, menuItemsRes, categoriesRes,
-        packageCategoriesRes, equipmentRes, bookingEquipmentRes, vehiclesRes, vehicleAssignRes,
+        bookings, payments, packages, menuItems, categories,
+        packageCategories, equipment, bookingEquipment, vehicles, vehicleAssignments,
       ] = await Promise.all([
-        supabase.from('booking').select(`
+        fetchAll(() => supabase.from('booking').select(`
           booking_id, booking_number, booking_type, event_datetime, book_datetime,
           total_amount, delivery_fee, booking_status, package_id, customer_id, menu_selections,
           package:package_id (pkg_name, pricing_type),
           customer:customer_id (first_name, last_name)
-        `),
-        supabase.from('payment').select('payment_id, amount_paid, pay_datetime, pay_status, pay_method, booking_id, customer_id'),
-        supabase.from('package').select('*'),
-        supabase.from('menu_item').select('*'),
-        supabase.from('category').select('*'),
-        supabase.from('package_category').select('package_id, category_id'),
-        supabase.from('equipment').select('equipment_id, eqm_name, quantity_available, damaged_quantity, maintenance_quantity'),
-        supabase.from('booking_equipment').select('equipment_id, quantity, returned, booking:booking_id (booking_status)').eq('returned', false),
-        supabase.from('vehicle').select('vehicle_id, plate_number, vehicle_type, vehicle_status'),
-        supabase.from('vehicle_assign').select('vehicle_id, booking_id, assignment_status, booking:booking_id (booking_status)'),
+        `).order('booking_id', { ascending: true })),
+        fetchAll(() => supabase.from('payment').select('payment_id, amount_paid, pay_datetime, pay_status, pay_method, booking_id, customer_id').order('payment_id', { ascending: true })),
+        fetchAll(() => supabase.from('package').select('*').order('package_id', { ascending: true })),
+        fetchAll(() => supabase.from('menu_item').select('*').order('menu_item_id', { ascending: true })),
+        fetchAll(() => supabase.from('category').select('*').order('category_id', { ascending: true })),
+        fetchAll(() => supabase.from('package_category').select('package_id, category_id').order('package_category_id', { ascending: true })),
+        fetchAll(() => supabase.from('equipment').select('equipment_id, eqm_name, quantity_available, damaged_quantity, maintenance_quantity').order('equipment_id', { ascending: true })),
+        fetchAll(() => supabase.from('booking_equipment').select('equipment_id, quantity, returned, booking:booking_id (booking_status)').eq('returned', false).order('assignment_id', { ascending: true })),
+        fetchAll(() => supabase.from('vehicle').select('vehicle_id, plate_number, vehicle_type, vehicle_status').order('vehicle_id', { ascending: true })),
+        fetchAll(() => supabase.from('vehicle_assign').select('vehicle_id, booking_id, assignment_status, booking:booking_id (booking_status)').order('assignment_id', { ascending: true })),
       ]);
 
-      const allResults = [
-        bookingsRes, paymentsRes, packagesRes, menuItemsRes, categoriesRes,
-        packageCategoriesRes, equipmentRes, bookingEquipmentRes, vehiclesRes, vehicleAssignRes,
-      ];
-      for (const res of allResults) {
-        if (res.error) throw res.error;
-      }
-
       setRawData({
-        bookings: bookingsRes.data || [],
-        payments: paymentsRes.data || [],
-        packages: packagesRes.data || [],
-        menuItems: menuItemsRes.data || [],
-        categories: categoriesRes.data || [],
-        packageCategories: packageCategoriesRes.data || [],
-        equipment: equipmentRes.data || [],
-        bookingEquipment: bookingEquipmentRes.data || [],
-        vehicles: vehiclesRes.data || [],
-        vehicleAssignments: vehicleAssignRes.data || [],
+        bookings,
+        payments,
+        packages,
+        menuItems,
+        categories,
+        packageCategories,
+        equipment,
+        bookingEquipment,
+        vehicles,
+        vehicleAssignments,
       });
     } catch (error) {
       handleError(error, 'Failed to load report data. Please refresh the page.');
