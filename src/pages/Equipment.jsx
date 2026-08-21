@@ -15,6 +15,7 @@ import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { errorInputClass } from '../utils/formErrors';
 import { getDailyEquipmentSnapshot, checkEquipmentAvailabilityImpact } from '../utils/equipment.jsx';
+import { getAssignmentStatus } from '../utils/statusLabels';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange } from './Reports/helpers';
 
@@ -62,21 +63,6 @@ const getReturnAvailability = (eventDatetimeStr) => {
 const formatReturnOpensAt = (opensAt) =>
   opensAt ? opensAt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
 
-// Every "is this equipment currently out" status display used to only
-// know two states — returned or not — and showed "In use"/"Assigned" for
-// literally any not-yet-returned row regardless of whether the event had
-// even started. An item assigned to an event three days from now isn't
-// "in use" yet, it's just reserved. Adds the missing middle state: an
-// assignment is only actually "In Use" from the event's start time until
-// it's marked returned; before that (or with no event_datetime at all)
-// it's "Assigned".
-const getEquipmentAssignmentStatus = (returned, eventDatetimeStr) => {
-  if (returned) return { key: 'returned', label: 'Returned' };
-  if (eventDatetimeStr && new Date(eventDatetimeStr) > new Date()) {
-    return { key: 'assigned', label: 'Assigned' };
-  }
-  return { key: 'in_use', label: 'In Use' };
-};
 
 export default function Equipment() {
   const navigate = useNavigate();
@@ -513,7 +499,7 @@ export default function Equipment() {
         equipmentType: 'Countable',
         paxPerUnit: '',
       });
-      toast.success('Equipment added successfully!');
+      toast.success('Equipment added.');
       await fetchData();
     } catch (error) {
       handleError(error, 'Failed to add equipment.');
@@ -618,7 +604,7 @@ export default function Equipment() {
       if (error) throw error;
 
       setIsEditModalOpen(false);
-      toast.success('Equipment updated successfully!');
+      toast.success('Equipment saved.');
       await fetchData();
     } catch (error) {
       handleError(error, 'Failed to update equipment.');
@@ -907,7 +893,7 @@ export default function Equipment() {
       setAssignFormData({ booking_id: '', notes: '' });
       setBookingSearchTerm('');
       setShowBookingDropdown(false);
-      toast.success(`Successfully assigned ${itemsToAssign.length} equipment item(s).`);
+      toast.success(`Assigned ${itemsToAssign.length} equipment item(s).`);
       await fetchData();
     } catch (error) {
       handleError(error, error.message || 'Failed to assign equipment.');
@@ -940,7 +926,7 @@ export default function Equipment() {
         .eq('assignment_id', assignmentId);
       if (error) throw error;
 
-      toast.success('Equipment returned successfully!');
+      toast.success('Equipment returned.');
       await fetchData();
     } catch (error) {
       handleError(error, 'Failed to return equipment.');
@@ -972,7 +958,7 @@ export default function Equipment() {
         .eq('returned', false);
       if (error) throw error;
 
-      toast.success('All items for this event marked as returned.');
+      toast.success('All equipment for this event returned.');
       await fetchData();
     } catch (error) {
       handleError(error, 'Failed to return items.');
@@ -1217,7 +1203,7 @@ export default function Equipment() {
   const filteredHistoryRows = assignments
     .filter(a => {
       if (historyStatusFilter !== 'All') {
-        const status = getEquipmentAssignmentStatus(a.returned, a.booking?.event_datetime);
+        const status = getAssignmentStatus(a.returned, a.booking?.event_datetime);
         const filterKey = historyStatusFilter === 'Assigned' ? 'assigned' : historyStatusFilter === 'In Use' ? 'in_use' : 'returned';
         if (status.key !== filterKey) return false;
       }
@@ -1929,7 +1915,7 @@ export default function Equipment() {
                                 <CheckCircle2 size={12} /> Returned {a.returned_at ? new Date(a.returned_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
                               </span>
                             ) : (() => {
-                              const status = getEquipmentAssignmentStatus(a.returned, a.booking?.event_datetime);
+                              const status = getAssignmentStatus(a.returned, a.booking?.event_datetime);
                               return (
                                 <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${status.key === 'in_use' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
                                   {status.label}
@@ -2091,7 +2077,7 @@ export default function Equipment() {
                         ) : (
                           <div className="space-y-1">
                             {eventEquipment.map(eqi => {
-                              const eqiStatus = getEquipmentAssignmentStatus(eqi.returned, ev.event_datetime);
+                              const eqiStatus = getAssignmentStatus(eqi.returned, ev.event_datetime);
                               return (
                                 <div key={eqi.assignment_id} className="flex items-center justify-between text-xs">
                                   <span className="text-slate-700 font-medium">{eqi.eqm_name} × {eqi.quantity}</span>
@@ -2740,7 +2726,7 @@ export default function Equipment() {
                       (booking?.booking_id ?
                         (booking.booking_type === 'Short Order' ? 'SO' : 'BKG') + '-' + booking.booking_id.slice(0, 8)
                         : 'N/A');
-                    const status = getEquipmentAssignmentStatus(record.returned, booking?.event_datetime);
+                    const status = getAssignmentStatus(record.returned, booking?.event_datetime);
                     return (
                       <div key={record.assignment_id} className={`border rounded-lg p-3 flex justify-between items-center ${record.returned ? 'bg-slate-50 border-slate-200' : status.key === 'in_use' ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
                         <div>

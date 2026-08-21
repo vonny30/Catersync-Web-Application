@@ -36,7 +36,6 @@ export default function Login() {
   // "am I logged in or not" flash) instead of leaving the app entirely.
   useEffect(() => {
     if (!authLoading && isManager) {
-      toast.success('Welcome back!');
       navigate('/app', { replace: true });
     }
   }, [authLoading, isManager, navigate]);

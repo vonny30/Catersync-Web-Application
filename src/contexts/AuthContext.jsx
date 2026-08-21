@@ -340,7 +340,7 @@ if (event === 'SIGNED_OUT') {
             toast.error('You were logged out after being inactive for a while.', { id: AUTH_TOAST_ID, duration: 4000 });
             isInactiveLogoutRef.current = false;
           } else if (isManualLogout.current) {
-            toast.success('Logged out successfully', { id: AUTH_TOAST_ID });
+            toast.success('Signed out.', { id: AUTH_TOAST_ID });
             isManualLogout.current = false;
           } else if (isKickedRef.current) {
             const when = kickedAtRef.current

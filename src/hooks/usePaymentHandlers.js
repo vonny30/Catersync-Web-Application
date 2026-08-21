@@ -253,8 +253,8 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
         autoMarkedFullyPaid
           ? `Payment recorded and marked as Fully Paid — the amount entered covers the full ${isFirstPayment ? 'total' : 'remaining'} balance.`
           : finalPayStatus === 'Fully Paid'
-          ? 'Payment recorded and marked as Fully Paid!'
-          : 'Payment recorded successfully!'
+          ? 'Payment recorded and marked as Fully Paid.'
+          : 'Payment recorded.'
       );
     } catch (error) {
       console.error(error);
@@ -425,7 +425,7 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       if (error) throw error;
       setIsEditPaymentModalOpen(false);
       fetchData();
-      toast.success('Payment updated successfully.');
+      toast.success('Payment saved.');
     } catch (error) {
       console.error(error);
       toast.error(error.message || 'Failed to update payment.');

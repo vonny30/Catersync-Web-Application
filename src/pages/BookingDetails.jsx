@@ -458,7 +458,7 @@ export default function BookingDetails() {
 
       setIsRefundModalOpen(false);
       fetchBooking();
-      toast.success('Refund recorded successfully.');
+      toast.success('Refund recorded.');
     } catch (error) {
       console.error(error);
       toast.error(error.message || 'Failed to record refund.');
@@ -661,7 +661,7 @@ export default function BookingDetails() {
       return;
     }
     if (!editFormData.pax_count || parseInt(editFormData.pax_count) < 1) {
-      toast.error('Please enter a valid pax count (must be at least 1).');
+      toast.error('Enter the number of guests — at least 1.');
       setEditFieldErrors({ pax_count: 'Must be at least 1.' });
       setIsSubmitting(false);
       return;
@@ -750,7 +750,7 @@ export default function BookingDetails() {
         // Allocate equipment based on the (possibly new) package and pax count
         try {
           await allocateEquipmentForBooking(id, effectivePackageId, newPaxCount);
-          toast.success('Equipment re‑allocated successfully.');
+          toast.success('Equipment reassigned.');
         } catch (allocError) {
           console.warn('Equipment re‑allocation warning:', allocError);
           toast('Equipment re‑allocation had issues: ' + allocError.message, { icon: '⚠️' });
@@ -758,7 +758,7 @@ export default function BookingDetails() {
       }
 
       setIsEditModalOpen(false);
-      toast.success('Booking updated successfully!');
+      toast.success('Booking saved.');
       fetchBooking();
     } catch (error) {
       console.error(error);
@@ -861,7 +861,7 @@ export default function BookingDetails() {
 
       setIsAssignEquipModalOpen(false);
       fetchBooking();
-      toast.success('Equipment assigned successfully!');
+      toast.success('Equipment assigned.');
     } catch (error) {
       console.error(error);
       toast.error('Failed to assign equipment.');

@@ -23,7 +23,7 @@ export default function ForgotPassword() {
       });
       if (error) throw error;
       setSubmitted(true);
-      toast.success('Password reset link sent to your email!');
+      toast.success('Password reset link sent to your email.');
     } catch (error) {
       console.error('Reset error:', error);
       toast.error('Something went wrong. Please try again.');

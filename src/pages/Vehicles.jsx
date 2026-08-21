@@ -15,6 +15,7 @@ import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { errorInputClass } from '../utils/formErrors';
 import { getDailyVehicleSnapshot } from '../utils/vehicle';
+import { getAssignmentStatus, RESOURCE_STATE } from '../utils/statusLabels';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange } from './Reports/helpers';
 
@@ -45,18 +46,6 @@ const getReturnAvailability = (eventDatetimeStr) => {
 const formatReturnOpensAt = (opensAt) =>
   opensAt ? opensAt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
 
-// Mirrors Equipment.jsx's getEquipmentAssignmentStatus — "Scheduled" used
-// to cover literally any not-completed assignment, so a vehicle reserved
-// for an event three days out looked identical to one actually out on the
-// road right now. Keeps this page's own existing terms (Scheduled /
-// Completed) and just adds the missing middle state.
-const getVehicleAssignmentStatus = (isCompleted, eventDatetimeStr) => {
-  if (isCompleted) return { key: 'completed', label: 'Completed' };
-  if (eventDatetimeStr && new Date(eventDatetimeStr) > new Date()) {
-    return { key: 'scheduled', label: 'Scheduled' };
-  }
-  return { key: 'in_use', label: 'In Use' };
-};
 
 export default function Vehicles() {
   const navigate = useNavigate();
@@ -382,7 +371,7 @@ export default function Vehicles() {
 
       setIsAddModalOpen(false);
       setNewVehicleForm({ plate_number: '', vehicle_type: 'Car' });
-      toast.success('Vehicle added successfully!');
+      toast.success('Vehicle added.');
       await fetchData();
     } catch (error) {
       handleError(error, 'Failed to add vehicle.');
@@ -473,7 +462,7 @@ export default function Vehicles() {
       if (error) throw error;
 
       setIsEditModalOpen(false);
-      toast.success('Vehicle updated successfully!');
+      toast.success('Vehicle saved.');
       await fetchData();
     } catch (error) {
       handleError(error, 'Failed to update vehicle.');
@@ -568,7 +557,7 @@ export default function Vehicles() {
         .eq('vehicle_id', vehicleId);
       if (error) throw error;
 
-      toast.success('Vehicle removed successfully.');
+      toast.success('Vehicle deleted.');
       await fetchData();
     } catch (error) {
       if (error?.code === '23503') {
@@ -639,7 +628,7 @@ export default function Vehicles() {
       setBookingSearchTerm('');
       setShowBookingDropdown(false);
       setVehiclePickerSearch('');
-      toast.success(`Successfully assigned ${inserts.length} vehicle(s).`);
+      toast.success(`Assigned ${inserts.length} vehicle(s).`);
       await fetchData();
     } catch (error) {
       handleError(error, 'Failed to assign vehicles.');
@@ -672,7 +661,7 @@ export default function Vehicles() {
         .eq('assignment_id', assignmentId);
       if (error) throw error;
 
-      toast.success('Vehicle returned successfully.');
+      toast.success('Vehicle returned.');
       await fetchData();
     } catch (error) {
       handleError(error, 'Failed to return vehicle.');
@@ -704,7 +693,7 @@ export default function Vehicles() {
         .neq('assignment_status', 'Completed');
       if (error) throw error;
 
-      toast.success('All vehicles for this event marked as returned.');
+      toast.success('All vehicles for this event returned.');
       await fetchData();
     } catch (error) {
       handleError(error, 'Failed to return vehicles.');
@@ -770,10 +759,10 @@ export default function Vehicles() {
   // --- AVAILABILITY TAB: status + sort ---
   // ============================================================
   const getVehicleAvailabilityStatus = (v) => {
-    if (v.vehicle_status === 'Maintenance') return { key: 'maintenance', label: 'Maintenance', rank: 0, pillClass: 'bg-orange-100 border-orange-300 text-orange-700' };
-    if (v.vehicle_status === 'Unavailable') return { key: 'unavailable', label: 'Unavailable', rank: 0, pillClass: 'bg-slate-200 border-slate-300 text-slate-600' };
-    if (v.assignment) return { key: 'deployed', label: 'Deployed', rank: 1, pillClass: 'bg-amber-100 border-amber-300 text-amber-700' };
-    return { key: 'free', label: 'Free', rank: 2, pillClass: 'bg-emerald-100 border-emerald-300 text-emerald-700' };
+    if (v.vehicle_status === 'Maintenance') return { key: 'maintenance', label: RESOURCE_STATE.underMaintenance, rank: 0, pillClass: 'bg-orange-100 border-orange-300 text-orange-700' };
+    if (v.vehicle_status === 'Unavailable') return { key: 'unavailable', label: RESOURCE_STATE.unavailable, rank: 0, pillClass: 'bg-slate-200 border-slate-300 text-slate-600' };
+    if (v.assignment) return { key: 'deployed', label: RESOURCE_STATE.committed, rank: 1, pillClass: 'bg-amber-100 border-amber-300 text-amber-700' };
+    return { key: 'free', label: RESOURCE_STATE.free, rank: 2, pillClass: 'bg-emerald-100 border-emerald-300 text-emerald-700' };
   };
 
   const sortedAvailabilityVehicles = [...snapshot.vehicles].sort((a, b) => {
@@ -912,8 +901,12 @@ export default function Vehicles() {
   const filteredHistoryRows = assignments
     .filter(a => {
       if (historyStatusFilter !== 'All') {
-        const status = getVehicleAssignmentStatus(a.assignment_status === 'Completed', a.booking?.event_datetime);
-        const filterKey = historyStatusFilter === 'Scheduled' ? 'scheduled' : historyStatusFilter === 'In Use' ? 'in_use' : 'completed';
+        const status = getAssignmentStatus(a.assignment_status === 'Completed', a.booking?.event_datetime);
+        // Keys come from getAssignmentStatus (assigned / in_use / returned).
+        // They are NOT the stored vehicle_assign.assignment_status values —
+        // mapping these to 'scheduled'/'completed' matched nothing at all,
+        // silently emptying the table for two of the three filters.
+        const filterKey = historyStatusFilter === 'Assigned' ? 'assigned' : historyStatusFilter === 'In Use' ? 'in_use' : 'returned';
         if (status.key !== filterKey) return false;
       }
       if (historyDatePreset !== 'All Time' && !isWithinRange(a.booking?.event_datetime, historyRangeStart, historyRangeEnd)) return false;
@@ -1113,7 +1106,7 @@ export default function Vehicles() {
                 {[
                   { key: 'All', label: 'All' },
                   { key: 'outofservice', label: `Out of service (${availabilityStatusCounts.outofservice})` },
-                  { key: 'deployed', label: `Deployed (${availabilityStatusCounts.deployed})` },
+                  { key: 'deployed', label: `Committed (${availabilityStatusCounts.deployed})` },
                   { key: 'free', label: `Free (${availabilityStatusCounts.free})` },
                 ].map(opt => (
                   <button
@@ -1503,7 +1496,7 @@ export default function Vehicles() {
                   />
                 </div>
                 <div className="flex items-center gap-1">
-                  {['All', 'Scheduled', 'In Use', 'Completed'].map(opt => (
+                  {['All', 'Assigned', 'In Use', 'Returned'].map(opt => (
                     <button
                       key={opt}
                       onClick={() => setHistoryStatusFilter(opt)}
@@ -1585,10 +1578,10 @@ export default function Vehicles() {
                           <td className="p-4">
                             {a.assignment_status === 'Completed' ? (
                               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600">
-                                <CheckCircle2 size={12} /> Completed
+                                <CheckCircle2 size={12} /> Returned
                               </span>
                             ) : (() => {
-                              const status = getVehicleAssignmentStatus(false, a.booking?.event_datetime);
+                              const status = getAssignmentStatus(false, a.booking?.event_datetime);
                               return (
                                 <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${status.key === 'in_use' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
                                   {status.label}
@@ -1745,7 +1738,7 @@ export default function Vehicles() {
                         ) : (
                           <div className="space-y-1">
                             {eventVehicles.map(vi => {
-                              const viStatus = getVehicleAssignmentStatus(vi.completed, ev.event_datetime);
+                              const viStatus = getAssignmentStatus(vi.completed, ev.event_datetime);
                               return (
                                 <div key={vi.assignment_id} className="flex items-center justify-between text-xs">
                                   <span className="text-slate-700 font-medium">{vi.plate_number} {vi.dispatch_datetime ? `· dispatch ${new Date(vi.dispatch_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}</span>
@@ -2219,7 +2212,7 @@ export default function Vehicles() {
                     const bookingRef = booking?.booking_number ||
                       (booking?.booking_id ? (booking.booking_type === 'Short Order' ? 'SO' : 'BKG') + '-' + booking.booking_id.slice(0, 8) : 'N/A');
                     const isCompleted = record.assignment_status === 'Completed';
-                    const status = getVehicleAssignmentStatus(isCompleted, booking?.event_datetime);
+                    const status = getAssignmentStatus(isCompleted, booking?.event_datetime);
                     return (
                       <div key={record.assignment_id} className={`border rounded-lg p-3 flex justify-between items-center ${isCompleted ? 'bg-slate-50 border-slate-200' : status.key === 'in_use' ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
                         <div>

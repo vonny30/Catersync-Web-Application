@@ -679,7 +679,7 @@ export default function PackagesAndMenus() {
           if (error) throw error;
         }
 
-        toast.success(editingId ? 'Package updated successfully!' : 'Package created successfully!');
+        toast.success(editingId ? 'Package saved.' : 'Package created.');
         await fetchData();
       } else {
         // Menu Item
@@ -701,13 +701,13 @@ export default function PackagesAndMenus() {
             .update(menuData)
             .eq('menu_item_id', editingId);
           if (error) throw error;
-          toast.success('Menu item updated successfully!');
+          toast.success('Menu item saved.');
         } else {
           const { error } = await supabase
             .from('menu_item')
             .insert([{ ...menuData, menu_availability: 'Available' }]);
           if (error) throw error;
-          toast.success('Menu item created successfully!');
+          toast.success('Menu item created.');
         }
       }
 
@@ -902,13 +902,13 @@ export default function PackagesAndMenus() {
           .update(data)
           .eq('category_id', categoryForm.category_id);
         if (error) throw error;
-        toast.success('Category updated!');
+        toast.success('Category saved.');
       } else {
         const { error } = await supabase
           .from('category')
           .insert([data]);
         if (error) throw error;
-        toast.success('Category added!');
+        toast.success('Category added.');
       }
       setIsCategoryModalOpen(false);
       await fetchData();

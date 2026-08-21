@@ -54,7 +54,7 @@ export function useConfirmationHandlers({ booking, payments, fetchData }) {
         .update({ booking_status: 'Confirmed', status_order: STATUS_ORDER.Confirmed, is_read: true })
         .eq('booking_id', booking.booking_id);
       if (error) throw error;
-      toast.success('Event confirmed!');
+      toast.success('Booking confirmed.');
       fetchData();
     } catch (error) {
       console.error(error);

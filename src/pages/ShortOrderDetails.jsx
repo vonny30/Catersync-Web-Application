@@ -420,7 +420,7 @@ export default function ShortOrderDetails() {
 
       setIsRefundModalOpen(false);
       fetchOrder();
-      toast.success('Refund recorded successfully.');
+      toast.success('Refund recorded.');
     } catch (error) {
       console.error(error);
       toast.error(error.message || 'Failed to record refund.');
@@ -625,7 +625,7 @@ export default function ShortOrderDetails() {
         .eq('booking_id', id);
       if (error) throw error;
       setIsEditModalOpen(false);
-      toast.success('Short order updated successfully!');
+      toast.success('Short order saved.');
       fetchOrder();
     } catch (error) {
       console.error(error);

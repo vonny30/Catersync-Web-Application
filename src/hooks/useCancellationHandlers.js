@@ -141,7 +141,7 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
 
       setIsCancelModalOpen(false);
       fetchData();
-      toast.success(`${noun === 'order' ? 'Order' : 'Booking'} cancelled successfully. ${refundNote}`);
+      toast.success(`${noun === 'order' ? 'Order' : 'Booking'} cancelled. ${refundNote}`);
     } catch (error) {
       console.error('Cancellation error:', error);
       toast.error(error.message || `Failed to cancel ${noun}.`);

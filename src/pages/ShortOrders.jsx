@@ -644,7 +644,7 @@ export default function ShortOrders() {
         }
         const phoneRegex = /^[0-9]{11}$/;
         if (!phoneRegex.test(walkInData.contact_no)) {
-          toast.error('Contact number must be exactly 11 digits (numbers only).');
+          toast.error('Contact number must be 11 digits, numbers only.');
           setFieldErrors({ contact_no: 'Must be exactly 11 digits (numbers only).' });
           setIsSubmitting(false);
           return;
@@ -821,7 +821,7 @@ export default function ShortOrders() {
           .update(payload)
           .eq('booking_id', editingId);
         if (error) throw error;
-        toast.success('Short order updated successfully!');
+        toast.success('Short order saved.');
         closeModal();
         fetchData();
         setIsSubmitting(false);
@@ -835,7 +835,7 @@ export default function ShortOrders() {
         const orderId = newOrder[0].booking_id;
 
         if (customerMode === 'new') await new Promise(resolve => setTimeout(resolve, 500));
-        toast.success('Short order created successfully!');
+        toast.success('Short order created.');
         closeModal();
         fetchData();
       }
@@ -878,7 +878,7 @@ export default function ShortOrders() {
         .update({ booking_status: 'Confirmed', status_order: STATUS_ORDER.Confirmed, is_read: true })
         .eq('booking_id', id);
       if (error) throw error;
-      toast.success('Order confirmed!');
+      toast.success('Short order confirmed.');
       fetchData();
     } catch (error) {
       handleError(error, 'Failed to confirm order.');
@@ -933,7 +933,7 @@ export default function ShortOrders() {
         .eq('booking_id', id);
       if (updatePaymentsError) throw updatePaymentsError;
     }
-    toast.success('Order marked completed. All payments set to Fully Paid.');
+    toast.success('Short order completed. Remaining payments marked Fully Paid.');
 
     // 4. Refresh data
     fetchData();
@@ -972,7 +972,7 @@ export default function ShortOrders() {
         .delete()
         .eq('booking_id', id);
       if (error) throw error;
-      toast.success('Order deleted.');
+      toast.success('Short order deleted.');
       fetchData();
     } catch (error) {
       handleError(error, 'Failed to delete order.');
@@ -1016,7 +1016,7 @@ export default function ShortOrders() {
         .delete()
         .in('booking_id', selectedOrders);
       if (ordersError) throw ordersError;
-      toast.success(`Successfully deleted ${selectedOrders.length} order(s).`);
+      toast.success(`Deleted ${selectedOrders.length} short order(s).`);
       clearSelection();
       if (orders.length === selectedOrders.length && currentPage > 1) {
         setCurrentPage(currentPage - 1);

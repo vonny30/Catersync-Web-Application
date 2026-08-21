@@ -72,7 +72,7 @@ export function useCompletionHandlers({ booking, payments, fetchData, noun = 'bo
           .eq('booking_id', booking.booking_id);
         if (updatePaymentsError) throw updatePaymentsError;
       }
-      toast.success(`${noun[0].toUpperCase()}${noun.slice(1)} marked completed. All payments set to Fully Paid.`);
+      toast.success(`${noun[0].toUpperCase()}${noun.slice(1)} completed. Remaining payments marked Fully Paid.`);
 
       fetchData();
     } catch (error) {

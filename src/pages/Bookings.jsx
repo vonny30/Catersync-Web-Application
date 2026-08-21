@@ -679,7 +679,7 @@ export default function Bookings() {
         }
         const phoneRegex = /^[0-9]{11}$/;
         if (!phoneRegex.test(walkInData.contact_no)) {
-          toast.error('Contact number must be exactly 11 digits (numbers only).');
+          toast.error('Contact number must be 11 digits, numbers only.');
           setFieldErrors({ contact_no: 'Must be exactly 11 digits (numbers only).' });
           setIsSubmitting(false);
           return;
@@ -713,7 +713,7 @@ export default function Bookings() {
       return;
     }
     if (!formData.pax_count || parseInt(formData.pax_count) < 1) {
-      toast.error('Please enter a valid pax count (must be at least 1).');
+      toast.error('Enter the number of guests — at least 1.');
       setFieldErrors({ pax_count: 'Must be at least 1.' });
       setIsSubmitting(false);
       return;
@@ -899,7 +899,7 @@ export default function Bookings() {
           .update(payload)
           .eq('booking_id', editingId);
         if (error) throw error;
-        toast.success('Booking updated successfully!');
+        toast.success('Booking saved.');
         closeModal();
         fetchData();
         setIsSubmitting(false);
@@ -912,7 +912,7 @@ export default function Bookings() {
         if (error) throw error;
 
         if (customerMode === 'new') await new Promise(resolve => setTimeout(resolve, 500));
-        toast.success('Booking created successfully!');
+        toast.success('Booking created.');
         closeModal();
         fetchData();
       }
@@ -964,7 +964,7 @@ export default function Bookings() {
         .update({ booking_status: 'Confirmed', status_order: STATUS_ORDER.Confirmed, is_read: true })
         .eq('booking_id', id);
       if (error) throw error;
-      toast.success('Event confirmed!');
+      toast.success('Booking confirmed.');
       fetchData();
     } catch (error) {
       handleError(error, 'Failed to confirm booking.');
@@ -1029,7 +1029,7 @@ const handleMarkCompleted = async (id) => {
         .eq('booking_id', id);
       if (updatePaymentsError) throw updatePaymentsError;
     }
-    toast.success('Booking marked completed. All payments set to Fully Paid.');
+    toast.success('Booking completed. Remaining payments marked Fully Paid.');
 
     // 5. Refresh data
     fetchData();
@@ -1120,7 +1120,7 @@ const handleMarkCompleted = async (id) => {
         .in('booking_id', selectedBookings);
       if (bookingsError) throw bookingsError;
 
-      toast.success(`Successfully deleted ${selectedBookings.length} booking(s).`);
+      toast.success(`Deleted ${selectedBookings.length} booking(s).`);
       clearSelection();
       if (bookings.length === selectedBookings.length && currentPage > 1) {
         setCurrentPage(currentPage - 1);

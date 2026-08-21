@@ -55,7 +55,7 @@ export default function ResetPassword() {
       const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) throw error;
 
-      toast.success('Password updated successfully! Please log in with your new password.');
+      toast.success('Password updated. Sign in with your new password.');
       await supabase.auth.signOut();
       navigate('/login');
     } catch (error) {

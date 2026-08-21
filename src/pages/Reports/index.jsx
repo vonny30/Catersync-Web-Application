@@ -117,7 +117,7 @@ export default function Reports() {
         vehicleAssignments,
       });
     } catch (error) {
-      handleError(error, 'Failed to load report data. Please refresh the page.');
+      handleError(error, "Couldn't load the reports. Refresh to try again.");
     } finally {
       setIsLoading(false);
     }

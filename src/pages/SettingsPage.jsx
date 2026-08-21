@@ -121,7 +121,7 @@ export default function SettingsPage() {
         .eq('user_id', user.id);
 
       if (error) throw error;
-      toast.success('Profile updated successfully!');
+      toast.success('Profile saved.');
     } catch (error) {
       handleError(error, 'Failed to update profile.');
     } finally {
@@ -187,7 +187,7 @@ export default function SettingsPage() {
       }
 
       toast.success(
-        `Confirmation link sent to ${newEmail}. You've been logged out — check that inbox and click the link, then log back in with your new email.`,
+        `Confirmation link sent to ${newEmail}. You've been signed out — check that inbox, click the link, then sign in with your new email.`,
         { duration: 9000 }
       );
 
@@ -239,7 +239,7 @@ export default function SettingsPage() {
 
       // --- ADDED LOGIC: Clear instructions, log out, and redirect ---
       toast.success(
-        'Password updated successfully! For security, you have been logged out. Please log in with your new password.',
+        "Password updated. For security you've been signed out — sign in again with your new password.",
         { duration: 8000 }
       );
 

@@ -476,7 +476,7 @@ export default function Payments() {
     const isFirstPayment = paid === 0;
 
     if (remainingBalance <= 0) {
-      toast.error('This booking is already fully paid. No additional payments are allowed.');
+      toast.error("This booking is fully paid — there's no balance left to record against.");
       setIsSubmitting(false);
       return;
     }
@@ -584,13 +584,13 @@ export default function Payments() {
           .update(payload)
           .eq('payment_id', editingId);
         if (error) throw error;
-        toast.success(autoMarkedFullyPaid ? `Payment updated and ${autoMarkedMessage}` : 'Payment updated successfully!');
+        toast.success(autoMarkedFullyPaid ? `Payment updated and ${autoMarkedMessage}` : 'Payment saved.');
       } else {
         const { error } = await supabase
           .from('payment')
           .insert([payload]);
         if (error) throw error;
-        toast.success(autoMarkedFullyPaid ? `Payment recorded and ${autoMarkedMessage}` : 'Payment recorded successfully!');
+        toast.success(autoMarkedFullyPaid ? `Payment recorded and ${autoMarkedMessage}` : 'Payment recorded.');
       }
 
       closeModal();
