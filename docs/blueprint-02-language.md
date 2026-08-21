@@ -68,7 +68,7 @@ Terms without one are either pending a later step or waiting on Blueprint 01.
 | **In Use** ✓ | Event happening; item is out. | — |
 | **Returned** ✓ | Back in stock or at the garage. | Completed (vehicles) |
 | **Committed** ✓ | Promised to a booking on a date, not yet out. | Deployed, Reserved |
-| **Free** ✓ | Not committed on the selected date. | Available (in date-scoped views) |
+| **Available** ✓ | Not committed — on the date being viewed, or right now. The surrounding label carries the scope ("Available" under a date picker, "Available now" on a live panel). | Free, Deployed |
 | **Under Maintenance** ✓ | Set aside for repair. | In repair, Damaged / in repair |
 | **Damaged** | Broken, awaiting a decision. | — |
 | **Guests per Unit** ✓ | How many guests one unit serves. | Pax/Unit |
@@ -192,9 +192,11 @@ Relabel the display; leave `vehicle_assign.assignment_status` alone.
 
 Put the mapping in a shared `statusLabels.js` that both screens import.
 
-**Free vs Available:** date-scoped views and live views both say "Available"
-meaning two different things. Use **Free** for date-scoped, **Available** for
-live.
+**Free vs Available — resolved 21 Aug 2026 in favour of one word.** The split
+was tried and dropped: readers never inferred which word meant which, and two
+words for one idea cost more than the distinction was worth. **Available** is
+now the only term, with the surrounding label carrying the scope. `RESOURCE_STATE`
+in `utils/statusLabels.js` no longer defines `free`.
 
 ## 6. Screen by screen
 

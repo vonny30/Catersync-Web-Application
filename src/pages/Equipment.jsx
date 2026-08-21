@@ -89,6 +89,8 @@ export default function Equipment() {
   const [activeTableTab, setActiveTableTab] = useState('availability'); // 'availability' | 'inventory' | 'assignments' | 'history'
   const [inventorySearch, setInventorySearch] = useState('');
   const [inventoryTypeFilter, setInventoryTypeFilter] = useState('All'); // 'All' | 'Countable' | 'Decoration'
+  // Switched on by the sidebar's Needs Attention panel.
+  const [inventoryNeedsAttentionOnly, setInventoryNeedsAttentionOnly] = useState(false);
 
   // --- Availability tab search/filter — same shape as Inventory's, plus a
   // status filter, so filtering feels consistent across every tab on this
@@ -154,11 +156,6 @@ export default function Equipment() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
-
-  // --- Equipment Detail Modal State (for the "Needs Attention" card) ---
-  const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState(false);
-  const [equipmentModalData, setEquipmentModalData] = useState([]);
-  const [equipmentModalTitle, setEquipmentModalTitle] = useState('');
 
   // --- Booking Search State for Assign Modal ---
   const [bookingSearchTerm, setBookingSearchTerm] = useState('');
@@ -420,12 +417,15 @@ export default function Equipment() {
     setAssignFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // --- "Needs Attention" card click ---
-  const handleEquipmentCardClick = (filterFn, title) => {
-    const filtered = equipmentList.filter(filterFn);
-    setEquipmentModalData(filtered);
-    setEquipmentModalTitle(title);
-    setIsEquipmentModalOpen(true);
+  // --- Sidebar "Needs Attention" panel -> the Inventory tab, filtered ---
+  // Sends the manager to the list that can actually fix the problem rather
+  // than to a read-only copy of it.
+  const showNeedsAttentionInInventory = () => {
+    setActiveTableTab('inventory');
+    setInventoryNeedsAttentionOnly(true);
+    setInventorySearch('');
+    setInventoryTypeFilter('All');
+    availabilityPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   // --- ADD EQUIPMENT ---
@@ -697,20 +697,10 @@ export default function Equipment() {
 
   // --- DELETE EQUIPMENT ---
   const handleDeleteEquipment = async (id) => {
-    const confirmed = await showConfirm({
-      title: 'Delete Equipment?',
-      message: 'Are you sure you want to delete this equipment? This action cannot be undone.',
-      confirmLabel: 'Delete',
-      confirmVariant: 'danger',
-    });
-    if (!confirmed) return;
-
-    const passwordOk = await requestPasswordConfirm({
-      title: 'Confirm Your Password',
-      message: 'Deleting this equipment is permanent. Re-enter your password to continue.',
-    });
-    if (!passwordOk) return;
-
+    // Establish whether the delete is even permitted BEFORE asking anything.
+    // These are two cheap counts; running them last meant a manager could
+    // confirm a destructive action and re-type their password only to be told
+    // the delete was never possible in the first place.
     try {
       const { count, error: countError } = await supabase
         .from('booking_equipment')
@@ -719,7 +709,7 @@ export default function Equipment() {
         .eq('returned', false);
       if (countError) throw countError;
       if (count > 0) {
-        toast.error(`Cannot delete this equipment because it is currently assigned to ${count} active booking(s). Please return it first.`);
+        toast.error(`This equipment is out at ${count} event${count === 1 ? '' : 's'} right now. Mark it returned before deleting it.`);
         return;
       }
 
@@ -733,7 +723,7 @@ export default function Equipment() {
         .eq('equipment_id', id);
       if (historyCountError) throw historyCountError;
       if (historyCount > 0) {
-        toast.error(`Cannot delete this equipment because it has ${historyCount} past assignment record(s) in its history. Deleting it would erase that history.`);
+        toast.error(`This equipment has ${historyCount} assignment record${historyCount === 1 ? '' : 's'} in its history. Deleting it would erase that record — flag it Under Maintenance instead if it is out of service.`);
         return;
       }
 
@@ -743,9 +733,25 @@ export default function Equipment() {
         .eq('equipment_id', id);
       if (pkgCountError) throw pkgCountError;
       if (pkgCount > 0) {
-        toast.error(`Cannot delete this equipment because it is used in ${pkgCount} package template(s). Remove it from packages first.`);
+        toast.error(`This equipment is part of ${pkgCount} package template${pkgCount === 1 ? '' : 's'}. Remove it from those packages before deleting it.`);
         return;
       }
+
+      // Only now that the delete is known to be possible is it worth spending
+      // the manager's attention on a confirmation and a password.
+      const confirmed = await showConfirm({
+        title: 'Delete this equipment?',
+        message: 'This removes the item from the inventory permanently. It cannot be undone.',
+        confirmLabel: 'Delete',
+        confirmVariant: 'danger',
+      });
+      if (!confirmed) return;
+
+      const passwordOk = await requestPasswordConfirm({
+        title: 'Confirm your password',
+        message: 'Deleting equipment is permanent. Re-enter your password to continue.',
+      });
+      if (!passwordOk) return;
 
       const { error } = await supabase
         .from('equipment')
@@ -767,6 +773,10 @@ export default function Equipment() {
   };
 
   // --- QUEUE FUNCTIONS ---
+  const eventDateLabel = selectedBooking?.event_datetime
+    ? new Date(selectedBooking.event_datetime).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
+    : 'that date';
+
   const addToQueue = () => {
     if (!tempEquipId) {
       toast.error('Please select equipment.');
@@ -787,8 +797,19 @@ export default function Equipment() {
       return;
     }
 
-    if (tempQuantity > equip.quantity_available) {
-      toast.error(`Only ${equip.quantity_available} "${equip.eqm_name}" in stock — can't assign ${tempQuantity}.`);
+    // Check against what is free ON THE EVENT'S DATE, not against total usable
+    // stock. Comparing to stock alone let a manager queue 20 chairs when 18 of
+    // them were already promised to another event that day, and the shortage
+    // only surfaced at submit — after the whole list had been built.
+    // assignDateSnapshot is already loaded for the selected booking's date.
+    const dateRow = assignDateSnapshot?.items?.find(i => i.equipment_id === tempEquipId);
+    const freeOnDate = dateRow ? getStockBreakdown(dateRow).free : getStockBreakdown(equip).usable;
+    if (tempQuantity > freeOnDate) {
+      toast.error(
+        dateRow
+          ? `Only ${freeOnDate} "${equip.eqm_name}" free on ${eventDateLabel} — the rest are already committed to other events that day.`
+          : `Only ${freeOnDate} "${equip.eqm_name}" usable — can't assign ${tempQuantity}.`
+      );
       return;
     }
 
@@ -910,7 +931,7 @@ export default function Equipment() {
     const assignment = assignments.find(a => a.assignment_id === assignmentId);
     const { canReturn, opensAt } = getReturnAvailability(assignment?.booking?.event_datetime);
     if (!canReturn) {
-      toast.error(`Can't return this yet — available starting 3 hours after the event, at ${formatReturnOpensAt(opensAt)}.`);
+      toast.error(`Too early to return this. Returns open 3 hours after the event starts, at ${formatReturnOpensAt(opensAt)}.`);
       return;
     }
 
@@ -941,7 +962,7 @@ export default function Equipment() {
     const sampleAssignment = assignments.find(a => a.booking_id === bookingId);
     const { canReturn, opensAt } = getReturnAvailability(sampleAssignment?.booking?.event_datetime);
     if (!canReturn) {
-      toast.error(`Can't return these yet — available starting 3 hours after the event, at ${formatReturnOpensAt(opensAt)}.`);
+      toast.error(`Too early to return these. Returns open 3 hours after the event starts, at ${formatReturnOpensAt(opensAt)}.`);
       return;
     }
 
@@ -1115,6 +1136,10 @@ export default function Equipment() {
   // --- INVENTORY TAB: search + type filter ---
   // ============================================================
   const filteredInventory = equipmentList.filter(item => {
+    // Set by the sidebar's Needs Attention panel, so that panel leads to the
+    // one list that can actually act on the problem instead of to a read-only
+    // copy of it.
+    if (inventoryNeedsAttentionOnly && !((item.damaged_quantity || 0) + (item.maintenance_quantity || 0) > 0)) return false;
     if (inventoryTypeFilter !== 'All' && item.equipment_type !== inventoryTypeFilter) return false;
     if (inventorySearch) {
       const term = inventorySearch.toLowerCase();
@@ -1123,7 +1148,7 @@ export default function Equipment() {
     return true;
   });
 
-  const activeInventoryFilterCount = (inventorySearch.trim() ? 1 : 0) + (inventoryTypeFilter !== 'All' ? 1 : 0);
+  const activeInventoryFilterCount = (inventorySearch.trim() ? 1 : 0) + (inventoryTypeFilter !== 'All' ? 1 : 0) + (inventoryNeedsAttentionOnly ? 1 : 0);
 
   const sortedFilteredInventory = inventorySort.field
     ? [...filteredInventory].sort((a, b) => {
@@ -1466,8 +1491,6 @@ export default function Equipment() {
               <thead>
                 <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
                   <th className="p-4">{renderSortHeader(availabilitySort, toggleAvailabilitySort, 'name', 'Equipment')}</th>
-                  <th className="p-4 font-bold text-center">Owned</th>
-                  <th className="p-4 font-bold text-center">Out of service</th>
                   <th className="p-4 font-bold text-center">Usable</th>
                   <th className="p-4 font-bold text-center">In use on this date</th>
                   <th className="p-4 text-center">{renderSortHeader(availabilitySort, toggleAvailabilitySort, 'free', 'Available', 'justify-center mx-auto')}</th>
@@ -1477,9 +1500,9 @@ export default function Equipment() {
               </thead>
               <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
                 {isLoading || snapshotLoading ? (
-                  <tr><td colSpan="8" className="p-6 text-center text-slate-400">Calculating availability…</td></tr>
+                  <tr><td colSpan="6" className="p-6 text-center text-slate-400">Calculating availability…</td></tr>
                 ) : filteredAvailabilityItems.length === 0 ? (
-                  <tr><td colSpan="8" className="p-6 text-center text-slate-400 italic">No equipment matches your search/filter.</td></tr>
+                  <tr><td colSpan="6" className="p-6 text-center text-slate-400 italic">No equipment matches your search/filter.</td></tr>
                 ) : (
                   sortedFilteredAvailabilityItems.map((item) => {
                     const status = getAvailabilityStatus(item);
@@ -1516,19 +1539,16 @@ export default function Equipment() {
                           ) : (
                             <p className="text-xs text-slate-400 mt-0.5">Not used on this date</p>
                           )}
-                        </td>
-                        <td className="p-4 text-center font-semibold text-slate-800">{stock.total}</td>
-                        <td className="p-4 text-center text-slate-600">
-                          {outOfService > 0 ? (
-                            <span className="inline-flex flex-col leading-tight">
-                              <span className="font-semibold text-slate-700">−{outOfService}</span>
-                              <span className="text-[10px] text-slate-500">
-                                {stock.damaged > 0 && `${stock.damaged} damaged`}
-                                {stock.damaged > 0 && stock.maintenance > 0 && ', '}
-                                {stock.maintenance > 0 && `${stock.maintenance} under maintenance`}
-                              </span>
-                            </span>
-                          ) : <span className="text-slate-400">None</span>}
+                          {/* Why the usable figure is below what the business
+                              owns — only worth a line when it isn't zero. */}
+                          {outOfService > 0 && (
+                            <p className="text-xs text-red-600 mt-0.5 font-medium">
+                              {stock.total} owned · {outOfService} out of service
+                              {stock.damaged > 0 && stock.maintenance > 0
+                                ? ` (${stock.damaged} damaged, ${stock.maintenance} under maintenance)`
+                                : ''}
+                            </p>
+                          )}
                         </td>
                         <td className="p-4 text-center font-bold text-slate-900">{stock.usable}</td>
                         <td className="p-4 text-center font-semibold text-slate-700">{stock.committed} <span className="text-slate-400 font-normal">units</span></td>
@@ -1567,6 +1587,18 @@ export default function Equipment() {
                   {activeInventoryFilterCount} active
                 </span>
               )}
+              {/* Arriving from the sidebar applies a filter the manager didn't
+                  set by hand, so it has to be visible and removable here. */}
+              {inventoryNeedsAttentionOnly && (
+                <button
+                  type="button"
+                  onClick={() => setInventoryNeedsAttentionOnly(false)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors cursor-pointer shrink-0"
+                  title="Show all equipment again"
+                >
+                  Needs attention only <X size={12} />
+                </button>
+              )}
               <div className="relative flex-1 min-w-[220px]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                 <input
@@ -1588,7 +1620,7 @@ export default function Equipment() {
               </select>
               {activeInventoryFilterCount > 0 && (
                 <button
-                  onClick={() => { setInventorySearch(''); setInventoryTypeFilter('All'); }}
+                  onClick={() => { setInventorySearch(''); setInventoryTypeFilter('All'); setInventoryNeedsAttentionOnly(false); }}
                   className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors cursor-pointer"
                 >
                   Clear filters
@@ -1606,7 +1638,7 @@ export default function Equipment() {
                     <th className="p-4 font-bold text-center">Usable</th>
                     <th className="p-4 font-bold text-center">Type</th>
                     <th className="p-4 font-bold text-center">Guests per Unit</th>
-                    <th className="p-4 font-bold text-center">Usage</th>
+                    <th className="p-4 font-bold text-center">Out now</th>
                     <th className="p-4 font-bold text-right">Actions</th>
                   </tr>
                 </thead>
@@ -1651,7 +1683,7 @@ export default function Equipment() {
                               className="text-blue-500 hover:text-blue-700 transition-colors text-xs font-medium flex items-center gap-1 mx-auto"
                             >
                               <ClipboardList size={14} />
-                              {usageCount > 0 ? `${usageCount} in use` : 'No usage'}
+                              {usageCount > 0 ? `${usageCount} out now` : 'View history'}
                             </button>
                           </td>
                           <td className="p-4 text-right">
@@ -1821,7 +1853,7 @@ export default function Equipment() {
                         className={group.canReturn
                           ? 'text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 border border-blue-200 rounded-lg px-2.5 py-1 hover:bg-blue-50 transition-colors'
                           : 'text-xs font-semibold text-slate-400 flex items-center gap-1 border border-slate-200 rounded-lg px-2.5 py-1 transition-colors'}
-                        title={group.canReturn ? undefined : `Locked — returns open 3 hours after the event, at ${formatReturnOpensAt(group.returnOpensAt)}`}
+                        title={group.canReturn ? undefined : `Returns open 3 hours after the event starts, at ${formatReturnOpensAt(group.returnOpensAt)}`}
                       >
                         {group.canReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return all
                       </button>
@@ -1836,7 +1868,7 @@ export default function Equipment() {
                           className={group.canReturn
                             ? 'text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1 text-xs font-medium'
                             : 'text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-1 text-xs font-medium'}
-                          title={group.canReturn ? undefined : `Locked — returns open 3 hours after the event, at ${formatReturnOpensAt(group.returnOpensAt)}`}
+                          title={group.canReturn ? undefined : `Returns open 3 hours after the event starts, at ${formatReturnOpensAt(group.returnOpensAt)}`}
                         >
                           {group.canReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return
                         </button>
@@ -1987,7 +2019,7 @@ export default function Equipment() {
               <AlertTriangle size={14} className="text-red-500" /> Needs Attention ({needsAttentionUnits})
             </span>
             <button
-              onClick={() => handleEquipmentCardClick(eq => (eq.damaged_quantity || 0) > 0 || (eq.maintenance_quantity || 0) > 0, 'Needs Attention')}
+              onClick={showNeedsAttentionInInventory}
               className="text-xs font-semibold text-[#008A45] hover:underline cursor-pointer"
             >
               View all
@@ -2795,65 +2827,6 @@ export default function Equipment() {
         document.body
       )}
 
-      {/* NEEDS ATTENTION MODAL (Clickable Card) */}
-      {isEquipmentModalOpen && createPortal(
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4 animate-in fade-in zoom-in-95 duration-150">
-          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0 bg-white">
-              <div>
-                <h2 className="text-lg font-bold text-slate-900">{equipmentModalTitle}</h2>
-                <p className="text-xs text-slate-500 mt-0.5">{equipmentModalData.length} item(s) found</p>
-              </div>
-              <button
-                onClick={() => setIsEquipmentModalOpen(false)}
-                className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="p-6 overflow-y-auto flex-1">
-              {equipmentModalData.length === 0 ? (
-                <div className="text-center py-10 text-slate-500">Nothing needs attention right now.</div>
-              ) : (
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
-                      <th className="p-3">Equipment</th>
-                      <th className="p-3 text-center">Damaged</th>
-                      <th className="p-3 text-center">Under Maintenance</th>
-                      <th className="p-3 text-center">Usable</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-sm">
-                    {equipmentModalData.map((item) => (
-                      <tr key={item.equipment_id} className="hover:bg-slate-50 transition-colors">
-                        <td className="p-3">
-                          <p className="font-bold text-slate-900">{item.eqm_name}</p>
-                          <p className="text-xs text-slate-500">{item.eqm_description}</p>
-                        </td>
-                        <td className="p-3 text-center font-semibold text-red-600">{item.damaged_quantity || 0}</td>
-                        <td className="p-3 text-center font-semibold text-amber-600">{item.maintenance_quantity || 0}</td>
-                        <td className="p-3 text-center font-semibold text-emerald-700">{item.quantity_available}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-200 shrink-0">
-              <button
-                onClick={() => setIsEquipmentModalOpen(false)}
-                className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
     </div>
   );
 }

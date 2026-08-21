@@ -106,6 +106,31 @@ built (Blueprint 01 defect 5). Fix the maths first, then the label.
 report queries hitting the PostgREST 1000-row cap) is the most urgent single
 item in either document; it fails silently and gets worse on its own.
 
+## Equipment page — audited 21 Aug 2026
+
+The stock identity (`total = usable + out of service`, `available = usable −
+in use`) is owned by `getStockBreakdown` in `utils/equipment.jsx` and is now
+printed on the page so a manager can check it by eye.
+
+Guardrails, and where each is enforced:
+
+| Guardrail | Where | Note |
+|---|---|---|
+| Returns open 3 h after the event starts | `getReturnAvailability`, both return handlers + the Lock icon on the buttons | One sentence, used in all four places |
+| Assign: enough free **on the event's date** | `addToQueue` (queue time) and `handleAssignSubmit` (submit time) | Queue-time check now reads the date snapshot, not total stock |
+| Assign: no duplicate item per booking | `addToQueue` | |
+| Reducing usable stock can't strand a booking | `checkEquipmentAvailabilityImpact`, from both Edit and Flag issue | |
+| Delete blocked by active assignments, history, or package templates | `handleDeleteEquipment` | **All three checks run before the confirm and password**, not after |
+
+Deliberately removed: the Needs Attention modal. It duplicated the Inventory
+tab without the Flag issue / Edit buttons. The sidebar's "View all" now opens
+the Inventory tab filtered to items needing attention, with a clearable chip.
+
+The Availability tab shows Usable / In use on this date / Available. Owned and
+out-of-service moved off the row — out of service appears as a red sub-line
+under the item name only when it is non-zero, which is what explains a reduced
+usable figure.
+
 ## Things that will bite you
 
 - ~~`Reports/index.jsx` fetches ten tables with no `.range()`/`.limit()`.~~
@@ -129,6 +154,8 @@ item in either document; it fails silently and gets worse on its own.
 - **`utils/reportMetrics.js` owns every money definition.** Cash figures anchor
   on `pay_datetime`; event figures anchor on `event_datetime`. Never sum
   payments inline in a page.
+- **`utils/equipment.jsx` owns the stock identity** via `getStockBreakdown`.
+  Never reconstruct a total by hand.
 - **`utils/statusLabels.js` owns the display names for the assignment
   lifecycle.** It maps a boolean and a date to a label and never sees a stored
   value; that boundary is the point of the file. Add new status wording there,
@@ -164,10 +191,11 @@ commits behind. Re-stage immediately before editing and diff against the current
 file; a stale `OverviewTab.jsx` was one commit away from silently reverting the
 whole Menu Performance rebuild.
 
-**Line endings.** This repo is mixed: `Reports/OverviewTab.jsx` and
-`Reports/FinancialTab.jsx` are CRLF, most other files are LF. Reading and
-rewriting a CRLF file in Python emits LF and turns a 6-line change into a
-350-line diff. Preserve whatever the file already uses.
+**Line endings — write LF, always.** Every blob committed in this repo is LF.
+Some working-tree files had drifted to CRLF, which made them show as
+whole-file diffs; 25 such files were normalised on 21 Aug 2026 and the working
+tree went from 28 modified files to 3. Matching the *worktree* is the wrong
+rule — match the committed blob, which means LF.
 
 ## Verifying changes here
 

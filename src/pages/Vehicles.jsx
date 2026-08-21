@@ -762,7 +762,7 @@ export default function Vehicles() {
     if (v.vehicle_status === 'Maintenance') return { key: 'maintenance', label: RESOURCE_STATE.underMaintenance, rank: 0, pillClass: 'bg-orange-100 border-orange-300 text-orange-700' };
     if (v.vehicle_status === 'Unavailable') return { key: 'unavailable', label: RESOURCE_STATE.unavailable, rank: 0, pillClass: 'bg-slate-200 border-slate-300 text-slate-600' };
     if (v.assignment) return { key: 'deployed', label: RESOURCE_STATE.committed, rank: 1, pillClass: 'bg-amber-100 border-amber-300 text-amber-700' };
-    return { key: 'free', label: RESOURCE_STATE.free, rank: 2, pillClass: 'bg-emerald-100 border-emerald-300 text-emerald-700' };
+    return { key: 'free', label: RESOURCE_STATE.available, rank: 2, pillClass: 'bg-emerald-100 border-emerald-300 text-emerald-700' };
   };
 
   const sortedAvailabilityVehicles = [...snapshot.vehicles].sort((a, b) => {
@@ -904,8 +904,10 @@ export default function Vehicles() {
         const status = getAssignmentStatus(a.assignment_status === 'Completed', a.booking?.event_datetime);
         // Keys come from getAssignmentStatus (assigned / in_use / returned).
         // They are NOT the stored vehicle_assign.assignment_status values —
-        // mapping these to 'scheduled'/'completed' matched nothing at all,
-        // silently emptying the table for two of the three filters.
+        // mapping these to 'scheduled'/'completed' matches nothing at all and
+        // silently empties the table for two of the three filters. This has
+        // now regressed once via a stale-copy overwrite; if you are changing
+        // this line, check getAssignmentStatus first.
         const filterKey = historyStatusFilter === 'Assigned' ? 'assigned' : historyStatusFilter === 'In Use' ? 'in_use' : 'returned';
         if (status.key !== filterKey) return false;
       }
@@ -1107,7 +1109,7 @@ export default function Vehicles() {
                   { key: 'All', label: 'All' },
                   { key: 'outofservice', label: `Out of service (${availabilityStatusCounts.outofservice})` },
                   { key: 'deployed', label: `Committed (${availabilityStatusCounts.deployed})` },
-                  { key: 'free', label: `Free (${availabilityStatusCounts.free})` },
+                  { key: 'free', label: `Available (${availabilityStatusCounts.free})` },
                 ].map(opt => (
                   <button
                     key={opt.key}

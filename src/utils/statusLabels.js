@@ -41,17 +41,17 @@ export function getAssignmentStatus(isFinished, eventDatetimeStr) {
 
 // Resource availability wording.
 //
-// "Free" and "Available" are deliberately different words for two different
-// questions. A date-scoped view asks "is this free on the day I'm looking at?";
-// a live view asks "is this available right now?" Using one word for both made
-// the two views look like they disagreed whenever they were read side by side.
+// One word — "Available" — covers both the date-scoped and the live question,
+// with the surrounding label carrying the scope ("Available" under a date
+// picker, "Available now" on a live panel). An earlier split between "Free"
+// and "Available" was dropped: two words for one idea cost more confusion than
+// the distinction was worth, and readers never reliably inferred which was
+// which from the word alone.
 export const RESOURCE_STATE = {
-  // Date-scoped: not promised to any booking on the selected date.
-  free: 'Free',
-  // Date-scoped: promised to a booking on that date, not yet out.
-  committed: 'Committed',
-  // Live: usable right now.
+  // Not promised to any booking — on the selected date, or right now.
   available: 'Available',
+  // Promised to a booking on that date, not yet out.
+  committed: 'Committed',
   // Set aside for repair. Matches the value stored in equipment.eqm_status.
   underMaintenance: 'Under Maintenance',
   // Deliberately withdrawn from service.
