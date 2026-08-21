@@ -19,32 +19,62 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
 
   return (
     <>
+      {/* Cash in, by payment date. Deliberately separated from the three
+          event-anchored figures below it: this is the only card here that
+          answers "how much money arrived in this period?", and it is the one
+          that must agree with the Dashboard. */}
+      <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-2xl p-6 mb-4">
+        <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Payments Received</p>
+        <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.paymentsReceived)}</h3>
+        <p className="text-xs text-slate-500 font-medium mt-2">
+          Cash received in this period, by payment date · net of refunds
+        </p>
+        <div className="flex flex-wrap gap-x-6 gap-y-1 mt-3 text-xs">
+          {financialSummary.retainedFromCancellations > 0 && (
+            <span className="text-amber-700 font-medium">
+              + {formatCurrency(financialSummary.retainedFromCancellations)} retained from cancellations
+            </span>
+          )}
+          {financialSummary.refundsIssued > 0 && (
+            <span className="text-slate-500">
+              {formatCurrency(financialSummary.refundsIssued)} refunded in this period
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* The event-anchored trio. These three reconcile with each other —
+          contract value minus paid equals outstanding — which is exactly why
+          they belong together and apart from the cash figure above. */}
+      <p className="text-xs text-slate-500 mb-2">
+        For events happening in this period, whenever they were paid for:
+      </p>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <button
           onClick={() => onCardClick('revenue')}
           className={`rounded-2xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 border ${cardColorClasses('green')}`}
         >
-          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Total Revenue</p>
-          <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.totalRevenue)}</h3>
-          <p className="text-xs text-slate-500 font-medium mt-2">Selected period</p>
+          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Contract Value</p>
+          <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.contractValue)}</h3>
+          <p className="text-xs text-slate-500 font-medium mt-2">What those events are worth</p>
           <p className="text-[10px] text-emerald-600 font-semibold mt-2 opacity-0 hover:opacity-100 transition-opacity">Click to view breakdown →</p>
         </button>
         <button
           onClick={() => onCardClick('collected')}
           className={`rounded-2xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 border ${cardColorClasses('teal')}`}
         >
-          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Collected</p>
-          <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.collected)}</h3>
-          <p className="text-xs text-slate-500 font-medium mt-2">All payments received</p>
+          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Paid So Far</p>
+          <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.paidAgainstEvents)}</h3>
+          <p className="text-xs text-slate-500 font-medium mt-2">Paid against those events</p>
           <p className="text-[10px] text-emerald-600 font-semibold mt-2 opacity-0 hover:opacity-100 transition-opacity">Click to view breakdown →</p>
         </button>
         <button
           onClick={() => onCardClick('outstanding')}
           className={`rounded-2xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 border ${cardColorClasses('amber')}`}
         >
-          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Outstanding</p>
+          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Outstanding Balance</p>
           <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.outstanding)}</h3>
-          <p className="text-xs text-slate-500 font-medium mt-2">Remaining balances</p>
+          <p className="text-xs text-slate-500 font-medium mt-2">Still to collect</p>
           <p className="text-[10px] text-emerald-600 font-semibold mt-2 opacity-0 hover:opacity-100 transition-opacity">Click to view breakdown →</p>
         </button>
       </div>

@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { sumVerifiedPositivePayments, UNVERIFIED_PAY_STATUSES, isPaymentLedgerLocked, paymentLockedMessage } from '../utils/payments';
+import { getPaymentsReceived } from '../utils/reportMetrics';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange } from './Reports/helpers';
 
@@ -78,7 +79,6 @@ export default function Payments() {
   const [showBookingList, setShowBookingList] = useState(false);
 
   // --- SUMMARY STATE ---
-  const [totalCollected, setTotalCollected] = useState(0);
   const [pendingBalance, setPendingBalance] = useState(0);
   const [fullyPaidCount, setFullyPaidCount] = useState(0);
 
@@ -188,18 +188,20 @@ export default function Payments() {
       if (bookingsError) throw bookingsError;
       setBookings(bookingsData || []);
 
-      // Calculate Payments Received: only from bookings that are NOT Rejected or
-      // Cancelled, and only counting verified funds (Pending Verification /
-      // Proof Rejected rows aren't real money in hand yet).
-      const activePayments = paymentsData.filter(p => {
+      // Payments Received now follows the page's own date filter and is derived
+      // further down (see the `received` memo) — a flow figure has to describe
+      // the period the table is showing, or the card and the rows underneath it
+      // are talking about different months.
+      //
+      // The two figures below are different in kind: an outstanding balance and
+      // a count of settled records are positions as at now, not flows over a
+      // period, so they are correctly not date-filtered.
+      const verifiedActivePayments = paymentsData.filter(p => {
         const status = p.booking?.booking_status;
-        return status !== 'Rejected' && status !== 'Cancelled';
+        return status !== 'Rejected' && status !== 'Cancelled'
+          && !UNVERIFIED_PAY_STATUSES.includes(p.pay_status);
       });
-      const verifiedActivePayments = activePayments.filter(p => !UNVERIFIED_PAY_STATUSES.includes(p.pay_status));
-      const collected = verifiedActivePayments.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-      setTotalCollected(collected);
 
-      // For fully paid count and pending balance, we consider only active bookings
       const bookingTotals = {};
       verifiedActivePayments.forEach(p => {
         if (p.booking_id) {
@@ -275,6 +277,13 @@ export default function Payments() {
   const filteredPayments = typeAndDateFiltered.filter(
     statusTabs.find(t => t.key === activeTab)?.match || (() => true)
   );
+
+  // Payments Received, over whatever period (and type/method) the page is
+  // currently filtered to — the same shared definition Dashboard and Reports
+  // use. Deriving it from typeAndDateFiltered rather than the raw list is what
+  // makes the card describe the table beneath it; the status cards above
+  // already work this way.
+  const received = getPaymentsReceived(typeAndDateFiltered);
 
   // --- HANDLERS ---
   const handleInputChange = (e) => {
@@ -853,18 +862,18 @@ export default function Payments() {
 
   // --- Summary Card Click Handlers ---
 
-  // 1. Payments Received – all positive payments from active (non-rejected/cancelled) records
+  // 1. Payments Received – exactly the rows the card summed.
+  //
+  // Sourced from `received.activeRows`, NOT from the raw `payments` list. The
+  // card became date-filtered when it moved to getPaymentsReceived, but this
+  // handler kept reading the unfiltered list — so with a period selected the
+  // card showed that period while the modal behind it opened on all time, and
+  // the two totals disagreed by however much history existed. Taking the rows
+  // straight from the same result the card rendered means they cannot drift
+  // again, and refunds stay included so the modal's footer reconciles with a
+  // headline that is explicitly net of them.
   const handleCollectedClick = () => {
-    const data = payments
-      .filter(p => {
-        const status = p.booking?.booking_status;
-        // Must match the card's own total (totalCollected, computed from
-        // verifiedActivePayments in fetchData) — this filter used to skip
-        // the unverified-payment exclusion, so a Pending Verification/Proof
-        // Rejected row could show up in the modal's list even though it was
-        // never counted in the card's number above it.
-        return p.amount_paid > 0 && status !== 'Rejected' && status !== 'Cancelled' && !UNVERIFIED_PAY_STATUSES.includes(p.pay_status);
-      })
+    const data = received.activeRows
       .map(p => ({
         ...p,
         clientName: getClientName(p),
@@ -877,7 +886,8 @@ export default function Payments() {
         booking_type: p.booking?.booking_type,
       }));
     setSummaryModalData(data);
-    setSummaryModalTitle('Payments Received – active bookings & orders');
+    // Name the period, since these rows are the card's period — not all time.
+    setSummaryModalTitle(`Payments Received – ${datePreset === 'All Time' ? 'all time' : datePreset.toLowerCase()}`);
     setSummaryModalType('collected');
     setSummarySearchTerm('');
     setSummaryTypeFilter('All');
@@ -1040,8 +1050,15 @@ export default function Payments() {
           className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-2xl p-5 text-left shadow-sm hover:shadow-md transition-all cursor-pointer group"
         >
           <p className="text-xs font-semibold text-slate-600 mb-1">Payments Received</p>
-          <h3 className="text-3xl font-extrabold text-slate-900">₱{totalCollected.toLocaleString()}</h3>
-          <p className="text-xs text-slate-500 mt-2">Net of refunds · active bookings &amp; orders</p>
+          <h3 className="text-3xl font-extrabold text-slate-900">₱{received.paymentsReceived.toLocaleString()}</h3>
+          <p className="text-xs text-slate-500 mt-2">
+            Net of refunds · {datePreset === 'All Time' ? 'all time' : datePreset.toLowerCase()}
+          </p>
+          {received.retainedFromCancellations > 0 && (
+            <p className="text-[11px] text-amber-700 mt-1 font-medium">
+              + ₱{received.retainedFromCancellations.toLocaleString()} retained from cancellations
+            </p>
+          )}
           <span className="text-[10px] text-slate-400 group-hover:text-[#008A45] transition-colors">Click to view details</span>
         </button>
         <button

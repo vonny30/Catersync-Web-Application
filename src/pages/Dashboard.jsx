@@ -9,7 +9,8 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
-import { isUnverifiedPayment, sumVerifiedPositivePayments, sumVerifiedDownpayments } from '../utils/payments';
+import { sumVerifiedPositivePayments, sumVerifiedDownpayments } from '../utils/payments';
+import { getPaymentsReceived } from '../utils/reportMetrics';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange } from './Reports/helpers';
 
@@ -35,6 +36,7 @@ export default function Dashboard() {
     pendingBookings: 0,
     upcomingEvents: 0,
     revenueThisMonth: 0,
+    retainedThisMonth: 0,
   });
   const [todayEvents, setTodayEvents] = useState([]);
   const [pendingItems, setPendingItems] = useState([]);
@@ -227,20 +229,24 @@ export default function Dashboard() {
       if (upcomingError) throw upcomingError;
       setStats(prev => ({ ...prev, upcomingEvents: upcomingData?.length || 0 }));
 
-      // --- Revenue This Month (verified payments only — Pending
-      // Verification / Proof Rejected rows aren't real collected money
-      // yet, matching sumVerifiedPositivePayments used everywhere else) ---
+      // --- Payments Received This Month ---
+      // Anchored on pay_datetime and computed by utils/reportMetrics, the same
+      // function the Payments page and Reports now use. The booking status comes
+      // along so cash retained from a cancelled booking can be reported on its
+      // own line instead of quietly inflating (or vanishing from) the headline.
       const { data: revenueData, error: revenueError } = await supabase
         .from('payment')
-        .select('amount_paid, pay_status')
+        .select('amount_paid, pay_status, pay_datetime, booking:booking_id (booking_status)')
         .gte('pay_datetime', `${startOfMonthStr} 00:00:00`)
         .lte('pay_datetime', `${endOfMonthStr} 23:59:59`);
 
       if (revenueError) throw revenueError;
-      const totalRevenue = (revenueData || [])
-        .filter(p => !isUnverifiedPayment(p))
-        .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-      setStats(prev => ({ ...prev, revenueThisMonth: totalRevenue }));
+      const received = getPaymentsReceived(revenueData || []);
+      setStats(prev => ({
+        ...prev,
+        revenueThisMonth: received.paymentsReceived,
+        retainedThisMonth: received.retainedFromCancellations,
+      }));
 
     } catch (error) {
       handleError(error, 'Failed to load dashboard data.');
@@ -523,6 +529,7 @@ export default function Dashboard() {
             booking_id,
             booking_number,
             booking_type,
+            booking_status,
             venue,
             customer:customer_id (first_name, last_name)
           )
@@ -531,9 +538,11 @@ export default function Dashboard() {
         .lte('pay_datetime', `${endOfMonthStr} 23:59:59`)
         .order('pay_datetime', { ascending: false });
       if (error) throw error;
-      // Match the card total: Pending Verification / Proof Rejected rows
-      // aren't real collected money yet.
-      setStatsModalData((data || []).filter(p => !isUnverifiedPayment(p)));
+      // List exactly the rows the card counted, so the modal's own total
+      // reconciles with the figure that was clicked. Cash retained from
+      // cancelled bookings is reported on the card's second line instead —
+      // it is deliberately not part of this total.
+      setStatsModalData(getPaymentsReceived(data || []).activeRows);
       setStatsModalTitle(`Payments Received This Month (${today.toLocaleString('default', { month: 'long', year: 'numeric' })})`);
       setStatsModalType('revenue');
       resetStatsFilters();
@@ -703,6 +712,14 @@ export default function Dashboard() {
             ₱{stats.revenueThisMonth.toLocaleString()}
           </span>
           <span className="text-sm font-medium text-slate-600">Payments Received This Month</span>
+          {/* Money kept from bookings that were cancelled or rejected is real
+              cash, but it isn't live business — so it sits on its own line
+              rather than inflating the headline or disappearing from it. */}
+          {stats.retainedThisMonth > 0 && (
+            <span className="text-[11px] text-amber-700 mt-1 font-medium">
+              + ₱{stats.retainedThisMonth.toLocaleString()} retained from cancellations
+            </span>
+          )}
           <ArrowRight size={14} className="absolute top-3 right-3 text-[#008A45] opacity-0 group-hover:opacity-100 transition-opacity" />
           <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
         </button>

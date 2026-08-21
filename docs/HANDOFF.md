@@ -72,6 +72,27 @@ Drafted 21 Aug 2026. Line references are against the tree as it stood that day.
   Login's `'Welcome back!'` toast was removed outright — the page it lands on
   already says it.
 
+- **Blueprint 01 §2 — one definition of money.** Added
+  `src/utils/reportMetrics.js` and repointed Dashboard, Payments and Reports at
+  it. `getPaymentsReceived()` is cash-basis (anchored on `pay_datetime`) and
+  returns a **split**, not one number: `paymentsReceived` (active bookings) and
+  `retainedFromCancellations` (a forfeited downpayment is real money but is not
+  live business), which always sum to `totalCashIn`.
+  `getEventPeriodTotals()` owns the event-anchored trio, where
+  `contractValue − paidAgainstEvents = outstandingBalance`.
+  - Dashboard's card is now the shared function; retained cash shows on its own
+    line, and its drill-down lists exactly the rows the card counted.
+  - The Payments card follows the page's date filter. Outstanding Balance and
+    Paid in Full deliberately do **not** — they are positions as at now, not
+    flows over a period.
+  - Reports' Financial tab shows the cash figure as a headline and keeps the
+    event-anchored trio beneath it, relabelled Contract Value / Paid So Far /
+    Outstanding Balance so the three visibly reconcile.
+  - The monthly chart is now built from the same rows as the card, so the bars
+    add up to the headline. It previously skipped negative amounts while its
+    caption claimed to be net of refunds (Blueprint 01 defect 5), and filtered
+    on event-in-range while being a payment-date chart.
+
 **Next up** — Blueprint 02 §9 step 6: the remaining screen-by-screen items in
 §6. Each screen's table is independent, so this can be done in any order and
 stopped at any point.
@@ -87,26 +108,27 @@ item in either document; it fails silently and gets worse on its own.
 
 ## Things that will bite you
 
-- **`Reports/index.jsx` fetches ten tables with no `.range()`/`.limit()`.**
-  Supabase caps responses at 1000 rows by default. `Bookings.jsx:193` and
-  `ShortOrders.jsx:170` paginate; Reports does not. Past the cap every report
-  figure is silently wrong and nothing throws.
-- **Dashboard and Reports compute "collected" differently.**
-  `Dashboard.jsx:233-243` sums every verified payment dated this month.
-  `Reports/index.jsx` sums verified payments on bookings whose *event* falls in
-  range. They will not agree. Blueprint 01 §2 is the fix.
+- ~~`Reports/index.jsx` fetches ten tables with no `.range()`/`.limit()`.~~
+  **Fixed** — `fetchAll()` pages with a stable `.order()` on each primary key.
+- ~~Dashboard and Reports compute "collected" differently.~~ **Fixed** — all
+  three pages now import `utils/reportMetrics.js`. Anything new that reports
+  money must use it too rather than summing payments inline; that inline sum is
+  how three different answers appeared in the first place.
 - **`booking.status_order` is not maintained by the database.** Every write that
   changes `booking_status` must set the matching `status_order` from
   `utils/bookingStatus.js`, or the row stops sorting into its group.
 - **`menu_selections` stores only `{menu_item_id, quantity}`** — no price
   snapshot. Tray counts are exact; peso figures are always derived. See
   Blueprint 02 §4.
-- **Month keys are built with `toLocaleString` then re-parsed with
-  `new Date("Aug 2026")`** in several places. Implementation-defined parsing;
-  breaks under a non-English browser locale.
+- ~~Month keys built with `toLocaleString` then re-parsed.~~ **Fixed** — both
+  groupings use a numeric `year*12+month` key; the localized label is display
+  only and never parsed back. Don't reintroduce string-keyed month grouping.
 
 ## Conventions worth preserving
 
+- **`utils/reportMetrics.js` owns every money definition.** Cash figures anchor
+  on `pay_datetime`; event figures anchor on `event_datetime`. Never sum
+  payments inline in a page.
 - **`utils/statusLabels.js` owns the display names for the assignment
   lifecycle.** It maps a boolean and a date to a label and never sees a stored
   value; that boundary is the point of the file. Add new status wording there,
@@ -134,6 +156,18 @@ Two deliberate exceptions, both verified line by line rather than waved through:
 `'Fully Paid'` (the `pay_status === 'Fully Paid'` comparison is untouched), and
 five files lost one balanced pair of parentheses each — the prose asides removed
 from the downpayment notes.
+
+## Two ways this collaboration has gone wrong — worth avoiding
+
+**Stale bases.** A working copy staged earlier in a session can be several
+commits behind. Re-stage immediately before editing and diff against the current
+file; a stale `OverviewTab.jsx` was one commit away from silently reverting the
+whole Menu Performance rebuild.
+
+**Line endings.** This repo is mixed: `Reports/OverviewTab.jsx` and
+`Reports/FinancialTab.jsx` are CRLF, most other files are LF. Reading and
+rewriting a CRLF file in Python emits LF and turns a 6-line change into a
+350-line diff. Preserve whatever the file already uses.
 
 ## Verifying changes here
 

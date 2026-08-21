@@ -4,6 +4,7 @@ import { supabase } from '../../supabase';
 import toast from 'react-hot-toast';
 import { getBookingRef, getRangeBounds, isWithinRange } from './helpers';
 import { isUnverifiedPayment } from '../../utils/payments';
+import { getPaymentsReceived } from '../../utils/reportMetrics';
 import { ACTIVE_BOOKING_STATUSES } from '../../utils/bookingStatus';
 import DateRangeFilter from './DateRangeFilter';
 import DetailModal from './DetailModal';
@@ -197,10 +198,23 @@ export default function Reports() {
       if (outstanding > 0) outstandingBreakdown.push(bookingInfo);
     });
 
+    // Cash actually received during the period, anchored on pay_datetime —
+    // a different question from the three figures above, which are anchored on
+    // the event date. Both belong on the Financial tab; conflating them is what
+    // made this page disagree with the Dashboard.
+    const bookingStatusById = {};
+    bookings.forEach(b => { bookingStatusById[b.booking_id] = b.booking_status; });
+    const received = getPaymentsReceived(payments, {
+      start: rangeStart, end: rangeEnd, bookingStatusById,
+    });
+
     const financialSummary = {
-      totalRevenue: totalContractValue,
-      collected: totalCollected,
+      contractValue: totalContractValue,
+      paidAgainstEvents: totalCollected,
       outstanding: totalOutstanding,
+      paymentsReceived: received.paymentsReceived,
+      retainedFromCancellations: received.retainedFromCancellations,
+      refundsIssued: received.refundsIssued,
       _revenueBreakdown: revenueBreakdown,
       _collectedBreakdown: collectedBreakdown,
       _outstandingBreakdown: outstandingBreakdown,
@@ -216,14 +230,23 @@ export default function Reports() {
     // "8月 2026", new Date() returns Invalid Date, the comparator gets NaN,
     // and the chart renders its months in arbitrary order. The label is now
     // kept purely for display and never parsed back.
+    // Built from exactly the rows the Payments Received card counts, so the
+    // chart and the card above it always add up to the same number.
+    //
+    // This previously skipped `amount_paid <= 0`, which meant refunds never
+    // pulled a bar down while the caption claimed the figure was net of them.
+    // Negative rows are now included: a month can legitimately go negative if
+    // more was refunded than taken, and hiding that was the whole problem.
+    // It also used to filter on activeBookingIds — bookings whose EVENT fell in
+    // range — which quietly mixed the event-anchored basis into a chart that is
+    // anchored on the payment date.
     const monthMap = {};
-    paymentsInRange.forEach(p => {
-      if (!activeBookingIds.has(p.booking_id)) return;
-      if (!p.pay_datetime || p.amount_paid <= 0) return;
+    received.activeRows.forEach(p => {
+      if (!p.pay_datetime) return;
       const date = new Date(p.pay_datetime);
       const sortKey = monthSortKey(date);
       if (!monthMap[sortKey]) monthMap[sortKey] = { month: monthLabel(date), revenue: 0, sortKey };
-      monthMap[sortKey].revenue += p.amount_paid;
+      monthMap[sortKey].revenue += (p.amount_paid || 0);
     });
     const monthlyRevenueData = Object.values(monthMap)
       .sort((a, b) => a.sortKey - b.sortKey)
@@ -545,9 +568,9 @@ export default function Reports() {
   const handleCardClick = (type) => {
     if (!derived) return;
     const breakdowns = {
-      revenue: { data: derived.financialSummary._revenueBreakdown, title: 'Total Revenue Breakdown' },
-      collected: { data: derived.financialSummary._collectedBreakdown, title: 'Collected Payments Breakdown' },
-      outstanding: { data: derived.financialSummary._outstandingBreakdown, title: 'Outstanding Balances Breakdown' },
+      revenue: { data: derived.financialSummary._revenueBreakdown, title: 'Contract Value — events in this period' },
+      collected: { data: derived.financialSummary._collectedBreakdown, title: 'Paid against these events' },
+      outstanding: { data: derived.financialSummary._outstandingBreakdown, title: 'Outstanding Balance' },
     };
     const entry = breakdowns[type];
     if (!entry) return;
