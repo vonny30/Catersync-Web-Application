@@ -24,7 +24,13 @@ export default function Payments() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('All');
   const [typeFilter, setTypeFilter] = useState('All'); // 'All', 'Package', 'Short Order'
-  const [methodFilter, setMethodFilter] = useState('All'); // 'All', 'Cash', 'GCash', 'Bank Transfer', 'Refund'
+  const [methodFilter, setMethodFilter] = useState('All'); // 'All', 'Cash', 'GCash', 'Bank Transfer'
+  // A refund is a kind of TRANSACTION, not a way of paying — money going out
+  // rather than a method of it coming in. It used to sit in the Method list
+  // beside Cash and GCash, which is the miscategorisation the panel raised.
+  // Keyed on the sign of amount_paid rather than on pay_method, so it stays
+  // correct for historical rows whatever string those happen to carry.
+  const [transactionTypeFilter, setTransactionTypeFilter] = useState('All'); // 'All' | 'Payments' | 'Refunds'
   const [tableSearchTerm, setTableSearchTerm] = useState(''); // filters the payments table by client name / booking ref
 
   // --- TABLE SORT — click a column header to sort; click again to flip
@@ -249,7 +255,7 @@ export default function Payments() {
 
   // --- FILTER LOGIC (search + type + method + date, independent of status) ---
   const { start: dateRangeStart, end: dateRangeEnd } = getRangeBounds(datePreset, customStart, customEnd);
-  const activePaymentFilterCount = [!!tableSearchTerm, typeFilter !== 'All', methodFilter !== 'All', datePreset !== 'All Time'].filter(Boolean).length;
+  const activePaymentFilterCount = [!!tableSearchTerm, typeFilter !== 'All', methodFilter !== 'All', transactionTypeFilter !== 'All', datePreset !== 'All Time'].filter(Boolean).length;
   const typeAndDateFiltered = payments.filter(p => {
     if (tableSearchTerm) {
       const search = tableSearchTerm.toLowerCase();
@@ -263,6 +269,8 @@ export default function Payments() {
       if (typeFilter === 'Short Order' && bookingType !== 'Short Order') return false;
     }
     if (methodFilter !== 'All' && p.pay_method !== methodFilter) return false;
+    if (transactionTypeFilter === 'Refunds' && (p.amount_paid || 0) >= 0) return false;
+    if (transactionTypeFilter === 'Payments' && (p.amount_paid || 0) < 0) return false;
     if (datePreset !== 'All Time' && !isWithinRange(p.pay_datetime, dateRangeStart, dateRangeEnd)) return false;
     return true;
   });
@@ -1156,7 +1164,7 @@ export default function Payments() {
           <div className="flex items-center gap-2">
             {activePaymentFilterCount > 0 && (
               <button
-                onClick={() => { setTableSearchTerm(''); setTypeFilter('All'); setMethodFilter('All'); setDatePreset('All Time'); setCustomStart(''); setCustomEnd(''); }}
+                onClick={() => { setTableSearchTerm(''); setTypeFilter('All'); setMethodFilter('All'); setTransactionTypeFilter('All'); setDatePreset('All Time'); setCustomStart(''); setCustomEnd(''); }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
               >
                 <RotateCcw size={13} /> Clear all
@@ -1210,7 +1218,19 @@ export default function Payments() {
               <option value="Cash">Cash</option>
               <option value="GCash">GCash</option>
               <option value="Bank Transfer">Bank Transfer</option>
-              <option value="Refund">Refund</option>
+            </select>
+          </div>
+
+          <div>
+            <label className={`block text-[11px] font-semibold mb-1 ${transactionTypeFilter !== 'All' ? 'text-[#007038]' : 'text-slate-500'}`}>Transaction</label>
+            <select
+              value={transactionTypeFilter}
+              onChange={(e) => setTransactionTypeFilter(e.target.value)}
+              className={`border rounded-lg px-3 py-2.5 text-sm outline-none transition-colors ${transactionTypeFilter !== 'All' ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-300 bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
+            >
+              <option value="All">All</option>
+              <option value="Payments">Payments in</option>
+              <option value="Refunds">Refunds out</option>
             </select>
           </div>
 
@@ -1289,7 +1309,18 @@ export default function Payments() {
                       <td className="p-4 text-slate-600">
                         {payment.booking?.booking_type === 'Short Order' ? 'Short Order' : 'Package'}
                       </td>
-                      <td className="p-4 font-medium text-slate-700">{payment.pay_method || 'N/A'}</td>
+                      {/* Method holds only actual ways of paying. Refund rows
+                          store the placeholder 'Refund' in pay_method because
+                          the refund dialogs never captured a real method — so
+                          printing it here is what put a transaction type in
+                          the method column. The row is already identifiable as
+                          a refund by its red negative amount and its Refunded
+                          status. */}
+                      <td className="p-4 font-medium text-slate-700">
+                        {refund
+                          ? <span className="text-slate-400" title="No payment method was recorded for this refund">—</span>
+                          : (payment.pay_method || 'N/A')}
+                      </td>
                       <td className={`p-4 font-bold ${refund ? 'text-red-600' : 'text-slate-900'}`}>
                         {refund ? '-' : ''}₱{Math.abs(payment.amount_paid || 0).toLocaleString()}
                       </td>
@@ -1559,7 +1590,6 @@ export default function Payments() {
                     <option value="Cash">Cash</option>
                     <option value="GCash">GCash</option>
                     <option value="Bank Transfer">Bank Transfer</option>
-                    <option value="Refund">Refund</option>
                   </select>
                 )}
                 {activeSummaryFilterCount > 0 && (

@@ -985,7 +985,6 @@ export default function Dashboard() {
                       <option value="Cash">Cash</option>
                       <option value="GCash">GCash</option>
                       <option value="Bank Transfer">Bank Transfer</option>
-                      <option value="Refund">Refund</option>
                     </select>
                   )}
                   {activeStatsFilterCount > 0 && (
