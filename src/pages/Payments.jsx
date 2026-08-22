@@ -9,6 +9,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { sumVerifiedPositivePayments, UNVERIFIED_PAY_STATUSES, isPaymentLedgerLocked, paymentLockedMessage } from '../utils/payments';
 import { getPaymentsReceived } from '../utils/reportMetrics';
+import { fetchAllRows } from '../utils/fetchAllRows';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange } from './Reports/helpers';
 
@@ -141,8 +142,17 @@ export default function Payments() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Fetch payments with booking details (including booking_status and booking_type)
-      const { data: paymentsData, error: paymentsError } = await supabase
+      // Paged — see utils/fetchAllRows. Unbounded, this stopped at the
+      // PostgREST 1000-row cap with no error, so every card on this page was
+      // computed from a truncated set once the table grew past it. That is
+      // the defect behind "the Fully Paid count doesn't match the records".
+      //
+      // pay_datetime is NOT unique, so it cannot page safely on its own;
+      // payment_id is chained after it purely as a tiebreaker. The visible
+      // order is unchanged — newest first is also this table's default
+      // display order, since sortedPayments falls back to fetch order until
+      // the manager picks a column.
+      const paymentsData = await fetchAllRows(() => supabase
         .from('payment')
         .select(`
           *,
@@ -158,9 +168,9 @@ export default function Payments() {
           )
         `)
         .neq('pay_status', 'Pending')
-        .order('pay_datetime', { ascending: false });
+        .order('pay_datetime', { ascending: false })
+        .order('payment_id', { ascending: true }), 'payment');
 
-      if (paymentsError) throw paymentsError;
       setPayments(paymentsData || []);
 
       // Fetch bookings a payment can legitimately be recorded against —
@@ -170,7 +180,9 @@ export default function Payments() {
       // needs to be payable from here too, not just from its own Details
       // page. Rejected/Cancelled are excluded — no new money should be
       // recorded against those.
-      const { data: bookingsData, error: bookingsError } = await supabase
+      // Paged for the same reason, with booking_id as the tiebreaker since
+      // event_datetime is not unique either.
+      const bookingsData = await fetchAllRows(() => supabase
         .from('booking')
         .select(`
           booking_id,
@@ -183,9 +195,9 @@ export default function Payments() {
           event_datetime
         `)
         .in('booking_status', ['Approved', 'Confirmed', 'Completed'])
-        .order('event_datetime');
+        .order('event_datetime')
+        .order('booking_id', { ascending: true }), 'booking');
 
-      if (bookingsError) throw bookingsError;
       setBookings(bookingsData || []);
 
       // Payments Received now follows the page's own date filter and is derived
@@ -797,12 +809,19 @@ export default function Payments() {
       const itemType = item.booking_type === 'Short Order' ? 'Short Order' : 'Package';
       if (itemType !== summaryTypeFilter) return false;
     }
-    if (summaryMethodFilter !== 'All' && item.pay_method !== summaryMethodFilter) return false;
+    // Scoped to 'collected' explicitly: the control is only rendered there and
+    // is reset to All on every open, but booking-shaped rows have no
+    // pay_method, so a stray value here would silently empty the list.
+    if (summaryModalType === 'collected' && summaryMethodFilter !== 'All' && item.pay_method !== summaryMethodFilter) return false;
     if (summaryDatePreset !== 'All Time') {
       // Collected/Fully Paid are payment rows (pay_datetime); Pending
       // Balance is a booking-level aggregate with no payment date, so it
       // filters by event date instead.
-      const dateField = summaryModalType === 'pending' ? item.event_datetime : item.pay_datetime;
+      // 'collected' rows are payments (pay_datetime); 'pending' and
+      // 'fullypaid' rows are bookings, which have no pay_datetime at all —
+      // filtering those on it would match nothing and silently empty the
+      // modal the moment a period was picked.
+      const dateField = summaryModalType === 'collected' ? item.pay_datetime : item.event_datetime;
       if (!isWithinRange(dateField, summaryDateRangeStart, summaryDateRangeEnd)) return false;
     }
     if (summarySearchTerm.trim()) {
@@ -927,28 +946,30 @@ export default function Payments() {
 
   // 3. ✅ FIXED Fully Paid – shows payments from fully paid orders (positive payments only)
   const handleFullyPaidClick = () => {
-    // 3a. Determine which booking IDs are fully paid (active, not rejected/cancelled)
-    const fullyPaidBookingIds = bookings
-      .filter(b => {
+    // Lists the BOOKINGS the card counts — one row each — not their payments.
+    //
+    // The card counts fully-paid bookings while this used to list every
+    // payment belonging to them, and a booking commonly has several. So a
+    // card reading 5 opened onto 12 rows, which is exactly the mismatch the
+    // panel reported ("the displayed number does not appear to match the
+    // number of corresponding records"). Same source, same shape, so the
+    // count and the list now agree by construction rather than by luck.
+    const data = bookings
+      .map(b => {
         const paid = payments
           .filter(p => p.booking_id === b.booking_id && !UNVERIFIED_PAY_STATUSES.includes(p.pay_status))
           .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-        return paid >= (b.total_amount || 0) && paid > 0;
+        return {
+          ...b,
+          paid,
+          clientName: b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown',
+          bookingRef: bookingRefFor(b),
+        };
       })
-      .map(b => b.booking_id);
-
-    // 3b. Filter payments to those belonging to fully paid bookings (verified, positive amounts only)
-    const data = payments
-      .filter(p => fullyPaidBookingIds.includes(p.booking_id) && p.amount_paid > 0 && !UNVERIFIED_PAY_STATUSES.includes(p.pay_status))
-      .map(p => ({
-        ...p,
-        clientName: getClientName(p),
-        bookingRef: getBookingRef(p),
-        booking_type: p.booking?.booking_type,
-      }));
+      .filter(b => b.paid >= (b.total_amount || 0) && b.paid > 0);
 
     setSummaryModalData(data);
-    setSummaryModalTitle('Fully Paid Orders – Payment Details');
+    setSummaryModalTitle('Paid in full – bookings & orders');
     setSummaryModalType('fullypaid');
     setSummarySearchTerm('');
     setSummaryTypeFilter('All');
@@ -1526,7 +1547,9 @@ export default function Payments() {
                   <option value="Package">Package</option>
                   <option value="Short Order">Short Order</option>
                 </select>
-                {summaryModalType !== 'pending' && (
+                {/* Only 'collected' lists payment rows; the other two list
+                    bookings, which carry no pay_method to filter on. */}
+                {summaryModalType === 'collected' && (
                   <select
                     value={summaryMethodFilter}
                     onChange={(e) => setSummaryMethodFilter(e.target.value)}
@@ -1557,7 +1580,7 @@ export default function Payments() {
               </div>
               <div className="flex flex-col items-start gap-1">
                 <p className="text-xs font-semibold text-slate-600">
-                  Filter by {summaryModalType === 'pending' ? 'event date' : 'payment date'}:
+                  Filter by {summaryModalType === 'collected' ? 'payment date' : 'event date'}:
                 </p>
                 <DateRangeFilter
                   preset={summaryDatePreset}
@@ -1581,7 +1604,7 @@ export default function Payments() {
               ) : (
                 <>
                   {/* Collected & Fully Paid – show payment list */}
-                  {(summaryModalType === 'collected' || summaryModalType === 'fullypaid') && (
+                  {summaryModalType === 'collected' && (
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
@@ -1642,6 +1665,53 @@ export default function Payments() {
                   )}
 
                   {/* Outstanding Balance – records with the amount still due */}
+                  {summaryModalType === 'fullypaid' && (
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
+                          <th className="p-3">Reference</th>
+                          <th className="p-3">Customer</th>
+                          <th className="p-3">Type</th>
+                          <th className="p-3 text-right">Total</th>
+                          <th className="p-3 text-right">Paid</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-sm">
+                        {filteredSummaryModalData.map((item, idx) => (
+                          <tr
+                            key={idx}
+                            className="hover:bg-slate-50 transition-colors cursor-pointer"
+                            onClick={() => handleSummaryRowClick(item)}
+                          >
+                            <td className="p-3 font-mono text-xs font-semibold text-slate-800">
+                              {item.bookingRef || getBookingRef(item)}
+                            </td>
+                            <td className="p-3 font-medium text-slate-900">{item.clientName}</td>
+                            <td className="p-3">
+                              {item.booking_type === 'Short Order' ? (
+                                <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-100 text-purple-700 border border-purple-200 rounded-full">Short Order</span>
+                              ) : (
+                                <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-700 border border-blue-200 rounded-full">Package</span>
+                              )}
+                            </td>
+                            <td className="p-3 text-right font-semibold">₱{(item.total_amount || 0).toLocaleString()}</td>
+                            <td className="p-3 text-right font-semibold text-emerald-600">₱{(item.paid || 0).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-slate-50 border-t-2 border-slate-200">
+                        <tr>
+                          <td colSpan="4" className="p-3 text-right font-bold text-slate-700">
+                            {filteredSummaryModalData.length} booking(s) paid in full:
+                          </td>
+                          <td className="p-3 text-right font-bold text-emerald-700">
+                            ₱{filteredSummaryModalData.reduce((sum, b) => sum + (b.paid || 0), 0).toLocaleString()}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  )}
+
                   {summaryModalType === 'pending' && (
                     <table className="w-full text-left border-collapse">
                       <thead>

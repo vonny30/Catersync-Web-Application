@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { getBookingRef, getRangeBounds, isWithinRange } from './helpers';
 import { isUnverifiedPayment } from '../../utils/payments';
 import { getPaymentsReceived } from '../../utils/reportMetrics';
+import { fetchAllRows } from '../../utils/fetchAllRows';
 import { ACTIVE_BOOKING_STATUSES } from '../../utils/bookingStatus';
 import { getStockBreakdown } from '../../utils/equipment.jsx';
 import DateRangeFilter from './DateRangeFilter';
@@ -73,22 +74,10 @@ export default function Reports() {
   // guarantee without ORDER BY, so paging an unordered query can repeat or
   // skip rows between pages. Ordering by primary key is the cheap, safe
   // choice since nothing here depends on the fetch order.
-  const PAGE_SIZE = 1000;
-  const MAX_PAGES = 200; // 200k rows — a guard against an unterminated loop
-
-  const fetchAll = async (buildQuery) => {
-    const rows = [];
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const from = page * PAGE_SIZE;
-      const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
-      if (error) throw error;
-      const batch = data || [];
-      rows.push(...batch);
-      if (batch.length < PAGE_SIZE) return rows;
-    }
-    console.warn(`[Reports] fetchAll hit the ${MAX_PAGES}-page ceiling; results may be truncated.`);
-    return rows;
-  };
+  // Moved to utils/fetchAllRows so Payments can share it rather than grow a
+  // second copy — the rules about stable ordering are easy to get subtly
+  // wrong and belong in one documented place.
+  const fetchAll = (buildQuery) => fetchAllRows(buildQuery, 'Reports');
 
   const fetchRawData = async () => {
     setIsLoading(true);
