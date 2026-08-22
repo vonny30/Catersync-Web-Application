@@ -236,6 +236,37 @@ may show Assigned / In Use / Returned.
 and no status badge; assigning equipment to it replaces the estimate with a real
 row that does carry a status.
 
+**Investigated 22 Aug 2026 — NOT REPRODUCIBLE against current data. Do not
+"fix" this blind; get the panel's screenshot first.**
+
+Queried the live database directly:
+
+- `BKG-067` (`fa9b74e9…`, Package, Confirmed, event 20 Aug 2026) has **zero
+  `booking_equipment` rows**, and its package has **zero `package_equipment`
+  template rows** — so it generates no real lines *and* no estimated ones.
+  There is currently nothing on that booking that could display a status.
+- Across the **entire `booking_equipment` table there are zero rows with
+  `returned = true`**, and none missing `assigned_at` or returned before being
+  assigned. The "appears as returned" symptom cannot be produced from the data
+  as it now stands. The records have evidently changed since 29 May.
+
+The defensive behaviour this item asks for is **already implemented**:
+`Equipment.jsx` renders `ev.assignment_id ? <Return> : "No return action"` and
+tags `source === 'estimated'` lines "Estimated from package (not yet manually
+assigned)". Estimated lines therefore never show an assignment status or a
+return control, which is exactly the acceptance condition above.
+
+Two things found while looking, neither of them this bug:
+
+- Three bookings sit Confirmed with a past event date (`BKG-067`, `SO-022`,
+  `SO-023`). **Working as designed** — `autoCompletePastEvents` completes only
+  fully-paid records; all three are part-paid (7000/12500, 5000/6800,
+  1000/1500) and are deliberately left for a human to chase. `hasUnpaidPastEvent`
+  already flags them in the UI.
+- Auto-complete is passive: with no scheduled job in this stack it runs only
+  when an admin loads a page. That is documented at the top of
+  `utils/autoComplete.js` and is a design constraint, not a defect.
+
 ### PR-20 / PR-21 · Document the payment workflow and the purpose of editing
 
 > "Clarify the payment workflow, as it is assumed that a booking is already
