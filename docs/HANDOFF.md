@@ -7,6 +7,10 @@ this codebase; treat their decisions as settled unless Vaughn says otherwise.
   business reporting. Money model, defect list, report catalogue, build order.
 - `blueprint-02-language.md` — the UI vocabulary standard and the corrected
   report percentage maths. Screen-by-screen rewrite table.
+- `panel-revisions-2026-05-29.md` — **every comment from the 1st Increment oral
+  defense**, mapped to files and status. Read this before starting new work: it
+  is the list the project is actually graded against. 13 of its 32 items are
+  already closed; §2 is the open queue, §3 needs Vaughn's answer first.
 
 Drafted 21 Aug 2026. Line references are against the tree as it stood that day.
 
