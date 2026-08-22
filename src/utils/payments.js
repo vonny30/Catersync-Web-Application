@@ -46,3 +46,34 @@ export function paymentLockedMessage(bookingStatus, { noun = 'booking' } = {}) {
   }
   return `Payments can't be edited or deleted once a ${noun} is ${bookingStatus}.`;
 }
+
+// The three words a manager actually uses for a payment, derived rather than
+// stored.
+//
+// `pay_status` only ever holds 'Downpayment' or 'Fully Paid' (plus the two
+// unverified states), and the schema is read-only, so it cannot gain a third
+// value. But "Downpayment" is only true of the FIRST payment against a
+// booking — calling the third one a downpayment is simply wrong, and that is
+// the distinction the panel asked for. The middle case is a partial payment:
+// money in, balance still outstanding, but not the initial deposit.
+//
+// Display only. Nothing here is ever written back, and the Payments page's
+// status tabs still filter on the stored value.
+//
+// `priorVerifiedPayments` is every OTHER verified payment on the same booking
+// — the caller decides what "other" means (usually: exclude this payment_id).
+export function describePaymentKind(payment, priorVerifiedPayments, bookingTotal) {
+  if (!payment) return '';
+  if (isUnverifiedPayment(payment)) return payment.pay_status;
+  // A refund is money going out; it is not a kind of payment at all.
+  if ((payment.amount_paid || 0) < 0) return 'Refund';
+
+  const priorPaid = sumVerifiedPositivePayments(priorVerifiedPayments);
+  const total = bookingTotal || 0;
+  const clearsBalance = total > 0 && (priorPaid + (payment.amount_paid || 0)) >= total;
+
+  if (clearsBalance) return 'Fully Paid';
+  // Nothing verified before this one, so this is the deposit that secured it.
+  if (priorPaid <= 0) return 'Downpayment';
+  return 'Partial payment';
+}

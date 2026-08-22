@@ -7,7 +7,7 @@ import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
-import { sumVerifiedPositivePayments, UNVERIFIED_PAY_STATUSES, isPaymentLedgerLocked, paymentLockedMessage } from '../utils/payments';
+import { sumVerifiedPositivePayments, UNVERIFIED_PAY_STATUSES, isPaymentLedgerLocked, paymentLockedMessage, describePaymentKind } from '../utils/payments';
 import { getPaymentsReceived } from '../utils/reportMetrics';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import DateRangeFilter from './Reports/DateRangeFilter';
@@ -668,6 +668,18 @@ export default function Payments() {
       if (!proceed) return;
     }
 
+    // Verifying is the moment an unverified claim becomes counted money —
+    // it moves the figure on every revenue card — so it takes a password,
+    // the same as deleting one. Rejecting a proof deliberately does NOT,
+    // because it takes nothing in. Asked last, after the overpay warning
+    // above, so the manager is never made to re-type a password for an
+    // action a later check would have stopped anyway.
+    const passwordOk = await requestPasswordConfirm({
+      title: 'Confirm your password',
+      message: 'Verifying a payment records it as money received. Re-enter your password to continue.',
+    });
+    if (!passwordOk) return;
+
     setIsVerifying(true);
     try {
       const { error } = await supabase
@@ -1324,9 +1336,21 @@ export default function Payments() {
                       <td className={`p-4 font-bold ${refund ? 'text-red-600' : 'text-slate-900'}`}>
                         {refund ? '-' : ''}₱{Math.abs(payment.amount_paid || 0).toLocaleString()}
                       </td>
+                      {/* Shows the derived kind, so the third payment on a
+                          booking reads "Partial payment" instead of a third
+                          "Downpayment". Stored pay_status is untouched — the
+                          status tabs above still filter on it. */}
                       <td className="p-4">
                         <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadge(payment.pay_status)}`}>
-                          {payment.pay_status === 'Refunded' ? 'Refunded' : payment.pay_status}
+                          {payment.pay_status === 'Refunded'
+                            ? 'Refunded'
+                            : describePaymentKind(
+                                payment,
+                                payments.filter(p => p.booking_id === payment.booking_id
+                                  && p.payment_id !== payment.payment_id
+                                  && new Date(p.pay_datetime || 0) <= new Date(payment.pay_datetime || 0)),
+                                payment.booking?.total_amount,
+                              )}
                         </span>
                       </td>
                       <td className="p-4 text-slate-600">

@@ -27,6 +27,16 @@ const toLocalDateStr = (d) => {
   return `${yr}-${mo}-${da}`;
 };
 
+// The last day inside the "next 7 days" window: today + 6. The query runs
+// .gte(today 00:00) .lt(today+7d 00:00), so the window INCLUDES today and
+// covers today plus the following six days — which "7 days" alone left the
+// manager to guess at.
+const nextSevenDaysLabel = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 6);
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+};
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const { showConfirm } = useConfirm();
@@ -501,7 +511,7 @@ export default function Dashboard() {
         .order('event_datetime', { ascending: true });
       if (error) throw error;
       setStatsModalData(data || []);
-      setStatsModalTitle('Upcoming Events (7 days)');
+      setStatsModalTitle(`Events in the next 7 days (today through ${nextSevenDaysLabel()})`);
       setStatsModalType('upcoming');
       resetStatsFilters();
       setIsStatsModalOpen(true);
@@ -694,7 +704,12 @@ export default function Dashboard() {
             <CheckCircle size={20} className="text-white" />
           </div>
           <span className="text-3xl font-extrabold text-slate-900 mb-1">{stats.upcomingEvents}</span>
-          <span className="text-sm font-medium text-slate-600">Upcoming Events (7 days)</span>
+          <span className="text-sm font-medium text-slate-600">Events in the next 7 days</span>
+          {/* The window includes today: the query is
+              .gte(today 00:00) .lt(today+7d 00:00), i.e. today plus the
+              following six days. Stating the range beats making the manager
+              infer whether "7 days" counts today. */}
+          <span className="text-[10px] text-slate-500 mt-0.5">Today through {nextSevenDaysLabel()}</span>
           <ArrowRight size={14} className="absolute top-3 right-3 text-[#008A45] opacity-0 group-hover:opacity-100 transition-opacity" />
           <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
         </button>

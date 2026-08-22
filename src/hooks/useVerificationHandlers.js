@@ -7,10 +7,12 @@ import { useState } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { sumVerifiedPositivePayments } from '../utils/payments';
+import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 
 const KNOWN_METHODS = ['Cash', 'GCash', 'Bank Transfer'];
 
 export function useVerificationHandlers({ payments, totalAmount, fetchData }) {
+  const { requestPasswordConfirm } = usePasswordConfirm();
   const [isRejectProofModalOpen, setIsRejectProofModalOpen] = useState(false);
   const [rejectProofTarget, setRejectProofTarget] = useState(null);
   const [rejectProofReason, setRejectProofReason] = useState('');
@@ -45,6 +47,15 @@ export function useVerificationHandlers({ payments, totalAmount, fetchData }) {
     );
     const remainingBeforeThis = Math.max(0, (totalAmount || 0) - alreadyVerified);
     const finalStatus = payment.amount_paid >= remainingBeforeThis ? 'Fully Paid' : 'Downpayment';
+
+    // Verifying turns an unverified claim into counted money, so it takes a
+    // password — the same bar as deleting a payment. Rejecting a proof
+    // (below) deliberately does not, since it records nothing received.
+    const passwordOk = await requestPasswordConfirm({
+      title: 'Confirm your password',
+      message: 'Verifying a payment records it as money received. Re-enter your password to continue.',
+    });
+    if (!passwordOk) return;
 
     setIsVerifying(true);
     try {
