@@ -13,6 +13,17 @@
      (disabled pagination arrows, list dividers, locked-icon fallbacks)
      that should stay quieter than anything actionable. */
   --color-slate-400: oklch(55.4% 0.046 257.417);
+
+  /* slate-500 and slate-600 are used only as text colors everywhere in
+     this app (never as a background or border — checked), mostly for
+     field labels and card labels ("Customer", "Amount", "Payment Status",
+     stat-card titles) plus secondary body text. At their default lightness
+     (55.4% / 44.6%) they read as washed-out gray, especially small bold
+     uppercase labels. Shifting each down one step (500 → old 600, 600 →
+     old 700) keeps 600 still a shade darker than 500 — same hierarchy,
+     just legible instead of gray. */
+  --color-slate-500: oklch(44.6% 0.043 257.281);
+  --color-slate-600: oklch(37.2% 0.044 257.287);
 }
 
 html,
