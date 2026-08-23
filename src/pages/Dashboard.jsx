@@ -109,19 +109,26 @@ export default function Dashboard() {
   const fetchCalendarEvents = async (monthDate) => {
     try {
       const startOfMonth = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
-      const endOfMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
+      const startOfNextMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 1);
       const startOfMonthStr = toLocalDateStr(startOfMonth);
-      const endOfMonthStr = toLocalDateStr(endOfMonth);
+      const startOfNextMonthStr = toLocalDateStr(startOfNextMonth);
 
       // Confirmed only — this calendar is meant to show what's actually
       // locked in for the month, not tentative Pending/Approved bookings
       // or historical Completed ones. Must match fetchEventsForDate's
-      // filter below, which is what a day click opens into.
+      // filter below, which is what a day click opens into — including
+      // the boundary style: "from the start of the period, up to but not
+      // including the start of the next one" (.lt on the next day's
+      // midnight), not "...23:59:59" which is a fixed instant that a
+      // sub-second timestamp can land after and be silently excluded by,
+      // and which the day-level query previously wrote as `.lt` while this
+      // one wrote as `.lte` — an inconsistency that could disagree about
+      // whether the same event was "in range" between the two queries.
       const { data: monthBookings, error: monthError } = await supabase
         .from('booking')
         .select('event_datetime, booking_type')
         .gte('event_datetime', `${startOfMonthStr} 00:00:00`)
-        .lte('event_datetime', `${endOfMonthStr} 23:59:59`)
+        .lt('event_datetime', `${startOfNextMonthStr} 00:00:00`)
         .eq('booking_status', 'Confirmed');
 
       if (monthError) throw monthError;
@@ -398,6 +405,14 @@ export default function Dashboard() {
 
   const fetchEventsForDate = async (dateStr) => {
     try {
+      // Exclusive next-day boundary, not "...23:59:59" — that was a fixed
+      // instant a sub-second timestamp could land after and be silently
+      // excluded by, and it didn't match fetchCalendarEvents' own boundary
+      // style either, which is exactly the kind of mismatch that let a day
+      // show no dot while still having an event underneath it.
+      const nextDay = new Date(`${dateStr}T00:00:00`);
+      nextDay.setDate(nextDay.getDate() + 1);
+      const nextDayStr = toLocalDateStr(nextDay);
       const { data, error } = await supabase
         .from('booking')
         .select(`
@@ -412,7 +427,7 @@ export default function Dashboard() {
         `)
         .eq('booking_status', 'Confirmed')
         .gte('event_datetime', `${dateStr} 00:00:00`)
-        .lt('event_datetime', `${dateStr} 23:59:59`)
+        .lt('event_datetime', `${nextDayStr} 00:00:00`)
         .order('event_datetime', { ascending: true });
       if (error) throw error;
       setSelectedDateEvents(data || []);
