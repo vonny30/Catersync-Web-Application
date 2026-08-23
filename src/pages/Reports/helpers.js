@@ -60,6 +60,18 @@ export function getRangeBounds(preset, customStart, customEnd) {
   if (preset === 'Custom') {
     const start = customStart ? new Date(`${customStart}T00:00:00`) : null;
     const end = customEnd ? new Date(`${customEnd}T23:59:59.999`) : null;
+    // DateRangeFilter traps the pickers so an end before a start can't be
+    // chosen, but a value can still arrive inverted — typed directly into the
+    // native input, restored from stale state, or set by a future caller. Swap
+    // rather than returning a window that matches nothing: an empty table with
+    // no explanation is the worst of the available answers, and a manager who
+    // managed to invert the pair plainly meant the range between the two.
+    if (start && end && end < start) {
+      return {
+        start: new Date(`${customEnd}T00:00:00`),
+        end: new Date(`${customStart}T23:59:59.999`),
+      };
+    }
     return { start, end };
   }
 

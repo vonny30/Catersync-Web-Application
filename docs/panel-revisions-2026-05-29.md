@@ -48,7 +48,7 @@ figure comes from `utils/reportMetrics.js`, every stock figure from
 | PR-12 | Booking | Curativo | Customer cancel must read Cancelled, not Rejected | **MOBILE** (contract below) |
 | PR-13 | Login | Förster | Block concurrent login from another device | DONE |
 | PR-14 | Login | Curativo | Password visibility icon is incorrect | **DECIDE** |
-| PR-15 | Dashboard | Rivera | "Upcoming Event (7 Days)" label is ambiguous | **OPEN** |
+| PR-15 | Dashboard | Rivera | "Upcoming Event (7 Days)" label is ambiguous | DONE |
 | PR-16 | Bookings | Rivera | Bookings with a downpayment can still be deleted | **DECIDE** |
 | PR-17 | Payments | Rivera | "Pending Balance" unclear | DONE |
 | PR-18 | Payments | Rivera | "Net Collected" unclear | DONE |
@@ -138,12 +138,21 @@ The query at `Dashboard.jsx:226-227` is
 `.gte(event_datetime, today 00:00:00)` and `.lt(event_datetime, today+7d 00:00:00)`
 — so it **does include today**, and covers today plus the following six days.
 
-**Files:** `src/pages/Dashboard.jsx:697` (card), `:504` (modal title)
+**Files:** `src/pages/Dashboard.jsx` — the card and the modal title.
 **Change:** both read `Upcoming Events (7 days)`. Replace with
-**`Events in the next 7 days`** and add the sub-line
-**`Today through {date of today+6}`** so the range is stated rather than inferred.
+**`Events in the next 7 days`** and add a sub-line naming the window so the
+range is stated rather than inferred.
 **Acceptance:** the label names the window; the modal title matches the card;
 an event later today is included and visible in the drill-down.
+
+**DONE** — Vaughn asked for **both** ends named, not just the end date, so the
+sub-line reads **`Aug 23 – Aug 29, 2026`** rather than "Today through …". A
+manager reading it never has to know what today's date is or count forward.
+`upcomingWindowLabel()` builds it, and drops the year from the start when both
+ends fall in the same year. The window length is now the named constant
+`UPCOMING_WINDOW_DAYS = 7`, read by the label and by **both** queries — the
+hard-coded `7 * 24 * 60 * 60 * 1000` that could drift away from the label is
+gone. Card and modal share the one helper.
 
 ### PR-19 · "Fully Paid" count does not match the records
 
@@ -461,8 +470,10 @@ list. This is the single most likely way the mobile app breaks the web UI.
    cause of the count the panel could not reconcile.
 2. **PR-23** — refunds out of the method lists. Directly asked for, self-contained.
 3. **PR-01** — password on payment approval.
-4. **PR-15** — the 7-day label.
-5. **PR-27** — reproduce BK-067, then fix.
-6. **PR-03** — the partial-payment distinction.
-7. **PR-20/21** — write the payment workflow down (PR-22 done in `58eda4e`).
-8. §3 decisions, once answered.
+4. **PR-27** — reproduce BK-067, then fix.
+5. **PR-03** — the partial-payment distinction.
+6. **PR-20/21** — write the payment workflow down (PR-22 done in `58eda4e`).
+7. §3 decisions, once answered.
+
+PR-15 (the 7-day label) and PR-23 (refunds) are closed; PR-19 is the one left
+that is silently wrong rather than merely unclear.

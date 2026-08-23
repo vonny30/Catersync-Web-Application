@@ -8,6 +8,21 @@ export default function DateRangeFilter({
 }) {
   const isFiltered = preset !== 'All Time';
 
+  // `min` on the end input stops the range being inverted from that side. This
+  // covers the other side: moving the start past an end that is already set
+  // would otherwise leave the pair impossible, and adding a matching `max` to
+  // the start input would instead leave the manager stuck — unable to move the
+  // range forward without clearing the end first. Carrying the end along keeps
+  // the range valid and moving.
+  const handleStartChange = (nextStart) => {
+    onCustomStartChange(nextStart);
+    if (nextStart && customEnd && customEnd < nextStart) onCustomEndChange(nextStart);
+  };
+
+  // A custom range with only one side filled matches nothing useful, so say so
+  // rather than showing an empty table with no explanation.
+  const isIncomplete = preset === 'Custom' && (!customStart || !customEnd);
+
   return (
     <div className="flex flex-col items-end gap-1.5">
       <div className={`flex flex-wrap items-center gap-2 bg-white border rounded-lg p-2 transition-colors ${isFiltered ? 'border-emerald-300 ring-1 ring-emerald-100' : 'border-slate-200'}`}>
@@ -33,14 +48,22 @@ export default function DateRangeFilter({
             <input
               type="date"
               value={customStart}
-              onChange={(e) => onCustomStartChange(e.target.value)}
+              onChange={(e) => handleStartChange(e.target.value)}
+              aria-label="Range start date"
               className="border border-slate-300 rounded-md px-2 py-1 text-xs focus:ring-2 focus:ring-[#008A45] outline-none"
             />
             <span className="text-xs text-slate-400">to</span>
+            {/* The trap: the calendar cannot offer a day before the start
+                date, so an impossible range can't be built in the first place.
+                Both inputs were previously unconstrained, and picking an end
+                before the start produced a silently empty result set with
+                nothing on screen to explain why. */}
             <input
               type="date"
               value={customEnd}
+              min={customStart || undefined}
               onChange={(e) => onCustomEndChange(e.target.value)}
+              aria-label="Range end date"
               className="border border-slate-300 rounded-md px-2 py-1 text-xs focus:ring-2 focus:ring-[#008A45] outline-none"
             />
           </div>
@@ -56,7 +79,11 @@ export default function DateRangeFilter({
         )}
       </div>
       <p className="text-xs font-medium text-slate-500 pr-1">
-        {isFiltered ? (
+        {isIncomplete ? (
+          <span className="text-amber-600 font-semibold">
+            Pick {!customStart ? 'a start date' : 'an end date'} to apply this range
+          </span>
+        ) : isFiltered ? (
           <>
             <span className="text-emerald-600 font-semibold">Filter applied:</span>{' '}
             {preset}

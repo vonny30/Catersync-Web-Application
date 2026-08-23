@@ -97,9 +97,17 @@ Drafted 21 Aug 2026. Line references are against the tree as it stood that day.
     caption claimed to be net of refunds (Blueprint 01 defect 5), and filtered
     on event-in-range while being a payment-date chart.
 
-**Next up** — Blueprint 02 §9 step 6: the remaining screen-by-screen items in
-§6. Each screen's table is independent, so this can be done in any order and
-stopped at any point.
+- **PR-15, the 7-day window** (23 Aug 2026). `Dashboard.jsx`,
+  `Reports/DateRangeFilter.jsx`, `Reports/helpers.js`. The Dashboard card and
+  its modal now name both ends of the window with real dates, and every date
+  range in the system is trapped against inversion. See the two entries under
+  *Conventions worth preserving*.
+
+**Next up** — the panel queue in `panel-revisions-2026-05-29.md` §6, starting
+with **PR-19** (uncapped queries in `Payments.jsx`, the likely cause of the
+"Fully Paid count doesn't match" comment). Blueprint 02 §9 step 6 — the
+remaining screen-by-screen items in §6 — can be picked up in any order
+alongside it.
 
 **Deliberately not touched yet** — `FinancialTab.jsx:53` still reads "Monthly
 Revenue (Net Collected)". Renaming it would be premature: that chart is
@@ -171,6 +179,27 @@ usable figure.
 - The Reports drill-through pattern (click a figure → see the source rows → jump
   to the booking) and the plain-language "where this number comes from" modals
   are the module's best feature. Keep both in anything rebuilt.
+- **`Reports/DateRangeFilter.jsx` is the one date-range control** — 11 instances
+  across 8 pages (Bookings, Dashboard, Equipment ×2, Payments ×2, DetailModal,
+  Reports/index, ShortOrders, Vehicles ×2). Its props contract is
+  `preset, customStart, customEnd, rangeStart, rangeEnd, onPresetChange,
+  onCustomStartChange, onCustomEndChange, onClear`. Change the component, not a
+  page, when range behaviour needs to change.
+- **A date range cannot be inverted.** Three layers, deliberately:
+  the end input carries `min={customStart}`; moving the start past the end
+  **carries the end along** rather than stranding it; and `getRangeBounds` in
+  `Reports/helpers.js` swaps the pair if it ever still arrives inverted, so a
+  bookmarked or restored filter can't silently return zero rows. The **start**
+  input has no `max` — capping it would trap a manager who set the end first.
+  A half-filled custom range says which end is missing instead of applying.
+- **Forward-looking windows name both ends.** `UPCOMING_WINDOW_DAYS` in
+  `Dashboard.jsx` is the window length; `upcomingWindowLabel()` renders it as
+  `Aug 23 – Aug 29, 2026`. Both queries read the constant. Don't reintroduce a
+  hard-coded `7` — the label and the query drifting apart is exactly the
+  ambiguity the panel flagged (PR-15).
+- **Past dates are trapped at `DateTimePicker.jsx`**, via
+  `min={disablePast ? dateStrOffsetDays(minLeadDays) : undefined}`. Bookings,
+  ShortOrders and both detail pages pass `minLeadDays={3}`.
 
 ## How the glossary sweep was done safely
 

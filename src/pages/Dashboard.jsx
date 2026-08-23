@@ -31,10 +31,21 @@ const toLocalDateStr = (d) => {
 // .gte(today 00:00) .lt(today+7d 00:00), so the window INCLUDES today and
 // covers today plus the following six days — which "7 days" alone left the
 // manager to guess at.
-const nextSevenDaysLabel = () => {
-  const d = new Date();
-  d.setDate(d.getDate() + 6);
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+const UPCOMING_WINDOW_DAYS = 7;
+
+// Both ends of the window, written out. "Today through Aug 27" still asks the
+// manager to know what today's date is before the range means anything; naming
+// the first day as well makes the card readable on its own — and readable in a
+// screenshot, where "today" is whatever day the screenshot was taken.
+const upcomingWindowLabel = () => {
+  const start = new Date();
+  const end = new Date();
+  end.setDate(end.getDate() + UPCOMING_WINDOW_DAYS - 1);
+  const sameYear = start.getFullYear() === end.getFullYear();
+  const fmt = (d, withYear) => d.toLocaleDateString([], {
+    month: 'short', day: 'numeric', ...(withYear ? { year: 'numeric' } : {}),
+  });
+  return `${fmt(start, !sameYear)} – ${fmt(end, true)}`;
 };
 
 export default function Dashboard() {
@@ -234,7 +245,7 @@ export default function Dashboard() {
         .eq('booking_type', 'Package')
         .in('booking_status', ACTIVE_BOOKING_STATUSES)
         .gte('event_datetime', `${todayStr} 00:00:00`)
-        .lt('event_datetime', `${toLocalDateStr(new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000))} 00:00:00`);
+        .lt('event_datetime', `${toLocalDateStr(new Date(today.getTime() + UPCOMING_WINDOW_DAYS * 24 * 60 * 60 * 1000))} 00:00:00`);
 
       if (upcomingError) throw upcomingError;
       setStats(prev => ({ ...prev, upcomingEvents: upcomingData?.length || 0 }));
@@ -491,7 +502,7 @@ export default function Dashboard() {
     try {
       const today = new Date();
       const todayStr = toLocalDateStr(today);
-      const futureDate = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const futureDate = new Date(today.getTime() + UPCOMING_WINDOW_DAYS * 24 * 60 * 60 * 1000);
       const futureStr = toLocalDateStr(futureDate);
       const { data, error } = await supabase
         .from('booking')
@@ -511,7 +522,7 @@ export default function Dashboard() {
         .order('event_datetime', { ascending: true });
       if (error) throw error;
       setStatsModalData(data || []);
-      setStatsModalTitle(`Events in the next 7 days (today through ${nextSevenDaysLabel()})`);
+      setStatsModalTitle(`Events in the next 7 days · ${upcomingWindowLabel()}`);
       setStatsModalType('upcoming');
       resetStatsFilters();
       setIsStatsModalOpen(true);
@@ -709,7 +720,7 @@ export default function Dashboard() {
               .gte(today 00:00) .lt(today+7d 00:00), i.e. today plus the
               following six days. Stating the range beats making the manager
               infer whether "7 days" counts today. */}
-          <span className="text-[10px] text-slate-500 mt-0.5">Today through {nextSevenDaysLabel()}</span>
+          <span className="text-[10px] text-slate-500 mt-0.5">{upcomingWindowLabel()}</span>
           <ArrowRight size={14} className="absolute top-3 right-3 text-[#008A45] opacity-0 group-hover:opacity-100 transition-opacity" />
           <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
         </button>
