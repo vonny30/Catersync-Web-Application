@@ -738,14 +738,6 @@ export default function Dashboard() {
             ₱{stats.revenueThisMonth.toLocaleString()}
           </span>
           <span className="text-sm font-medium text-slate-600">Total Collections This Month</span>
-          {/* Money kept from bookings that were cancelled or rejected is real
-              cash, but it isn't live business — so it sits on its own line
-              rather than inflating the headline or disappearing from it. */}
-          {stats.retainedThisMonth > 0 && (
-            <span className="text-[11px] text-amber-700 mt-1 font-medium">
-              + ₱{stats.retainedThisMonth.toLocaleString()} in non-refundable deposits kept from cancelled bookings
-            </span>
-          )}
           <ArrowRight size={14} className="absolute top-3 right-3 text-[#008A45] opacity-0 group-hover:opacity-100 transition-opacity" />
           <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
         </button>
