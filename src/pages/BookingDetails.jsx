@@ -1237,8 +1237,8 @@ export default function BookingDetails() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* LEFT COLUMN */}
         <div className="lg:col-span-5 space-y-6">
-          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
-            <h3 className="text-sm font-bold text-slate-900 mb-4">Event Details</h3>
+          <div className="bg-white border border-slate-200 border-l-4 border-l-blue-500 rounded-xl p-6 shadow-xs">
+            <h3 className="text-sm font-bold text-blue-700 mb-4">Event Details</h3>
             <div className="space-y-2.5 text-sm">
               <div className="grid grid-cols-3">
                 <span className="text-slate-700 font-bold">Created</span>
@@ -1306,8 +1306,8 @@ export default function BookingDetails() {
             )}
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
-            <h3 className="text-sm font-bold text-slate-900 mb-4">Customer Details</h3>
+          <div className="bg-white border border-slate-200 border-l-4 border-l-purple-500 rounded-xl p-6 shadow-xs">
+            <h3 className="text-sm font-bold text-purple-700 mb-4">Customer Details</h3>
             <div className="space-y-2 text-sm">
               <div className="grid grid-cols-3">
                 <span className="text-slate-700 font-bold">Name</span>
@@ -1332,9 +1332,9 @@ export default function BookingDetails() {
         {/* RIGHT COLUMN */}
         <div className="lg:col-span-7 space-y-6">
           {/* Payment Tracking */}
-          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
+          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-xl p-6 shadow-xs">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-slate-900">Payment Tracking</h3>
+              <h3 className="text-sm font-bold text-[#007038]">Payment Tracking</h3>
               {canRecordPayment && (
                 <button
                   onClick={openPaymentModal}
@@ -1435,9 +1435,31 @@ export default function BookingDetails() {
                 </table>
               </div>
             )}
-            {/* Show refund status summary for rejected/cancelled bookings */}
-            {(booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') && positivePayments > 0 && (
-              <div className="mt-4 p-3 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-600">
+          </div>
+
+          {/* Refund History — a refund is money going out, not a kind of
+              payment, so it gets its own place instead of sitting inside
+              the Payment Tracking ledger above. Carries the refund-specific
+              numbers (total refunded, what's still refundable) and the
+              eligibility status that used to live inside Payment Tracking. */}
+          {refundEntries.length > 0 && (
+            <div className="bg-white border border-slate-200 border-l-4 border-l-red-500 rounded-xl p-6 shadow-xs">
+              <h3 className="text-sm font-bold text-red-700 mb-4">Refund History</h3>
+
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <span className="text-xs font-medium text-slate-700 block">Total Refunded</span>
+                  <span className="font-bold text-red-700">-₱{totalRefunded.toLocaleString()}</span>
+                </div>
+                <div className={`rounded-lg p-3 border ${remainingRefundableAmount > 0 ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-200'}`}>
+                  <span className="text-xs font-medium text-slate-700 block">Remaining Refundable</span>
+                  <span className={`font-bold ${remainingRefundableAmount > 0 ? 'text-green-700' : 'text-slate-500'}`}>
+                    ₱{remainingRefundableAmount.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mb-4 p-3 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-600">
                 <p>
                   <span className="font-bold">Refund Status:</span>{' '}
                   {refundStatus === 'Fully Refunded' ? (
@@ -1457,20 +1479,13 @@ export default function BookingDetails() {
                   <p className="mt-1 text-blue-500">All payments have been refunded.</p>
                 )}
               </div>
-            )}
-          </div>
 
-          {/* Refund History — a refund is money going out, not a kind of
-              payment, so it gets its own place instead of sitting inside
-              the Payment Tracking ledger above. */}
-          {refundEntries.length > 0 && (
-            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
-              <h3 className="text-sm font-bold text-slate-900 mb-4">Refund History</h3>
               <div className="border border-slate-300 rounded-lg overflow-hidden">
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="bg-red-50 text-slate-900 font-bold border-b border-slate-300">
                       <th className="p-3">Amount</th>
+                      <th className="p-3">Status</th>
                       <th className="p-3">Reason</th>
                       <th className="p-3">Proof</th>
                       <th className="p-3">Date</th>
@@ -1482,6 +1497,11 @@ export default function BookingDetails() {
                         <td className="p-3 font-bold text-red-600">
                           -₱{Math.abs(p.amount_paid).toLocaleString()}
                         </td>
+                        <td className="p-3">
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700 border border-red-200">
+                            Refunded
+                          </span>
+                        </td>
                         <td className="p-3">{p.remarks || 'N/A'}</td>
                         <td className="p-3">{renderProof(p.pay_proof)}</td>
                         <td className="p-3">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleString() : 'N/A'}</td>
@@ -1491,7 +1511,7 @@ export default function BookingDetails() {
                   <tfoot className="bg-slate-50 border-t-2 border-slate-200">
                     <tr>
                       <td className="p-3 font-bold text-red-700">-₱{totalRefunded.toLocaleString()}</td>
-                      <td colSpan="3" className="p-3 text-right font-medium text-slate-600">Total refunded</td>
+                      <td colSpan="4" className="p-3 text-right font-medium text-slate-600">Total refunded</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -1500,9 +1520,9 @@ export default function BookingDetails() {
           )}
 
           {/* Menu Selections */}
-          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
+          <div className="bg-white border border-slate-200 border-l-4 border-l-amber-500 rounded-xl p-6 shadow-xs">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-slate-900">Menu Selections</h3>
+              <h3 className="text-sm font-bold text-amber-700">Menu Selections</h3>
               <span className="text-xs font-medium text-slate-500">{menuSelections.length} item{menuSelections.length !== 1 ? 's' : ''}</span>
             </div>
             {menuSelections.length === 0 ? (
@@ -1522,9 +1542,9 @@ export default function BookingDetails() {
           </div>
 
           {/* Equipment Allocation */}
-          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
+          <div className="bg-white border border-slate-200 border-l-4 border-l-teal-500 rounded-xl p-6 shadow-xs">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-slate-900">Equipment Allocation</h3>
+              <h3 className="text-sm font-bold text-teal-700">Equipment Allocation</h3>
               <div className="flex items-center gap-2">
                 <button
                   onClick={openAssignEquipModal}
