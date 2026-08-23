@@ -55,8 +55,8 @@ figure comes from `utils/reportMetrics.js`, every stock figure from
 | PR-19 | Payments | Rivera | "Fully Paid" count doesn't match the records | **OPEN** |
 | PR-20 | Recording Payments | Rivera | Clarify the payment workflow | **OPEN** (docs) |
 | PR-21 | Recording Payments | Rivera | Clarify the purpose of editing payments | **OPEN** (docs) |
-| PR-22 | Recording Payments | Rivera | Why some payments are editable and others not | **OPEN** (surface it) |
-| PR-23 | Recording Payments | Rivera | **Refunds must not be classified as payments** | **OPEN** |
+| PR-22 | Recording Payments | Rivera | Why some payments are editable and others not | DONE |
+| PR-23 | Recording Payments | Rivera | **Refunds must not be classified as payments** | DONE |
 | PR-24 | Equipment | Rivera | "Free to Use" → "Available" | DONE |
 | PR-25 | Equipment | Rivera | Availability bar is wrong | DONE |
 | PR-26 | Equipment | Rivera | Total count ≠ available count when assigning | DONE |
@@ -189,6 +189,14 @@ nothing.
 **Acceptance:** hovering a locked payment's Edit button explains why without
 clicking; an unlocked one has no lock icon.
 
+**DONE** — `58eda4e`. The lock icons and disabled styling were already in place
+on all three pages; the gap was that each tooltip was a hand-written string that
+stopped at "payments can't be edited once a booking is Cancelled" and left out
+the part that matters — a refund is still possible, just as its own ledger
+entry. All six tooltips now call `paymentLockedMessage()`, the same text the
+toast already used, so there is one wording to maintain. The util's article was
+also fixed so `{ noun: 'order' }` reads "an order".
+
 ### PR-23 · Refunds must not be classified as payments
 
 > "**Refunds should not be classified as payments**, as a refund represents money
@@ -212,6 +220,10 @@ method column. `utils/reportMetrics.js` already separates `refundsIssued` from
 **Acceptance:** the Method filter offers only real methods; filtering to Refunds
 returns exactly the negative rows; a refund made by GCash reads method GCash,
 type Refund.
+
+**DONE** — `d952d58`. `Refund` is gone from every method dropdown on both
+Payments and Dashboard, and a `transactionTypeFilter` (All / Payments / Refunds)
+now splits on the sign of `amount_paid`.
 
 ### PR-27 · BK-067 shows returned but was never assigned
 
@@ -452,5 +464,5 @@ list. This is the single most likely way the mobile app breaks the web UI.
 4. **PR-15** — the 7-day label.
 5. **PR-27** — reproduce BK-067, then fix.
 6. **PR-03** — the partial-payment distinction.
-7. **PR-22**, **PR-20/21** — surface the lock reason, write the workflow down.
+7. **PR-20/21** — write the payment workflow down (PR-22 done in `58eda4e`).
 8. §3 decisions, once answered.
