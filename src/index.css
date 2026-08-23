@@ -13,6 +13,18 @@
      (disabled pagination arrows, list dividers, locked-icon fallbacks)
      that should stay quieter than anything actionable. */
   --color-slate-400: oklch(55.4% 0.046 257.417);
+
+  /* Pure white (100% lightness) and Tailwind's default slate-50 (98.4%)
+     sit almost on top of each other, so cards, modals, tables, and the
+     sidebar all read as one continuous, glaring white surface rather than
+     layered ones — the "flat white" feel that strains the eyes over a
+     full workday. Softening both, while keeping white a step brighter than
+     slate-50 so cards still visibly lift off the page background, cuts
+     the raw brightness of every large surface in the app in one place.
+     Same hue as the rest of the slate scale (247.858) so nothing looks
+     tinted or off-brand — just dimmer. */
+  --color-white: oklch(96.5% 0.003 247.858);
+  --color-slate-50: oklch(93% 0.006 247.858);
 }
 
 html,
