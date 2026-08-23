@@ -14,7 +14,7 @@ import { useCancellationHandlers } from '../hooks/useCancellationHandlers';
 import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
-import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked } from '../utils/payments';
+import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, paymentLockedMessage } from '../utils/payments';
 import { bookingEditLockedMessage } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
@@ -1040,7 +1040,7 @@ export default function ShortOrderDetails() {
                               <button
                                 onClick={() => openEditPaymentModal(p)}
                                 className={isPaymentLedgerLocked(order.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-blue-500 hover:text-blue-700'}
-                                title={isPaymentLedgerLocked(order.booking_status) ? `Locked — payments can't be edited once an order is ${order.booking_status}` : 'Edit Payment'}
+                                title={isPaymentLedgerLocked(order.booking_status) ? paymentLockedMessage(order.booking_status, { noun: 'order' }) : 'Edit Payment'}
                               >
                                 {isPaymentLedgerLocked(order.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
                               </button>
@@ -1048,7 +1048,7 @@ export default function ShortOrderDetails() {
                             <button
                               onClick={() => handleDeletePayment(p.payment_id)}
                               className={isPaymentLedgerLocked(order.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-red-500 hover:text-red-700'}
-                              title={isPaymentLedgerLocked(order.booking_status) ? `Locked — payments can't be deleted once an order is ${order.booking_status}` : 'Delete Payment'}
+                              title={isPaymentLedgerLocked(order.booking_status) ? paymentLockedMessage(order.booking_status, { noun: 'order' }) : 'Delete Payment'}
                             >
                               {isPaymentLedgerLocked(order.booking_status) ? <Lock size={14} /> : <Trash2 size={14} />}
                             </button>

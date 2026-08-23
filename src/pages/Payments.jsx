@@ -1384,14 +1384,14 @@ export default function Payments() {
                           <button
                             onClick={() => openEditModal(payment)}
                             className="text-slate-400 hover:text-[#008A45] transition-colors"
-                            title={isPaymentLedgerLocked(payment.booking?.booking_status) ? `Locked — payments can't be edited once a booking is ${payment.booking.booking_status}` : 'Edit'}
+                            title={isPaymentLedgerLocked(payment.booking?.booking_status) ? paymentLockedMessage(payment.booking?.booking_status) : 'Edit'}
                           >
                             {isPaymentLedgerLocked(payment.booking?.booking_status) ? <Lock size={16} /> : <Edit size={16} />}
                           </button>
                           <button
                             onClick={() => handleDelete(payment.payment_id)}
                             className="text-slate-400 hover:text-red-600 transition-colors"
-                            title={isPaymentLedgerLocked(payment.booking?.booking_status) ? `Locked — payments can't be deleted once a booking is ${payment.booking.booking_status}` : 'Delete'}
+                            title={isPaymentLedgerLocked(payment.booking?.booking_status) ? paymentLockedMessage(payment.booking?.booking_status) : 'Delete'}
                           >
                             {isPaymentLedgerLocked(payment.booking?.booking_status) ? <Lock size={16} /> : <Trash2 size={16} />}
                           </button>

@@ -15,7 +15,7 @@ import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
 import { allocateEquipmentForBooking } from '../utils/equipment';
-import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked } from '../utils/payments';
+import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, paymentLockedMessage } from '../utils/payments';
 import { bookingEditLockedMessage } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
@@ -1428,7 +1428,7 @@ export default function BookingDetails() {
                               <button
                                 onClick={() => openEditPaymentModal(p)}
                                 className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-blue-500 hover:text-blue-700'}
-                                title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — payments can't be edited once a booking is ${booking.booking_status}` : 'Edit Payment'}
+                                title={isPaymentLedgerLocked(booking.booking_status) ? paymentLockedMessage(booking.booking_status) : 'Edit Payment'}
                               >
                                 {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
                               </button>
@@ -1436,7 +1436,7 @@ export default function BookingDetails() {
                             <button
                               onClick={() => handleDeletePayment(p.payment_id)}
                               className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-red-500 hover:text-red-700'}
-                              title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — payments can't be deleted once a booking is ${booking.booking_status}` : 'Delete Payment'}
+                              title={isPaymentLedgerLocked(booking.booking_status) ? paymentLockedMessage(booking.booking_status) : 'Delete Payment'}
                             >
                               {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Trash2 size={14} />}
                             </button>

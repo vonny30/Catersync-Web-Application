@@ -41,10 +41,11 @@ export function isPaymentLedgerLocked(bookingStatus) {
 
 // Explains *why* in a way that fits both a toast and an inline tooltip.
 export function paymentLockedMessage(bookingStatus, { noun = 'booking' } = {}) {
+  const subject = `${/^[aeiou]/i.test(noun) ? 'an' : 'a'} ${noun}`;
   if (bookingStatus === 'Cancelled' || bookingStatus === 'Rejected') {
-    return `Payments can't be edited or deleted once a ${noun} is ${bookingStatus} — any refund is recorded as its own entry instead.`;
+    return `Payments can't be edited or deleted once ${subject} is ${bookingStatus} — any refund is recorded as its own entry instead.`;
   }
-  return `Payments can't be edited or deleted once a ${noun} is ${bookingStatus}.`;
+  return `Payments can't be edited or deleted once ${subject} is ${bookingStatus}.`;
 }
 
 // The three words a manager actually uses for a payment, derived rather than
