@@ -743,7 +743,7 @@ export default function Dashboard() {
               rather than inflating the headline or disappearing from it. */}
           {stats.retainedThisMonth > 0 && (
             <span className="text-[11px] text-amber-700 mt-1 font-medium">
-              + ₱{stats.retainedThisMonth.toLocaleString()} retained from cancellations
+              + ₱{stats.retainedThisMonth.toLocaleString()} in non-refundable deposits kept from cancelled bookings
             </span>
           )}
           <ArrowRight size={14} className="absolute top-3 right-3 text-[#008A45] opacity-0 group-hover:opacity-100 transition-opacity" />

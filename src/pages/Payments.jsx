@@ -1078,7 +1078,7 @@ export default function Payments() {
           </p>
           {received.retainedFromCancellations > 0 && (
             <p className="text-[11px] text-amber-700 mt-1 font-medium">
-              + ₱{received.retainedFromCancellations.toLocaleString()} retained from cancellations
+              + ₱{received.retainedFromCancellations.toLocaleString()} in non-refundable deposits kept from cancelled bookings
             </p>
           )}
           <span className="text-[10px] text-slate-400 group-hover:text-[#008A45] transition-colors">Click to view details</span>

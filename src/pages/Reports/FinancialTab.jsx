@@ -32,7 +32,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
         <div className="flex flex-wrap gap-x-6 gap-y-1 mt-3 text-xs">
           {financialSummary.retainedFromCancellations > 0 && (
             <span className="text-amber-700 font-medium">
-              + {formatCurrency(financialSummary.retainedFromCancellations)} retained from cancellations
+              + {formatCurrency(financialSummary.retainedFromCancellations)} in non-refundable deposits kept from cancelled bookings
             </span>
           )}
           {financialSummary.refundsIssued > 0 && (
