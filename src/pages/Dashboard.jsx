@@ -62,7 +62,12 @@ export default function Dashboard() {
   });
   const [todayEvents, setTodayEvents] = useState([]);
   const [pendingItems, setPendingItems] = useState([]);
-  const [currentMonth, setCurrentMonth] = useState(new Date());
+  // Pinned to the 1st on purpose — see changeMonth for why the day
+  // component of this date can never be allowed to drift above 28.
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
   const [calendarDays, setCalendarDays] = useState([]);
   const [eventDates, setEventDates] = useState({});
 
@@ -108,12 +113,17 @@ export default function Dashboard() {
       const startOfMonthStr = toLocalDateStr(startOfMonth);
       const endOfMonthStr = toLocalDateStr(endOfMonth);
 
+      // Must match fetchEventsForDate's status list below — that's what a
+      // day gets clicked into. It used to leave out 'Completed', so a day
+      // whose only event had already been completed showed no dot at all,
+      // yet clicking it still opened a list with that event in it — a dot
+      // that should have been there simply wasn't.
       const { data: monthBookings, error: monthError } = await supabase
         .from('booking')
         .select('event_datetime, booking_status, booking_type')
         .gte('event_datetime', `${startOfMonthStr} 00:00:00`)
         .lte('event_datetime', `${endOfMonthStr} 23:59:59`)
-        .in('booking_status', ['Pending', ...ACTIVE_BOOKING_STATUSES]);
+        .in('booking_status', ['Pending', ...ACTIVE_BOOKING_STATUSES, 'Completed']);
 
       if (monthError) throw monthError;
 
@@ -121,13 +131,14 @@ export default function Dashboard() {
       (monthBookings || []).forEach(b => {
         if (b.event_datetime) {
           const date = toLocalDateStr(new Date(b.event_datetime));
-          if (!eventMap[date]) eventMap[date] = { count: 0, hasPackage: false, hasShortOrder: false };
+          if (!eventMap[date]) eventMap[date] = { count: 0, hasPackage: false, hasShortOrder: false, hasPending: false };
           eventMap[date].count++;
           if (b.booking_type === 'Short Order') {
             eventMap[date].hasShortOrder = true;
           } else {
             eventMap[date].hasPackage = true;
           }
+          if (b.booking_status === 'Pending') eventMap[date].hasPending = true;
         }
       });
       setEventDates(eventMap);
@@ -335,9 +346,14 @@ export default function Dashboard() {
 
   // Refetches the calendar's event dots whenever the viewed month changes
   // (prev/next arrows), not just once for whatever month happened to be
-  // current when the page loaded.
+  // current when the page loaded — and on the same 60s cadence as the
+  // rest of the dashboard, so a booking added by someone else (or from
+  // the mobile app) shows up on the calendar without the manager having
+  // to navigate away from the month and back to force a refetch.
   useEffect(() => {
     fetchCalendarEvents(currentMonth);
+    const interval = setInterval(() => fetchCalendarEvents(currentMonth), 60000);
+    return () => clearInterval(interval);
   }, [currentMonth]);
 
   // --- Calendar generation ---
@@ -345,35 +361,64 @@ export default function Dashboard() {
     generateCalendar(currentMonth);
   }, [currentMonth, eventDates]);
 
+  // Builds a full 6-row (42-cell) grid, padding with the tail of last
+  // month and the head of next month instead of leaving blank cells —
+  // without it, months with a 5-row layout make the calendar visibly
+  // shrink/grow as you navigate, and the empty cells weren't clickable
+  // at all, unlike every other day.
   const generateCalendar = (date) => {
     const year = date.getFullYear();
     const month = date.getMonth();
     const firstDay = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const daysInPrevMonth = new Date(year, month, 0).getDate();
+    const todayStr = toLocalDateStr(new Date());
 
-    const days = [];
-    for (let i = 0; i < firstDay; i++) {
-      days.push(null);
-    }
-    for (let i = 1; i <= daysInMonth; i++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+    const buildDay = (y, m, d, isOutside) => {
+      // Built via an actual Date rather than formatting y/m/d as strings
+      // directly — m can be -1 (previous December) or 12 (next January)
+      // here, and only the Date constructor rolls that over into the
+      // correct year/month; naive string formatting would print "month
+      // 00" or "month 13".
+      const dt = new Date(y, m, d);
+      const dateStr = toLocalDateStr(dt);
       const dayEvents = eventDates[dateStr];
-      days.push({
-        day: i,
+      return {
+        day: dt.getDate(),
         date: dateStr,
+        isOutside,
         hasEvent: !!dayEvents,
         hasPackage: !!dayEvents?.hasPackage,
         hasShortOrder: !!dayEvents?.hasShortOrder,
-        isToday: dateStr === toLocalDateStr(new Date()),
-      });
+        hasPending: !!dayEvents?.hasPending,
+        count: dayEvents?.count || 0,
+        isToday: !isOutside && dateStr === todayStr,
+      };
+    };
+
+    const days = [];
+    for (let i = firstDay - 1; i >= 0; i--) {
+      days.push(buildDay(year, month - 1, daysInPrevMonth - i, true));
+    }
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push(buildDay(year, month, i, false));
+    }
+    let nextDay = 1;
+    while (days.length % 7 !== 0 || days.length < 42) {
+      days.push(buildDay(year, month + 1, nextDay, true));
+      nextDay++;
     }
     setCalendarDays(days);
   };
 
+  // Bug: `new Date(currentMonth); newDate.setMonth(...)` mutates the month
+  // while keeping whatever day-of-month currentMonth already had. If that
+  // day was 29-31 (e.g. viewing "Jan 31" and clicking next), setMonth
+  // rolls over into the following month instead — "Jan 31" + 1 month
+  // becomes "Mar 3", silently skipping February. Building a fresh date
+  // from year/month + a fixed day 1 sidesteps the rollover entirely.
   const changeMonth = (delta) => {
-    const newDate = new Date(currentMonth);
-    newDate.setMonth(newDate.getMonth() + delta);
-    setCurrentMonth(newDate);
+    setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + delta, 1));
   };
 
   const monthName = currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' });
@@ -748,47 +793,84 @@ export default function Dashboard() {
         {/* LEFT: Calendar & Today's Events */}
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           <div className="mb-6 border-b border-slate-200 pb-6">
-            <div className="flex justify-between items-center mb-4 px-2">
-              <button onClick={() => changeMonth(-1)} className="p-1.5 hover:bg-[#EAF3F2] hover:text-[#008A45] rounded-lg transition-colors">
-                <ChevronLeft size={20} className="text-slate-600" />
+            <div className="flex justify-between items-center mb-4">
+              <button onClick={() => changeMonth(-1)} className="p-1.5 text-slate-500 hover:bg-[#EAF3F2] hover:text-[#008A45] rounded-lg transition-colors" title="Previous month">
+                <ChevronLeft size={18} />
               </button>
-              <h3 className="font-bold text-slate-900 text-sm">{monthName}</h3>
-              <button onClick={() => changeMonth(1)} className="p-1.5 hover:bg-[#EAF3F2] hover:text-[#008A45] rounded-lg transition-colors">
-                <ChevronRight size={20} className="text-slate-600" />
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-slate-900 text-sm">{monthName}</h3>
+                <button
+                  onClick={() => setCurrentMonth(() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); })}
+                  className="text-[10px] font-semibold text-[#008A45] hover:text-[#007038] hover:underline transition-colors"
+                >
+                  Today
+                </button>
+              </div>
+              <button onClick={() => changeMonth(1)} className="p-1.5 text-slate-500 hover:bg-[#EAF3F2] hover:text-[#008A45] rounded-lg transition-colors" title="Next month">
+                <ChevronRight size={18} />
               </button>
             </div>
-            <div className="grid grid-cols-7 gap-y-4 text-center text-sm">
+            <div className="grid grid-cols-7 text-center text-sm">
               {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day, idx) => (
-                <div key={idx} className="text-slate-400 font-semibold text-xs">{day}</div>
+                <div key={idx} className={`font-semibold text-[11px] pb-2 ${idx === 0 || idx === 6 ? 'text-slate-400' : 'text-slate-500'}`}>{day}</div>
               ))}
               {calendarDays.map((day, index) => (
-                <div
-                  key={index}
-                  onClick={() => handleDayClick(day)}
-                  className={`relative flex items-center justify-center font-medium text-sm cursor-pointer rounded-full w-7 h-7 mx-auto transition-colors
-                    ${day?.isToday ? 'bg-[#008A45] text-white font-bold shadow-sm' : 'text-slate-900 hover:bg-[#EAF3F2] hover:text-[#008A45]'}
-                  `}
-                >
-                  {day?.day}
-                  {day?.hasEvent && (
-                    <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 flex items-center gap-0.5">
-                      {day.hasPackage && (
-                        <span className={`w-1.5 h-1.5 rounded-full ${day.isToday ? 'bg-white' : 'bg-[#008A45]'}`}></span>
-                      )}
-                      {day.hasShortOrder && (
-                        <span className={`w-1.5 h-1.5 rounded-full ${day.isToday ? 'bg-white/70' : 'bg-purple-500'}`}></span>
-                      )}
-                    </span>
-                  )}
+                <div key={index} className="py-0.5 flex items-center justify-center">
+                  <button
+                    type="button"
+                    disabled={day?.isOutside}
+                    onClick={() => handleDayClick(day)}
+                    title={day?.hasEvent ? `${day.count} event${day.count === 1 ? '' : 's'}${day.hasPending ? ' · needs review' : ''}` : undefined}
+                    className={`relative flex items-center justify-center font-semibold text-sm rounded-full w-8 h-8 transition-all
+                      ${day?.isOutside ? 'text-slate-300 cursor-default' : 'cursor-pointer'}
+                      ${day?.isToday ? 'bg-[#008A45] text-white shadow-sm' : ''}
+                      ${!day?.isOutside && !day?.isToday ? 'text-slate-900 hover:bg-[#EAF3F2] hover:text-[#008A45]' : ''}
+                      ${!day?.isOutside && !day?.isToday && day?.hasPending ? 'ring-2 ring-amber-400' : ''}
+                    `}
+                  >
+                    {day?.day}
+                    {/* A pending event on today's cell can't also use the
+                        amber ring — today's own green fill already owns
+                        that outline — so it gets a small corner dot
+                        instead, same signal, no clash. */}
+                    {day?.isToday && day?.hasPending && (
+                      // Left corner, not right — the busy-day count badge
+                      // below also claims the top-right corner, and a day
+                      // can be both today and busy at once.
+                      <span className="absolute -top-0.5 -left-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 ring-2 ring-white"></span>
+                    )}
+                    {!day?.isOutside && day?.hasEvent && (
+                      day.count > 3 ? (
+                        <span className={`absolute -top-1 -right-1 min-w-[15px] h-[15px] px-0.5 flex items-center justify-center rounded-full text-[9px] font-bold leading-none ${day.isToday ? 'bg-white text-[#008A45]' : 'bg-red-500 text-white'}`}>
+                          {day.count}
+                        </span>
+                      ) : (
+                        <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 flex items-center gap-0.5">
+                          {day.hasPackage && (
+                            <span className={`w-1.5 h-1.5 rounded-full ${day.isToday ? 'bg-white' : 'bg-[#008A45]'}`}></span>
+                          )}
+                          {day.hasShortOrder && (
+                            <span className={`w-1.5 h-1.5 rounded-full ${day.isToday ? 'bg-white/70' : 'bg-purple-500'}`}></span>
+                          )}
+                        </span>
+                      )
+                    )}
+                  </button>
                 </div>
               ))}
             </div>
-            <div className="flex items-center justify-center gap-4 mt-3">
+            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 mt-4">
               <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#008A45]"></span> Package
               </span>
               <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
                 <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span> Short Order
+              </span>
+              <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
+                <span className="w-2.5 h-2.5 rounded-full ring-2 ring-amber-400"></span> Needs review
+              </span>
+              <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
+                <span className="w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center leading-none">4+</span> Busy day
               </span>
             </div>
           </div>
