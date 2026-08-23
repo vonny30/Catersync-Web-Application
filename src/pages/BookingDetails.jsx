@@ -1237,8 +1237,8 @@ export default function BookingDetails() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* LEFT COLUMN */}
         <div className="lg:col-span-5 space-y-6">
-          <div className="bg-white border border-slate-200 border-l-4 border-l-blue-500 rounded-xl p-6 shadow-xs">
-            <h3 className="text-sm font-bold text-blue-700 mb-4">Event Details</h3>
+          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/30 rounded-xl p-6 shadow-xs">
+            <h3 className="text-sm font-bold text-slate-900 mb-4">Event Details</h3>
             <div className="space-y-2.5 text-sm">
               <div className="grid grid-cols-3">
                 <span className="text-slate-700 font-bold">Created</span>
@@ -1306,8 +1306,8 @@ export default function BookingDetails() {
             )}
           </div>
 
-          <div className="bg-white border border-slate-200 border-l-4 border-l-purple-500 rounded-xl p-6 shadow-xs">
-            <h3 className="text-sm font-bold text-purple-700 mb-4">Customer Details</h3>
+          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/30 rounded-xl p-6 shadow-xs">
+            <h3 className="text-sm font-bold text-slate-900 mb-4">Customer Details</h3>
             <div className="space-y-2 text-sm">
               <div className="grid grid-cols-3">
                 <span className="text-slate-700 font-bold">Name</span>
@@ -1520,9 +1520,9 @@ export default function BookingDetails() {
           )}
 
           {/* Menu Selections */}
-          <div className="bg-white border border-slate-200 border-l-4 border-l-amber-500 rounded-xl p-6 shadow-xs">
+          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/50 rounded-xl p-6 shadow-xs">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-amber-700">Menu Selections</h3>
+              <h3 className="text-sm font-bold text-slate-900">Menu Selections</h3>
               <span className="text-xs font-medium text-slate-500">{menuSelections.length} item{menuSelections.length !== 1 ? 's' : ''}</span>
             </div>
             {menuSelections.length === 0 ? (
@@ -1542,9 +1542,9 @@ export default function BookingDetails() {
           </div>
 
           {/* Equipment Allocation */}
-          <div className="bg-white border border-slate-200 border-l-4 border-l-teal-500 rounded-xl p-6 shadow-xs">
+          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/50 rounded-xl p-6 shadow-xs">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-teal-700">Equipment Allocation</h3>
+              <h3 className="text-sm font-bold text-slate-900">Equipment Allocation</h3>
               <div className="flex items-center gap-2">
                 <button
                   onClick={openAssignEquipModal}
