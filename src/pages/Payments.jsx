@@ -1608,23 +1608,29 @@ export default function Payments() {
                             );
                         const isSelected = p.payment_id === selectedPaymentDetail.payment_id;
                         return (
-                          <div
+                          <button
                             key={p.payment_id}
-                            className={`flex justify-between items-center gap-3 rounded-lg px-4 py-2 text-sm border ${
-                              isSelected ? 'bg-[#EAF3F2] border-[#008A45]/40 ring-1 ring-[#008A45]/20' : 'bg-slate-50 border-slate-200'
+                            type="button"
+                            onClick={() => setSelectedPaymentDetail(p)}
+                            className={`w-full flex justify-between items-center gap-3 rounded-lg px-4 py-2 text-sm border text-left transition-colors ${
+                              isSelected ? 'bg-[#EAF3F2] border-[#008A45]/40 ring-1 ring-[#008A45]/20' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
                             }`}
+                            title="View this payment's full details"
                           >
-                            <span className="flex items-center gap-2">
-                              {kind} – ₱{Math.abs(p.amount_paid).toLocaleString()}
-                              {isSelected && (
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[#008A45] text-white">Viewing</span>
-                              )}
+                            <span className="flex flex-col gap-0.5">
+                              <span className="flex items-center gap-2">
+                                <span className="font-semibold">{kind}</span> – ₱{Math.abs(p.amount_paid).toLocaleString()}
+                                {isSelected && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[#008A45] text-white">Viewing</span>
+                                )}
+                              </span>
+                              <span className="text-xs text-slate-500">{p.pay_method || 'N/A'}</span>
                             </span>
-                            <span className="flex items-center gap-3 shrink-0">
+                            <span className="flex items-center gap-3 shrink-0" onClick={(e) => e.stopPropagation()}>
                               <span className="text-slate-500">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleDateString() : ''}</span>
                               {renderProof(p.pay_proof)}
                             </span>
-                          </div>
+                          </button>
                         );
                       })}
                   </div>
