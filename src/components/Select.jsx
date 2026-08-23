@@ -2,20 +2,26 @@
 //
 // A drop-in replacement for the native <select> that opens the same kind of
 // floating panel as the nav bar's profile menu (rounded-xl, shadow-lg,
-// border, fade-in/zoom-in) instead of the browser/OS's native listbox —
-// the native one can't be restyled at all once open, which is the actual
-// gap a plain CSS chevron swap can't close.
+// border) instead of the browser/OS's native listbox — the native one
+// can't be restyled at all once open, which is the actual gap a plain CSS
+// chevron swap can't close.
 //
 // Same shape as <select>: pass `value`, `onChange`, and <option> children.
 // onChange is called with a native-shaped event ({ target: { value } }) so
 // existing handlers like `(e) => setFoo(e.target.value)` work unchanged.
-import { useState, useRef, useEffect, useLayoutEffect, Children } from 'react';
+import { useState, useEffect, useRef, Children } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 
 export default function Select({ value, onChange, className = '', disabled, name, children, ...rest }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 0 });
+  // `menuPos` doubles as the open/closed flag: null = closed, an object =
+  // open AND where to draw it. The two can never disagree with each other
+  // this way — there is no separate "isOpen" state that could render one
+  // frame before "where" is known. That mismatch (menu opens with isOpen
+  // before its position effect had run, defaulting to {top:0,left:0} —
+  // the page's top-left, right under the nav bar) is what was seen as the
+  // dropdown "coming from the nav bar."
+  const [menuPos, setMenuPos] = useState(null);
   const triggerRef = useRef(null);
   const menuRef = useRef(null);
 
@@ -33,45 +39,41 @@ export default function Select({ value, onChange, className = '', disabled, name
 
   const selected = options.find(o => String(o.value) === String(value));
 
-  const updatePosition = () => {
-    const rect = triggerRef.current?.getBoundingClientRect();
-    if (rect) {
-      setMenuPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
-    }
+  const computePosition = () => {
+    const rect = triggerRef.current.getBoundingClientRect();
+    return { top: rect.bottom + 4, left: rect.left, width: rect.width };
   };
 
-  // Computed synchronously before the browser paints the opened menu —
-  // otherwise the panel's first frame renders at the stale {top:0,left:0}
-  // default (top-left of the page) and only jumps to the right spot once
-  // the effect below runs, which is what looked like the dropdown
-  // "coming from above" instead of appearing right under the trigger.
-  useLayoutEffect(() => {
-    if (isOpen) updatePosition();
-  }, [isOpen]);
+  const toggleOpen = () => {
+    setMenuPos(current => (current ? null : computePosition()));
+  };
+  const close = () => setMenuPos(null);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!menuPos) return;
+    const reposition = () => setMenuPos(computePosition());
     const handleClickOutside = (e) => {
       if (triggerRef.current?.contains(e.target) || menuRef.current?.contains(e.target)) return;
-      setIsOpen(false);
+      close();
     };
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape') setIsOpen(false);
+      if (e.key === 'Escape') close();
     };
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('scroll', updatePosition, true);
-    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('resize', reposition);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('scroll', updatePosition, true);
-      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', reposition, true);
+      window.removeEventListener('resize', reposition);
     };
-  }, [isOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!menuPos]);
 
   const handleSelect = (optValue) => {
-    setIsOpen(false);
+    close();
     // Include `name`, since shared multi-field handlers across this app
     // (handleInputChange, handlePaymentInputChange, etc.) destructure
     // `{ name, value } = e.target` to know which field changed.
@@ -84,19 +86,19 @@ export default function Select({ value, onChange, className = '', disabled, name
         ref={triggerRef}
         type="button"
         disabled={disabled}
-        onClick={() => setIsOpen(o => !o)}
+        onClick={toggleOpen}
         className={`inline-flex items-center justify-between gap-2 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
         {...rest}
       >
         <span className="truncate text-left">{selected?.label ?? ''}</span>
-        <ChevronDown size={16} className={`shrink-0 text-[#008A45] transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown size={16} className={`shrink-0 text-[#008A45] transition-transform duration-200 ${menuPos ? 'rotate-180' : ''}`} />
       </button>
 
-      {isOpen && createPortal(
+      {menuPos && createPortal(
         <div
           ref={menuRef}
           style={{ position: 'fixed', top: menuPos.top, left: menuPos.left, minWidth: menuPos.width }}
-          className="z-[9999] max-h-64 overflow-y-auto bg-white rounded-xl shadow-lg border border-slate-200 py-1 animate-in fade-in zoom-in-95 duration-150 origin-top"
+          className="z-[9999] max-h-64 overflow-y-auto bg-white rounded-xl shadow-lg border border-slate-200 py-1"
         >
           {options.map((opt, idx) => {
             const isSelected = String(opt.value) === String(value);
