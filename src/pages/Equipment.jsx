@@ -1,5 +1,6 @@
 // src/pages/Equipment.jsx
 import { useState, useEffect, useRef } from 'react';
+import Select from '../components/Select';
 import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import {
@@ -1448,7 +1449,7 @@ export default function Equipment() {
                   className={`w-full pl-9 pr-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${availabilitySearch.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
                 />
               </div>
-              <select
+              <Select
                 value={availabilityTypeFilter}
                 onChange={(e) => setAvailabilityTypeFilter(e.target.value)}
                 className={`border rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${availabilityTypeFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
@@ -1456,7 +1457,7 @@ export default function Equipment() {
                 <option value="All">All types</option>
                 <option value="Countable">Countable</option>
                 <option value="Decoration">Decoration</option>
-              </select>
+              </Select>
               <div className="flex items-center gap-1">
                 {[
                   { key: 'All', label: 'All' },
@@ -1609,7 +1610,7 @@ export default function Equipment() {
                   className={`w-full pl-9 pr-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${inventorySearch.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
                 />
               </div>
-              <select
+              <Select
                 value={inventoryTypeFilter}
                 onChange={(e) => setInventoryTypeFilter(e.target.value)}
                 className={`border rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${inventoryTypeFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
@@ -1617,7 +1618,7 @@ export default function Equipment() {
                 <option value="All">All types</option>
                 <option value="Countable">Countable</option>
                 <option value="Decoration">Decoration</option>
-              </select>
+              </Select>
               {activeInventoryFilterCount > 0 && (
                 <button
                   onClick={() => { setInventorySearch(''); setInventoryTypeFilter('All'); setInventoryNeedsAttentionOnly(false); }}
@@ -1771,7 +1772,7 @@ export default function Equipment() {
                 </button>
               ))}
             </div>
-            <select
+            <Select
               value={`${assignmentSort.field}:${assignmentSort.direction}`}
               onChange={(e) => { const [field, direction] = e.target.value.split(':'); setAssignmentSort({ field, direction }); }}
               className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
@@ -1782,7 +1783,7 @@ export default function Equipment() {
               <option value="date:desc">Sort: Event date, newest first</option>
               <option value="customer:asc">Sort: Customer, A-Z</option>
               <option value="customer:desc">Sort: Customer, Z-A</option>
-            </select>
+            </Select>
           </div>
 
           {/* Look up a specific event date or range, independent of the quick shortcuts above */}
@@ -2308,7 +2309,7 @@ export default function Equipment() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Equipment Type</label>
-                <select
+                <Select
                   name="equipmentType"
                   value={addFormData.equipmentType}
                   onChange={handleAddInputChange}
@@ -2316,7 +2317,7 @@ export default function Equipment() {
                 >
                   <option value="Countable">Countable (chairs, plates, etc.)</option>
                   <option value="Decoration">Decoration / Per Event</option>
-                </select>
+                </Select>
                 <p className="text-xs text-slate-400 mt-1">
                   <span className="font-semibold">Countable:</span> quantity is tracked per unit.
                   <br />
@@ -2402,10 +2403,10 @@ export default function Equipment() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Equipment Type</label>
-                <select name="equipment_type" value={editFormData.equipment_type} onChange={handleEditInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none">
+                <Select name="equipment_type" value={editFormData.equipment_type} onChange={handleEditInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none">
                   <option value="Countable">Countable (chairs, plates, etc.)</option>
                   <option value="Decoration">Decoration / Per Event</option>
-                </select>
+                </Select>
               </div>
               {editFormData.equipment_type === 'Countable' && (
                 <div>
@@ -2666,7 +2667,7 @@ export default function Equipment() {
               <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Add Equipment to Assignment List</label>
                 <div className="flex flex-col sm:flex-row gap-2">
-                  <select
+                  <Select
                     value={tempEquipId}
                     onChange={(e) => {
                       setTempEquipId(e.target.value);
@@ -2692,7 +2693,7 @@ export default function Equipment() {
                         {eq.pax_per_unit ? ` - ${eq.pax_per_unit} pax/unit` : ''}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                   <input
                     type="number"
                     min="1"

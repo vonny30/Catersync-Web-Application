@@ -1,5 +1,6 @@
 // src/pages/ShortOrders.jsx
 import { useState, useEffect, useRef } from 'react';
+import Select from '../components/Select';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -1215,7 +1216,7 @@ export default function ShortOrders() {
 
           <div>
             <label className={`block text-[11px] font-semibold mb-1 ${filters.customerId ? 'text-[#007038]' : 'text-slate-500'}`}>Customer</label>
-            <select
+            <Select
               name="customerId"
               value={filters.customerId}
               onChange={handleFilterChange}
@@ -1225,7 +1226,7 @@ export default function ShortOrders() {
               {customers.map(c => (
                 <option key={c.customer_id} value={c.customer_id}>{c.first_name} {c.last_name}</option>
               ))}
-            </select>
+            </Select>
           </div>
 
           <div>
@@ -1243,14 +1244,14 @@ export default function ShortOrders() {
           <div>
             <div className="flex items-center gap-1.5 mb-1">
               <label className={`text-[11px] font-semibold ${datePreset !== 'All Time' ? 'text-[#007038]' : 'text-slate-500'}`}>Filter by</label>
-              <select
+              <Select
                 value={dateFilterField}
                 onChange={(e) => { setDateFilterField(e.target.value); setCurrentPage(1); }}
                 className={`text-[11px] font-semibold border rounded px-1 py-0.5 outline-none cursor-pointer ${datePreset !== 'All Time' ? 'text-[#007038] border-[#008A45]/40 bg-[#EAF3F2]' : 'text-slate-500 border-slate-300 bg-white'}`}
               >
                 <option value="event_datetime">Event Date</option>
                 <option value="book_datetime">Date Created</option>
-              </select>
+              </Select>
             </div>
             <DateRangeFilter
               preset={datePreset}
@@ -1719,7 +1720,7 @@ export default function ShortOrders() {
                 <label className="block text-xs font-bold text-slate-700 mb-1">Select Menu Items (trays) *</label>
                 {fieldErrors.menu_selections && <p className="text-xs text-red-600 font-semibold mb-1">{fieldErrors.menu_selections}</p>}
                 <div className={`flex gap-2 mb-2 rounded-lg ${fieldErrors.menu_selections ? 'ring-1 ring-red-300' : ''}`}>
-                  <select
+                  <Select
                     name="menu_item_id"
                     value={tempItem.menu_item_id}
                     onChange={handleTempItemChange}
@@ -1731,7 +1732,7 @@ export default function ShortOrders() {
                         {item.menu_name} (₱{item.menu_price} / tray)
                       </option>
                     ))}
-                  </select>
+                  </Select>
                   <input
                     type="number"
                     name="quantity"

@@ -1,5 +1,6 @@
 // src/pages/ShortOrderDetails.jsx
 import { useState, useEffect } from 'react';
+import Select from '../components/Select';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, Image as ImageIcon } from 'lucide-react';
 import { createPortal } from 'react-dom';
@@ -1168,7 +1169,7 @@ export default function ShortOrderDetails() {
             <form onSubmit={handleEditSubmit} className="p-6 overflow-y-auto space-y-5 text-left">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Customer *</label>
-                <select
+                <Select
                   name="customer_id"
                   value={editFormData.customer_id}
                   onChange={handleEditInputChange}
@@ -1179,7 +1180,7 @@ export default function ShortOrderDetails() {
                   {customers.map(c => (
                     <option key={c.customer_id} value={c.customer_id}>{c.first_name} {c.last_name}</option>
                   ))}
-                </select>
+                </Select>
               </div>
 
               <div>
@@ -1226,7 +1227,7 @@ export default function ShortOrderDetails() {
                 <label className="block text-xs font-bold text-slate-700 mb-1">Select Menu Items (trays) *</label>
                 {editFieldErrors.menu_selections && <p className="text-xs text-red-600 font-semibold mb-1">{editFieldErrors.menu_selections}</p>}
                 <div className={`flex gap-2 mb-2 rounded-lg ${editFieldErrors.menu_selections ? 'ring-1 ring-red-300' : ''}`}>
-                  <select
+                  <Select
                     name="menu_item_id"
                     value={editTempItem.menu_item_id}
                     onChange={handleEditTempItemChange}
@@ -1238,7 +1239,7 @@ export default function ShortOrderDetails() {
                         {item.menu_name} (₱{item.menu_price} / tray)
                       </option>
                     ))}
-                  </select>
+                  </Select>
                   <input
                     type="number"
                     name="quantity"
@@ -1397,10 +1398,10 @@ export default function ShortOrderDetails() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Payment Status</label>
-                  <select name="pay_status" value={paymentFormData.pay_status} onChange={handlePaymentInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white">
+                  <Select name="pay_status" value={paymentFormData.pay_status} onChange={handlePaymentInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white">
                     <option value="Downpayment">Downpayment</option>
                     <option value="Fully Paid">Fully Paid</option>
-                  </select>
+                  </Select>
                 </div>
               </div>
 

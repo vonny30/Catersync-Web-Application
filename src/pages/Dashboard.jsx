@@ -1,5 +1,6 @@
 // src/pages/Dashboard.jsx
 import { useState, useEffect } from 'react';
+import Select from '../components/Select';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Calendar as CalendarIcon, Clock, CheckCircle, TrendingUp, ChevronLeft, ChevronRight, RefreshCw, X, ArrowRight, Eye, Search } from 'lucide-react';
@@ -984,7 +985,7 @@ export default function Dashboard() {
                       className={`w-full pl-8 pr-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${statsSearchTerm.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
                     />
                   </div>
-                  <select
+                  <Select
                     value={statsTypeFilter}
                     onChange={(e) => setStatsTypeFilter(e.target.value)}
                     className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${statsTypeFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
@@ -992,9 +993,9 @@ export default function Dashboard() {
                     <option value="All">All types</option>
                     <option value="Package">Package</option>
                     <option value="Short Order">Short Order</option>
-                  </select>
+                  </Select>
                   {statsModalType === 'revenue' && (
-                    <select
+                    <Select
                       value={statsMethodFilter}
                       onChange={(e) => setStatsMethodFilter(e.target.value)}
                       className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${statsMethodFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
@@ -1003,7 +1004,7 @@ export default function Dashboard() {
                       <option value="Cash">Cash</option>
                       <option value="GCash">GCash</option>
                       <option value="Bank Transfer">Bank Transfer</option>
-                    </select>
+                    </Select>
                   )}
                   {activeStatsFilterCount > 0 && (
                     <button

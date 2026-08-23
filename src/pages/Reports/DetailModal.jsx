@@ -1,5 +1,6 @@
 // src/pages/Reports/DetailModal.jsx
 import { useState } from 'react';
+import Select from '../../components/Select';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { ExternalLink, Search } from 'lucide-react';
@@ -101,7 +102,7 @@ export default function DetailModal({ detailModal, onClose }) {
                   className={`w-full pl-8 pr-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${searchTerm.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
                 />
               </div>
-              <select
+              <Select
                 value={typeFilter}
                 onChange={(e) => setTypeFilter(e.target.value)}
                 className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${typeFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
@@ -109,9 +110,9 @@ export default function DetailModal({ detailModal, onClose }) {
                 <option value="All">All types</option>
                 <option value="Package">Package</option>
                 <option value="Short Order">Short Order</option>
-              </select>
+              </Select>
               {detailModal.type === 'revenue' && (
-                <select
+                <Select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
                   className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${statusFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
@@ -121,7 +122,7 @@ export default function DetailModal({ detailModal, onClose }) {
                   <option value="Approved">Approved</option>
                   <option value="Confirmed">Confirmed</option>
                   <option value="Completed">Completed</option>
-                </select>
+                </Select>
               )}
               {activeFilterCount > 0 && (
                 <button

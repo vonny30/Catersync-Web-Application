@@ -1,5 +1,6 @@
 // src/pages/PackagesAndMenus/ItemFormModal.jsx
 import { useEffect, useState } from 'react';
+import Select from '../../components/Select';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import { DEFAULT_COLORS, getSwatchColor } from './constants';
@@ -443,12 +444,12 @@ export default function ItemFormModal({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Category *</label>
-                  <select name="categoryId" value={formData.categoryId} onChange={onInputChange}
+                  <Select name="categoryId" value={formData.categoryId} onChange={onInputChange}
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45] outline-none bg-white"
                     required disabled={isSubmitting}>
                     <option value="">Select Category</option>
                     {categories.map(cat => <option key={cat.category_id} value={cat.category_id}>{cat.category_name}</option>)}
-                  </select>
+                  </Select>
                 </div>
 
                 <div>

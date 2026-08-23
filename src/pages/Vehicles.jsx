@@ -1,5 +1,6 @@
 // src/pages/Vehicles.jsx
 import { useState, useEffect, useRef } from 'react';
+import Select from '../components/Select';
 import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import {
@@ -1095,7 +1096,7 @@ export default function Vehicles() {
                   className={`w-full pl-9 pr-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${availabilitySearch.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
                 />
               </div>
-              <select
+              <Select
                 value={availabilityTypeFilter}
                 onChange={(e) => setAvailabilityTypeFilter(e.target.value)}
                 className={`border rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${availabilityTypeFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
@@ -1103,7 +1104,7 @@ export default function Vehicles() {
                 <option value="All">All types</option>
                 <option value="Car">Car</option>
                 <option value="Motorcycle">Motorcycle</option>
-              </select>
+              </Select>
               <div className="flex items-center gap-1">
                 {[
                   { key: 'All', label: 'All' },
@@ -1213,7 +1214,7 @@ export default function Vehicles() {
                   className={`w-full pl-9 pr-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${inventorySearch.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
                 />
               </div>
-              <select
+              <Select
                 value={inventoryTypeFilter}
                 onChange={(e) => setInventoryTypeFilter(e.target.value)}
                 className={`border rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${inventoryTypeFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
@@ -1221,7 +1222,7 @@ export default function Vehicles() {
                 <option value="All">All types</option>
                 <option value="Car">Car</option>
                 <option value="Motorcycle">Motorcycle</option>
-              </select>
+              </Select>
               {activeInventoryFilterCount > 0 && (
                 <button
                   onClick={() => { setInventorySearch(''); setInventoryTypeFilter('All'); }}
@@ -1362,7 +1363,7 @@ export default function Vehicles() {
                 </button>
               ))}
             </div>
-            <select
+            <Select
               value={`${assignmentSort.field}:${assignmentSort.direction}`}
               onChange={(e) => { const [field, direction] = e.target.value.split(':'); setAssignmentSort({ field, direction }); }}
               className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
@@ -1373,7 +1374,7 @@ export default function Vehicles() {
               <option value="date:desc">Sort: Event date, newest first</option>
               <option value="customer:asc">Sort: Customer, A-Z</option>
               <option value="customer:desc">Sort: Customer, Z-A</option>
-            </select>
+            </Select>
           </div>
 
           <div className="mt-3 flex flex-col items-start gap-1">
@@ -1850,7 +1851,7 @@ export default function Vehicles() {
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Vehicle Type *</label>
-                <select
+                <Select
                   name="vehicle_type"
                   value={newVehicleForm.vehicle_type}
                   onChange={handleNewVehicleChange}
@@ -1859,7 +1860,7 @@ export default function Vehicles() {
                 >
                   <option value="Car">Car</option>
                   <option value="Motorcycle">Motorcycle</option>
-                </select>
+                </Select>
               </div>
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
                 <button type="button" onClick={() => setIsAddModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors cursor-pointer">Cancel</button>
@@ -1889,14 +1890,14 @@ export default function Vehicles() {
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Vehicle Type</label>
-                <select name="vehicle_type" value={editVehicleForm.vehicle_type} onChange={handleEditVehicleChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none">
+                <Select name="vehicle_type" value={editVehicleForm.vehicle_type} onChange={handleEditVehicleChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none">
                   <option value="Car">Car</option>
                   <option value="Motorcycle">Motorcycle</option>
-                </select>
+                </Select>
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Base Status</label>
-                <select
+                <Select
                   name="vehicle_status"
                   value={editVehicleForm.vehicle_status}
                   onChange={handleEditVehicleChange}
@@ -1905,7 +1906,7 @@ export default function Vehicles() {
                   <option value="Available">Available</option>
                   <option value="Maintenance">Maintenance</option>
                   <option value="Unavailable">Unavailable</option>
-                </select>
+                </Select>
                 {editFieldErrors.vehicle_status ? (
                   <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.vehicle_status}</p>
                 ) : (
@@ -1943,7 +1944,7 @@ export default function Vehicles() {
             <form onSubmit={handleFlagIssueSubmit} className="p-6 space-y-4 text-left">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Status</label>
-                <select
+                <Select
                   value={flagIssueStatus}
                   onChange={(e) => { setFlagIssueStatus(e.target.value); setFlagIssueError(''); }}
                   className={errorInputClass(!!flagIssueError, 'w-full border rounded-lg p-2.5 text-sm bg-white focus:ring-2 outline-none')}
@@ -1951,7 +1952,7 @@ export default function Vehicles() {
                   <option value="Available">Available</option>
                   <option value="Maintenance">Maintenance</option>
                   <option value="Unavailable">Unavailable</option>
-                </select>
+                </Select>
                 {flagIssueError && <p className="text-xs text-red-600 font-semibold mt-1">{flagIssueError}</p>}
               </div>
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">

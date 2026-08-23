@@ -1,5 +1,6 @@
 // src/pages/PackagesAndMenus/index.jsx
 import { useState, useEffect } from 'react';
+import Select from '../../components/Select';
 import { Search } from 'lucide-react';
 import { supabase } from '../../supabase';
 import toast from 'react-hot-toast';
@@ -1141,7 +1142,7 @@ export default function PackagesAndMenus() {
             className={`w-full pl-8 pr-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${searchTerm.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
           />
         </div>
-        <select
+        <Select
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}
           title={isPackagesTab ? 'Filter by a category included in the package' : 'Filter by category'}
@@ -1151,9 +1152,9 @@ export default function PackagesAndMenus() {
           {categories.map(cat => (
             <option key={cat.category_id} value={cat.category_id}>{cat.category_name}</option>
           ))}
-        </select>
+        </Select>
         {isPackagesTab && (
-          <select
+          <Select
             value={pricingTypeFilter}
             onChange={(e) => setPricingTypeFilter(e.target.value)}
             title="Filter by pricing type"
@@ -1162,7 +1163,7 @@ export default function PackagesAndMenus() {
             <option value="All">All pricing types</option>
             <option value="per_pax">Per Pax</option>
             <option value="fixed">Fixed Price</option>
-          </select>
+          </Select>
         )}
         {activeCatalogFilterCount > 0 && (
           <button

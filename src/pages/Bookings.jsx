@@ -1,5 +1,6 @@
 // src/pages/Bookings.jsx
 import { useState, useEffect, useRef } from 'react';
+import Select from '../components/Select';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -1302,7 +1303,7 @@ const handleMarkCompleted = async (id) => {
 
           <div>
             <label className={`block text-[11px] font-semibold mb-1 ${filters.customerId ? 'text-[#007038]' : 'text-slate-500'}`}>Customer</label>
-            <select
+            <Select
               name="customerId"
               value={filters.customerId}
               onChange={handleFilterChange}
@@ -1312,12 +1313,12 @@ const handleMarkCompleted = async (id) => {
               {customers.map(c => (
                 <option key={c.customer_id} value={c.customer_id}>{c.first_name} {c.last_name}</option>
               ))}
-            </select>
+            </Select>
           </div>
 
           <div>
             <label className={`block text-[11px] font-semibold mb-1 ${filters.packageId ? 'text-[#007038]' : 'text-slate-500'}`}>Package</label>
-            <select
+            <Select
               name="packageId"
               value={filters.packageId}
               onChange={handleFilterChange}
@@ -1327,7 +1328,7 @@ const handleMarkCompleted = async (id) => {
               {packages.map(p => (
                 <option key={p.package_id} value={p.package_id}>{p.pkg_name}</option>
               ))}
-            </select>
+            </Select>
           </div>
 
           <div>
@@ -1345,14 +1346,14 @@ const handleMarkCompleted = async (id) => {
           <div>
             <div className="flex items-center gap-1.5 mb-1">
               <label className={`text-[11px] font-semibold ${datePreset !== 'All Time' ? 'text-[#007038]' : 'text-slate-500'}`}>Filter by</label>
-              <select
+              <Select
                 value={dateFilterField}
                 onChange={(e) => { setDateFilterField(e.target.value); setCurrentPage(1); }}
                 className={`text-[11px] font-semibold border rounded px-1 py-0.5 outline-none cursor-pointer ${datePreset !== 'All Time' ? 'text-[#007038] border-[#008A45]/40 bg-[#EAF3F2]' : 'text-slate-500 border-slate-300 bg-white'}`}
               >
                 <option value="event_datetime">Event Date</option>
                 <option value="book_datetime">Date Created</option>
-              </select>
+              </Select>
             </div>
             <DateRangeFilter
               preset={datePreset}
@@ -1802,7 +1803,7 @@ const handleMarkCompleted = async (id) => {
               {/* Package */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Package *</label>
-                <select
+                <Select
                   name="package_id"
                   value={formData.package_id}
                   onChange={handleInputChange}
@@ -1815,7 +1816,7 @@ const handleMarkCompleted = async (id) => {
                       {p.pkg_name} {p.pricing_type === 'fixed' ? '(Fixed)' : '(Per Pax)'}
                     </option>
                   ))}
-                </select>
+                </Select>
                 {fieldErrors.package_id && <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.package_id}</p>}
               </div>
 
@@ -1830,7 +1831,7 @@ const handleMarkCompleted = async (id) => {
                       return (
                         <div key={cat.category_id} className="flex items-center gap-4">
                           <span className="w-32 text-sm font-bold text-slate-700">{cat.category_name}</span>
-                          <select
+                          <Select
                             value={selected}
                             onChange={(e) => handleMenuSelectionChange(cat.category_id, e.target.value)}
                             className="flex-1 border border-slate-300 rounded-lg p-2 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
@@ -1842,7 +1843,7 @@ const handleMarkCompleted = async (id) => {
                                 {item.menu_name}
                               </option>
                             ))}
-                          </select>
+                          </Select>
                         </div>
                       );
                     })}
@@ -1909,7 +1910,7 @@ const handleMarkCompleted = async (id) => {
                       <>
                         {formData.package_id ? (
                           colorOptions.length > 0 ? (
-                            <select
+                            <Select
                               name="motif_color"
                               value={formData.motif_color}
                               onChange={handleInputChange}
@@ -1919,7 +1920,7 @@ const handleMarkCompleted = async (id) => {
                               {colorOptions.map(color => (
                                 <option key={color} value={color}>{color}</option>
                               ))}
-                            </select>
+                            </Select>
                           ) : (
                             <input
                               type="text"

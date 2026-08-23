@@ -1,5 +1,6 @@
 // src/pages/BookingDetails.jsx
 import { useState, useEffect } from 'react';
+import Select from '../components/Select';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Image as ImageIcon, Search } from 'lucide-react';
 import { createPortal } from 'react-dom';
@@ -1612,7 +1613,7 @@ export default function BookingDetails() {
             <form onSubmit={handleEditSubmit} className="p-6 overflow-y-auto space-y-5 text-left">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Customer *</label>
-                <select
+                <Select
                   name="customer_id"
                   value={editFormData.customer_id}
                   onChange={handleEditInputChange}
@@ -1623,12 +1624,12 @@ export default function BookingDetails() {
                   {customers.map(c => (
                     <option key={c.customer_id} value={c.customer_id}>{c.first_name} {c.last_name}</option>
                   ))}
-                </select>
+                </Select>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Package *</label>
-                <select
+                <Select
                   name="package_id"
                   value={editFormData.package_id}
                   onChange={handleEditInputChange}
@@ -1641,7 +1642,7 @@ export default function BookingDetails() {
                       {p.pkg_name} {p.pricing_type === 'fixed' ? '(Fixed)' : '(Per Pax)'}
                     </option>
                   ))}
-                </select>
+                </Select>
                 {editFormData.package_id !== booking.package_id && (
                   <p className="text-xs text-amber-600 mt-1">⚠️ Changing package will re‑allocate equipment and reset menu selections.</p>
                 )}
@@ -1657,7 +1658,7 @@ export default function BookingDetails() {
                       return (
                         <div key={cat.category_id} className="flex items-center gap-4">
                           <span className="w-32 text-sm font-bold text-slate-700">{cat.category_name}</span>
-                          <select
+                          <Select
                             value={selected}
                             onChange={(e) => handleMenuSelectionChange(cat.category_id, e.target.value)}
                             className="flex-1 border border-slate-300 rounded-lg p-2 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
@@ -1667,7 +1668,7 @@ export default function BookingDetails() {
                             {items.map(item => (
                               <option key={item.menu_item_id} value={item.menu_item_id}>{item.menu_name}</option>
                             ))}
-                          </select>
+                          </Select>
                         </div>
                       );
                     })}
@@ -1813,7 +1814,7 @@ export default function BookingDetails() {
                       className="w-full pl-7 pr-2 py-1.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
                     />
                   </div>
-                  <select
+                  <Select
                     name="equipment_id"
                     value={assignEquipData.equipment_id}
                     onChange={handleAssignEquipChange}
@@ -1828,7 +1829,7 @@ export default function BookingDetails() {
                           {eq.eqm_name} — {eq.quantity_available} in stock{eq.equipment_type === 'Decoration' ? ' (Decoration)' : ''}
                         </option>
                       ))}
-                  </select>
+                  </Select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Quantity</label>
@@ -1965,7 +1966,7 @@ export default function BookingDetails() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Payment Status</label>
-                  <select
+                  <Select
                     name="pay_status"
                     value={paymentFormData.pay_status}
                     onChange={handlePaymentInputChange}
@@ -1973,7 +1974,7 @@ export default function BookingDetails() {
                   >
                     <option value="Downpayment">Downpayment</option>
                     <option value="Fully Paid">Fully Paid</option>
-                  </select>
+                  </Select>
                 </div>
               </div>
 
