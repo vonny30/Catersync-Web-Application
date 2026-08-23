@@ -811,6 +811,32 @@ export default function Payments() {
   });
   const activeSummaryFilterCount = (summarySearchTerm.trim() ? 1 : 0) + (summaryTypeFilter !== 'All' ? 1 : 0) + (summaryMethodFilter !== 'All' ? 1 : 0) + (summaryDatePreset !== 'All Time' ? 1 : 0);
 
+  // --- GROUP THE "PAYMENTS RECEIVED" LIST BY BOOKING — same reasoning as the
+  // main table: several payments against one booking read as clutter when
+  // listed individually. One row per booking here, showing the total
+  // collected from it within the current filters; clicking it opens the same
+  // Payment Details modal the main table uses, which now shows the full
+  // payment timeline for that booking. ---
+  const groupedCollected = summaryModalType === 'collected'
+    ? Object.values(
+        filteredSummaryModalData.reduce((groups, p) => {
+          const key = p.booking_id || p.payment_id;
+          if (!groups[key]) groups[key] = { bookingId: p.booking_id, entries: [] };
+          groups[key].entries.push(p);
+          return groups;
+        }, {})
+      ).map(group => {
+        const entries = [...group.entries].sort((a, b) => new Date(b.pay_datetime || 0) - new Date(a.pay_datetime || 0));
+        return {
+          ...group,
+          entries,
+          latest: entries[0],
+          count: entries.length,
+          totalAmount: entries.reduce((sum, p) => sum + (p.amount_paid || 0), 0),
+        };
+      })
+    : [];
+
   // --- Updated renderProof: opens modal instead of new tab ---
   const renderProof = (proofUrl) => {
     if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
@@ -1557,14 +1583,19 @@ export default function Payments() {
                 </div>
               </div>
 
-              {/* Other payments for the same order */}
+              {/* Payment timeline for the whole order — oldest first, so it
+                  reads the way the money actually arrived: the initial
+                  Downpayment, any Partial payments, and finally the one that
+                  transitioned the booking to Fully Paid. The row that was
+                  clicked to open this modal is highlighted so it's still
+                  clear which one is "selected". */}
               {selectedPaymentDetail.booking_id && (
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900 mb-3">Other payments for this order</h3>
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                  <h3 className="text-sm font-bold text-slate-900 mb-3">Payment Timeline</h3>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
                     {payments
-                      .filter(p => p.booking_id === selectedPaymentDetail.booking_id && p.payment_id !== selectedPaymentDetail.payment_id)
-                      .sort((a, b) => new Date(b.pay_datetime || 0) - new Date(a.pay_datetime || 0))
+                      .filter(p => p.booking_id === selectedPaymentDetail.booking_id)
+                      .sort((a, b) => new Date(a.pay_datetime || 0) - new Date(b.pay_datetime || 0))
                       .map(p => {
                         const kind = p.pay_status === 'Refunded'
                           ? 'Refunded'
@@ -1575,16 +1606,24 @@ export default function Payments() {
                                 && new Date(other.pay_datetime || 0) <= new Date(p.pay_datetime || 0)),
                               p.booking?.total_amount ?? selectedPaymentDetail.booking?.total_amount,
                             );
+                        const isSelected = p.payment_id === selectedPaymentDetail.payment_id;
                         return (
-                          <div key={p.payment_id} className="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg px-4 py-2 text-sm">
-                            <span>{kind} – ₱{Math.abs(p.amount_paid).toLocaleString()}</span>
+                          <div
+                            key={p.payment_id}
+                            className={`flex justify-between items-center rounded-lg px-4 py-2 text-sm border ${
+                              isSelected ? 'bg-[#EAF3F2] border-[#008A45]/40 ring-1 ring-[#008A45]/20' : 'bg-slate-50 border-slate-200'
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              {kind} – ₱{Math.abs(p.amount_paid).toLocaleString()}
+                              {isSelected && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[#008A45] text-white">Viewing</span>
+                              )}
+                            </span>
                             <span className="text-slate-500">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleDateString() : ''}</span>
                           </div>
                         );
                       })}
-                    {payments.filter(p => p.booking_id === selectedPaymentDetail.booking_id && p.payment_id !== selectedPaymentDetail.payment_id).length === 0 && (
-                      <p className="text-xs text-slate-400 italic">No other payments recorded.</p>
-                    )}
                   </div>
                 </div>
               )}
@@ -1610,7 +1649,11 @@ export default function Payments() {
             <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0 bg-white">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">{summaryModalTitle}</h2>
-                <p className="text-xs text-slate-500 mt-0.5">{filteredSummaryModalData.length} of {summaryModalData.length} record(s) shown</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {summaryModalType === 'collected'
+                    ? `${groupedCollected.length} booking${groupedCollected.length === 1 ? '' : 's'} (${filteredSummaryModalData.length} of ${summaryModalData.length} payment record(s))`
+                    : `${filteredSummaryModalData.length} of ${summaryModalData.length} record(s) shown`}
+                </p>
               </div>
               <button
                 onClick={closeSummaryModal}
@@ -1701,7 +1744,9 @@ export default function Payments() {
                 <div className="text-center py-10 text-slate-500">No records match your search/filter.</div>
               ) : (
                 <>
-                  {/* Collected & Fully Paid – show payment list */}
+                  {/* Payments Received – one row per booking/short order,
+                      not per payment record, same reasoning as the main
+                      table. Click a row to see its full payment timeline. */}
                   {summaryModalType === 'collected' && (
                     <table className="w-full text-left border-collapse">
                       <thead>
@@ -1709,46 +1754,56 @@ export default function Payments() {
                           <th className="p-3">Reference</th>
                           <th className="p-3">Customer</th>
                           <th className="p-3">Type</th>
-                          <th className="p-3">Method</th>
+                          <th className="p-3">Payments</th>
                           <th className="p-3 text-right">Amount</th>
                           <th className="p-3">Payment Status</th>
                           <th className="p-3">Date</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-sm">
-                        {filteredSummaryModalData.map((item, idx) => (
-                          <tr
-                            key={idx}
-                            className="hover:bg-slate-50 transition-colors cursor-pointer"
-                            onClick={() => handleSummaryRowClick(item)}
-                          >
-                            <td className="p-3 font-mono text-xs font-semibold text-slate-800">
-                              {item.bookingRef || getBookingRef(item)}
-                            </td>
-                            <td className="p-3 font-medium text-slate-900">
-                              {item.clientName || getClientName(item)}
-                            </td>
-                            <td className="p-3">
-                              {item.booking_type === 'Short Order' ? (
-                                <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-100 text-purple-700 border border-purple-200 rounded-full">Short Order</span>
-                              ) : (
-                                <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-700 border border-blue-200 rounded-full">Package</span>
-                              )}
-                            </td>
-                            <td className="p-3">{item.pay_method || 'N/A'}</td>
-                            <td className="p-3 text-right font-bold text-emerald-600">
-                              ₱{(item.amount_paid || 0).toLocaleString()}
-                            </td>
-                            <td className="p-3">
-                              <span className={`px-2 py-1 rounded-full text-xs font-bold ${getStatusBadge(item.pay_status)}`}>
-                                {item.pay_status}
-                              </span>
-                            </td>
-                            <td className="p-3 text-slate-600 text-xs">
-                              {item.pay_datetime ? new Date(item.pay_datetime).toLocaleDateString() : 'N/A'}
-                            </td>
-                          </tr>
-                        ))}
+                        {groupedCollected.map((group) => {
+                          const { latest } = group;
+                          const priorForLatest = payments.filter(p => p.booking_id === latest.booking_id
+                            && p.payment_id !== latest.payment_id
+                            && new Date(p.pay_datetime || 0) <= new Date(latest.pay_datetime || 0));
+                          return (
+                            <tr
+                              key={group.bookingId}
+                              className="hover:bg-slate-50 transition-colors cursor-pointer"
+                              onClick={() => handleRowClick(latest)}
+                            >
+                              <td className="p-3 font-mono text-xs font-semibold text-slate-800">
+                                {latest.bookingRef || getBookingRef(latest)}
+                              </td>
+                              <td className="p-3 font-medium text-slate-900">
+                                {latest.clientName || getClientName(latest)}
+                              </td>
+                              <td className="p-3">
+                                {latest.booking_type === 'Short Order' ? (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-100 text-purple-700 border border-purple-200 rounded-full">Short Order</span>
+                                ) : (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-700 border border-blue-200 rounded-full">Package</span>
+                                )}
+                              </td>
+                              <td className="p-3 text-slate-600">
+                                {group.count} payment{group.count === 1 ? '' : 's'}
+                              </td>
+                              <td className="p-3 text-right font-bold text-emerald-600">
+                                ₱{group.totalAmount.toLocaleString()}
+                              </td>
+                              <td className="p-3">
+                                <span className={`px-2 py-1 rounded-full text-xs font-bold ${getStatusBadge(latest.pay_status)}`}>
+                                  {latest.pay_status === 'Refunded'
+                                    ? 'Refunded'
+                                    : describePaymentKind(latest, priorForLatest, latest.booking?.total_amount)}
+                                </span>
+                              </td>
+                              <td className="p-3 text-slate-600 text-xs">
+                                {latest.pay_datetime ? new Date(latest.pay_datetime).toLocaleDateString() : 'N/A'}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                       <tfoot className="bg-slate-50 border-t-2 border-slate-200">
                         <tr>
