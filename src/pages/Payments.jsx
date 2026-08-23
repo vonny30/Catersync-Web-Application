@@ -1610,7 +1610,7 @@ export default function Payments() {
                         return (
                           <div
                             key={p.payment_id}
-                            className={`flex justify-between items-center rounded-lg px-4 py-2 text-sm border ${
+                            className={`flex justify-between items-center gap-3 rounded-lg px-4 py-2 text-sm border ${
                               isSelected ? 'bg-[#EAF3F2] border-[#008A45]/40 ring-1 ring-[#008A45]/20' : 'bg-slate-50 border-slate-200'
                             }`}
                           >
@@ -1620,7 +1620,10 @@ export default function Payments() {
                                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[#008A45] text-white">Viewing</span>
                               )}
                             </span>
-                            <span className="text-slate-500">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleDateString() : ''}</span>
+                            <span className="flex items-center gap-3 shrink-0">
+                              <span className="text-slate-500">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleDateString() : ''}</span>
+                              {renderProof(p.pay_proof)}
+                            </span>
                           </div>
                         );
                       })}
