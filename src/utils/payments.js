@@ -27,25 +27,18 @@ export function sumVerifiedDownpayments(payments) {
     .reduce((sum, p) => sum + p.amount_paid, 0);
 }
 
-// A booking in any of these statuses has a payment ledger that other parts
-// of the system treat as settled/closed — Confirmed and Completed hold real
-// revenue history, and Cancelled/Rejected already went through their own
-// refund workflow (which records a new negative payment row rather than
-// mutating the original). Editing or deleting a payment row after that point
-// would corrupt totals, reports, and refund records that already reflect it.
+// A booking in any of these statuses is treated as settled/closed for
+// editing purposes — Confirmed and Completed hold real revenue history, and
+// Cancelled/Rejected already went through their own refund workflow (which
+// records a new negative payment row rather than mutating the original).
+// Payments themselves are never editable or deletable regardless of booking
+// status (a recorded payment already went through manual entry or mobile
+// proof verification); this flag instead gates whether the BOOKING record
+// and its equipment assignments can still be edited.
 export const PAYMENT_LOCKED_STATUSES = ['Confirmed', 'Completed', 'Cancelled', 'Rejected'];
 
 export function isPaymentLedgerLocked(bookingStatus) {
   return PAYMENT_LOCKED_STATUSES.includes(bookingStatus);
-}
-
-// Explains *why* in a way that fits both a toast and an inline tooltip.
-export function paymentLockedMessage(bookingStatus, { noun = 'booking' } = {}) {
-  const subject = `${/^[aeiou]/i.test(noun) ? 'an' : 'a'} ${noun}`;
-  if (bookingStatus === 'Cancelled' || bookingStatus === 'Rejected') {
-    return `Payments can't be edited or deleted once ${subject} is ${bookingStatus} — any refund is recorded as its own entry instead.`;
-  }
-  return `Payments can't be edited or deleted once ${subject} is ${bookingStatus}.`;
 }
 
 // The three words a manager actually uses for a payment, derived rather than

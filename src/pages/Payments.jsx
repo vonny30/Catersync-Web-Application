@@ -2,12 +2,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, Upload, X, Image as ImageIcon, Edit, Trash2, Lock, Check, DollarSign, RefreshCw, Eye, Filter, LayoutGrid, RotateCcw, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Search, Upload, X, Image as ImageIcon, Check, DollarSign, RefreshCw, Eye, Filter, LayoutGrid, RotateCcw, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown, ChevronRight } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
-import { sumVerifiedPositivePayments, UNVERIFIED_PAY_STATUSES, isPaymentLedgerLocked, paymentLockedMessage, describePaymentKind } from '../utils/payments';
+import { sumVerifiedPositivePayments, UNVERIFIED_PAY_STATUSES, isUnverifiedPayment, describePaymentKind } from '../utils/payments';
 import { getPaymentsReceived } from '../utils/reportMetrics';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import DateRangeFilter from './Reports/DateRangeFilter';
@@ -28,9 +28,9 @@ export default function Payments() {
   // A refund is a kind of TRANSACTION, not a way of paying — money going out
   // rather than a method of it coming in. It used to sit in the Method list
   // beside Cash and GCash, which is the miscategorisation the panel raised.
-  // Keyed on the sign of amount_paid rather than on pay_method, so it stays
-  // correct for historical rows whatever string those happen to carry.
-  const [transactionTypeFilter, setTransactionTypeFilter] = useState('All'); // 'All' | 'Payments' | 'Refunds'
+  // It's also not a payment at all, so it gets its own tab rather than being
+  // filterable in-and-out of the payments list.
+  const [mainTab, setMainTab] = useState('Payments'); // 'Payments' | 'Refunds'
   const [tableSearchTerm, setTableSearchTerm] = useState(''); // filters the payments table by client name / booking ref
 
   // --- TABLE SORT — click a column header to sort; click again to flip
@@ -72,7 +72,6 @@ export default function Payments() {
 
   // --- MODAL STATE ---
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingId, setEditingId] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -255,8 +254,10 @@ export default function Payments() {
 
   // --- FILTER LOGIC (search + type + method + date, independent of status) ---
   const { start: dateRangeStart, end: dateRangeEnd } = getRangeBounds(datePreset, customStart, customEnd);
-  const activePaymentFilterCount = [!!tableSearchTerm, typeFilter !== 'All', methodFilter !== 'All', transactionTypeFilter !== 'All', datePreset !== 'All Time'].filter(Boolean).length;
+  const activePaymentFilterCount = [!!tableSearchTerm, typeFilter !== 'All', methodFilter !== 'All', datePreset !== 'All Time'].filter(Boolean).length;
   const typeAndDateFiltered = payments.filter(p => {
+    if (mainTab === 'Refunds' && (p.amount_paid || 0) >= 0) return false;
+    if (mainTab === 'Payments' && (p.amount_paid || 0) < 0) return false;
     if (tableSearchTerm) {
       const search = tableSearchTerm.toLowerCase();
       const clientName = p.booking?.customer ? `${p.booking.customer.first_name} ${p.booking.customer.last_name}`.toLowerCase() : '';
@@ -269,8 +270,6 @@ export default function Payments() {
       if (typeFilter === 'Short Order' && bookingType !== 'Short Order') return false;
     }
     if (methodFilter !== 'All' && p.pay_method !== methodFilter) return false;
-    if (transactionTypeFilter === 'Refunds' && (p.amount_paid || 0) >= 0) return false;
-    if (transactionTypeFilter === 'Payments' && (p.amount_paid || 0) < 0) return false;
     if (datePreset !== 'All Time' && !isWithinRange(p.pay_datetime, dateRangeStart, dateRangeEnd)) return false;
     return true;
   });
@@ -298,6 +297,35 @@ export default function Payments() {
     statusTabs.find(t => t.key === activeTab)?.match || (() => true)
   );
 
+  // --- GROUP BY BOOKING — one row per booking/short order instead of one
+  // row per payment record. A booking can carry several payments (deposit,
+  // top-up, the one that clears it), and listing each separately made the
+  // table read as a list of transactions rather than a list of orders. The
+  // row shows the most recent payment's amount/status/date/proof; clicking
+  // it opens the existing Payment Details modal, which already lists every
+  // other payment on that booking. Only meaningful for the Payments tab —
+  // Refunds are each their own event and stay listed individually below. ---
+  const groupedPayments = mainTab === 'Payments'
+    ? Object.values(
+        filteredPayments.reduce((groups, p) => {
+          const key = p.booking_id || p.payment_id;
+          if (!groups[key]) groups[key] = { bookingId: p.booking_id, booking: p.booking, entries: [] };
+          groups[key].entries.push(p);
+          return groups;
+        }, {})
+      ).map(group => {
+        const entries = [...group.entries].sort((a, b) => new Date(b.pay_datetime || 0) - new Date(a.pay_datetime || 0));
+        const latest = entries[0];
+        return {
+          ...group,
+          entries,
+          latest,
+          count: entries.length,
+          totalPaid: sumVerifiedPositivePayments(entries),
+        };
+      })
+    : [];
+
   // Payments Received, over whatever period (and type/method) the page is
   // currently filtered to — the same shared definition Dashboard and Reports
   // use. Deriving it from typeAndDateFiltered rather than the raw list is what
@@ -320,7 +348,6 @@ export default function Payments() {
   };
 
   const openNewPaymentModal = () => {
-    setEditingId(null);
     setFormData({
       booking_id: '',
       amount: '',
@@ -336,31 +363,8 @@ export default function Payments() {
     setIsModalOpen(true);
   };
 
-  const openEditModal = (payment) => {
-    if (isPaymentLedgerLocked(payment.booking?.booking_status)) {
-      toast.error(paymentLockedMessage(payment.booking?.booking_status));
-      return;
-    }
-    setEditingId(payment.payment_id);
-    setFormData({
-      booking_id: payment.booking_id,
-      amount: payment.amount_paid?.toString() || '',
-      pay_method: payment.pay_method || 'Cash',
-      pay_status: payment.pay_status || 'Downpayment',
-      pay_proof: payment.pay_proof || 'placeholder.png',
-    });
-    setSelectedFile(null);
-    const customerName = payment.booking?.customer ? `${payment.booking.customer.first_name} ${payment.booking.customer.last_name}` : 'Unknown';
-    setBookingSearchTerm(`${bookingRefFor(payment.booking)} — ${customerName}`);
-    setShowBookingList(false);
-    setAmountError('');
-    setFileError('');
-    setIsModalOpen(true);
-  };
-
   const closeModal = () => {
     setIsModalOpen(false);
-    setEditingId(null);
     setFormData(initialFormState);
     setSelectedFile(null);
     setBookingSearchTerm('');
@@ -392,7 +396,7 @@ export default function Payments() {
     const booking = bookings.find(b => b.booking_id === bookingId);
     if (!booking) return 0;
     const paid = payments
-      .filter(p => p.booking_id === bookingId && p.payment_id !== editingId && !UNVERIFIED_PAY_STATUSES.includes(p.pay_status))
+      .filter(p => p.booking_id === bookingId && !UNVERIFIED_PAY_STATUSES.includes(p.pay_status))
       .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
     return Math.max(0, (booking.total_amount || 0) - paid);
   };
@@ -400,7 +404,7 @@ export default function Payments() {
 
   const getTotalPaidForBooking = (bookingId) => {
     if (!bookingId) return 0;
-    return sumVerifiedPositivePayments(payments.filter(p => p.booking_id === bookingId && p.payment_id !== editingId));
+    return sumVerifiedPositivePayments(payments.filter(p => p.booking_id === bookingId));
   };
   const totalPaidForSelected = getTotalPaidForBooking(formData.booking_id);
   const isFirstPaymentForSelected = totalPaidForSelected === 0;
@@ -441,16 +445,6 @@ export default function Payments() {
       return;
     }
 
-    if (editingId) {
-      const editingPayment = payments.find(p => p.payment_id === editingId);
-      const lockedStatus = editingPayment?.booking?.booking_status;
-      if (isPaymentLedgerLocked(lockedStatus)) {
-        toast.error(paymentLockedMessage(lockedStatus));
-        setIsSubmitting(false);
-        return;
-      }
-    }
-
     const amount = parseFloat(formData.amount) || 0;
     if (amount <= 0) {
       toast.error('Amount must be greater than zero.');
@@ -471,14 +465,7 @@ export default function Payments() {
       return;
     }
 
-    let isProofRequired = true;
-    if (editingId) {
-      const currentProof = formData.pay_proof;
-      if (currentProof && currentProof !== 'placeholder.png' && currentProof !== 'refund_placeholder.png') {
-        isProofRequired = false;
-      }
-    }
-    if (isProofRequired && !selectedFile) {
+    if (!selectedFile) {
       toast.error('Please upload a proof of payment image.');
       setFileError('Proof of payment is required.');
       setIsSubmitting(false);
@@ -492,13 +479,11 @@ export default function Payments() {
       return;
     }
 
-    // Excludes the row being edited (otherwise its old amount double-counts
-    // against itself, corrupting the remaining-balance math below) and
-    // excludes unverified rows (Pending Verification / Proof Rejected
-    // aren't real collected funds), matching sumVerifiedPositivePayments
-    // usage everywhere else in the app.
+    // Excludes unverified rows (Pending Verification / Proof Rejected aren't
+    // real collected funds), matching sumVerifiedPositivePayments usage
+    // everywhere else in the app.
     const paid = sumVerifiedPositivePayments(
-      payments.filter(p => p.booking_id === formData.booking_id && p.payment_id !== editingId)
+      payments.filter(p => p.booking_id === formData.booking_id)
     );
     const totalAmount = selectedBooking.total_amount || 0;
     const remainingBalance = Math.max(0, totalAmount - paid);
@@ -607,20 +592,11 @@ export default function Payments() {
 
       const autoMarkedMessage = `marked as Fully Paid — the amount entered covers the full ${isFirstPayment ? 'total' : 'remaining'} balance.`;
 
-      if (editingId) {
-        const { error } = await supabase
-          .from('payment')
-          .update(payload)
-          .eq('payment_id', editingId);
-        if (error) throw error;
-        toast.success(autoMarkedFullyPaid ? `Payment updated and ${autoMarkedMessage}` : 'Payment saved.');
-      } else {
-        const { error } = await supabase
-          .from('payment')
-          .insert([payload]);
-        if (error) throw error;
-        toast.success(autoMarkedFullyPaid ? `Payment recorded and ${autoMarkedMessage}` : 'Payment recorded.');
-      }
+      const { error } = await supabase
+        .from('payment')
+        .insert([payload]);
+      if (error) throw error;
+      toast.success(autoMarkedFullyPaid ? `Payment recorded and ${autoMarkedMessage}` : 'Payment recorded.');
 
       closeModal();
       fetchData();
@@ -726,40 +702,10 @@ export default function Payments() {
     }
   };
 
-  const handleDelete = async (id) => {
-    const target = payments.find(p => p.payment_id === id);
-    const bookingStatus = target?.booking?.booking_status;
-    if (isPaymentLedgerLocked(bookingStatus)) {
-      toast.error(paymentLockedMessage(bookingStatus));
-      return;
-    }
-
-    const confirmed = await showConfirm({
-      title: 'Delete Payment?',
-      message: 'Are you sure you want to permanently delete this payment record? This action cannot be undone.',
-      confirmLabel: 'Delete',
-      confirmVariant: 'danger',
-    });
-    if (!confirmed) return;
-
-    const passwordOk = await requestPasswordConfirm({
-      title: 'Confirm Your Password',
-      message: 'Deleting this payment record is permanent. Re-enter your password to continue.',
-    });
-    if (!passwordOk) return;
-
-    try {
-      const { error } = await supabase
-        .from('payment')
-        .delete()
-        .eq('payment_id', id);
-      if (error) throw error;
-      toast.success('Payment deleted.');
-      fetchData();
-    } catch (error) {
-      handleError(error, 'Failed to delete payment.');
-    }
-  };
+  // Payments can never be edited or deleted (per panel review): once a
+  // payment exists it already went through manual recording or mobile proof
+  // verification, so there is no legitimate reason to alter or remove it
+  // after the fact — a refund is recorded as its own new entry instead.
 
   const getClientName = (payment) => {
     if (payment.booking?.customer) {
@@ -804,6 +750,17 @@ export default function Payments() {
     }
     return sortDirection === 'asc' ? result : -result;
   }) : filteredPayments;
+
+  // Same sort, applied to the one-row-per-booking view.
+  const sortedGroupedPayments = sortField ? [...groupedPayments].sort((a, b) => {
+    let result = 0;
+    if (sortField === 'client') {
+      result = getClientName(a.latest).localeCompare(getClientName(b.latest));
+    } else if (sortField === 'date') {
+      result = new Date(a.latest.pay_datetime || 0) - new Date(b.latest.pay_datetime || 0);
+    }
+    return sortDirection === 'asc' ? result : -result;
+  }) : groupedPayments;
 
   const renderSortHeader = (field, label) => (
     <button
@@ -890,8 +847,6 @@ export default function Payments() {
       </button>
     );
   };
-
-  const isRefund = (payment) => payment.amount_paid < 0;
 
   // --- Row click handler: open payment detail modal ---
   const handleRowClick = (payment) => {
@@ -1125,7 +1080,30 @@ export default function Payments() {
         </button>
       </div>
 
-      {/* STATUS OVERVIEW — click a card to filter the table by that status */}
+      {/* MAIN TABS — Refunds are money going OUT, not a kind of payment, so
+          they get their own tab instead of living in the payments list
+          behind a dropdown filter. */}
+      <div className="flex items-center gap-2 border-b border-slate-200">
+        {['Payments', 'Refunds'].map(tab => (
+          <button
+            key={tab}
+            onClick={() => { setMainTab(tab); setActiveTab('All'); scrollToTable(); }}
+            className={`px-4 py-2.5 text-sm font-bold border-b-2 -mb-px transition-colors ${
+              mainTab === tab
+                ? 'border-[#008A45] text-[#007038]'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            {tab === 'Payments' ? 'Payments' : 'Refunds'}
+          </button>
+        ))}
+      </div>
+
+      {/* STATUS OVERVIEW — click a card to filter the table by that status.
+          Only meaningful for the Payments tab: a refund's status is always
+          Refunded, so the Downpayment/Fully Paid/Pending Verification split
+          doesn't apply there. */}
+      {mainTab === 'Payments' && (
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
         <div className="flex items-center gap-1.5 mb-3">
           <LayoutGrid size={13} className="text-slate-400" />
@@ -1160,6 +1138,7 @@ export default function Payments() {
           ))}
         </div>
       </div>
+      )}
 
       {/* FILTERS */}
       <div className={`bg-white rounded-2xl border shadow-sm p-5 transition-colors ${activePaymentFilterCount > 0 ? 'border-[#008A45]/30' : 'border-slate-200'}`}>
@@ -1176,7 +1155,7 @@ export default function Payments() {
           <div className="flex items-center gap-2">
             {activePaymentFilterCount > 0 && (
               <button
-                onClick={() => { setTableSearchTerm(''); setTypeFilter('All'); setMethodFilter('All'); setTransactionTypeFilter('All'); setDatePreset('All Time'); setCustomStart(''); setCustomEnd(''); }}
+                onClick={() => { setTableSearchTerm(''); setTypeFilter('All'); setMethodFilter('All'); setDatePreset('All Time'); setCustomStart(''); setCustomEnd(''); }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
               >
                 <RotateCcw size={13} /> Clear all
@@ -1234,19 +1213,6 @@ export default function Payments() {
           </div>
 
           <div>
-            <label className={`block text-[11px] font-semibold mb-1 ${transactionTypeFilter !== 'All' ? 'text-[#007038]' : 'text-slate-500'}`}>Transaction</label>
-            <select
-              value={transactionTypeFilter}
-              onChange={(e) => setTransactionTypeFilter(e.target.value)}
-              className={`border rounded-lg px-3 py-2.5 text-sm outline-none transition-colors ${transactionTypeFilter !== 'All' ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-300 bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
-            >
-              <option value="All">All</option>
-              <option value="Payments">Payments in</option>
-              <option value="Refunds">Refunds out</option>
-            </select>
-          </div>
-
-          <div>
             <label className={`block text-[11px] font-semibold mb-1 ${datePreset !== 'All Time' ? 'text-[#007038]' : 'text-slate-500'}`}>Payment Date</label>
             <DateRangeFilter
               preset={datePreset}
@@ -1263,11 +1229,17 @@ export default function Payments() {
         </div>
       </div>
 
-      {/* PAYMENTS TABLE */}
+      {/* PAYMENTS TABLE — one row per booking/short order on the Payments
+          tab (click a row to see every payment made against it); refunds
+          are each their own event, so that tab stays one row per record. */}
       <div ref={tableRef} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden scroll-mt-4">
         <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800 flex justify-between items-center">
-          <span>{activeTab === 'All' ? 'All Payments' : activeTab}</span>
-          <span className="text-xs font-normal text-slate-500">{filteredPayments.length} result{filteredPayments.length === 1 ? '' : 's'}</span>
+          <span>{mainTab === 'Refunds' ? 'Refunds' : (activeTab === 'All' ? 'All Payments' : activeTab)}</span>
+          <span className="text-xs font-normal text-slate-500">
+            {mainTab === 'Refunds'
+              ? `${filteredPayments.length} result${filteredPayments.length === 1 ? '' : 's'}`
+              : `${groupedPayments.length} booking${groupedPayments.length === 1 ? '' : 's'}`}
+          </span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -1277,94 +1249,156 @@ export default function Payments() {
                 <th className="p-4 font-bold">Reference</th>
                 <th className="p-4 font-bold">Status</th>
                 <th className="p-4 font-bold">Type</th>
-                <th className="p-4 font-bold">Method</th>
+                {mainTab === 'Refunds' ? (
+                  <th className="p-4 font-bold">Method</th>
+                ) : (
+                  <th className="p-4 font-bold">Payments</th>
+                )}
                 <th className="p-4 font-bold">Amount</th>
                 <th className="p-4 font-bold">Payment Status</th>
                 <th className="p-4">{renderSortHeader('date', 'Date')}</th>
                 <th className="p-4 font-bold text-center">Proof</th>
-                <th className="p-4 font-bold text-right">Actions</th>
+                {mainTab === 'Refunds' ? null : <th className="p-4 font-bold text-right">Actions</th>}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
-              {loading ? (
-                <tr><td colSpan="10" className="p-6 text-center text-slate-400">Loading payments...</td></tr>
-              ) : filteredPayments.length === 0 ? (
-                <tr><td colSpan="10" className="p-6 text-center text-slate-500 italic">No payments found.</td></tr>
-              ) : (
-                sortedPayments.map((payment) => {
-                  const refund = isRefund(payment);
-                  const orderStatus = payment.booking?.booking_status || 'Unknown';
-                  const isCancelledOrRejected = orderStatus === 'Rejected' || orderStatus === 'Cancelled';
-                  return (
-                    <tr
-                      key={payment.payment_id}
-                      className={`hover:bg-slate-50 transition-colors cursor-pointer ${refund ? 'bg-red-50/50' : ''} ${isCancelledOrRejected ? 'opacity-70' : ''}`}
-                      onClick={() => handleRowClick(payment)}
-                    >
-                      <td className="p-4">
-                        <p className="font-bold text-slate-900">{getClientName(payment)}</p>
-                      </td>
-                      <td className="p-4 text-slate-600">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); goToBookingDetails(payment.booking_id, payment.booking?.booking_type); }}
-                          className="text-[#008A45] hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
-                          title="View full booking details"
-                        >
-                          {getBookingRef(payment)} <ExternalLink size={11} />
-                        </button>
-                      </td>
-                      <td className="p-4">
-                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium border ${getOrderStatusBadge(orderStatus)}`}>
-                          {orderStatus}
-                        </span>
-                      </td>
-                      <td className="p-4 text-slate-600">
-                        {payment.booking?.booking_type === 'Short Order' ? 'Short Order' : 'Package'}
-                      </td>
-                      {/* Method holds only actual ways of paying. Refund rows
-                          store the placeholder 'Refund' in pay_method because
-                          the refund dialogs never captured a real method — so
-                          printing it here is what put a transaction type in
-                          the method column. The row is already identifiable as
-                          a refund by its red negative amount and its Refunded
-                          status. */}
-                      <td className="p-4 font-medium text-slate-700">
-                        {refund
-                          ? <span className="text-slate-400" title="No payment method was recorded for this refund">—</span>
-                          : (payment.pay_method || 'N/A')}
-                      </td>
-                      <td className={`p-4 font-bold ${refund ? 'text-red-600' : 'text-slate-900'}`}>
-                        {refund ? '-' : ''}₱{Math.abs(payment.amount_paid || 0).toLocaleString()}
-                      </td>
-                      {/* Shows the derived kind, so the third payment on a
-                          booking reads "Partial payment" instead of a third
-                          "Downpayment". Stored pay_status is untouched — the
-                          status tabs above still filter on it. */}
-                      <td className="p-4">
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadge(payment.pay_status)}`}>
-                          {payment.pay_status === 'Refunded'
-                            ? 'Refunded'
-                            : describePaymentKind(
-                                payment,
-                                payments.filter(p => p.booking_id === payment.booking_id
-                                  && p.payment_id !== payment.payment_id
-                                  && new Date(p.pay_datetime || 0) <= new Date(payment.pay_datetime || 0)),
-                                payment.booking?.total_amount,
-                              )}
-                        </span>
-                      </td>
-                      <td className="p-4 text-slate-600">
-                        {payment.pay_datetime ? new Date(payment.pay_datetime).toLocaleDateString() : 'N/A'}
-                      </td>
-                      <td className="p-4 text-center">
-                        {renderProof(payment.pay_proof)}
-                      </td>
-                      <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-3">
-                          {payment.pay_status === 'Pending Verification' && (
-                            <>
+            {mainTab === 'Refunds' ? (
+              <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
+                {loading ? (
+                  <tr><td colSpan="9" className="p-6 text-center text-slate-400">Loading refunds...</td></tr>
+                ) : filteredPayments.length === 0 ? (
+                  <tr><td colSpan="9" className="p-6 text-center text-slate-500 italic">No refunds found.</td></tr>
+                ) : (
+                  sortedPayments.map((payment) => {
+                    const orderStatus = payment.booking?.booking_status || 'Unknown';
+                    return (
+                      <tr
+                        key={payment.payment_id}
+                        className="hover:bg-slate-50 transition-colors cursor-pointer bg-red-50/50"
+                        onClick={() => handleRowClick(payment)}
+                      >
+                        <td className="p-4">
+                          <p className="font-bold text-slate-900">{getClientName(payment)}</p>
+                        </td>
+                        <td className="p-4 text-slate-600">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); goToBookingDetails(payment.booking_id, payment.booking?.booking_type); }}
+                            className="text-[#008A45] hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
+                            title="View full booking details"
+                          >
+                            {getBookingRef(payment)} <ExternalLink size={11} />
+                          </button>
+                        </td>
+                        <td className="p-4">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium border ${getOrderStatusBadge(orderStatus)}`}>
+                            {orderStatus}
+                          </span>
+                        </td>
+                        <td className="p-4 text-slate-600">
+                          {payment.booking?.booking_type === 'Short Order' ? 'Short Order' : 'Package'}
+                        </td>
+                        {/* No payment method was ever captured for a refund —
+                            it's money going out, not a way of paying. */}
+                        <td className="p-4 font-medium text-slate-700">
+                          <span className="text-slate-400" title="No payment method was recorded for this refund">—</span>
+                        </td>
+                        <td className="p-4 font-bold text-red-600">
+                          -₱{Math.abs(payment.amount_paid || 0).toLocaleString()}
+                        </td>
+                        <td className="p-4">
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadge('Refunded')}`}>
+                            Refunded
+                          </span>
+                        </td>
+                        <td className="p-4 text-slate-600">
+                          {payment.pay_datetime ? new Date(payment.pay_datetime).toLocaleDateString() : 'N/A'}
+                        </td>
+                        <td className="p-4 text-center">
+                          {renderProof(payment.pay_proof)}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            ) : (
+              <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
+                {loading ? (
+                  <tr><td colSpan="9" className="p-6 text-center text-slate-400">Loading payments...</td></tr>
+                ) : groupedPayments.length === 0 ? (
+                  <tr><td colSpan="9" className="p-6 text-center text-slate-500 italic">No payments found.</td></tr>
+                ) : (
+                  sortedGroupedPayments.map((group) => {
+                    const { latest } = group;
+                    const orderStatus = group.booking?.booking_status || 'Unknown';
+                    const isCancelledOrRejected = orderStatus === 'Rejected' || orderStatus === 'Cancelled';
+                    const hasPendingVerification = group.entries.some(isUnverifiedPayment);
+                    // Prior payments relative to the latest one — same rule
+                    // the row used before grouping: only payments that landed
+                    // at or before this one count toward "already paid",
+                    // so the label reflects the ledger's state at that moment.
+                    const priorForLatest = payments.filter(p => p.booking_id === latest.booking_id
+                      && p.payment_id !== latest.payment_id
+                      && new Date(p.pay_datetime || 0) <= new Date(latest.pay_datetime || 0));
+                    return (
+                      <tr
+                        key={group.bookingId}
+                        className={`hover:bg-slate-50 transition-colors cursor-pointer ${isCancelledOrRejected ? 'opacity-70' : ''}`}
+                        onClick={() => handleRowClick(latest)}
+                      >
+                        <td className="p-4">
+                          <p className="font-bold text-slate-900">{getClientName(latest)}</p>
+                        </td>
+                        <td className="p-4 text-slate-600">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); goToBookingDetails(latest.booking_id, group.booking?.booking_type); }}
+                            className="text-[#008A45] hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
+                            title="View full booking details"
+                          >
+                            {getBookingRef(latest)} <ExternalLink size={11} />
+                          </button>
+                        </td>
+                        <td className="p-4">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium border ${getOrderStatusBadge(orderStatus)}`}>
+                            {orderStatus}
+                          </span>
+                        </td>
+                        <td className="p-4 text-slate-600">
+                          {group.booking?.booking_type === 'Short Order' ? 'Short Order' : 'Package'}
+                        </td>
+                        <td className="p-4 font-medium text-slate-700">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleRowClick(latest); }}
+                            className="inline-flex items-center gap-1 text-slate-600 hover:text-[#008A45] hover:underline"
+                            title="View all payments for this booking"
+                          >
+                            {group.count} payment{group.count === 1 ? '' : 's'} <ChevronRight size={12} />
+                          </button>
+                        </td>
+                        <td className="p-4 font-bold text-slate-900">
+                          ₱{group.totalPaid.toLocaleString()}
+                        </td>
+                        {/* Shows the derived kind of the MOST RECENT payment,
+                            not the booking overall — so a booking's history
+                            still reads Downpayment → Partial payment → Fully
+                            Paid as each new payment lands, instead of every
+                            row flipping to "Fully Paid" the moment the
+                            balance clears. */}
+                        <td className="p-4">
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadge(latest.pay_status)}`}>
+                            {describePaymentKind(latest, priorForLatest, group.booking?.total_amount)}
+                          </span>
+                        </td>
+                        <td className="p-4 text-slate-600">
+                          {latest.pay_datetime ? new Date(latest.pay_datetime).toLocaleDateString() : 'N/A'}
+                        </td>
+                        <td className="p-4 text-center">
+                          {renderProof(latest.pay_proof)}
+                        </td>
+                        <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
+                          {hasPendingVerification && (
+                            <div className="flex items-center justify-end gap-3">
                               <button
-                                onClick={() => openVerifyModal(payment)}
+                                onClick={() => openVerifyModal(group.entries.find(isUnverifiedPayment))}
                                 disabled={isVerifying}
                                 className="text-green-600 hover:text-green-800 transition-colors disabled:opacity-50"
                                 title="Verify Payment"
@@ -1372,36 +1406,22 @@ export default function Payments() {
                                 <Check size={16} />
                               </button>
                               <button
-                                onClick={() => openRejectProofModal(payment)}
+                                onClick={() => openRejectProofModal(group.entries.find(isUnverifiedPayment))}
                                 disabled={isVerifying}
                                 className="text-red-500 hover:text-red-700 transition-colors disabled:opacity-50"
                                 title="Reject Proof"
                               >
                                 <X size={16} />
                               </button>
-                            </>
+                            </div>
                           )}
-                          <button
-                            onClick={() => openEditModal(payment)}
-                            className="text-slate-400 hover:text-[#008A45] transition-colors"
-                            title={isPaymentLedgerLocked(payment.booking?.booking_status) ? paymentLockedMessage(payment.booking?.booking_status) : 'Edit'}
-                          >
-                            {isPaymentLedgerLocked(payment.booking?.booking_status) ? <Lock size={16} /> : <Edit size={16} />}
-                          </button>
-                          <button
-                            onClick={() => handleDelete(payment.payment_id)}
-                            className="text-slate-400 hover:text-red-600 transition-colors"
-                            title={isPaymentLedgerLocked(payment.booking?.booking_status) ? paymentLockedMessage(payment.booking?.booking_status) : 'Delete'}
-                          >
-                            {isPaymentLedgerLocked(payment.booking?.booking_status) ? <Lock size={16} /> : <Trash2 size={16} />}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            )}
           </table>
         </div>
       </div>
@@ -1478,7 +1498,15 @@ export default function Payments() {
                   <span className="font-medium text-slate-500">Payment Status</span>
                   <p>
                     <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadge(selectedPaymentDetail.pay_status)}`}>
-                      {selectedPaymentDetail.pay_status}
+                      {selectedPaymentDetail.pay_status === 'Refunded'
+                        ? 'Refunded'
+                        : describePaymentKind(
+                            selectedPaymentDetail,
+                            payments.filter(p => p.booking_id === selectedPaymentDetail.booking_id
+                              && p.payment_id !== selectedPaymentDetail.payment_id
+                              && new Date(p.pay_datetime || 0) <= new Date(selectedPaymentDetail.pay_datetime || 0)),
+                            selectedPaymentDetail.booking?.total_amount,
+                          )}
                     </span>
                   </p>
                 </div>
@@ -1532,12 +1560,24 @@ export default function Payments() {
                   <div className="space-y-2 max-h-48 overflow-y-auto">
                     {payments
                       .filter(p => p.booking_id === selectedPaymentDetail.booking_id && p.payment_id !== selectedPaymentDetail.payment_id)
-                      .map(p => (
-                        <div key={p.payment_id} className="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg px-4 py-2 text-sm">
-                          <span>{p.pay_status} – ₱{Math.abs(p.amount_paid).toLocaleString()}</span>
-                          <span className="text-slate-500">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleDateString() : ''}</span>
-                        </div>
-                      ))}
+                      .sort((a, b) => new Date(b.pay_datetime || 0) - new Date(a.pay_datetime || 0))
+                      .map(p => {
+                        const kind = p.pay_status === 'Refunded'
+                          ? 'Refunded'
+                          : describePaymentKind(
+                              p,
+                              payments.filter(other => other.booking_id === p.booking_id
+                                && other.payment_id !== p.payment_id
+                                && new Date(other.pay_datetime || 0) <= new Date(p.pay_datetime || 0)),
+                              p.booking?.total_amount ?? selectedPaymentDetail.booking?.total_amount,
+                            );
+                        return (
+                          <div key={p.payment_id} className="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg px-4 py-2 text-sm">
+                            <span>{kind} – ₱{Math.abs(p.amount_paid).toLocaleString()}</span>
+                            <span className="text-slate-500">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleDateString() : ''}</span>
+                          </div>
+                        );
+                      })}
                     {payments.filter(p => p.booking_id === selectedPaymentDetail.booking_id && p.payment_id !== selectedPaymentDetail.payment_id).length === 0 && (
                       <p className="text-xs text-slate-400 italic">No other payments recorded.</p>
                     )}
@@ -1837,7 +1877,7 @@ export default function Payments() {
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
               <h2 className="text-lg font-bold text-slate-900">
-                {editingId ? 'Edit Payment Record' : 'Record New Payment'}
+                Record New Payment
               </h2>
               <button
                 onClick={closeModal}
@@ -2063,19 +2103,13 @@ export default function Payments() {
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Proof of Payment
-                  {!editingId && <span className="text-red-500 ml-1">*</span>}
-                  {editingId && formData.pay_proof && formData.pay_proof !== 'placeholder.png' && formData.pay_proof !== 'refund_placeholder.png' && (
-                    <span className="text-xs text-slate-400 ml-2">(optional – replace existing)</span>
-                  )}
-                  {editingId && (!formData.pay_proof || formData.pay_proof === 'placeholder.png' || formData.pay_proof === 'refund_placeholder.png') && (
-                    <span className="text-red-500 ml-1">*</span>
-                  )}
+                  <span className="text-red-500 ml-1">*</span>
                 </label>
                 <label className={`border-2 border-dashed rounded-lg p-4 flex flex-col items-center justify-center transition-colors cursor-pointer text-center relative overflow-hidden h-24 ${fileError ? 'border-red-400 bg-red-50/40 hover:bg-red-50' : 'border-slate-300 bg-slate-50 hover:bg-slate-100'}`}>
                   <input type="file" onChange={handleFileChange} accept="image/*" className="hidden" />
                   <ImageIcon size={20} className={fileError ? 'text-red-400 mb-1' : 'text-slate-400 mb-1'} />
                   <span className="text-xs font-semibold text-slate-600">
-                    {selectedFile ? selectedFile.name : (editingId ? 'Upload New Image (Optional)' : 'Upload Image')}
+                    {selectedFile ? selectedFile.name : 'Upload Image'}
                   </span>
                   <span className="text-[10px] text-slate-400 mt-0.5">PNG, JPG up to 5MB</span>
                 </label>
@@ -2083,9 +2117,7 @@ export default function Payments() {
                   <p className="text-xs text-red-600 mt-1 font-semibold">{fileError}</p>
                 ) : (
                   <p className="text-xs text-slate-400 mt-1">
-                    {editingId && formData.pay_proof && formData.pay_proof !== 'placeholder.png' && formData.pay_proof !== 'refund_placeholder.png'
-                      ? 'Leave blank to keep existing proof.'
-                      : 'Upload a proof image; will be stored in Supabase Storage.'}
+                    Upload a proof image; will be stored in Supabase Storage.
                   </p>
                 )}
               </div>
@@ -2104,7 +2136,7 @@ export default function Payments() {
                   disabled={isSubmitting || uploading}
                   className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
                 >
-                  {uploading ? 'Uploading...' : (isSubmitting ? 'Saving...' : (editingId ? 'Save Changes' : 'Record Payment'))}
+                  {uploading ? 'Uploading...' : (isSubmitting ? 'Saving...' : 'Record Payment')}
                 </button>
               </div>
             </form>

@@ -34,9 +34,9 @@ figure comes from `utils/reportMetrics.js`, every stock figure from
 
 | ID | Module | Panel | Comment (short) | Status |
 |---|---|---|---|---|
-| PR-01 | Payments | Förster | Password verification before sensitive payment actions | **OPEN** (delete done, approve not) |
+| PR-01 | Payments | Förster | Password verification before sensitive payment actions | DONE (moot — payments can no longer be edited or deleted at all; verifying still asks for a password) |
 | PR-02 | Payments | Förster | Filter by date range / month and by method | DONE |
-| PR-03 | Payments | Curativo | Distinguish downpayment / partial / full | **OPEN** |
+| PR-03 | Payments | Curativo | Distinguish downpayment / partial / full | DONE |
 | PR-04 | Payments | Curativo | Manager confirms payment after proof received | DONE |
 | PR-05 | Equipment | Förster | Total available equipment for a selected date | DONE |
 | PR-06 | Equipment | Förster | Availability keyed to the booking/event date | DONE |
@@ -67,7 +67,7 @@ figure comes from `utils/reportMetrics.js`, every stock figure from
 | PR-31 | Menu Performance | Rivera | How packages vs specific menu items are treated | DONE |
 | PR-32 | Menu Performance | Rivera | Should a Bronze Package sale count toward Beef Caldereta? | **DECIDE** |
 
-Counts: **19 done**, **6 open**, **3 need a decision**, **2 mobile**, 2 split.
+Counts: **21 done**, **4 open**, **3 need a decision**, **2 mobile**, 2 split.
 
 ---
 
@@ -79,25 +79,18 @@ Counts: **19 done**, **6 open**, **3 need a decision**, **2 mobile**, 2 split.
 > **manager/password verification** before sensitive payment actions such as
 > deletion or approval." — Förster
 
-Deletion already asks. **Approval does not.**
-
-- Deleting a payment: `Payments.jsx:705-717` — `showConfirm` then
-  `requestPasswordConfirm`. Satisfied.
-- Verifying a customer's payment proof: `Payments.jsx:624` `handleVerifyConfirm`
-  and `hooks/useVerificationHandlers.js:40` — no password step. This is the
-  action that turns an unverified claim into counted money, so it is the more
-  consequential of the two.
-
-**Files:** `src/pages/Payments.jsx`, `src/hooks/useVerificationHandlers.js`
-**Change:** add `requestPasswordConfirm` to both verify handlers, before the
-`payment` update. Reuse the wording style already in the file: title
-`'Confirm your password'`, message `'Verifying a payment records it as money
-received. Re-enter your password to continue.'`
-**Also:** apply the ordering rule established for `handleDeleteEquipment` — any
-blocking check runs *before* the confirm and password, never after.
-**Acceptance:** verifying a proof prompts for a password; cancelling the prompt
-leaves `pay_status` unchanged; rejecting a proof still does **not** prompt (it
-takes nothing in).
+**DONE, and moot on the deletion half** — a later panel note (paraphrased:
+"a payment should not be edited or deleted at all, since recording one
+already goes through pending verification or manual entry — there's no
+legitimate reason to alter or remove one afterward") removed payment
+edit/delete entirely rather than gating it behind a password. There is no
+delete-payment action left anywhere in the app (`Payments.jsx`,
+`BookingDetails.jsx`, `ShortOrderDetails.jsx`, and the shared
+`usePaymentHandlers.js` hook all had the edit/delete code paths removed) — a
+refund is recorded as its own new (also un-editable) entry instead.
+Verification already asks: `Payments.jsx` `handleVerifyConfirm` calls
+`requestPasswordConfirm` before the `payment` update; rejecting a proof does
+not prompt, since it takes nothing in.
 
 ### PR-03 · Distinguish downpayment / partial payment / full payment
 
@@ -128,6 +121,16 @@ untouched; only the badge text changes.
 **Acceptance:** a booking with three payments reads Downpayment → Partial payment
 → Fully Paid; `pay_status` in the database still only ever holds `Downpayment`
 or `Fully Paid`; the Payments status tabs still filter on the stored value.
+
+**DONE.** `describePaymentKind(payment, priorVerifiedPayments, bookingTotal)`
+already existed in `src/utils/payments.js` and was already wired into
+`Payments.jsx`. It is now also wired into `BookingDetails.jsx` and
+`ShortOrderDetails.jsx`'s payment-history tables (both previously showed the
+raw two-value `pay_status` instead), so the frozen-per-payment label is
+consistent everywhere a payment history is shown — including the grouped
+Payments table added for the one-row-per-booking view (each row shows the
+label frozen at the time its own most recent payment landed, not
+recalculated against the booking's current total).
 
 ### PR-15 · "Upcoming Event (7 Days)" label
 
@@ -475,12 +478,38 @@ list. This is the single most likely way the mobile app breaks the web UI.
 
 1. **PR-19** — the row cap. Silent, worsens on its own, and it is the likely
    cause of the count the panel could not reconcile.
-2. **PR-23** — refunds out of the method lists. Directly asked for, self-contained.
-3. **PR-01** — password on payment approval.
-4. **PR-27** — reproduce BK-067, then fix.
-5. **PR-03** — the partial-payment distinction.
-6. **PR-20/21** — write the payment workflow down (PR-22 done in `58eda4e`).
-7. §3 decisions, once answered.
+2. **PR-27** — reproduce BK-067, then fix.
+3. **PR-20/21** — write the payment workflow down (PR-22 done in `58eda4e`).
+4. §3 decisions, once answered.
 
-PR-15 (the 7-day label) and PR-23 (refunds) are closed; PR-19 is the one left
-that is silently wrong rather than merely unclear.
+PR-15 (the 7-day label), PR-23 (refunds out of the method lists), PR-01
+(password before sensitive payment actions — moot now that payments can't be
+edited or deleted at all), and PR-03 (the partial-payment distinction) are
+closed; PR-19 is the one left that is silently wrong rather than merely
+unclear.
+
+### Payments restructure (2026-08-23, not from the tracked panel review)
+
+A later, untracked panelist note drove a further Payments rework beyond
+what's in §2-5 above:
+1. **Payments.jsx main table** now shows one row per booking/short order
+   (grouped by `booking_id`) instead of one row per payment record; clicking
+   a row opens the existing Payment Details modal, which lists every other
+   payment on that booking.
+2. **Edit and Delete are gone for payment records everywhere** — Payments.jsx,
+   BookingDetails.jsx, ShortOrderDetails.jsx, and the shared
+   `usePaymentHandlers.js` hook. A recorded payment already went through
+   manual entry or mobile proof verification, so altering or removing it
+   afterward doesn't make sense (this also closes PR-01 above). Booking-edit
+   and equipment-edit locks (`isPaymentLedgerLocked`) are untouched — they
+   never gated payments specifically, only the booking record and its
+   equipment assignments.
+3. **Refunds moved to their own tab** in Payments.jsx (Payments / Refunds),
+   replacing the old "Transaction" dropdown filter — a refund is money going
+   out, not a kind of payment, so it no longer shares a list with payments at
+   all.
+4. **`describePaymentKind` is now applied everywhere a payment history
+   shows**, including BookingDetails.jsx and ShortOrderDetails.jsx (previously
+   raw `pay_status`), so a payment's displayed kind is frozen at the moment it
+   was recorded and never retroactively flips to "Fully Paid" when a later
+   payment clears the balance (closes PR-03 above).

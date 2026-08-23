@@ -14,7 +14,7 @@ import { useCancellationHandlers } from '../hooks/useCancellationHandlers';
 import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
-import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, paymentLockedMessage } from '../utils/payments';
+import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind } from '../utils/payments';
 import { bookingEditLockedMessage } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
@@ -183,28 +183,16 @@ export default function ShortOrderDetails() {
   const {
     isPaymentModalOpen,
     setIsPaymentModalOpen,
-    isEditPaymentModalOpen,
-    setIsEditPaymentModalOpen,
-    editingPayment,
     paymentFormData,
-    editPaymentFormData,
     selectedFile,
-    editSelectedFile,
     isPaymentSubmitting,
     uploading,
     paymentAmountError,
     paymentFileError,
-    editAmountError,
-    editFileError,
     openPaymentModal,
     handlePaymentInputChange,
     handlePaymentFileChange,
     handlePaymentSubmit,
-    openEditPaymentModal,
-    handleEditPaymentSubmit,
-    handleDeletePayment,
-    setEditPaymentFormData,
-    setEditSelectedFile,
     getProofUrl,
     setPaymentFormData,
   } = usePaymentHandlers({
@@ -213,7 +201,6 @@ export default function ShortOrderDetails() {
     totalAmount: order?.total_amount || 0,
     fetchData: fetchOrder,
     customerId: order?.customer_id,
-    bookingStatus: order?.booking_status,
   });
 
   // Approval Handlers (works for short orders as well)
@@ -1006,6 +993,17 @@ export default function ShortOrderDetails() {
                   <tbody className="divide-y divide-slate-200 text-slate-700">
                     {payments.map(p => {
                       const pendingVerification = p.pay_status === 'Pending Verification';
+                      // Frozen historical label — matches Payments.jsx and
+                      // BookingDetails.jsx: only the payment that actually
+                      // clears the balance reads "Fully Paid".
+                      const kind = p.pay_status === 'Refunded'
+                        ? 'Refunded'
+                        : describePaymentKind(
+                            p,
+                            payments.filter(other => other.payment_id !== p.payment_id
+                              && new Date(other.pay_datetime || 0) <= new Date(p.pay_datetime || 0)),
+                            order.total_amount,
+                          );
                       return (
                       <tr key={p.payment_id} className={p.amount_paid < 0 ? 'bg-red-50' : pendingVerification ? 'bg-blue-50' : ''}>
                         <td className={`p-3 font-bold ${p.amount_paid < 0 ? 'text-red-600' : ''}`}>
@@ -1015,44 +1013,27 @@ export default function ShortOrderDetails() {
                         <td className="p-3">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                             p.pay_status === 'Refunded' ? 'bg-red-100 text-red-700 border border-red-200' :
-                            p.pay_status === 'Fully Paid' ? 'bg-green-100 text-green-700 border border-green-200' :
+                            kind === 'Fully Paid' ? 'bg-green-100 text-green-700 border border-green-200' :
                             p.pay_status === 'Pending Verification' ? 'bg-blue-100 text-blue-700 border border-blue-200' :
                             p.pay_status === 'Proof Rejected' ? 'bg-red-100 text-red-700 border border-red-200' :
                             'bg-amber-100 text-amber-700 border border-amber-200'
                           }`}>
-                            {p.pay_status || 'N/A'}
+                            {kind}
                           </span>
                         </td>
                         <td className="p-3">{renderProof(p.pay_proof)}</td>
                         <td className="p-3">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleString() : 'N/A'}</td>
                         <td className="p-3 text-center">
-                          <div className="flex justify-center gap-2">
-                            {pendingVerification ? (
-                              <>
-                                <button onClick={() => openVerifyModal(p)} disabled={isVerifying} className="text-green-600 hover:text-green-800 disabled:opacity-50" title="Verify Payment">
-                                  <Check size={14} />
-                                </button>
-                                <button onClick={() => openRejectProofModal(p)} disabled={isVerifying} className="text-red-500 hover:text-red-700 disabled:opacity-50" title="Reject Proof">
-                                  <X size={14} />
-                                </button>
-                              </>
-                            ) : (
-                              <button
-                                onClick={() => openEditPaymentModal(p)}
-                                className={isPaymentLedgerLocked(order.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-blue-500 hover:text-blue-700'}
-                                title={isPaymentLedgerLocked(order.booking_status) ? paymentLockedMessage(order.booking_status, { noun: 'order' }) : 'Edit Payment'}
-                              >
-                                {isPaymentLedgerLocked(order.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
+                          {pendingVerification && (
+                            <div className="flex justify-center gap-2">
+                              <button onClick={() => openVerifyModal(p)} disabled={isVerifying} className="text-green-600 hover:text-green-800 disabled:opacity-50" title="Verify Payment">
+                                <Check size={14} />
                               </button>
-                            )}
-                            <button
-                              onClick={() => handleDeletePayment(p.payment_id)}
-                              className={isPaymentLedgerLocked(order.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-red-500 hover:text-red-700'}
-                              title={isPaymentLedgerLocked(order.booking_status) ? paymentLockedMessage(order.booking_status, { noun: 'order' }) : 'Delete Payment'}
-                            >
-                              {isPaymentLedgerLocked(order.booking_status) ? <Lock size={14} /> : <Trash2 size={14} />}
-                            </button>
-                          </div>
+                              <button onClick={() => openRejectProofModal(p)} disabled={isVerifying} className="text-red-500 hover:text-red-700 disabled:opacity-50" title="Reject Proof">
+                                <X size={14} />
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                       );
@@ -1397,90 +1378,6 @@ export default function ShortOrderDetails() {
                 <button type="button" onClick={() => setIsPaymentModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">Cancel</button>
                 <button type="submit" disabled={isPaymentSubmitting || uploading} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50">
                   {uploading ? 'Uploading...' : (isPaymentSubmitting ? 'Saving...' : 'Record Payment')}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* ===== EDIT PAYMENT MODAL ===== */}
-      {isEditPaymentModalOpen && editingPayment && createPortal(
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
-              <h2 className="text-lg font-bold text-slate-900">Edit Payment</h2>
-              <button onClick={() => setIsEditPaymentModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors">
-                <X size={18} />
-              </button>
-            </div>
-            <form onSubmit={handleEditPaymentSubmit} className="p-6 overflow-y-auto space-y-6 text-left">
-              <div className="bg-[#F8F9FA] border border-slate-200 rounded-lg p-4 space-y-2 text-sm">
-                <h4 className="font-bold text-slate-900 text-sm mb-2">Order Details</h4>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-                  <span className="text-slate-600 font-medium">Customer:</span>
-                  <span className="text-slate-900 font-semibold">{order.customer ? `${order.customer.first_name} ${order.customer.last_name}` : 'Unknown'}</span>
-                  <span className="text-slate-600 font-medium">Type:</span>
-                  <span className="text-slate-900 font-semibold">Short Order</span>
-                  <span className="text-slate-600 font-medium">Total Amount:</span>
-                  <span className="text-slate-900 font-bold text-[#008A45]">₱{order.total_amount?.toLocaleString() || '0'}</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Amount (₱)</label>
-                  <input type="number" name="amount" value={editPaymentFormData.amount} onChange={(e) => setEditPaymentFormData({...editPaymentFormData, amount: e.target.value})} placeholder="0.00" step="0.01" required className={`w-full border rounded-lg p-2.5 text-sm focus:ring-2 outline-none ${editAmountError ? 'border-red-400 focus:ring-red-200 focus:border-red-400 bg-red-50/40' : 'border-slate-300 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`} />
-                  {editAmountError && <p className="text-xs text-red-600 mt-1 font-semibold">{editAmountError}</p>}
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Payment Status</label>
-                  <select name="pay_status" value={editPaymentFormData.pay_status} onChange={(e) => setEditPaymentFormData({...editPaymentFormData, pay_status: e.target.value})} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white">
-                    <option value="Downpayment">Downpayment</option>
-                    <option value="Fully Paid">Fully Paid</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-2">Payment Method</label>
-                <div className="grid grid-cols-3 gap-3">
-                  {['Cash', 'GCash', 'Bank Transfer'].map((method) => (
-                    <button
-                      key={method}
-                      type="button"
-                      onClick={() => setEditPaymentFormData(prev => ({ ...prev, pay_method: method }))}
-                      className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border text-sm font-semibold transition-all ${editPaymentFormData.pay_method === method ? 'bg-[#CBDEDD]/60 border-[#008A45] text-slate-900 shadow-xs' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}
-                    >
-                      <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${editPaymentFormData.pay_method === method ? 'border-[#008A45]' : 'border-slate-400'}`}>
-                        {editPaymentFormData.pay_method === method && <div className="w-1.5 h-1.5 rounded-full bg-[#008A45]" />}
-                      </div>
-                      {method}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Proof of Payment</label>
-                <label className={`border-2 border-dashed rounded-lg p-4 flex flex-col items-center justify-center transition-colors cursor-pointer text-center relative overflow-hidden h-24 ${editFileError ? 'border-red-400 bg-red-50/40 hover:bg-red-50' : 'border-slate-300 bg-slate-50 hover:bg-slate-100'}`}>
-                  <input type="file" onChange={(e) => setEditSelectedFile(e.target.files[0])} accept="image/*" className="hidden" />
-                  <ImageIcon size={20} className={editFileError ? 'text-red-400 mb-1' : 'text-slate-400 mb-1'} />
-                  <span className="text-xs font-semibold text-slate-600">{editSelectedFile ? editSelectedFile.name : 'Upload New Image'}</span>
-                  <span className="text-[10px] text-slate-400 mt-0.5">PNG, JPG up to 5MB</span>
-                </label>
-                {editFileError ? (
-                  <p className="text-xs text-red-600 mt-1 font-semibold">{editFileError}</p>
-                ) : editPaymentFormData.pay_proof !== 'placeholder.png' && !editSelectedFile ? (
-                  <p className="text-xs text-slate-400 mt-1">Current proof: <a href={getProofUrl(editPaymentFormData.pay_proof)} target="_blank" className="text-blue-500 underline">View</a></p>
-                ) : null}
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-                <button type="button" onClick={() => setIsEditPaymentModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">Cancel</button>
-                <button type="submit" disabled={isPaymentSubmitting || uploading} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50">
-                  {uploading ? 'Uploading...' : (isPaymentSubmitting ? 'Saving...' : 'Update Payment')}
                 </button>
               </div>
             </form>
