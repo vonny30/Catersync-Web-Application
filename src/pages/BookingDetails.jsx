@@ -1027,6 +1027,13 @@ export default function BookingDetails() {
     .reduce((sum, p) => sum + Math.abs(p.amount_paid), 0);
   const netPaid = Math.max(0, positivePayments - totalRefunded);
 
+  // A refund is money going out, not a kind of payment — it doesn't belong
+  // in the Payment Tracking ledger alongside actual payments. Split once
+  // here so the Payment Tracking table only ever lists real payments, and
+  // refunds get their own Refund History section instead.
+  const paymentEntries = payments.filter(p => (p.amount_paid || 0) >= 0);
+  const refundEntries = payments.filter(p => (p.amount_paid || 0) < 0);
+
   let remainingBalance = Math.max(0, (booking.total_amount || 0) - positivePayments);
   if (booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') remainingBalance = 0;
 
@@ -1365,7 +1372,7 @@ export default function BookingDetails() {
                   : `₱${remainingBalance.toLocaleString()}`}
               </span>
             </div>
-            {payments.length > 0 && (
+            {paymentEntries.length > 0 && (
               <div className="mt-4 border border-slate-300 rounded-lg overflow-hidden">
                 <table className="w-full text-left text-sm">
                   <thead>
@@ -1379,29 +1386,26 @@ export default function BookingDetails() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 text-slate-700">
-                    {payments.map(p => {
+                    {paymentEntries.map(p => {
                       const pendingVerification = p.pay_status === 'Pending Verification';
                       // Frozen historical label — the third payment on this
                       // booking reads "Partial payment" rather than a third
                       // "Downpayment", and only the payment that actually
                       // cleared the balance ever reads "Fully Paid".
-                      const kind = p.pay_status === 'Refunded'
-                        ? 'Refunded'
-                        : describePaymentKind(
-                            p,
-                            payments.filter(other => other.payment_id !== p.payment_id
-                              && new Date(other.pay_datetime || 0) <= new Date(p.pay_datetime || 0)),
-                            booking.total_amount,
-                          );
+                      const kind = describePaymentKind(
+                        p,
+                        payments.filter(other => other.payment_id !== p.payment_id
+                          && new Date(other.pay_datetime || 0) <= new Date(p.pay_datetime || 0)),
+                        booking.total_amount,
+                      );
                       return (
-                      <tr key={p.payment_id} className={p.amount_paid < 0 ? 'bg-red-50' : pendingVerification ? 'bg-blue-50' : ''}>
-                        <td className={`p-3 font-bold ${p.amount_paid < 0 ? 'text-red-600' : ''}`}>
-                          {p.amount_paid < 0 ? '-' : ''}₱{Math.abs(p.amount_paid).toLocaleString()}
+                      <tr key={p.payment_id} className={pendingVerification ? 'bg-blue-50' : ''}>
+                        <td className="p-3 font-bold">
+                          ₱{p.amount_paid.toLocaleString()}
                         </td>
                         <td className="p-3">{p.pay_method || 'N/A'}</td>
                         <td className="p-3">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            p.pay_status === 'Refunded' ? 'bg-red-100 text-red-700 border border-red-200' :
                             kind === 'Fully Paid' ? 'bg-green-100 text-green-700 border border-green-200' :
                             p.pay_status === 'Pending Verification' ? 'bg-blue-100 text-blue-700 border border-blue-200' :
                             p.pay_status === 'Proof Rejected' ? 'bg-red-100 text-red-700 border border-red-200' :
@@ -1455,6 +1459,45 @@ export default function BookingDetails() {
               </div>
             )}
           </div>
+
+          {/* Refund History — a refund is money going out, not a kind of
+              payment, so it gets its own place instead of sitting inside
+              the Payment Tracking ledger above. */}
+          {refundEntries.length > 0 && (
+            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
+              <h3 className="text-sm font-bold text-slate-900 mb-4">Refund History</h3>
+              <div className="border border-slate-300 rounded-lg overflow-hidden">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="bg-red-50 text-slate-900 font-bold border-b border-slate-300">
+                      <th className="p-3">Amount</th>
+                      <th className="p-3">Reason</th>
+                      <th className="p-3">Proof</th>
+                      <th className="p-3">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 text-slate-700">
+                    {refundEntries.map(p => (
+                      <tr key={p.payment_id} className="bg-red-50/40">
+                        <td className="p-3 font-bold text-red-600">
+                          -₱{Math.abs(p.amount_paid).toLocaleString()}
+                        </td>
+                        <td className="p-3">{p.remarks || 'N/A'}</td>
+                        <td className="p-3">{renderProof(p.pay_proof)}</td>
+                        <td className="p-3">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleString() : 'N/A'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-slate-50 border-t-2 border-slate-200">
+                    <tr>
+                      <td className="p-3 font-bold text-red-700">-₱{totalRefunded.toLocaleString()}</td>
+                      <td colSpan="3" className="p-3 text-right font-medium text-slate-600">Total refunded</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Menu Selections */}
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs">
