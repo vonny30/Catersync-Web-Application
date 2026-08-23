@@ -1074,7 +1074,7 @@ export default function Payments() {
           <p className="text-xs font-semibold text-slate-600 mb-1">Total Collections</p>
           <h3 className="text-3xl font-extrabold text-slate-900">₱{received.paymentsReceived.toLocaleString()}</h3>
           <p className="text-xs text-slate-500 mt-2">
-            Net of refunds · {datePreset === 'All Time' ? 'all time' : datePreset.toLowerCase()}
+            Already subtracts any refunds · {datePreset === 'All Time' ? 'all time' : datePreset.toLowerCase()}
           </p>
           {received.retainedFromCancellations > 0 && (
             <p className="text-[11px] text-amber-700 mt-1 font-medium">

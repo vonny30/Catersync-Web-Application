@@ -27,7 +27,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
         <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Total Collections</p>
         <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.paymentsReceived)}</h3>
         <p className="text-xs text-slate-500 font-medium mt-2">
-          Cash received in this period, by payment date · net of refunds
+          Money actually received in this period, by payment date · any refunds are already subtracted
         </p>
         <div className="flex flex-wrap gap-x-6 gap-y-1 mt-3 text-xs">
           {financialSummary.retainedFromCancellations > 0 && (
@@ -99,7 +99,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
             </BarChart>
           </ResponsiveContainer>
         )}
-        <div className="mt-2 text-xs text-slate-500 text-right">Each bar is the total verified payments received in that month, net of refunds</div>
+        <div className="mt-2 text-xs text-slate-500 text-right">Each bar is the total confirmed payments for that month, with any refunds already subtracted</div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
