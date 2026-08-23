@@ -7,7 +7,7 @@ import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
-import { sumVerifiedPositivePayments, UNVERIFIED_PAY_STATUSES, isUnverifiedPayment, describePaymentKind } from '../utils/payments';
+import { sumVerifiedPositivePayments, UNVERIFIED_PAY_STATUSES, describePaymentKind } from '../utils/payments';
 import { getPaymentsReceived } from '../utils/reportMetrics';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import DateRangeFilter from './Reports/DateRangeFilter';
@@ -1331,7 +1331,11 @@ export default function Payments() {
                     const { latest } = group;
                     const orderStatus = group.booking?.booking_status || 'Unknown';
                     const isCancelledOrRejected = orderStatus === 'Rejected' || orderStatus === 'Cancelled';
-                    const hasPendingVerification = group.entries.some(isUnverifiedPayment);
+                    // Only 'Pending Verification' still needs action — a
+                    // 'Proof Rejected' row is already a resolved action (the
+                    // manager rejected it), not something still awaiting one,
+                    // so it must not keep showing Verify/Reject buttons.
+                    const hasPendingVerification = group.entries.some(p => p.pay_status === 'Pending Verification');
                     // Prior payments relative to the latest one — same rule
                     // the row used before grouping: only payments that landed
                     // at or before this one count toward "already paid",
@@ -1398,7 +1402,7 @@ export default function Payments() {
                           {hasPendingVerification && (
                             <div className="flex items-center justify-end gap-3">
                               <button
-                                onClick={() => openVerifyModal(group.entries.find(isUnverifiedPayment))}
+                                onClick={() => openVerifyModal(group.entries.find(p => p.pay_status === 'Pending Verification'))}
                                 disabled={isVerifying}
                                 className="text-green-600 hover:text-green-800 transition-colors disabled:opacity-50"
                                 title="Verify Payment"
@@ -1406,7 +1410,7 @@ export default function Payments() {
                                 <Check size={16} />
                               </button>
                               <button
-                                onClick={() => openRejectProofModal(group.entries.find(isUnverifiedPayment))}
+                                onClick={() => openRejectProofModal(group.entries.find(p => p.pay_status === 'Pending Verification'))}
                                 disabled={isVerifying}
                                 className="text-red-500 hover:text-red-700 transition-colors disabled:opacity-50"
                                 title="Reject Proof"
