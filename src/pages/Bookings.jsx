@@ -185,10 +185,20 @@ export default function Bookings() {
         query = query.eq('booking_status', activeTab);
       }
 
-      // Pending -> Approved -> Confirmed -> Completed -> Rejected -> Cancelled
-      // (status_order encodes exactly this priority), then most-recently-created
-      // first within each status group.
+      // Unread ("NEW") bookings float above read ones first — is_read is
+      // false/true, and false sorts before true ascending, so new bookings
+      // land on top regardless of status. Everything below that still
+      // follows the existing rule: Pending -> Approved -> Confirmed ->
+      // Completed -> Rejected -> Cancelled (status_order encodes exactly
+      // this priority), then most-recently-created first within each
+      // status group. That sequence is unchanged — is_read is only an
+      // extra sort key ahead of it, not a replacement for it.
+      // nullsFirst matters here: the NEW badge in this table treats a null
+      // is_read the same as false (`!booking.is_read`), so the sort has to
+      // agree, or an unset row would show "NEW" while sinking to the
+      // bottom instead of floating up with the rest of the new ones.
       query = query
+        .order('is_read', { ascending: true, nullsFirst: true })
         .order('status_order', { ascending: true })
         .order('book_datetime', { ascending: false })
         .order('booking_id', { ascending: false })
