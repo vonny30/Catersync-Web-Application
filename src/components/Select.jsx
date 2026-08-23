@@ -9,7 +9,7 @@
 // Same shape as <select>: pass `value`, `onChange`, and <option> children.
 // onChange is called with a native-shaped event ({ target: { value } }) so
 // existing handlers like `(e) => setFoo(e.target.value)` work unchanged.
-import { useState, useRef, useEffect, Children } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, Children } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 
@@ -33,16 +33,24 @@ export default function Select({ value, onChange, className = '', disabled, name
 
   const selected = options.find(o => String(o.value) === String(value));
 
+  const updatePosition = () => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (rect) {
+      setMenuPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    }
+  };
+
+  // Computed synchronously before the browser paints the opened menu —
+  // otherwise the panel's first frame renders at the stale {top:0,left:0}
+  // default (top-left of the page) and only jumps to the right spot once
+  // the effect below runs, which is what looked like the dropdown
+  // "coming from above" instead of appearing right under the trigger.
+  useLayoutEffect(() => {
+    if (isOpen) updatePosition();
+  }, [isOpen]);
+
   useEffect(() => {
     if (!isOpen) return;
-    const updatePosition = () => {
-      const rect = triggerRef.current?.getBoundingClientRect();
-      if (rect) {
-        setMenuPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
-      }
-    };
-    updatePosition();
-
     const handleClickOutside = (e) => {
       if (triggerRef.current?.contains(e.target) || menuRef.current?.contains(e.target)) return;
       setIsOpen(false);
