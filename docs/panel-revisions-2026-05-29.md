@@ -43,7 +43,7 @@ figure comes from `utils/reportMetrics.js`, every stock figure from
 | PR-07 | Equipment | Förster | Damaged stock must not count as available | DONE |
 | PR-08 | Booking Request | Förster | Proof of payment comes after manager approval | DONE (web side) / **MOBILE** |
 | PR-09 | Booking | Curativo | No booking from past dates | DONE (web) / **MOBILE** |
-| PR-10 | Booking | Curativo | Order records by recency of processing | **DECIDE** |
+| PR-10 | Booking | Curativo | Order records by recency of processing | DONE |
 | PR-11 | Booking | Curativo | Event Type shows wrong data on review page | **MOBILE** |
 | PR-12 | Booking | Curativo | Customer cancel must read Cancelled, not Rejected | **MOBILE** (contract below) |
 | PR-13 | Login | Förster | Block concurrent login from another device | DONE |
@@ -67,7 +67,7 @@ figure comes from `utils/reportMetrics.js`, every stock figure from
 | PR-31 | Menu Performance | Rivera | How packages vs specific menu items are treated | DONE |
 | PR-32 | Menu Performance | Rivera | Should a Bronze Package sale count toward Beef Caldereta? | **DECIDE** |
 
-Counts: **13 done**, **9 open**, **5 need a decision**, **3 mobile**, 2 split.
+Counts: **19 done**, **6 open**, **3 need a decision**, **2 mobile**, 2 split.
 
 ---
 
@@ -337,6 +337,13 @@ closest available proxy is `book_datetime`.
 **Question:** keep oldest-first within status (a queue), or switch to
 newest-first (a feed)? Note that the schema constraint means we cannot sort by
 when a booking was actually last acted on.
+
+**DONE** — Vaughn chose newest-first. Both files now sort
+`status_order ASC, book_datetime DESC, booking_id DESC` — the status grouping
+panel asked to keep is untouched; only the tiebreaker flipped. `booking_id DESC`
+is a second tiebreaker, not part of the decision: `book_datetime` is not unique,
+and both queries page with `.range()`, so a non-unique sort could skip or
+repeat rows across pages without it.
 
 ### PR-14 · Password visibility icon
 

@@ -185,11 +185,12 @@ export default function Bookings() {
       }
 
       // Pending -> Approved -> Confirmed -> Completed -> Rejected -> Cancelled
-      // (status_order encodes exactly this priority), then oldest-created
+      // (status_order encodes exactly this priority), then most-recently-created
       // first within each status group.
       query = query
         .order('status_order', { ascending: true })
-        .order('book_datetime', { ascending: true })
+        .order('book_datetime', { ascending: false })
+        .order('booking_id', { ascending: false })
         .range(from, to);
 
       const { data: bookingsData, count, error: bookingsError } = await query;
