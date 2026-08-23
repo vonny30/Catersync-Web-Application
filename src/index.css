@@ -1,5 +1,20 @@
 @import "tailwindcss";
 
+@theme {
+  /* Tailwind's default slate-400 (oklch 70.4% lightness, ~2.8:1 contrast on
+     white) is this app's single most-used "muted text" shade — labels,
+     meta text, icons, and interactive hints like "Click to view details"
+     all use it, and at that lightness it fails WCAG AA (4.5:1) for normal
+     text. Darkening it to slate-500's value raises contrast everywhere
+     that shade is used, across every page, without touching hundreds of
+     individual call sites. Borders/backgrounds built on slate-400 read a
+     touch more defined too, which helps rather than hurts. slate-300 is
+     deliberately left alone — it's used for genuinely inert states
+     (disabled pagination arrows, list dividers, locked-icon fallbacks)
+     that should stay quieter than anything actionable. */
+  --color-slate-400: oklch(55.4% 0.046 257.417);
+}
+
 html,
 body,
 #root {
@@ -22,4 +37,23 @@ body,
 
 .page-transition {
   animation: fadeInSlideUp 0.3s ease-out forwards;
+}
+
+/* Visible keyboard focus everywhere — buttons, links, inputs, table rows —
+   instead of relying on each page to have declared its own focus ring. */
+:focus-visible {
+  outline: 2px solid #008a45;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Clickable table rows across the app (Payments, Bookings, Short Orders,
+   booking/order detail pages) only ever tinted the background a faint gray
+   on hover — nothing marked the row itself as an actionable target the way
+   a bordered button or card does. `cursor-pointer` is already the class
+   used everywhere a <tr> is meant to be clicked, so a left accent border on
+   exactly that marker raises the affordance app-wide without touching
+   buttons, which already read as clickable on their own. */
+tr.cursor-pointer:hover {
+  box-shadow: inset 3px 0 0 0 #008a45;
 }
