@@ -63,7 +63,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
           onClick={() => onCardClick('collected')}
           className={`rounded-2xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 border ${cardColorClasses('teal')}`}
         >
-          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Paid So Far</p>
+          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Paid to Date</p>
           <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.paidAgainstEvents)}</h3>
           <p className="text-xs text-slate-500 font-medium mt-2">Paid against those events</p>
           <p className="text-[10px] text-emerald-600 font-semibold mt-2 opacity-0 hover:opacity-100 transition-opacity">Click to view breakdown →</p>
