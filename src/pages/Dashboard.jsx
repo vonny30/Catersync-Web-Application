@@ -140,7 +140,7 @@ export default function Dashboard() {
     try {
       const today = new Date();
       const todayStr = toLocalDateStr(today);
-      // Always the real current month — "Payments Received This Month" isn't
+      // Always the real current month — "Total Collections This Month" isn't
       // tied to whatever month the calendar happens to be showing.
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
       const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
@@ -250,7 +250,7 @@ export default function Dashboard() {
       if (upcomingError) throw upcomingError;
       setStats(prev => ({ ...prev, upcomingEvents: upcomingData?.length || 0 }));
 
-      // --- Payments Received This Month ---
+      // --- Total Collections This Month ---
       // Anchored on pay_datetime and computed by utils/reportMetrics, the same
       // function the Payments page and Reports now use. The booking status comes
       // along so cash retained from a cancelled booking can be reported on its
@@ -564,7 +564,7 @@ export default function Dashboard() {
       // cancelled bookings is reported on the card's second line instead —
       // it is deliberately not part of this total.
       setStatsModalData(getPaymentsReceived(data || []).activeRows);
-      setStatsModalTitle(`Payments Received This Month (${today.toLocaleString('default', { month: 'long', year: 'numeric' })})`);
+      setStatsModalTitle(`Total Collections This Month (${today.toLocaleString('default', { month: 'long', year: 'numeric' })})`);
       setStatsModalType('revenue');
       resetStatsFilters();
       setIsStatsModalOpen(true);
@@ -725,7 +725,7 @@ export default function Dashboard() {
           <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
         </button>
 
-        {/* Payments Received This Month */}
+        {/* Total Collections This Month */}
         <button
           onClick={handleRevenueClick}
           className="relative overflow-hidden bg-white border border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-[#008A45]/40 transition-all cursor-pointer group"
@@ -737,7 +737,7 @@ export default function Dashboard() {
           <span className="text-3xl font-extrabold text-slate-900 mb-1">
             ₱{stats.revenueThisMonth.toLocaleString()}
           </span>
-          <span className="text-sm font-medium text-slate-600">Payments Received This Month</span>
+          <span className="text-sm font-medium text-slate-600">Total Collections This Month</span>
           {/* Money kept from bookings that were cancelled or rejected is real
               cash, but it isn't live business — so it sits on its own line
               rather than inflating the headline or disappearing from it. */}
@@ -1117,7 +1117,7 @@ export default function Dashboard() {
                     </table>
                   )}
 
-                  {/* Payments Received - payment list */}
+                  {/* Total Collections - payment list */}
                   {statsModalType === 'revenue' && (
                     <table className="w-full text-left border-collapse">
                       <thead>

@@ -24,7 +24,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
           answers "how much money arrived in this period?", and it is the one
           that must agree with the Dashboard. */}
       <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-2xl p-6 mb-4">
-        <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Payments Received</p>
+        <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Total Collections</p>
         <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.paymentsReceived)}</h3>
         <p className="text-xs text-slate-500 font-medium mt-2">
           Cash received in this period, by payment date · net of refunds
@@ -80,7 +80,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
       </div>
 
       <div className="bg-white border border-slate-200 rounded-2xl p-6">
-        <h3 className="text-base font-bold text-slate-900 mb-4">Monthly Payments Received</h3>
+        <h3 className="text-base font-bold text-slate-900 mb-4">Monthly Collections</h3>
         {monthlyRevenueData.length === 0 ? (
           <div className="h-64 flex items-center justify-center text-slate-400 text-sm">No payment data available.</div>
         ) : (

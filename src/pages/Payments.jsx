@@ -205,7 +205,7 @@ export default function Payments() {
 
       setBookings(bookingsData || []);
 
-      // Payments Received now follows the page's own date filter and is derived
+      // Total Collections now follows the page's own date filter and is derived
       // further down (see the `received` memo) — a flow figure has to describe
       // the period the table is showing, or the card and the rows underneath it
       // are talking about different months.
@@ -326,7 +326,7 @@ export default function Payments() {
       })
     : [];
 
-  // Payments Received, over whatever period (and type/method) the page is
+  // Total Collections, over whatever period (and type/method) the page is
   // currently filtered to — the same shared definition Dashboard and Reports
   // use. Deriving it from typeAndDateFiltered rather than the raw list is what
   // makes the card describe the table beneath it; the status cards above
@@ -882,7 +882,7 @@ export default function Payments() {
 
   // --- Summary Card Click Handlers ---
 
-  // 1. Payments Received – exactly the rows the card summed.
+  // 1. Total Collections – exactly the rows the card summed.
   //
   // Sourced from `received.activeRows`, NOT from the raw `payments` list. The
   // card became date-filtered when it moved to getPaymentsReceived, but this
@@ -907,7 +907,7 @@ export default function Payments() {
       }));
     setSummaryModalData(data);
     // Name the period, since these rows are the card's period — not all time.
-    setSummaryModalTitle(`Payments Received – ${datePreset === 'All Time' ? 'all time' : datePreset.toLowerCase()}`);
+    setSummaryModalTitle(`Total Collections – ${datePreset === 'All Time' ? 'all time' : datePreset.toLowerCase()}`);
     setSummaryModalType('collected');
     setSummarySearchTerm('');
     setSummaryTypeFilter('All');
@@ -1071,7 +1071,7 @@ export default function Payments() {
           onClick={handleCollectedClick}
           className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-2xl p-5 text-left shadow-sm hover:shadow-md transition-all cursor-pointer group"
         >
-          <p className="text-xs font-semibold text-slate-600 mb-1">Payments Received</p>
+          <p className="text-xs font-semibold text-slate-600 mb-1">Total Collections</p>
           <h3 className="text-3xl font-extrabold text-slate-900">₱{received.paymentsReceived.toLocaleString()}</h3>
           <p className="text-xs text-slate-500 mt-2">
             Net of refunds · {datePreset === 'All Time' ? 'all time' : datePreset.toLowerCase()}
@@ -1753,7 +1753,7 @@ export default function Payments() {
                 <div className="text-center py-10 text-slate-500">No records match your search/filter.</div>
               ) : (
                 <>
-                  {/* Payments Received – one row per booking/short order,
+                  {/* Total Collections – one row per booking/short order,
                       not per payment record, same reasoning as the main
                       table. Click a row to see its full payment timeline. */}
                   {summaryModalType === 'collected' && (

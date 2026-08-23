@@ -220,7 +220,7 @@ export default function Reports() {
     // "8月 2026", new Date() returns Invalid Date, the comparator gets NaN,
     // and the chart renders its months in arbitrary order. The label is now
     // kept purely for display and never parsed back.
-    // Built from exactly the rows the Payments Received card counts, so the
+    // Built from exactly the rows the Total Collections card counts, so the
     // chart and the card above it always add up to the same number.
     //
     // This previously skipped `amount_paid <= 0`, which meant refunds never

@@ -59,7 +59,7 @@ export function isWithinRange(dateValue, start, end) {
  * is real money that belongs in neither of the obvious buckets. When a booking
  * is cancelled inside the 3-day window the downpayment is kept; when it is
  * cancelled earlier the refund is recorded as its own negative payment row and
- * nets the pair to zero. Rolling that into "Payments Received" would overstate
+ * nets the pair to zero. Rolling that into "Total Collections" would overstate
  * live business; dropping it would hide money that is genuinely in the bank. So
  * it gets its own line and the caller decides how to show it.
  *
