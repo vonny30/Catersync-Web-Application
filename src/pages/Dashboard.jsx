@@ -108,27 +108,26 @@ export default function Dashboard() {
   // calls it whenever currentMonth changes).
   const fetchCalendarEvents = async (monthDate) => {
     try {
+      // event_datetime is timestamptz — stored/compared in UTC. Sending a
+      // naive string like "2026-08-24 00:00:00" gets interpreted as UTC
+      // midnight by the database, not local midnight, so an event at
+      // 8pm UTC (= 4am the NEXT day in the Philippines, UTC+8) was being
+      // counted as "the 24th" by this query while the JS side below
+      // buckets it by *local* date and puts it on the 25th — the exact
+      // mismatch that let the 24th show no dot for an event that a click
+      // still found, because fetchEventsForDate had the same bug.
+      // `.toISOString()` on a Date built from local y/m/d converts local
+      // midnight to the correct UTC instant, so both queries and the JS
+      // bucketing below now agree on what day an event "actually" falls
+      // on in the browser's timezone.
       const startOfMonth = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
       const startOfNextMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 1);
-      const startOfMonthStr = toLocalDateStr(startOfMonth);
-      const startOfNextMonthStr = toLocalDateStr(startOfNextMonth);
 
-      // Confirmed only — this calendar is meant to show what's actually
-      // locked in for the month, not tentative Pending/Approved bookings
-      // or historical Completed ones. Must match fetchEventsForDate's
-      // filter below, which is what a day click opens into — including
-      // the boundary style: "from the start of the period, up to but not
-      // including the start of the next one" (.lt on the next day's
-      // midnight), not "...23:59:59" which is a fixed instant that a
-      // sub-second timestamp can land after and be silently excluded by,
-      // and which the day-level query previously wrote as `.lt` while this
-      // one wrote as `.lte` — an inconsistency that could disagree about
-      // whether the same event was "in range" between the two queries.
       const { data: monthBookings, error: monthError } = await supabase
         .from('booking')
         .select('event_datetime, booking_type')
-        .gte('event_datetime', `${startOfMonthStr} 00:00:00`)
-        .lt('event_datetime', `${startOfNextMonthStr} 00:00:00`)
+        .gte('event_datetime', startOfMonth.toISOString())
+        .lt('event_datetime', startOfNextMonth.toISOString())
         .eq('booking_status', 'Confirmed');
 
       if (monthError) throw monthError;
@@ -405,14 +404,19 @@ export default function Dashboard() {
 
   const fetchEventsForDate = async (dateStr) => {
     try {
-      // Exclusive next-day boundary, not "...23:59:59" — that was a fixed
-      // instant a sub-second timestamp could land after and be silently
-      // excluded by, and it didn't match fetchCalendarEvents' own boundary
-      // style either, which is exactly the kind of mismatch that let a day
-      // show no dot while still having an event underneath it.
-      const nextDay = new Date(`${dateStr}T00:00:00`);
-      nextDay.setDate(nextDay.getDate() + 1);
-      const nextDayStr = toLocalDateStr(nextDay);
+      // Same timezone fix as fetchCalendarEvents above: `dateStr` is a
+      // *local* calendar date (e.g. "2026-08-24"), but event_datetime is
+      // timestamptz. Passing naive "2026-08-24 00:00:00" strings had the
+      // database treat them as UTC midnight rather than local midnight —
+      // off by the browser's UTC offset (8 hours in the Philippines) from
+      // the actual local day boundary, and disagreeing with how the
+      // calendar's own dots bucket the same event by local date.
+      // `dayStart`/`dayEnd` are built as local Dates first (the `T00:00:00`
+      // suffix with no offset is parsed as local time), then converted to
+      // the correct UTC instant via `.toISOString()`.
+      const dayStart = new Date(`${dateStr}T00:00:00`);
+      const dayEnd = new Date(`${dateStr}T00:00:00`);
+      dayEnd.setDate(dayEnd.getDate() + 1);
       const { data, error } = await supabase
         .from('booking')
         .select(`
@@ -426,8 +430,8 @@ export default function Dashboard() {
           customer:customer_id (first_name, last_name)
         `)
         .eq('booking_status', 'Confirmed')
-        .gte('event_datetime', `${dateStr} 00:00:00`)
-        .lt('event_datetime', `${nextDayStr} 00:00:00`)
+        .gte('event_datetime', dayStart.toISOString())
+        .lt('event_datetime', dayEnd.toISOString())
         .order('event_datetime', { ascending: true });
       if (error) throw error;
       setSelectedDateEvents(data || []);
