@@ -1247,7 +1247,78 @@ export default function Equipment() {
       };
     });
 
-  const eventsNeedingPrep = upcomingPrep.filter(e => !e.isReady);
+  // ============================================================
+  // --- PREP, GROUPED BY DAY ---
+  // ============================================================
+  // Per-booking "units short" turned out to be a dead signal: approval runs
+  // allocateEquipmentForBooking over the whole package template, so for any
+  // Approved/Confirmed booking assigned == required by construction, and
+  // isReady is always true. A card counting those was structurally always
+  // zero.
+  //
+  // The question that ISN'T answered anywhere, and that a manager actually
+  // prepares against, is per-DAY: several events share one pool of stock, so
+  // "can we physically cover everything happening that day" is a cross-event
+  // question no single booking can answer. Prep also happens per day — you
+  // stage one van-load for the day, not per booking.
+  const prepDays = (() => {
+    const byDay = {};
+    upcomingPrep.forEach(ev => {
+      const d = new Date(ev.event_datetime);
+      const key = toDateInputValue(d);
+      if (!byDay[key]) {
+        byDay[key] = { dateKey: key, date: new Date(d.getFullYear(), d.getMonth(), d.getDate()), events: [] };
+      }
+      byDay[key].events.push(ev);
+    });
+
+    return Object.values(byDay)
+      .map(day => {
+        // What actually leaves the warehouse that day, summed across every
+        // event on it. Assigned units only — required-but-unassigned is not
+        // something anyone can load onto a van.
+        const totals = {};
+        day.events.forEach(ev => ev.lines.forEach(l => {
+          if (l.assigned > 0) totals[l.equipment_id] = (totals[l.equipment_id] || 0) + l.assigned;
+        }));
+
+        const items = Object.entries(totals)
+          .map(([id, needed]) => {
+            const eq = equipmentById[id];
+            const usable = eq?.quantity_available || 0;
+            return {
+              equipment_id: id,
+              name: eq?.eqm_name || 'Unknown item',
+              needed,
+              usable,
+              short: Math.max(0, needed - usable),
+            };
+          })
+          .sort((a, b2) => (b2.short - a.short) || b2.needed - a.needed);
+
+        const shortages = items.filter(i => i.short > 0);
+        day.events.sort((a, b2) => new Date(a.event_datetime) - new Date(b2.event_datetime));
+
+        return {
+          ...day,
+          items,
+          shortages,
+          totalUnits: items.reduce((s, i) => s + i.needed, 0),
+          isToday: day.dateKey === todayISO(),
+          isTomorrow: day.dateKey === tomorrowISO(),
+        };
+      })
+      .sort((a, b2) => a.date - b2.date);
+  })();
+
+  // Days where committed stock exceeds what we own and can use — the real
+  // preparation risk, and unlike per-booking shortage it can genuinely occur
+  // (units flagged damaged after allocation, or an allocation made when the
+  // date was clear).
+  const overCapacityDays = prepDays.filter(d => d.shortages.length > 0);
+  const nextEvent = upcomingPrep.length > 0
+    ? [...upcomingPrep].sort((a, b2) => new Date(a.event_datetime) - new Date(b2.event_datetime))[0]
+    : null;
 
   // Shown as a read-only note on the Upcoming tab, not as prep work:
   // these are requests waiting on an approve/reject decision, and that
@@ -1575,18 +1646,29 @@ export default function Equipment() {
             the Inventory tab as reference context; this slot now answers
             the question a manager actually opens this page with: is
             anything coming up not ready yet? */}
+        {/* Was "Events needing prep", which was structurally always zero:
+            approval allocates the full package template, so an
+            Approved/Confirmed booking is never short against it. This
+            reports what is actually true and varies — how much work is
+            coming, and whether any day is over capacity. */}
         <button
           onClick={() => setActiveTableTab('upcoming')}
-          className={`bg-white border border-slate-200 border-l-4 rounded-2xl p-5 text-left shadow-sm transition-all cursor-pointer group ${eventsNeedingPrep.length > 0 ? 'border-l-amber-500 hover:shadow-md' : 'border-l-[#008A45] hover:shadow-md'}`}
+          className={`bg-white border border-slate-200 border-l-4 rounded-2xl p-5 text-left shadow-sm transition-all cursor-pointer group ${overCapacityDays.length > 0 ? 'border-l-red-500 hover:shadow-md' : 'border-l-[#008A45] hover:shadow-md'}`}
         >
-          <p className="text-xs font-semibold text-slate-600 mb-1">Events needing prep</p>
-          <h3 className={`text-3xl font-extrabold ${eventsNeedingPrep.length > 0 ? 'text-amber-600' : 'text-[#008A45]'}`}>{eventsNeedingPrep.length}</h3>
-          <p className="text-[11px] text-slate-500 mt-1 group-hover:text-[#008A45] transition-colors">
-            {upcomingPrep.length === 0
-              ? 'No events in the next 14 days'
-              : eventsNeedingPrep.length > 0
-                ? `of ${upcomingPrep.length} upcoming — missing equipment →`
-                : `all ${upcomingPrep.length} upcoming events ready →`}
+          <p className="text-xs font-semibold text-slate-600 mb-1">Upcoming events</p>
+          <h3 className={`text-3xl font-extrabold ${overCapacityDays.length > 0 ? 'text-red-600' : 'text-slate-900'}`}>{upcomingPrep.length}</h3>
+          <p className="text-[11px] mt-1 transition-colors">
+            {overCapacityDays.length > 0 ? (
+              <span className="font-semibold text-red-600">
+                {overCapacityDays.length} date{overCapacityDays.length === 1 ? '' : 's'} over capacity →
+              </span>
+            ) : upcomingPrep.length === 0 ? (
+              <span className="text-slate-500">Nothing booked in the next {PREP_HORIZON_DAYS} days</span>
+            ) : (
+              <span className="text-slate-500 group-hover:text-[#008A45]">
+                Next: {nextEvent?.daysUntil <= 0 ? 'today' : nextEvent?.daysUntil === 1 ? 'tomorrow' : `in ${nextEvent?.daysUntil} days`} · {prepDays.length} day{prepDays.length === 1 ? '' : 's'} with events →
+              </span>
+            )}
           </p>
         </button>
 
@@ -1631,9 +1713,9 @@ export default function Equipment() {
               className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${activeTableTab === 'upcoming' ? 'bg-white shadow-sm text-[#008A45] border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}
             >
               <Calendar size={14} /> Upcoming
-              {eventsNeedingPrep.length > 0 && (
-                <span className="ml-0.5 inline-flex items-center justify-center min-w-[1.1rem] h-[1.1rem] px-1 rounded-full text-[10px] font-bold bg-amber-500 text-white">
-                  {eventsNeedingPrep.length}
+              {overCapacityDays.length > 0 && (
+                <span className="ml-0.5 inline-flex items-center justify-center min-w-[1.1rem] h-[1.1rem] px-1 rounded-full text-[10px] font-bold bg-red-600 text-white">
+                  {overCapacityDays.length}
                 </span>
               )}
             </button>
@@ -1671,7 +1753,7 @@ export default function Equipment() {
               process it covers: what we own → what's free on a date →
               what's out right now → what happened historically. */}
           <p className="text-xs text-slate-500 px-1 pt-2">
-            {activeTableTab === 'upcoming' && <>Events in the next {PREP_HORIZON_DAYS} days — the package each one booked, what that package requires at its pax count, and what's still to assign.</>}
+            {activeTableTab === 'upcoming' && <>Events in the next {PREP_HORIZON_DAYS} days, grouped by day — what goes out, and whether stock covers everything happening that day.</>}
             {activeTableTab === 'availability' && <>What's free to assign on a chosen date, after subtracting what's already committed.</>}
             {activeTableTab === 'inventory' && <>Everything we own — add stock, edit details, or flag damage and repairs.</>}
             {activeTableTab === 'assignments' && <>Everything currently out at an event and not yet returned. {RETURN_POLICY_TEXT}</>}
@@ -1743,147 +1825,164 @@ export default function Equipment() {
             )}
             {isLoading ? (
               <p className="p-6 text-center text-slate-400 text-sm">Loading upcoming events…</p>
-            ) : upcomingPrep.length === 0 ? (
+            ) : prepDays.length === 0 ? (
               <div className="p-8 text-center">
-                <p className="text-sm text-slate-500">No events scheduled in the next {PREP_HORIZON_DAYS} days.</p>
-                <p className="text-xs text-slate-400 mt-1">Confirmed and pending package bookings appear here as their event date approaches.</p>
+                <p className="text-sm text-slate-500">No approved events in the next {PREP_HORIZON_DAYS} days.</p>
+                <p className="text-xs text-slate-400 mt-1">Bookings appear here once approved — approving one also allocates its package equipment.</p>
               </div>
             ) : (
-              upcomingPrep.map(ev => {
-                const customerName = ev.customer ? `${ev.customer.first_name} ${ev.customer.last_name}` : 'Unknown';
-                const ref = getBookingRef(ev);
+              prepDays.map(day => {
+                const dayLabel = day.date.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
                 return (
-                  <details key={ev.booking_id} open={!ev.isReady} className="group/prep">
-                    <summary className={`p-4 cursor-pointer list-none flex items-center justify-between gap-3 flex-wrap hover:bg-slate-50 transition-colors ${!ev.isReady ? 'bg-amber-50/40' : ''}`}>
+                  <details key={day.dateKey} open={day.isToday || day.isTomorrow || day.shortages.length > 0} className="group/day">
+                    <summary className={`p-4 cursor-pointer list-none flex items-center justify-between gap-3 flex-wrap hover:bg-slate-50 transition-colors ${day.shortages.length > 0 ? 'bg-red-50/50' : ''}`}>
                       <div className="flex items-center gap-3 flex-wrap min-w-0">
-                        <span className="text-slate-400 group-open/prep:rotate-90 transition-transform inline-block">▸</span>
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${ev.isReady ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
-                          {ev.isReady ? 'READY' : `${ev.unitsShort} UNIT${ev.unitsShort === 1 ? '' : 'S'} SHORT`}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); goToBookingDetails(ev.booking_id, ev.booking_type); }}
-                          className="font-mono text-xs font-bold text-[#008A45] hover:underline inline-flex items-center gap-0.5 cursor-pointer"
-                          title="View full booking details"
-                        >
-                          {ref} <ExternalLink size={10} />
-                        </button>
-                        <span className="font-bold text-slate-900 text-sm truncate">{customerName}</span>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-200">
-                          {ev.package?.pkg_name || 'No package'}
-                        </span>
-                        <span className="text-xs text-slate-500 flex items-center gap-1">
-                          <Users size={11} /> {ev.pax_count || 0} pax
+                        <span className="text-slate-400 group-open/day:rotate-90 transition-transform inline-block">▸</span>
+                        <span className="font-bold text-slate-900 text-sm">{dayLabel}</span>
+                        {day.isToday && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#008A45] text-white">TODAY</span>
+                        )}
+                        {day.isTomorrow && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">TOMORROW</span>
+                        )}
+                        <span className="text-xs text-slate-500">
+                          {day.events.length} event{day.events.length === 1 ? '' : 's'} · {day.totalUnits} unit{day.totalUnits === 1 ? '' : 's'} going out
                         </span>
                       </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <span className="text-xs text-slate-500 flex items-center gap-1">
-                          <Calendar size={11} />
-                          {new Date(ev.event_datetime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      {day.shortages.length > 0 && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-300">
+                          <AlertTriangle size={10} /> OVER CAPACITY
                         </span>
-                        <span className={`text-[11px] font-bold ${ev.daysUntil <= 1 ? 'text-red-600' : ev.daysUntil <= 3 ? 'text-amber-600' : 'text-slate-500'}`}>
-                          {ev.daysUntil <= 0 ? 'Today' : ev.daysUntil === 1 ? 'Tomorrow' : `in ${ev.daysUntil} days`}
-                        </span>
-                      </div>
+                      )}
                     </summary>
 
-                    <div className="px-4 pb-4 pt-1 bg-slate-50/50">
-                      {ev.venue && (
-                        <p className="text-xs text-slate-500 flex items-center gap-1 mb-3">
-                          <MapPin size={11} /> {ev.venue}
-                        </p>
-                      )}
-
-                      {ev.lines.length === 0 ? (
-                        <div className="text-xs text-slate-500 italic py-2">
-                          {ev.hasTemplate
-                            ? 'This package lists no equipment, and nothing has been assigned.'
-                            : 'This package has no equipment template set up, and nothing has been assigned yet — assign items manually, or add an equipment template to the package so future bookings know what they need.'}
+                    <div className="px-4 pb-4 bg-slate-50/50 space-y-3">
+                      {/* Day-level shortfall first: it is the one thing on
+                          this screen that cannot be fixed by looking at a
+                          single booking, because it is caused by several
+                          events sharing one pool of stock. */}
+                      {day.shortages.length > 0 && (
+                        <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                          <p className="text-xs font-bold text-red-800 mb-1.5">
+                            Not enough stock for everything booked this day
+                          </p>
+                          <div className="space-y-1">
+                            {day.shortages.map(s => (
+                              <p key={s.equipment_id} className="text-xs text-red-700">
+                                <span className="font-semibold">{s.name}</span> — {day.events.length} event{day.events.length === 1 ? '' : 's'} need {s.needed}, only {s.usable} usable
+                                <span className="font-bold"> · short {s.short}</span>
+                              </p>
+                            ))}
+                          </div>
+                          <p className="text-[11px] text-red-600 mt-1.5">
+                            Free units up by returning stock early, repairing damaged items, or moving equipment between these events.
+                          </p>
                         </div>
-                      ) : (
-                        <>
-                          <table className="w-full text-left text-sm">
-                            <thead>
-                              <tr className="text-[11px] uppercase tracking-wide text-slate-500 border-b border-slate-200">
-                                <th className="py-2 font-bold">Equipment</th>
-                                <th className="py-2 font-bold text-center w-24">Required</th>
-                                <th className="py-2 font-bold text-center w-24">Assigned</th>
-                                <th className="py-2 font-bold text-right w-32">Status</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                              {ev.lines.map(line => (
-                                <tr key={line.equipment_id}>
-                                  <td className="py-2 text-slate-800 font-medium">{line.name}</td>
-                                  <td className="py-2 text-center text-slate-600">{line.required || '—'}</td>
-                                  <td className="py-2 text-center font-semibold text-slate-900">{line.assigned || '—'}</td>
-                                  <td className="py-2 text-right">
-                                    {line.short > 0 ? (
-                                      <span className="text-xs font-bold text-amber-700">{line.short} to assign</span>
-                                    ) : line.extra > 0 ? (
-                                      <span className="text-xs font-medium text-slate-500" title="Assigned beyond what the package template lists">+{line.extra} extra</span>
-                                    ) : (
-                                      <span className="text-xs font-medium text-emerald-600">Complete</span>
-                                    )}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-
-                          {!ev.hasTemplate && (
-                            <p className="text-[11px] text-slate-500 italic mt-2">
-                              This package has no equipment template, so "Required" is blank — these rows are what was assigned manually.
-                            </p>
-                          )}
-                        </>
                       )}
 
-                      {/* Confirmed events stay listed — they are still
-                          events to prepare for, and a shortage on one is
-                          worth seeing precisely because it can no longer be
-                          fixed by assigning. What changes is the action:
-                          the booking is locked, so Assign is disabled with
-                          the reason rather than failing on click. */}
-                      <div className="flex items-center gap-2 mt-3 flex-wrap">
-                        {ev.canAssign ? (
-                          <button
-                            onClick={() => {
-                              // Must set booking_id — that is what actually
-                              // selects the booking. Setting only the search
-                              // term (as this did) just filters the dropdown:
-                              // selectedBooking stayed undefined, so the modal
-                              // opened with no booking chosen, no details
-                              // preview, and no date to check availability
-                              // against, while looking like it had picked one.
-                              setAssignmentQueue([]);
-                              setAssignFormData({ booking_id: ev.booking_id, notes: '' });
-                              setBookingSearchTerm(`${ref} - ${customerName}`);
-                              setShowBookingDropdown(false);
-                              setAssignBookingLocked(true);
-                              setIsAssignModalOpen(true);
-                            }}
-                            className="inline-flex items-center gap-1.5 bg-[#008A45] hover:bg-[#007038] text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
-                          >
-                            <ClipboardList size={13} /> Assign equipment
-                          </button>
-                        ) : (
-                          <span
-                            className="inline-flex items-center gap-1.5 bg-slate-100 text-slate-500 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200"
-                            title={`Equipment can't be assigned once a booking is ${ev.booking_status}`}
-                          >
-                            <Lock size={13} /> Locked — {ev.booking_status}
-                          </span>
-                        )}
-                        <span className="text-[11px] text-slate-500">
-                          {ev.totalAssignedUnits} unit{ev.totalAssignedUnits === 1 ? '' : 's'} assigned so far
-                        </span>
-                        {!ev.canAssign && !ev.isReady && (
-                          <span className="text-[11px] font-semibold text-amber-700">
-                            Short, and no longer assignable — resolve on the booking itself.
-                          </span>
-                        )}
-                      </div>
+                      {/* What to load for the day, pooled across its events —
+                          staging happens per van-load, not per booking. */}
+                      {day.items.length > 0 && (
+                        <div className="rounded-lg border border-slate-200 bg-white p-3">
+                          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-2">To prepare this day</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {day.items.map(i => (
+                              <span
+                                key={i.equipment_id}
+                                className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold border ${i.short > 0 ? 'bg-red-50 border-red-200 text-red-700' : 'bg-slate-50 border-slate-200 text-slate-700'}`}
+                                title={`${i.needed} needed · ${i.usable} usable in stock`}
+                              >
+                                {i.name} <span className="font-extrabold">×{i.needed}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Then the per-event breakdown: who, what package, and
+                          exactly what that event takes. */}
+                      {day.events.map(ev => {
+                        const customerName = ev.customer ? `${ev.customer.first_name} ${ev.customer.last_name}` : 'Unknown';
+                        const ref = getBookingRef(ev);
+                        const assignedLines = ev.lines.filter(l => l.assigned > 0);
+                        return (
+                          <div key={ev.booking_id} className="rounded-lg border border-slate-200 bg-white p-3">
+                            <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+                              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                <span className="text-xs font-bold text-slate-700">
+                                  {new Date(ev.event_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => goToBookingDetails(ev.booking_id, ev.booking_type)}
+                                  className="font-mono text-xs font-bold text-[#008A45] hover:underline inline-flex items-center gap-0.5 cursor-pointer"
+                                  title="View full booking details"
+                                >
+                                  {ref} <ExternalLink size={10} />
+                                </button>
+                                <span className="text-sm font-semibold text-slate-900 truncate">{customerName}</span>
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200">
+                                  {ev.package?.pkg_name || 'No package'}
+                                </span>
+                                <span className="text-xs text-slate-500 flex items-center gap-1">
+                                  <Users size={11} /> {ev.pax_count || 0} pax
+                                </span>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${ev.booking_status === 'Confirmed' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-amber-100 text-amber-800 border-amber-200'}`}>
+                                  {ev.booking_status}
+                                </span>
+                              </div>
+                              {ev.canAssign ? (
+                                <button
+                                  onClick={() => {
+                                    setAssignmentQueue([]);
+                                    setAssignFormData({ booking_id: ev.booking_id, notes: '' });
+                                    setBookingSearchTerm(`${ref} - ${customerName}`);
+                                    setShowBookingDropdown(false);
+                                    setAssignBookingLocked(true);
+                                    setIsAssignModalOpen(true);
+                                  }}
+                                  className="shrink-0 inline-flex items-center gap-1.5 bg-[#008A45] hover:bg-[#007038] text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                                >
+                                  <ClipboardList size={13} /> Add equipment
+                                </button>
+                              ) : (
+                                <span
+                                  className="shrink-0 inline-flex items-center gap-1.5 bg-slate-100 text-slate-500 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200"
+                                  title={`Equipment can't be assigned once a booking is ${ev.booking_status}`}
+                                >
+                                  <Lock size={13} /> Locked
+                                </span>
+                              )}
+                            </div>
+
+                            {ev.venue && (
+                              <p className="text-xs text-slate-500 flex items-center gap-1 mb-2">
+                                <MapPin size={11} /> {ev.venue}
+                              </p>
+                            )}
+
+                            {assignedLines.length === 0 ? (
+                              <p className="text-xs text-slate-500 italic">
+                                No equipment assigned to this event yet.
+                                {!ev.hasTemplate && ' Its package has no equipment template, so nothing was allocated automatically.'}
+                              </p>
+                            ) : (
+                              <div className="flex flex-wrap gap-1.5">
+                                {assignedLines.map(l => (
+                                  <span
+                                    key={l.equipment_id}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs bg-slate-50 border border-slate-200 text-slate-700"
+                                    title={l.required > 0 ? `${l.required} required by the package template` : 'Assigned manually — not part of the package template'}
+                                  >
+                                    {l.name} <span className="font-bold">×{l.assigned}</span>
+                                    {l.short > 0 && <span className="text-amber-700 font-semibold">({l.short} short)</span>}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </details>
                 );
