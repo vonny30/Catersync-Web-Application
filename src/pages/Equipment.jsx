@@ -1252,7 +1252,19 @@ export default function Equipment() {
   // Shown as a read-only note on the Upcoming tab, not as prep work:
   // these are requests waiting on an approve/reject decision, and that
   // decision — not equipment — is the next action.
-  const pendingUpcoming = bookings.filter(b => b.booking_status === 'Pending' && isInPrepWindow(b));
+  //
+  // Deliberately NOT limited to the 14-day prep horizon. A pending request
+  // whose event date has already passed is more urgent than one next week —
+  // it was never actioned at all — so a forward-only window hid exactly the
+  // cases most needing a decision. (It hid BKG-080, whose event was
+  // yesterday, which is why this read "1 pending" against 2 real ones.)
+  //
+  // Package bookings only, matching the rest of this page: short orders
+  // carry no equipment at all, so they are not this page's concern.
+  const pendingBookings = bookings
+    .filter(b => b.booking_status === 'Pending')
+    .sort((a, b2) => new Date(a.event_datetime || 0) - new Date(b2.event_datetime || 0));
+  const pendingPastDue = pendingBookings.filter(b => b.event_datetime && new Date(b.event_datetime) < now);
 
   const selectedDateObj = new Date(`${selectedDate}T00:00:00`);
   const isSelectedToday = selectedDate === todayISO();
@@ -1680,13 +1692,54 @@ export default function Equipment() {
                 have no allocation yet by design (approval is what
                 allocates), so listing them as prep work would report the
                 normal state of an un-reviewed request as a shortage. */}
-            {pendingUpcoming.length > 0 && (
-              <div className="px-4 py-2.5 bg-slate-50 flex items-center gap-2 text-xs text-slate-600">
-                <AlertTriangle size={13} className="text-slate-400 shrink-0" />
-                <span>
-                  <span className="font-bold text-slate-800">{pendingUpcoming.length}</span> pending request{pendingUpcoming.length === 1 ? '' : 's'} in this window {pendingUpcoming.length === 1 ? 'is' : 'are'} awaiting approval — equipment is allocated once approved, so {pendingUpcoming.length === 1 ? 'it does' : 'they do'} not appear as prep work here.
-                </span>
-              </div>
+            {pendingBookings.length > 0 && (
+              <details className="group/pending bg-slate-50">
+                <summary className="px-4 py-2.5 flex items-center gap-2 text-xs text-slate-600 cursor-pointer list-none hover:bg-slate-100 transition-colors">
+                  <span className="text-slate-400 group-open/pending:rotate-90 transition-transform inline-block">▸</span>
+                  <AlertTriangle size={13} className={pendingPastDue.length > 0 ? 'text-amber-500 shrink-0' : 'text-slate-400 shrink-0'} />
+                  <span>
+                    <span className="font-bold text-slate-800">{pendingBookings.length}</span> booking request{pendingBookings.length === 1 ? '' : 's'} awaiting approval — equipment is allocated once approved, so {pendingBookings.length === 1 ? 'it does' : 'they do'} not appear as prep work here.
+                    {pendingPastDue.length > 0 && (
+                      <span className="font-semibold text-amber-700"> {pendingPastDue.length} {pendingPastDue.length === 1 ? 'has' : 'have'} an event date that already passed.</span>
+                    )}
+                  </span>
+                  <span className="ml-auto text-[11px] font-semibold text-[#008A45] shrink-0">View</span>
+                </summary>
+                <div className="px-4 pb-3 pt-1 space-y-1.5 border-t border-slate-200">
+                  {pendingBookings.map(pb => {
+                    const pbDate = pb.event_datetime ? new Date(pb.event_datetime) : null;
+                    const isPastDue = pbDate && pbDate < now;
+                    return (
+                      <button
+                        key={pb.booking_id}
+                        type="button"
+                        onClick={() => goToBookingDetails(pb.booking_id, pb.booking_type)}
+                        className="w-full flex items-center justify-between gap-3 text-left px-3 py-2 rounded-lg bg-white border border-slate-200 hover:border-[#008A45]/50 transition-colors cursor-pointer"
+                        title="Open this booking to approve or reject it"
+                      >
+                        <span className="flex items-center gap-2 flex-wrap min-w-0">
+                          <span className="font-mono text-[11px] font-bold text-[#008A45]">{getBookingRef(pb)}</span>
+                          <span className="text-xs font-semibold text-slate-800 truncate">
+                            {pb.customer ? `${pb.customer.first_name} ${pb.customer.last_name}` : 'Unknown'}
+                          </span>
+                          {pb.package?.pkg_name && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200">
+                              {pb.package.pkg_name}
+                            </span>
+                          )}
+                        </span>
+                        <span className="flex items-center gap-2 shrink-0">
+                          <span className={`text-[11px] ${isPastDue ? 'font-bold text-amber-700' : 'text-slate-500'}`}>
+                            {pbDate ? pbDate.toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'No date'}
+                            {isPastDue ? ' · passed' : ''}
+                          </span>
+                          <ExternalLink size={11} className="text-slate-400" />
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </details>
             )}
             {isLoading ? (
               <p className="p-6 text-center text-slate-400 text-sm">Loading upcoming events…</p>
@@ -2930,18 +2983,13 @@ export default function Equipment() {
                         {selectedBooking?.venue ? ` · ${selectedBooking.venue}` : ''}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAssignBookingLocked(false);
-                        setAssignFormData({ booking_id: '', notes: '' });
-                        setBookingSearchTerm('');
-                      }}
-                      className="shrink-0 text-xs font-semibold text-slate-500 hover:text-[#008A45] underline transition-colors cursor-pointer"
-                      title="Pick a different booking instead"
-                    >
-                      Change
-                    </button>
+                    {/* No "change booking" affordance on purpose. This modal
+                        was opened for one specific event, so switching the
+                        target here is only ever a mistake — assigning that
+                        event's equipment to a different booking. To assign
+                        elsewhere, close this and use that event's own Assign
+                        button, or the page header for a free choice. */}
+                    <Lock size={13} className="shrink-0 text-[#008A45]" />
                   </div>
                 ) : (
                 <div className="relative">
