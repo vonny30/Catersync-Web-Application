@@ -7,6 +7,27 @@ import { supabase } from '../supabase';
  * happen, so two managers working at once see each other's changes instead
  * of each editing their own stale copy of the page.
  *
+ * ─────────────────────────────────────────────────────────────────────────
+ * PREREQUISITE — the table must be in the `supabase_realtime` publication.
+ *
+ * This is the failure mode to know about: subscribing to an unpublished
+ * table SUCCEEDS (status: SUBSCRIBED) and then silently delivers nothing,
+ * forever. There is no error to notice. It was already the case here —
+ * Bookings.jsx, ShortOrders.jsx and the ManagerLayout payment badge all
+ * subscribed to `booking`/`payment`, which were never published, so none of
+ * them had ever actually refreshed. Only `manager` was published (added for
+ * the session lock), which is why that one feature worked.
+ *
+ * To check what is published:
+ *   select tablename from pg_publication_tables
+ *   where pubname = 'supabase_realtime' order by tablename;
+ *
+ * Row filters (`{ table, filter }`) additionally need REPLICA IDENTITY FULL
+ * on that table to work for DELETEs — the filter is matched against the OLD
+ * row, and by default only the primary key is present in it, so a filter on
+ * any other column (booking_id, say) silently misses deletes.
+ * ─────────────────────────────────────────────────────────────────────────
+ *
  * Wraps the pattern Bookings.jsx/ShortOrders.jsx already used by hand, with
  * three things those inline versions didn't do:
  *
