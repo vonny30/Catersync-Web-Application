@@ -9,6 +9,7 @@ import {
   LayoutGrid, CalendarClock
 } from 'lucide-react';
 import { supabase } from '../supabase';
+import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
@@ -453,28 +454,19 @@ export default function Bookings() {
   const goToPrevPage = () => { if (currentPage > 1) setCurrentPage(currentPage - 1); };
   const goToNextPage = () => { if (currentPage < totalPages) setCurrentPage(currentPage + 1); };
 
-  // 5. ✅ REAL‑TIME SUBSCRIPTION (MUST be at top level, NOT inside fetchData)
-  useEffect(() => {
-    const subscription = supabase
-      .channel('booking-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'booking',
-          filter: `booking_type=eq.Package`,
-        },
-        () => {
-          fetchData();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(subscription);
-    };
-  }, []); // empty deps – subscribe once
+  // Realtime refresh. Uses the shared hook rather than a hand-rolled
+  // subscription because the inline version captured fetchData from the
+  // FIRST render, when currentPage was 1 — every event then refetched page
+  // 1 and replaced the list while the manager was on page 2, which looked
+  // like paging jumping back to Pending. The hook keeps the callback in a
+  // ref, so it always calls the current one. It was invisible until the
+  // booking table was added to the supabase_realtime publication, because
+  // before that the subscription never fired at all.
+  useRealtimeRefresh(
+    'bookings-page',
+    [{ table: 'booking', filter: 'booking_type=eq.Package' }],
+    fetchData
+  );
 
   // 6. Fetch package categories and menu items when package changes in modal
   useEffect(() => {

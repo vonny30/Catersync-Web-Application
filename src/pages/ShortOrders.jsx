@@ -9,6 +9,7 @@ import {
   LayoutGrid, CalendarClock
 } from 'lucide-react';
 import { supabase } from '../supabase';
+import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
@@ -393,28 +394,15 @@ export default function ShortOrders() {
     return () => { cancelled = true; };
   }, [isModalOpen, formData.event_datetime, editingId]);
 
-  // 5. ✅ REAL‑TIME SUBSCRIPTION (MUST be at top level, NOT inside fetchData)
-  useEffect(() => {
-    const subscription = supabase
-      .channel('shortorder-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'booking',
-          filter: `booking_type=eq.Short Order`,
-        },
-        () => {
-          fetchData();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(subscription);
-    };
-  }, []);
+  // Realtime refresh via the shared hook — see the matching note in
+  // Bookings.jsx. The inline version captured fetchData from the first
+  // render, so every event refetched page 1 while the manager was on a
+  // later page.
+  useRealtimeRefresh(
+    'short-orders-page',
+    [{ table: 'booking', filter: 'booking_type=eq.Short Order' }],
+    fetchData
+  );
 
   // --- SELECT CUSTOMER ---
   const selectCustomer = (customer) => {
