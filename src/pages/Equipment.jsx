@@ -908,6 +908,16 @@ export default function Equipment() {
   };
 
   const addToQueue = () => {
+    // Booking first, always. Everything below depends on it: the capacity
+    // check is scoped to that booking's event date, the pax-based quantity
+    // suggestion reads its pax_count, and the duplicate check is per booking.
+    // Without one, items could be queued against no date at all and validated
+    // against total stock — a number that means something different from the
+    // one they'd actually be checked against on submit.
+    if (!selectedBooking) {
+      toast.error('Select a booking first — equipment is checked against that event’s date.');
+      return;
+    }
     if (!tempEquipId) {
       toast.error('Please select equipment.');
       return;
@@ -3179,9 +3189,23 @@ export default function Equipment() {
                               key={b.booking_id}
                               type="button"
                               onClick={() => {
+                                // Switching booking invalidates anything
+                                // already queued: those quantities were
+                                // accepted against the previous event's date,
+                                // and the new one may have far less free that
+                                // day. Keeping them would show a list that
+                                // passed a check no longer being applied,
+                                // failing only at submit.
+                                const switching = assignFormData.booking_id && assignFormData.booking_id !== b.booking_id;
+                                if (switching && assignmentQueue.length > 0) {
+                                  setAssignmentQueue([]);
+                                  toast('Equipment list cleared — availability differs on the new booking’s date.', { icon: 'ℹ️' });
+                                }
                                 setAssignFormData(prev => ({ ...prev, booking_id: b.booking_id }));
                                 setBookingSearchTerm(`${ref} - ${customerName}`);
                                 setShowBookingDropdown(false);
+                                setTempEquipId('');
+                                setTempQuantity(1);
                               }}
                               className="w-full text-left px-4 py-2.5 hover:bg-slate-50 border-b border-slate-100 last:border-0 transition-colors"
                             >
@@ -3314,9 +3338,10 @@ export default function Equipment() {
                         ? <>Counts are what is free on <span className="font-semibold text-slate-700">{eventDateLabel}</span>, after other events booked that day.</>
                         : 'Showing total usable stock — availability for this date could not be loaded.'}
                 </p>
-                <div className="flex flex-col sm:flex-row gap-2">
+                <div className={`flex flex-col sm:flex-row gap-2 ${!selectedBooking ? 'opacity-60' : ''}`}>
                   <Select
                     value={tempEquipId}
+                    disabled={!selectedBooking}
                     onChange={(e) => {
                       setTempEquipId(e.target.value);
                       const equipId = e.target.value;
@@ -3362,13 +3387,16 @@ export default function Equipment() {
                     type="number"
                     min="1"
                     value={tempQuantity}
+                    disabled={!selectedBooking}
                     onChange={(e) => setTempQuantity(parseInt(e.target.value) || 1)}
-                    className="w-20 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                    className="w-20 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none disabled:bg-slate-100 disabled:cursor-not-allowed"
                   />
                   <button
                     type="button"
                     onClick={addToQueue}
-                    className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1"
+                    disabled={!selectedBooking}
+                    title={!selectedBooking ? 'Select a booking first' : undefined}
+                    className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-1 disabled:bg-slate-300 disabled:cursor-not-allowed disabled:hover:bg-slate-300"
                   >
                     <Plus size={16} /> Add
                   </button>
