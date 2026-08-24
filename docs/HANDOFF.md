@@ -160,6 +160,23 @@ usable figure.
 - ~~Month keys built with `toLocaleString` then re-parsed.~~ **Fixed** — both
   groupings use a numeric `year*12+month` key; the localized label is display
   only and never parsed back. Don't reintroduce string-keyed month grouping.
+- **A realtime subscription to an unpublished table fails silently.** It
+  reports `SUBSCRIBED` and then delivers nothing, forever, with no error. This
+  had already happened here: `Bookings.jsx`, `ShortOrders.jsx` and the
+  ManagerLayout payment badge all subscribed to `booking`/`payment`, but only
+  `manager` was in the `supabase_realtime` publication (added for the session
+  lock), so none of those three had ever refreshed. Fixed 24 Aug 2026 by
+  publishing the seven operational tables. **Any new table you subscribe to
+  must be added to the publication as well** — see the docblock on
+  `hooks/useRealtimeRefresh.js` for the check query.
+
+  Row-filtered subscriptions (`{ table, filter }`) have a second requirement:
+  on DELETE the filter is matched against the OLD row, which by default holds
+  only the primary key. A filter on any other column therefore misses deletes
+  unless that table is `REPLICA IDENTITY FULL`. This is why `payment`,
+  `booking_equipment` and `vehicle_assign` are set FULL — the detail pages
+  filter them on `booking_id`, which is not their PK. `booking` doesn't need
+  it, since it is filtered on its own primary key.
 
 ## Conventions worth preserving
 
