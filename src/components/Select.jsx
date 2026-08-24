@@ -39,9 +39,24 @@ export default function Select({ value, onChange, className = '', disabled, name
 
   const selected = options.find(o => String(o.value) === String(value));
 
+  const MENU_MAX_HEIGHT = 256; // matches max-h-64 on the panel
+  const GAP = 4;
+
   const computePosition = () => {
     const rect = triggerRef.current.getBoundingClientRect();
-    return { top: rect.bottom + 4, left: rect.left, width: rect.width };
+    const spaceBelow = window.innerHeight - rect.bottom;
+    // Flip above the trigger when there isn't room below and there's more
+    // room above — otherwise a select near the bottom of a modal opens into
+    // the viewport edge and its lower options can't be reached.
+    const flipUp = spaceBelow < Math.min(MENU_MAX_HEIGHT, 160) && rect.top > spaceBelow;
+
+    return {
+      top: flipUp ? undefined : rect.bottom + GAP,
+      bottom: flipUp ? window.innerHeight - rect.top + GAP : undefined,
+      left: rect.left,
+      width: rect.width,
+      maxHeight: Math.max(120, (flipUp ? rect.top : spaceBelow) - GAP * 2),
+    };
   };
 
   const toggleOpen = () => {
@@ -97,8 +112,20 @@ export default function Select({ value, onChange, className = '', disabled, name
       {menuPos && createPortal(
         <div
           ref={menuRef}
-          style={{ position: 'fixed', top: menuPos.top, left: menuPos.left, minWidth: menuPos.width }}
-          className="z-[9999] max-h-64 overflow-y-auto bg-white rounded-xl shadow-lg border border-slate-200 py-1"
+          style={{
+            position: 'fixed',
+            top: menuPos.top,
+            bottom: menuPos.bottom,
+            left: menuPos.left,
+            // Exactly the trigger's width, as a native <select> does. This was
+            // `minWidth`, which combined with whitespace-nowrap on the options
+            // let one long label stretch the panel far past the trigger — the
+            // Assign modal's equipment list ran nearly the full screen width
+            // off the side of the modal.
+            width: menuPos.width,
+            maxHeight: menuPos.maxHeight,
+          }}
+          className="z-[9999] overflow-y-auto overflow-x-hidden bg-white rounded-xl shadow-lg border border-slate-200 py-1"
         >
           {options.map((opt, idx) => {
             const isSelected = String(opt.value) === String(value);
@@ -108,7 +135,10 @@ export default function Select({ value, onChange, className = '', disabled, name
                 type="button"
                 disabled={opt.disabled}
                 onClick={() => handleSelect(opt.value)}
-                className={`w-full text-left px-4 py-2 text-sm whitespace-nowrap transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                // Wraps instead of forcing the panel wider. break-words stops
+                // an unbroken token (a long equipment name, an email) from
+                // overflowing horizontally now that the width is fixed.
+                className={`w-full text-left px-4 py-2 text-sm leading-snug break-words transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                   isSelected ? 'bg-[#EAF3F2] text-[#007038] font-semibold' : 'text-slate-700 hover:bg-slate-50'
                 }`}
               >
