@@ -252,6 +252,12 @@ export default function Equipment() {
     booking_id: '',
     notes: '',
   });
+  // True when the modal was opened for one specific event (from the Upcoming
+  // tab's per-event Assign button) rather than from the page header. In that
+  // case the booking is already decided, so the picker is replaced by a
+  // read-only chip — leaving a live search there invites assigning to the
+  // wrong event, which is the opposite of what the manager asked for.
+  const [assignBookingLocked, setAssignBookingLocked] = useState(false);
 
   const [assignmentQueue, setAssignmentQueue] = useState([]);
   const [tempEquipId, setTempEquipId] = useState('');
@@ -1040,6 +1046,7 @@ export default function Equipment() {
       setAssignFormData({ booking_id: '', notes: '' });
       setBookingSearchTerm('');
       setShowBookingDropdown(false);
+      setAssignBookingLocked(false);
       toast.success(`Assigned ${itemsToAssign.length} equipment item(s).`);
       await fetchData();
     } catch (error) {
@@ -1509,7 +1516,19 @@ export default function Equipment() {
             <Settings size={16} /> Add Stock
           </button>
           <button
-            onClick={() => { setAssignmentQueue([]); setBookingSearchTerm(''); setShowBookingDropdown(false); setIsAssignModalOpen(true); }}
+            onClick={() => {
+              // Resets booking_id too. Without that, opening this after
+              // assigning from a specific event inherited that event's
+              // booking while showing an empty search box — the modal looked
+              // like nothing was selected and would assign to the previous
+              // booking anyway.
+              setAssignmentQueue([]);
+              setAssignFormData({ booking_id: '', notes: '' });
+              setBookingSearchTerm('');
+              setShowBookingDropdown(false);
+              setAssignBookingLocked(false);
+              setIsAssignModalOpen(true);
+            }}
             className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-sm cursor-pointer"
           >
             <ClipboardList size={16} /> Assign Equipment
@@ -1777,9 +1796,18 @@ export default function Equipment() {
                         {ev.canAssign ? (
                           <button
                             onClick={() => {
+                              // Must set booking_id — that is what actually
+                              // selects the booking. Setting only the search
+                              // term (as this did) just filters the dropdown:
+                              // selectedBooking stayed undefined, so the modal
+                              // opened with no booking chosen, no details
+                              // preview, and no date to check availability
+                              // against, while looking like it had picked one.
                               setAssignmentQueue([]);
-                              setBookingSearchTerm(ref);
+                              setAssignFormData({ booking_id: ev.booking_id, notes: '' });
+                              setBookingSearchTerm(`${ref} - ${customerName}`);
                               setShowBookingDropdown(false);
+                              setAssignBookingLocked(true);
                               setIsAssignModalOpen(true);
                             }}
                             className="inline-flex items-center gap-1.5 bg-[#008A45] hover:bg-[#007038] text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
@@ -2864,8 +2892,10 @@ export default function Equipment() {
                 onClick={() => {
                   setIsAssignModalOpen(false);
                   setAssignmentQueue([]);
+                  setAssignFormData({ booking_id: '', notes: '' });
                   setBookingSearchTerm('');
                   setShowBookingDropdown(false);
+                  setAssignBookingLocked(false);
                 }}
                 className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors cursor-pointer"
               >
@@ -2873,9 +2903,47 @@ export default function Equipment() {
               </button>
             </div>
             <form onSubmit={handleAssignSubmit} className="p-6 overflow-y-auto space-y-5 text-left">
-              {/* Booking Selection - Searchable Dropdown */}
+              {/* Booking Selection — a read-only chip when the modal was
+                  opened for one specific event, a searchable dropdown when
+                  opened from the page header with no booking decided yet. */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Select Booking</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  {assignBookingLocked ? 'Assigning to' : 'Select Booking'}
+                </label>
+                {assignBookingLocked ? (
+                  <div className="flex items-center justify-between gap-3 w-full px-3 py-2.5 border border-[#008A45]/40 bg-[#EAF3F2] rounded-lg">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-xs font-bold text-slate-800">
+                          {selectedBooking ? getBookingRef(selectedBooking) : '—'}
+                        </span>
+                        <span className="text-sm font-semibold text-slate-900 truncate">
+                          {selectedBooking?.customer
+                            ? `${selectedBooking.customer.first_name} ${selectedBooking.customer.last_name}`
+                            : 'Unknown'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        {selectedBooking?.event_datetime
+                          ? new Date(selectedBooking.event_datetime).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                          : 'No date'}
+                        {selectedBooking?.venue ? ` · ${selectedBooking.venue}` : ''}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAssignBookingLocked(false);
+                        setAssignFormData({ booking_id: '', notes: '' });
+                        setBookingSearchTerm('');
+                      }}
+                      className="shrink-0 text-xs font-semibold text-slate-500 hover:text-[#008A45] underline transition-colors cursor-pointer"
+                      title="Pick a different booking instead"
+                    >
+                      Change
+                    </button>
+                  </div>
+                ) : (
                 <div className="relative">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -2934,7 +3002,10 @@ export default function Equipment() {
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-slate-400 mt-1">Type to search, then click a booking to select.</p>
+                )}
+                {!assignBookingLocked && (
+                  <p className="text-xs text-slate-400 mt-1">Type to search, then click a booking to select.</p>
+                )}
               </div>
 
               {/* Booking Details Preview */}
@@ -3127,8 +3198,10 @@ export default function Equipment() {
                   onClick={() => {
                     setIsAssignModalOpen(false);
                     setAssignmentQueue([]);
+                    setAssignFormData({ booking_id: '', notes: '' });
                     setBookingSearchTerm('');
                     setShowBookingDropdown(false);
+                    setAssignBookingLocked(false);
                   }}
                   className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors cursor-pointer"
                 >
