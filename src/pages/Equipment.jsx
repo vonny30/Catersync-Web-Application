@@ -370,13 +370,27 @@ export default function Equipment() {
   }, [selectedDate, equipmentList, assignments]);
 
   // --- Filter bookings when search term changes ---
+  //
+  // Only Approved/Confirmed bookings can be assigned to. Assigning to a
+  // Pending booking was possible before and produced a row that looked
+  // like a reservation but held nothing: booking_equipment has no status
+  // column, so the row appears in Active Assignments and History, but
+  // every availability query filters assignments to ACTIVE_BOOKING_STATUSES
+  // (utils/equipment.jsx — activeRealAssignments, and the per-date
+  // snapshot). The units therefore still read as free to every other part
+  // of the page, so the manager could hand the same stock to a second
+  // event. Blocking it at the picker is the cheapest place to stop that,
+  // and it costs nothing real: approval auto-allocates from the package
+  // template anyway, so assigning beforehand only duplicates work that is
+  // about to happen — or strands rows if the request is rejected.
   useEffect(() => {
+    const assignable = bookings.filter(b => ACTIVE_BOOKING_STATUSES.includes(b.booking_status));
     if (!bookingSearchTerm.trim()) {
-      setFilteredBookings(bookings);
+      setFilteredBookings(assignable);
       return;
     }
     const term = bookingSearchTerm.toLowerCase();
-    const filtered = bookings.filter(b => {
+    const filtered = assignable.filter(b => {
       const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}`.toLowerCase() : '';
       const ref = getBookingRef(b).toLowerCase();
       return customerName.includes(term) || ref.includes(term);
@@ -1096,14 +1110,27 @@ export default function Equipment() {
   const PREP_HORIZON_DAYS = 14;
   const prepHorizonEnd = new Date(now.getTime() + PREP_HORIZON_DAYS * 24 * 60 * 60 * 1000);
 
+  const isInPrepWindow = (b) => {
+    if (!b.event_datetime) return false;
+    const ev = new Date(b.event_datetime);
+    // Events that already happened are the Active Assignments tab's job
+    // (returns), not prep. Horizon keeps this to what's actionable.
+    return ev >= now && ev <= prepHorizonEnd;
+  };
+
+  // Pending is deliberately excluded. A pending booking is still an
+  // inquiry the manager hasn't accepted — equipment is allocated by
+  // allocateEquipmentForBooking at the moment of APPROVAL
+  // (useApprovalHandlers), so a pending event has no allocation yet by
+  // design, not by oversight. Listing it here would report every pending
+  // request as "N units short" and make the prep count read as work
+  // outstanding when the real next step is to approve or reject it.
+  //
+  // This also matches the rule the rest of the equipment logic already
+  // follows: every availability query in utils/equipment.jsx filters on
+  // ACTIVE_BOOKING_STATUSES, per the note on that constant.
   const upcomingPrep = bookings
-    .filter(b => {
-      if (!b.event_datetime) return false;
-      const ev = new Date(b.event_datetime);
-      // Events that already happened are the Active Assignments tab's job
-      // (returns), not prep. Horizon keeps this to what's actionable.
-      return ev >= now && ev <= prepHorizonEnd;
-    })
+    .filter(b => ACTIVE_BOOKING_STATUSES.includes(b.booking_status) && isInPrepWindow(b))
     .map(b => {
       const required = deriveEquipmentDemand(templateByPackage[b.package_id] || [], equipmentById, b.pax_count);
 
@@ -1150,6 +1177,11 @@ export default function Equipment() {
     });
 
   const eventsNeedingPrep = upcomingPrep.filter(e => !e.isReady);
+
+  // Shown as a read-only note on the Upcoming tab, not as prep work:
+  // these are requests waiting on an approve/reject decision, and that
+  // decision — not equipment — is the next action.
+  const pendingUpcoming = bookings.filter(b => b.booking_status === 'Pending' && isInPrepWindow(b));
 
   const selectedDateObj = new Date(`${selectedDate}T00:00:00`);
   const isSelectedToday = selectedDate === todayISO();
@@ -1561,6 +1593,18 @@ export default function Equipment() {
             list themselves. */}
         {activeTableTab === 'upcoming' && (
           <div className="divide-y divide-slate-200">
+            {/* Pending requests are surfaced as a count, not as rows. They
+                have no allocation yet by design (approval is what
+                allocates), so listing them as prep work would report the
+                normal state of an un-reviewed request as a shortage. */}
+            {pendingUpcoming.length > 0 && (
+              <div className="px-4 py-2.5 bg-slate-50 flex items-center gap-2 text-xs text-slate-600">
+                <AlertTriangle size={13} className="text-slate-400 shrink-0" />
+                <span>
+                  <span className="font-bold text-slate-800">{pendingUpcoming.length}</span> pending request{pendingUpcoming.length === 1 ? '' : 's'} in this window {pendingUpcoming.length === 1 ? 'is' : 'are'} awaiting approval — equipment is allocated once approved, so {pendingUpcoming.length === 1 ? 'it does' : 'they do'} not appear as prep work here.
+                </span>
+              </div>
+            )}
             {isLoading ? (
               <p className="p-6 text-center text-slate-400 text-sm">Loading upcoming events…</p>
             ) : upcomingPrep.length === 0 ? (
@@ -2766,7 +2810,15 @@ export default function Equipment() {
                   {showBookingDropdown && (
                     <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                       {filteredBookings.length === 0 ? (
-                        <div className="p-3 text-sm text-slate-500 text-center">No bookings found.</div>
+                        // Says why, not just "nothing here" — the most
+                        // likely reason a manager finds no match is that
+                        // they searched a booking still awaiting approval.
+                        <div className="p-3 text-sm text-slate-500 text-center">
+                          No approved bookings found.
+                          <span className="block text-xs text-slate-400 mt-1">
+                            Only Approved and Confirmed bookings can have equipment assigned — approve the booking first, which allocates its package equipment automatically.
+                          </span>
+                        </div>
                       ) : (
                         filteredBookings.map((b) => {
                           const ref = getBookingRef(b);

@@ -410,8 +410,42 @@ equipment assigned beyond what the package lists still shows (as "+N extra")
 instead of being invisible. Packages with no equipment template say so
 explicitly rather than silently showing a blank Required column.
 
-**Verification limit:** the demand rule is unit-verified, but the end-to-end
-view could not be checked against real equipment rows — `equipment`,
+**Scope: Approved and Confirmed only — and why assigning to Pending is now
+blocked.**
+
+Equipment is allocated by `allocateEquipmentForBooking` at the moment of
+**approval** (`useApprovalHandlers.js`). A Pending booking therefore has no
+allocation *by design*, not by oversight — so listing pending requests in the
+prep view reported every un-reviewed inquiry as "N units short" and made the
+prep count read as outstanding work when the real next step is to approve or
+reject it. Verified against live data: of 4 bookings in the 14-day window, 2
+(Confirmed) are genuine prep and 2 (Pending) were inflating the count.
+
+Assigning equipment to a Pending booking is now blocked at the Assign modal's
+booking picker. This closes a real defect rather than just tidying the flow:
+`booking_equipment` has no status column, so such a row **appeared** in Active
+Assignments and History, but every availability query filters assignments to
+`ACTIVE_BOOKING_STATUSES` (`activeRealAssignments` in `checkEquipmentAvailabilityImpact`,
+and the per-date snapshot). The reserved units therefore still read as free
+everywhere else — a **ghost reservation** that holds nothing, letting the same
+stock be promised to a second event.
+
+Blocking it costs nothing legitimate: approval auto-allocates from the package
+template, so assigning beforehand only duplicates work about to happen — or
+strands rows if the request is rejected. The genuine need it might seem to
+serve — "can I even fulfil this before I approve it?" — is a *read*, and is
+already answered by the availability preview
+(`getEquipmentAvailabilityPreview`, shown live in the approval flow and the
+Assign modal) without reserving anything.
+
+Pending requests in the window are still surfaced on the Upcoming tab as a
+count ("N awaiting approval — equipment is allocated once approved"), so the
+manager knows work is coming without it polluting the shortage figures.
+
+**Verification limit:** the demand rule is unit-verified and the
+Approved/Confirmed split is verified against live booking data, but the
+required-vs-assigned view could not be checked end to end against real
+equipment rows — `equipment`,
 `booking_equipment`, and `package_equipment` all return 0 rows to an
 unauthenticated client (HTTP 200, no error, i.e. RLS filtering), and no manager
 login was available in the session. Worth a look with real data: if
