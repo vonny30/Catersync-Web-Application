@@ -49,18 +49,46 @@ const describeEquipmentConflicts = (conflicts, proposedAvailable) => {
   return `Can't save this — on ${dateLabel}, ${first.committed} unit(s) are already needed for ${eventPreview}${moreEvents}, but this change would leave only ${proposedAvailable} available${moreDates}. Reassign equipment away from a lower-priority booking or reduce the Damaged/Maintenance count first.`;
 };
 
-// Equipment can't physically come back until the event it's out for is
-// actually happening or over — returning it "early" (before the event
-// even starts) had no trap at all before this. Gives a 3-hour grace period
-// past the event's start (covers events that run long) before Return
-// becomes usable. No event_datetime at all (shouldn't normally happen) is
-// treated as returnable, rather than permanently locking the item out.
-const RETURN_GRACE_MS = 3 * 60 * 60 * 1000;
+// ============================================================
+// EQUIPMENT RETURN POLICY
+// ============================================================
+// The panel asked outright: "What is the policy for equipment return?
+// Right after use? Within 12 hrs? Within 4 hrs?" The code had half an
+// answer buried in it and no stated one, so it is written down here and
+// shown in the UI (see RETURN_POLICY_TEXT) rather than left to be
+// inferred.
+//
+// Two distinct moments, which is what was previously conflated:
+//
+//   1. OPENS (event start + 3h) — the earliest a return can be recorded.
+//      Equipment can't physically come back before the event it's out for
+//      has realistically happened, so marking it returned early is
+//      blocked. 3 hours covers an event that runs long.
+//
+//   2. DUE (event start + 24h) — the deadline. Still not returned past
+//      this point and the assignment counts as Overdue.
+//
+// Previously "Overdue" was simply `event_datetime < now`, while Return
+// only unlocked at event + 3h. That left a 3-hour window where an
+// assignment was flagged Overdue in red and listed in the Overdue Returns
+// panel while its Return button was still locked — the manager was told
+// to act on something the system wouldn't let them act on. Anchoring
+// overdue to the 24h due time removes that contradiction by construction,
+// since DUE is always well after OPENS.
+const RETURN_OPENS_AFTER_MS = 3 * 60 * 60 * 1000;   // 3 hours
+const RETURN_DUE_AFTER_MS = 24 * 60 * 60 * 1000;    // 24 hours
+export const RETURN_POLICY_TEXT = 'Equipment is due back within 24 hours of the event start. Returns can be recorded from 3 hours after the event starts, and anything still out past the 24-hour mark is flagged Overdue.';
+
 const getReturnAvailability = (eventDatetimeStr) => {
   if (!eventDatetimeStr) return { canReturn: true, opensAt: null };
-  const opensAt = new Date(new Date(eventDatetimeStr).getTime() + RETURN_GRACE_MS);
+  const opensAt = new Date(new Date(eventDatetimeStr).getTime() + RETURN_OPENS_AFTER_MS);
   return { canReturn: Date.now() >= opensAt.getTime(), opensAt };
 };
+// When the equipment is contractually due back. No event_datetime at all
+// (shouldn't normally happen) means nothing to count from, so it is never
+// treated as overdue rather than being permanently flagged.
+const getReturnDueAt = (eventDatetimeStr) =>
+  eventDatetimeStr ? new Date(new Date(eventDatetimeStr).getTime() + RETURN_DUE_AFTER_MS) : null;
 const formatReturnOpensAt = (opensAt) =>
   opensAt ? opensAt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
 
@@ -418,7 +446,7 @@ export default function Equipment() {
     setAssignFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // --- Sidebar "Needs Attention" panel -> the Inventory tab, filtered ---
+  // --- "Damaged or under repair" card -> the Inventory tab, filtered ---
   // Sends the manager to the list that can actually fix the problem rather
   // than to a read-only copy of it.
   const showNeedsAttentionInInventory = () => {
@@ -997,27 +1025,13 @@ export default function Equipment() {
     setIsUsageModalOpen(true);
   };
 
-  // --- Jump to the Active Assignments tab (Overdue Returns card) ---
-  const scrollToAssignments = () => {
-    setActiveTableTab('assignments');
-  };
-
-  // --- Jump to the Availability tab (In use / Free to use stat cards) —
-  // switching the tab alone is invisible when it's already the active tab
-  // (the default), which is why those cards read as "not clickable"; the
-  // scroll + a status filter give a visible reaction every time. ---
   const availabilityPanelRef = useRef(null);
-  const scrollToAvailability = (statusFilter) => {
-    setActiveTableTab('availability');
-    setAvailabilityStatusFilter(statusFilter);
-    availabilityPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
 
   // ============================================================
-  // --- DATE-SCOPED STATS ---
+  // --- STOCK TOTALS ---
   // ============================================================
   // usableStockAll, not "total stock": it excludes anything flagged damaged or
-  // under maintenance, which is exactly why Free to use can be well below the
+  // under maintenance, which is exactly why Available can be well below the
   // number of units the business owns.
   const usableStockAll = equipmentList.reduce((sum, eq) => sum + (eq.quantity_available || 0), 0);
   const ownedStockAll = equipmentList.reduce((sum, eq) => sum + getStockBreakdown(eq).total, 0);
@@ -1025,19 +1039,20 @@ export default function Equipment() {
   const unitsFree = usableStockAll - unitsCommitted;
   const needsAttentionUnits = equipmentList.reduce((sum, eq) => sum + (eq.damaged_quantity || 0) + (eq.maintenance_quantity || 0), 0);
 
-  // Top few problem items for the sidebar panel — live/always-current, not
-  // scoped to the date picker, so it's kept visually separate from the
-  // date-scoped stat cards above.
-  const needsAttentionItems = equipmentList
-    .filter(eq => (eq.damaged_quantity || 0) > 0 || (eq.maintenance_quantity || 0) > 0)
-    .sort((a, b) => ((b.damaged_quantity || 0) + (b.maintenance_quantity || 0)) - ((a.damaged_quantity || 0) + (a.maintenance_quantity || 0)));
-
-  // Overdue: not returned, event date already passed — deliberately based
-  // on "now", not the selected date on the page, since this is asking "is
-  // anything overdue right now", not "overdue relative to whatever date
-  // I'm browsing".
+  // Overdue: not returned and past the 24-hour return deadline — see the
+  // RETURN POLICY block at the top of this file. Deliberately based on
+  // "now", not the date selected in the Availability tab, since this asks
+  // "is anything overdue right now", not "overdue relative to whatever
+  // date I'm browsing". Uses the same due-time rule as assignmentGroups'
+  // isOverdue below, so the tab badge and the rows can't disagree — this
+  // previously counted from the event date while the rows counted from
+  // the deadline.
   const now = new Date();
-  const overdueAssignments = assignments.filter(a => !a.returned && a.booking?.event_datetime && new Date(a.booking.event_datetime) < now);
+  const overdueAssignments = assignments.filter(a => {
+    if (a.returned || !a.booking?.event_datetime) return false;
+    const dueAt = getReturnDueAt(a.booking.event_datetime);
+    return dueAt && dueAt < now;
+  });
   const overdueUnits = overdueAssignments.reduce((sum, a) => sum + (a.quantity || 0), 0);
 
   const selectedDateObj = new Date(`${selectedDate}T00:00:00`);
@@ -1179,10 +1194,15 @@ export default function Equipment() {
 
   const assignmentGroups = Object.values(assignmentGroupsMap).map(g => {
     const eventDate = g.booking?.event_datetime ? new Date(g.booking.event_datetime) : null;
-    const isOverdue = eventDate ? eventDate < now : false;
+    // Overdue is anchored to the 24h return deadline, not the event date
+    // itself — see RETURN POLICY at the top of this file. Using the event
+    // date meant an item could be flagged Overdue while its Return button
+    // was still locked (which only opens at event + 3h).
+    const dueAt = getReturnDueAt(g.booking?.event_datetime);
+    const isOverdue = dueAt ? dueAt < now : false;
     const isToday = eventDate ? eventDate.toDateString() === now.toDateString() : false;
     const { canReturn, opensAt: returnOpensAt } = getReturnAvailability(g.booking?.event_datetime);
-    return { ...g, eventDate, isOverdue, isToday, canReturn, returnOpensAt };
+    return { ...g, eventDate, dueAt, isOverdue, isToday, canReturn, returnOpensAt };
   }).sort((a, b) => {
     const rank = (g) => g.isOverdue ? 0 : g.isToday ? 1 : 2;
     const rankDiff = rank(a) - rank(b);
@@ -1200,7 +1220,9 @@ export default function Equipment() {
   // Overdue events for the sidebar panel — already sorted overdue-first by
   // assignmentGroups' own sort, so just filter.
   const overdueGroups = assignmentGroups.filter(g => g.isOverdue);
-  const daysOverdue = (eventDate) => Math.max(0, Math.floor((now - eventDate) / (1000 * 60 * 60 * 24)));
+  // Measured from the return deadline, not the event date, so "2 days
+  // overdue" means two days past when it was actually due back.
+  const daysOverdue = (dueAt) => Math.max(0, Math.floor((now - dueAt) / (1000 * 60 * 60 * 24)));
 
   const { start: assignmentRangeStart, end: assignmentRangeEnd } = getRangeBounds(assignmentDatePreset, assignmentDateCustomStart, assignmentDateCustomEnd);
 
@@ -1309,84 +1331,57 @@ export default function Equipment() {
         </div>
       </div>
 
-      {/* --- DATE CONTEXT BAR --- */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-sm">
-          <CalendarClock size={16} className="text-[#008A45] shrink-0" />
-          <span className="font-semibold text-slate-600">Showing availability for:</span>
-          <span className="font-bold text-slate-900">{selectedDateLabel}</span>
-          {snapshotLoading && <span className="text-xs text-slate-400">(recalculating…)</span>}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setSelectedDate(todayISO())}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${isSelectedToday ? 'bg-[#008A45] border-[#008A45] text-white' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}
-          >
-            Today
-          </button>
-          <button
-            onClick={() => setSelectedDate(tomorrowISO())}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${isSelectedTomorrow ? 'bg-[#008A45] border-[#008A45] text-white' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}
-          >
-            Tomorrow
-          </button>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-          />
-        </div>
-      </div>
-      <p className="text-xs text-slate-400 -mt-3 px-1">This date only affects the stat cards above and the Availability tab below — Active Assignments and History have their own independent date filters.</p>
+      {/* --- AT A GLANCE — live figures only: what we own, and anything
+      needing action. The date-scoped numbers that used to sit here (events
+      on date / in use / available) moved into the Availability tab,
+      alongside the date picker that actually drives them.
 
-      {/* --- STAT CARDS — date-scoped only. "Needs attention" and "Overdue
-      returns" are live/always-current, not tied to the date picker, so they
-      no longer live in this row — mixing the two scopes in one row read as
-      "the cards only work for today" even when a different date was picked.
-      They now live in the sidebar below instead. --- */}
+      Mixing the two scopes in one screenful is what previously forced
+      three separate captions to explain the layout to the manager
+      ("Date-scoped — follows the date selected above", "Live status —
+      always current", and a line spelling out which tabs the date picker
+      does and doesn't affect). One scope per region needs no caption at
+      all, which is the actual fix for the overload — not shorter
+      captions. The two sidebar alert panels are folded in here too, so
+      the page is a single column instead of competing for attention with
+      a 320px rail. --- */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-2xl p-5 shadow-sm">
+          <p className="text-xs font-semibold text-slate-600 mb-1">Total stock owned</p>
+          <h3 className="text-3xl font-extrabold text-slate-900">{ownedStockAll}</h3>
+          <p className="text-[11px] text-slate-500 mt-1">
+            {usableStockAll} usable · {needsAttentionUnits} out of service
+          </p>
+        </div>
+
+        <button
+          onClick={showNeedsAttentionInInventory}
+          className={`bg-white border border-slate-200 border-l-4 rounded-2xl p-5 text-left shadow-sm transition-all cursor-pointer group ${needsAttentionUnits > 0 ? 'border-l-red-500 hover:shadow-md' : 'border-l-slate-300'}`}
+        >
+          <p className="text-xs font-semibold text-slate-600 mb-1">Damaged or under repair</p>
+          <h3 className={`text-3xl font-extrabold ${needsAttentionUnits > 0 ? 'text-red-600' : 'text-slate-400'}`}>{needsAttentionUnits}</h3>
+          <p className="text-[11px] text-slate-500 mt-1 group-hover:text-[#008A45] transition-colors">
+            {needsAttentionUnits > 0 ? 'Never counted as available →' : 'Nothing needs attention'}
+          </p>
+        </button>
+
+        <button
+          onClick={() => { setAssignmentSectionFilter('Overdue'); setActiveTableTab('assignments'); }}
+          className={`bg-white border border-slate-200 border-l-4 rounded-2xl p-5 text-left shadow-sm transition-all cursor-pointer group ${overdueGroups.length > 0 ? 'border-l-red-500 hover:shadow-md' : 'border-l-slate-300'}`}
+        >
+          <p className="text-xs font-semibold text-slate-600 mb-1">Overdue returns</p>
+          <h3 className={`text-3xl font-extrabold ${overdueGroups.length > 0 ? 'text-red-600' : 'text-slate-400'}`}>{overdueGroups.length}</h3>
+          <p className="text-[11px] text-slate-500 mt-1 group-hover:text-[#008A45] transition-colors">
+            {overdueGroups.length > 0 ? 'Past the 24-hour return window →' : 'All returns up to date'}
+          </p>
+        </button>
+      </div>
+
+      {/* --- MAIN WORKSPACE: one full-width tabbed panel. The alerts that
+      used to sit in a 320px sidebar here are now the two clickable cards
+      above, which link into the same places the sidebar's "View all"
+      buttons did. --- */}
       <div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <button
-            onClick={() => setIsEventsModalOpen(true)}
-            className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
-          >
-            <p className="text-xs font-semibold text-slate-600 mb-1">Events on this date</p>
-            <h3 className="text-3xl font-extrabold text-slate-900">{snapshot.eventsOnDate.length}</h3>
-            <p className="text-[10px] text-slate-400 group-hover:text-[#008A45] transition-colors mt-1">Click to view</p>
-          </button>
-          <button
-            onClick={() => scrollToAvailability('All')}
-            className="bg-white border border-slate-200 border-l-4 border-l-blue-500 rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
-          >
-            <p className="text-xs font-semibold text-slate-600 mb-1">In use on this date</p>
-            <h3 className="text-3xl font-extrabold text-blue-700">{unitsCommitted}</h3>
-            <p className="text-[10px] text-slate-400 group-hover:text-blue-600 transition-colors mt-1">units across all events → Availability tab</p>
-          </button>
-          <button
-            onClick={() => scrollToAvailability('available')}
-            className="bg-white border border-slate-200 border-l-4 border-l-emerald-500 rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
-          >
-            <p className="text-xs font-semibold text-slate-600 mb-1">Available</p>
-            <h3 className={`text-3xl font-extrabold ${unitsFree < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{unitsFree}</h3>
-            <p className="text-[10px] text-slate-500 mt-1 font-medium">
-              {usableStockAll} usable − {unitsCommitted} in use
-            </p>
-            <p className="text-[10px] text-slate-400 group-hover:text-emerald-600 transition-colors">→ Availability tab</p>
-          </button>
-        </div>
-        <p className="text-center text-[11px] font-semibold text-blue-500 mt-2">Date-scoped — follows the date selected above</p>
-        <p className="text-center text-[11px] text-slate-500 mt-1">
-          {ownedStockAll} units owned = {usableStockAll} usable + {needsAttentionUnits} out of service (damaged or under maintenance)
-        </p>
-      </div>
-
-      {/* --- MAIN WORKSPACE: tabbed panel takes priority on the left; live
-      operational alerts (not tied to the date picker) sit in a narrower
-      sidebar on the right, so their "always current" scope is visually
-      separated from the date-scoped cards above instead of blended into
-      one row. --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
 
       {/* --- TAB CONTROL --- */}
       <div ref={availabilityPanelRef} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -1422,10 +1417,13 @@ export default function Equipment() {
               <History size={14} /> History
             </button>
           </div>
+          {/* One line per tab, describing the step of the equipment
+              process it covers: what we own → what's free on a date →
+              what's out right now → what happened historically. */}
           <p className="text-xs text-slate-500 px-1 pt-2">
-            {activeTableTab === 'availability' && <>Every item's free/committed status for <span className="font-semibold text-slate-700">{selectedDateLabel}</span>.</>}
-            {activeTableTab === 'inventory' && <>The full equipment list — edit details, add new items, or flag damage/maintenance.</>}
-            {activeTableTab === 'assignments' && <>Everything currently out at any event, regardless of the date selected above.</>}
+            {activeTableTab === 'availability' && <>What's free to assign on a chosen date, after subtracting what's already committed.</>}
+            {activeTableTab === 'inventory' && <>Everything we own — add stock, edit details, or flag damage and repairs.</>}
+            {activeTableTab === 'assignments' && <>Everything currently out at an event and not yet returned. {RETURN_POLICY_TEXT}</>}
             {activeTableTab === 'history' && <>The full log of every assignment ever made — assigned and returned — across all equipment.</>}
           </p>
         </div>
@@ -1433,6 +1431,58 @@ export default function Equipment() {
         {/* ===== AVAILABILITY TAB ===== */}
         {activeTableTab === 'availability' && (
           <>
+            {/* Date control lives here, not in a page-level bar, because
+                this is the only tab it affects. Sitting at the top of the
+                page it read as global, which is exactly why a caption had
+                to exist telling the manager it wasn't. The three
+                date-scoped figures sit with it, so the number and the
+                control that changes it are never separated. */}
+            <div className="p-4 border-b border-slate-200 bg-slate-50/60">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-sm">
+                  <CalendarClock size={16} className="text-[#008A45] shrink-0" />
+                  <span className="font-semibold text-slate-600">Availability for</span>
+                  <span className="font-bold text-slate-900">{selectedDateLabel}</span>
+                  {snapshotLoading && <span className="text-xs text-slate-400">(recalculating…)</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSelectedDate(todayISO())}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${isSelectedToday ? 'bg-[#008A45] border-[#008A45] text-white' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+                  >
+                    Today
+                  </button>
+                  <button
+                    onClick={() => setSelectedDate(tomorrowISO())}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${isSelectedTomorrow ? 'bg-[#008A45] border-[#008A45] text-white' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}
+                  >
+                    Tomorrow
+                  </button>
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 mt-3">
+                <button
+                  onClick={() => setIsEventsModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-xs font-semibold text-slate-700 hover:border-[#008A45] hover:text-[#008A45] transition-colors cursor-pointer"
+                >
+                  {snapshot.eventsOnDate.length} event{snapshot.eventsOnDate.length === 1 ? '' : 's'} this date
+                  <ChevronRight size={12} />
+                </button>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-600">
+                  <span className="text-blue-700 font-extrabold">{unitsCommitted}</span> units in use
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-600">
+                  <span className={`font-extrabold ${unitsFree < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{unitsFree}</span> still available
+                  <span className="text-slate-400 font-normal">({usableStockAll} usable − {unitsCommitted} in use)</span>
+                </span>
+              </div>
+            </div>
             <div className={`p-4 border-b flex flex-wrap items-center gap-3 ${activeAvailabilityFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-200'}`}>
               {activeAvailabilityFilterCount > 0 && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shrink-0">
@@ -1820,11 +1870,20 @@ export default function Equipment() {
                   <summary className={`p-4 cursor-pointer list-none flex items-center justify-between gap-3 flex-wrap hover:bg-slate-50 transition-colors ${group.isOverdue ? 'bg-red-50/40' : ''}`}>
                     <div className="flex items-center gap-3 flex-wrap">
                       <span className="text-slate-400 group-open/details:rotate-90 transition-transform inline-block">▸</span>
-                      {group.isOverdue && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-300">
-                          <AlertTriangle size={10} /> OVERDUE
-                        </span>
-                      )}
+                      {group.isOverdue && (() => {
+                        // Says how far past the 24-hour return deadline this
+                        // is, rather than just "OVERDUE" — one day late and
+                        // a week late are very different problems.
+                        const late = daysOverdue(group.dueAt);
+                        return (
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-300"
+                            title={group.dueAt ? `Was due back ${group.dueAt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : undefined}
+                          >
+                            <AlertTriangle size={10} /> OVERDUE{late > 0 ? ` · ${late}d` : ''}
+                          </span>
+                        );
+                      })()}
                       {!group.isOverdue && group.isToday && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">TODAY</span>
                       )}
@@ -2011,101 +2070,6 @@ export default function Equipment() {
         )}
       </div>
 
-      {/* --- SIDEBAR: live operational alerts, always-current (not tied to
-      the date picker above) --- */}
-      <div className="space-y-4">
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-            <span className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
-              <AlertTriangle size={14} className="text-red-500" /> Needs Attention ({needsAttentionUnits})
-            </span>
-            <button
-              onClick={showNeedsAttentionInInventory}
-              className="text-xs font-semibold text-[#008A45] hover:underline cursor-pointer"
-            >
-              View all
-            </button>
-          </div>
-          <div className="divide-y divide-slate-100">
-            {needsAttentionItems.length === 0 ? (
-              <p className="p-4 text-xs text-slate-400 italic">Nothing needs attention right now.</p>
-            ) : (
-              needsAttentionItems.slice(0, 4).map(eq => {
-                const damaged = eq.damaged_quantity || 0;
-                const maintenance = eq.maintenance_quantity || 0;
-                return (
-                  <button
-                    key={eq.equipment_id}
-                    type="button"
-                    onClick={() => handleFlagIssueClick(eq)}
-                    title="Click to update this item's damaged / in-repair count"
-                    className="w-full flex items-center justify-between px-4 py-2.5 gap-2 text-left hover:bg-slate-50 transition-colors cursor-pointer"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-slate-800 truncate">{eq.eqm_name}</p>
-                      <p className="text-xs text-slate-500">{damaged > 0 && maintenance > 0 ? 'Damaged & under maintenance' : damaged > 0 ? 'Damaged' : 'Under maintenance'}</p>
-                    </div>
-                    <span className="shrink-0 inline-flex items-center justify-center min-w-[1.75rem] h-7 px-2 rounded-full text-xs font-bold bg-red-100 text-red-700">{damaged + maintenance}</span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-            <span className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
-              <AlertTriangle size={14} className="text-red-500" /> Overdue Returns ({overdueGroups.length})
-            </span>
-            <button
-              onClick={() => { setAssignmentSectionFilter('Overdue'); setActiveTableTab('assignments'); }}
-              className="text-xs font-semibold text-[#008A45] hover:underline cursor-pointer"
-            >
-              View all
-            </button>
-          </div>
-          <div className="divide-y divide-slate-100">
-            {overdueGroups.length === 0 ? (
-              <p className="p-4 text-xs text-slate-400 italic">No overdue returns.</p>
-            ) : (
-              overdueGroups.slice(0, 4).map(group => {
-                const customerName = group.booking?.customer ? `${group.booking.customer.first_name} ${group.booking.customer.last_name}` : 'Unknown';
-                const days = daysOverdue(group.eventDate);
-                return (
-                  <button
-                    key={group.booking_id}
-                    type="button"
-                    onClick={() => {
-                      setAssignmentSectionFilter('Overdue');
-                      setAssignmentSearchTerm(group.booking ? getBookingRef(group.booking) : customerName);
-                      setActiveTableTab('assignments');
-                    }}
-                    title="Click to jump to this event in Active Assignments"
-                    className="w-full flex items-center justify-between px-4 py-2.5 gap-2 text-left hover:bg-slate-50 transition-colors cursor-pointer"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-red-700 truncate">{customerName}</p>
-                      <p className="text-xs text-slate-500">{group.items.length} item{group.items.length !== 1 ? 's' : ''} overdue</p>
-                    </div>
-                    <span className="shrink-0 text-xs font-bold text-red-600">{days === 0 ? 'Today' : `${days} day${days !== 1 ? 's' : ''}`}</span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-          <div className="p-3 border-t border-slate-200">
-            <button
-              onClick={scrollToAssignments}
-              className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-[#008A45] border border-slate-300 hover:border-[#008A45] rounded-lg px-3 py-2 transition-colors cursor-pointer"
-            >
-              Go to Active Assignments <ChevronRight size={13} />
-            </button>
-          </div>
-        </div>
-
-        <p className="text-center text-[11px] font-semibold text-red-500">Live status — always current</p>
-      </div>
       </div>
 
       {/* ========================================================= */}

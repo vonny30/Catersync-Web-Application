@@ -66,8 +66,9 @@ figure comes from `utils/reportMetrics.js`, every stock figure from
 | PR-30 | Menu Performance | Rivera | Orders vs trays as units | DONE |
 | PR-31 | Menu Performance | Rivera | How packages vs specific menu items are treated | DONE |
 | PR-32 | Menu Performance | Rivera | Should a Bronze Package sale count toward Beef Caldereta? | **DECIDE** |
+| PR-33 | Equipment | Förster | What is the policy for equipment return? | DONE |
 
-Counts: **21 done**, **4 open**, **3 need a decision**, **2 mobile**, 2 split.
+Counts: **22 done**, **4 open**, **3 need a decision**, **2 mobile**, 2 split.
 
 ---
 
@@ -320,6 +321,50 @@ adjustment is for.
 
 **Files:** add both statements to `docs/HANDOFF.md` under a "Payment workflow"
 heading, and surface the second as helper text in the Edit Payment modal.
+
+### PR-33 · Equipment return policy
+
+> "What is the policy for equipment return? Right after use? Within 12 hrs?
+> Within 4 hrs? etc." — Förster
+
+This item was in the 1st-increment minutes but had never been logged in this
+tracker, so it went unanswered while the other Equipment items were closed.
+
+**DONE.** The system had *half* a policy, implemented but never stated: a
+3-hour lock after the event start before Return could be recorded. Nothing
+defined when equipment was actually **due back**, so "Overdue" just meant the
+event date had passed.
+
+The stated policy, now written at the top of `src/pages/Equipment.jsx` and
+shown to the manager on the Active Assignments tab:
+
+> Equipment is due back **within 24 hours of the event start**. Returns can be
+> recorded from **3 hours** after the event starts, and anything still out past
+> the 24-hour mark is flagged **Overdue**.
+
+Two distinct moments, which the code previously conflated:
+
+| Moment | When | Meaning |
+|---|---|---|
+| Opens | event start + 3h | Earliest a return can be recorded (an event may run long; equipment can't come back before it has realistically happened) |
+| Due | event start + 24h | The deadline — still out past this and it is Overdue |
+
+**Defect this exposed:** overdue was computed as `event_datetime < now` while
+Return only unlocked at `event + 3h`. That left a **3-hour window where an
+assignment was flagged Overdue in red, and listed in the Overdue Returns
+panel, while its own Return button was still locked** — the manager was told
+to act on something the system would not let them act on. Anchoring overdue to
+the 24-hour due time removes the contradiction by construction, since Due is
+always well after Opens. The same rule now backs the Active Assignments tab
+badge count, which had been counting from the event date while the rows
+counted from the deadline.
+
+**Also:** the OVERDUE badge now reads `OVERDUE · 3d` and carries the exact due
+timestamp on hover — one day late and a week late are different problems.
+
+**Not changed:** `src/pages/Vehicles.jsx` carries the same event-date overdue
+rule and its own copy of `getReturnAvailability`. Vehicles were out of scope
+here; if the same policy should apply to the fleet, that is a follow-up.
 
 ---
 
