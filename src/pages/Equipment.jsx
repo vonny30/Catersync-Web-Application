@@ -18,7 +18,7 @@ import { isPaymentLedgerLocked } from '../utils/payments';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { errorInputClass } from '../utils/formErrors';
 import { getDailyEquipmentSnapshot, checkEquipmentAvailabilityImpact, getStockBreakdown, deriveEquipmentDemand, revalidateAssignmentCapacity } from '../utils/equipment.jsx';
-import { getAssignmentStatus } from '../utils/statusLabels';
+import { getAssignmentStatus, ASSIGNMENT_STAGES } from '../utils/statusLabels';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange } from './Reports/helpers';
 
@@ -209,6 +209,7 @@ export default function Equipment() {
   const [flagIssueErrors, setFlagIssueErrors] = useState({});
 
   const [isUsageModalOpen, setIsUsageModalOpen] = useState(false);
+  const [usageStatusFilter, setUsageStatusFilter] = useState('All'); // 'All' | 'in_use' | 'assigned' | 'returned'
   const [selectedEquipment, setSelectedEquipment] = useState(null);
   const [equipmentUsage, setEquipmentUsage] = useState([]);
 
@@ -1160,9 +1161,52 @@ export default function Equipment() {
   // --- VIEW USAGE ---
   const handleViewUsage = async (item) => {
     setSelectedEquipment(item);
+    setUsageStatusFilter('All'); // fresh view per item, not the last one's filter
     await fetchEquipmentUsage(item.equipment_id);
     setIsUsageModalOpen(true);
   };
+
+  // ============================================================
+  // --- PER-ITEM USAGE: stage, filter, order ---
+  // ============================================================
+  // The query returns rows newest-assigned-first, which interleaves records
+  // still out with ones returned months ago — so the rows that can still be
+  // acted on were scattered through the list.
+  //
+  // Ordered by stage instead, using the same getAssignmentStatus the
+  // Active Assignments and History tabs use so the three can't disagree:
+  //   In Use   — the event is happening or has happened, still not returned
+  //   Assigned — reserved for an event still ahead
+  //   Returned — closed, history
+  const usageRecords = equipmentUsage.map(r => ({
+    ...r,
+    stage: getAssignmentStatus(r.returned, r.booking?.event_datetime),
+  }));
+
+  const usageStageCounts = {
+    All: usageRecords.length,
+    in_use: usageRecords.filter(r => r.stage.key === 'in_use').length,
+    assigned: usageRecords.filter(r => r.stage.key === 'assigned').length,
+    returned: usageRecords.filter(r => r.stage.key === 'returned').length,
+  };
+
+  const stageRank = (key) => (key === 'in_use' ? 0 : key === 'assigned' ? 1 : 2);
+
+  const visibleUsageRecords = usageRecords
+    .filter(r => usageStatusFilter === 'All' || r.stage.key === usageStatusFilter)
+    .sort((a, b) => {
+      const byStage = stageRank(a.stage.key) - stageRank(b.stage.key);
+      if (byStage !== 0) return byStage;
+      if (a.stage.key === 'returned') {
+        // Closed records: most recently returned first — recent history is
+        // the part anyone actually looks back at.
+        return new Date(b.returned_at || b.assigned_at || 0) - new Date(a.returned_at || a.assigned_at || 0);
+      }
+      // Still open: earliest event first. For In Use that surfaces the
+      // longest-outstanding item (the most overdue); for Assigned it is the
+      // one coming up next.
+      return new Date(a.booking?.event_datetime || 0) - new Date(b.booking?.event_datetime || 0);
+    });
 
   const availabilityPanelRef = useRef(null);
 
@@ -3484,12 +3528,43 @@ export default function Equipment() {
                 <X size={20} />
               </button>
             </div>
+            {usageRecords.length > 0 && (
+              <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 shrink-0">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {[
+                    { key: 'All', label: 'All' },
+                    { key: 'in_use', label: ASSIGNMENT_STAGES.in_use },
+                    { key: 'assigned', label: ASSIGNMENT_STAGES.assigned },
+                    { key: 'returned', label: ASSIGNMENT_STAGES.returned },
+                  ].map(opt => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => setUsageStatusFilter(opt.key)}
+                      disabled={usageStageCounts[opt.key] === 0}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                        usageStatusFilter === opt.key
+                          ? 'bg-[#008A45] border-[#008A45] text-white'
+                          : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      {opt.label} ({usageStageCounts[opt.key]})
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-2">
+                  Still-out records first (longest outstanding at the top), then upcoming reservations, then returned — most recent first.
+                </p>
+              </div>
+            )}
             <div className="p-4 overflow-y-auto flex-1">
-              {equipmentUsage.length === 0 ? (
+              {usageRecords.length === 0 ? (
                 <p className="text-sm text-slate-500 italic text-center py-8">No usage records found.</p>
+              ) : visibleUsageRecords.length === 0 ? (
+                <p className="text-sm text-slate-500 italic text-center py-8">No {ASSIGNMENT_STAGES[usageStatusFilter]?.toLowerCase() || ''} records for this item.</p>
               ) : (
                 <div className="space-y-3">
-                  {equipmentUsage.map(record => {
+                  {visibleUsageRecords.map(record => {
                     const booking = record.booking;
                     const customerName = booking?.customer
                       ? `${booking.customer.first_name} ${booking.customer.last_name}`
@@ -3498,15 +3573,20 @@ export default function Equipment() {
                       (booking?.booking_id ?
                         (booking.booking_type === 'Short Order' ? 'SO' : 'BKG') + '-' + booking.booking_id.slice(0, 8)
                         : 'N/A');
-                    const status = getAssignmentStatus(record.returned, booking?.event_datetime);
+                    const status = record.stage;
                     return (
-                      <div key={record.assignment_id} className={`border rounded-lg p-3 flex justify-between items-center ${record.returned ? 'bg-slate-50 border-slate-200' : status.key === 'in_use' ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
-                        <div>
+                      <div key={record.assignment_id} className={`border rounded-lg p-3 flex justify-between items-center gap-3 ${record.returned ? 'bg-slate-50 border-slate-200' : status.key === 'in_use' ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+                        <div className="min-w-0">
                           <p className="font-bold text-slate-900 text-sm">{customerName}</p>
                           <p className="text-xs text-slate-500">{booking?.venue || 'No venue'} · {booking?.event_datetime ? new Date(booking.event_datetime).toLocaleDateString() : 'N/A'}</p>
                           <p className="text-xs text-slate-500">Booking: {bookingRef} · Quantity: <span className="font-bold text-[#008A45]">{record.quantity}</span></p>
+                          {record.returned && record.returned_at && (
+                            <p className="text-xs text-slate-500">
+                              Returned {new Date(record.returned_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </p>
+                          )}
                         </div>
-                        <div className="text-right">
+                        <div className="text-right shrink-0">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${record.returned ? 'bg-green-100 text-green-700' : status.key === 'in_use' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                             {status.label}
                           </span>
