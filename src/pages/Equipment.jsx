@@ -880,6 +880,33 @@ export default function Equipment() {
     ? new Date(selectedBooking.event_datetime).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
     : 'that date';
 
+  // How many units of an item are free ON THE SELECTED BOOKING'S EVENT DATE.
+  //
+  // Extracted so the equipment dropdown and addToQueue's validation read the
+  // same number. They previously didn't: the dropdown printed
+  // `quantity_available` (total usable stock, date-blind) while the validator
+  // compared against the date snapshot's `free`. A manager picking from a list
+  // that said "100 in stock" was then refused at 20 because 80 were already
+  // promised to another event that day — the UI advertised one number and
+  // enforced another.
+  //
+  // Returns null when a date-scoped answer isn't available yet (no booking
+  // chosen, or the snapshot still loading), so callers can say so rather than
+  // silently falling back to a stock figure that means something else.
+  const freeOnDateFor = (equipmentId) => {
+    if (!equipmentId) return null;
+    const dateRow = assignDateSnapshot?.items?.find(i => i.equipment_id === equipmentId);
+    if (!dateRow) return null;
+    const base = getStockBreakdown(dateRow).free;
+    // Items already queued in this modal aren't saved yet, so the snapshot
+    // can't know about them — subtract them or the list would keep offering
+    // units the manager has already spoken for in this same session.
+    const queued = assignmentQueue
+      .filter(q => q.equipment_id === equipmentId)
+      .reduce((sum, q) => sum + (q.quantity || 0), 0);
+    return Math.max(0, base - queued);
+  };
+
   const addToQueue = () => {
     if (!tempEquipId) {
       toast.error('Please select equipment.');
@@ -904,12 +931,13 @@ export default function Equipment() {
     // stock. Comparing to stock alone let a manager queue 20 chairs when 18 of
     // them were already promised to another event that day, and the shortage
     // only surfaced at submit — after the whole list had been built.
-    // assignDateSnapshot is already loaded for the selected booking's date.
-    const dateRow = assignDateSnapshot?.items?.find(i => i.equipment_id === tempEquipId);
-    const freeOnDate = dateRow ? getStockBreakdown(dateRow).free : getStockBreakdown(equip).usable;
+    // Same helper the dropdown displays from, so what was offered and what is
+    // accepted are by construction the same number.
+    const dateAwareFree = freeOnDateFor(tempEquipId);
+    const freeOnDate = dateAwareFree !== null ? dateAwareFree : getStockBreakdown(equip).usable;
     if (tempQuantity > freeOnDate) {
       toast.error(
-        dateRow
+        dateAwareFree !== null
           ? `Only ${freeOnDate} "${equip.eqm_name}" free on ${eventDateLabel} — the rest are already committed to other events that day.`
           : `Only ${freeOnDate} "${equip.eqm_name}" usable — can't assign ${tempQuantity}.`
       );
@@ -3277,6 +3305,15 @@ export default function Equipment() {
               {/* Add Equipment to Queue */}
               <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Add Equipment to Assignment List</label>
+                <p className="text-[11px] text-slate-500 mb-2">
+                  {assignDateSnapshotLoading
+                    ? 'Checking what is free on this event’s date…'
+                    : !selectedBooking
+                      ? 'Pick a booking first — availability is counted for that event’s date, not overall stock.'
+                      : assignDateSnapshot
+                        ? <>Counts are what is free on <span className="font-semibold text-slate-700">{eventDateLabel}</span>, after other events booked that day.</>
+                        : 'Showing total usable stock — availability for this date could not be loaded.'}
+                </p>
                 <div className="flex flex-col sm:flex-row gap-2">
                   <Select
                     value={tempEquipId}
@@ -3298,12 +3335,28 @@ export default function Equipment() {
                     className="flex-1 border border-slate-300 rounded-lg p-2 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
                   >
                     <option value="">Select equipment...</option>
-                    {equipmentList.map((eq) => (
-                      <option key={eq.equipment_id} value={eq.equipment_id}>
-                        {eq.eqm_name} ({eq.quantity_available} in stock) {eq.equipment_type === 'Decoration' ? '[Decoration]' : ''}
-                        {eq.pax_per_unit ? ` - ${eq.pax_per_unit} pax/unit` : ''}
-                      </option>
-                    ))}
+                    {equipmentList.map((eq) => {
+                      // Date-aware where possible. Falls back to total usable
+                      // stock only when there is no date to scope to (no
+                      // booking picked yet, or the snapshot still loading),
+                      // and says which of the two it is showing rather than
+                      // printing a bare number that could mean either.
+                      const free = freeOnDateFor(eq.equipment_id);
+                      const scoped = free !== null;
+                      const shown = scoped ? free : getStockBreakdown(eq).usable;
+                      return (
+                        <option
+                          key={eq.equipment_id}
+                          value={eq.equipment_id}
+                          disabled={scoped && shown === 0}
+                        >
+                          {eq.eqm_name} — {shown} {scoped ? `free on ${eventDateLabel}` : 'usable in stock'}
+                          {scoped && shown === 0 ? ' (fully committed)' : ''}
+                          {eq.equipment_type === 'Decoration' ? ' [Decoration]' : ''}
+                          {eq.pax_per_unit ? ` · ${eq.pax_per_unit} pax/unit` : ''}
+                        </option>
+                      );
+                    })}
                   </Select>
                   <input
                     type="number"
