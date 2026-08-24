@@ -20,7 +20,7 @@ import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
 import { isPaymentLedgerLocked } from '../utils/payments';
-import { bookingEditLockedMessage, STATUS_ORDER } from '../utils/bookingStatus';
+import { bookingEditLockedMessage, STATUS_ORDER, findStatusOrderDrift } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds } from './Reports/helpers';
@@ -45,6 +45,9 @@ export default function Bookings() {
     tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
+  // Ensures the status_order self-heal in fetchData runs at most once per
+  // mount, so a repair that silently fails can't refetch in a loop.
+  const statusOrderRepairedRef = useRef(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [pageSize] = useState(10);
@@ -193,19 +196,46 @@ export default function Bookings() {
       // this priority), then most-recently-created first within each
       // status group. That sequence is unchanged — is_read is only an
       // extra sort key ahead of it, not a replacement for it.
-      // nullsFirst matters here: the NEW badge in this table treats a null
-      // is_read the same as false (`!booking.is_read`), so the sort has to
-      // agree, or an unset row would show "NEW" while sinking to the
-      // bottom instead of floating up with the rest of the new ones.
+      // Status is the PRIMARY grouping, is_read only breaks ties inside it.
+      //
+      // These were the other way round, which split every status in two: an
+      // unread Cancelled row sorted above a read Confirmed one, so the same
+      // status appeared in two places down the list and the sequence read as
+      // broken. New rows still get their emphasis — first within their own
+      // status group, plus the NEW badge — without displacing the status
+      // order the page is built around.
+      //
+      // nullsFirst matters here: the NEW badge treats a null is_read the same
+      // as false (`!booking.is_read`), so the sort has to agree, or an unset
+      // row would show "NEW" while sinking below the read ones in its group.
       query = query
-        .order('is_read', { ascending: true, nullsFirst: true })
         .order('status_order', { ascending: true })
+        .order('is_read', { ascending: true, nullsFirst: true })
         .order('book_datetime', { ascending: false })
         .order('booking_id', { ascending: false })
         .range(from, to);
 
       const { data: bookingsData, count, error: bookingsError } = await query;
       if (bookingsError) throw bookingsError;
+
+      // Self-heal rows whose status_order contradicts their status. Nothing
+      // in the database keeps the two in step, and the customer mobile app
+      // writes booking_status without knowing this sort column exists — so
+      // left alone, those rows sort into the wrong status group and the list
+      // looks scrambled. Repairing only ever rewrites a derived value to
+      // match booking_status, which stays the authority.
+      //
+      // Guarded by a ref so a repair that doesn't take can't loop: at most
+      // one repair-and-refetch per mount.
+      const drift = findStatusOrderDrift(bookingsData);
+      if (drift.length > 0 && !statusOrderRepairedRef.current) {
+        statusOrderRepairedRef.current = true;
+        await Promise.all(drift.map(d =>
+          supabase.from('booking').update({ status_order: d.status_order }).eq('booking_id', d.booking_id)
+        ));
+        console.info(`[status_order] repaired ${drift.length} row(s) whose sort key disagreed with booking_status`, drift);
+        return fetchData(); // re-read so the corrected rows land in the right group
+      }
 
       setTotalCount(count || 0);
       setTotalPages(Math.ceil((count || 0) / pageSize));

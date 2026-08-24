@@ -19,7 +19,7 @@ import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
 import { isPaymentLedgerLocked } from '../utils/payments';
-import { bookingEditLockedMessage, MAX_SHORT_ORDERS_PER_DAY, STATUS_ORDER } from '../utils/bookingStatus';
+import { bookingEditLockedMessage, MAX_SHORT_ORDERS_PER_DAY, STATUS_ORDER, findStatusOrderDrift } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import { getBookingsOnDate } from '../utils/availability';
 import DateRangeFilter from './Reports/DateRangeFilter';
@@ -46,6 +46,9 @@ export default function ShortOrders() {
   const scrollToTable = () => {
     tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
+  // Ensures the status_order self-heal in fetchData runs at most once per
+  // mount, so a repair that silently fails can't refetch in a loop.
+  const statusOrderRepairedRef = useRef(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const pageSize = 10;
@@ -175,14 +178,31 @@ export default function ShortOrders() {
       // created first within each status group. That sequence is
       // unchanged — is_read is only an extra sort key ahead of it.
       query = query
-        .order('is_read', { ascending: true, nullsFirst: true })
+        // Status is the PRIMARY grouping, is_read only breaks ties inside it —
+        // see the matching note in Bookings.jsx. Reversed, it split every
+        // status in two, so the same status appeared twice down the list.
         .order('status_order', { ascending: true })
+        .order('is_read', { ascending: true, nullsFirst: true })
         .order('book_datetime', { ascending: false })
         .order('booking_id', { ascending: false })
         .range(from, to);
 
       const { data: ordersData, count, error: ordersError } = await query;
       if (ordersError) throw ordersError;
+
+      // Self-heal rows whose status_order contradicts their status — same
+      // reasoning as Bookings.jsx: nothing in the database keeps the two in
+      // step, and the mobile app writes booking_status without knowing this
+      // sort column exists. Only ever rewrites the derived value.
+      const drift = findStatusOrderDrift(ordersData);
+      if (drift.length > 0 && !statusOrderRepairedRef.current) {
+        statusOrderRepairedRef.current = true;
+        await Promise.all(drift.map(d =>
+          supabase.from('booking').update({ status_order: d.status_order }).eq('booking_id', d.booking_id)
+        ));
+        console.info(`[status_order] repaired ${drift.length} row(s) whose sort key disagreed with booking_status`, drift);
+        return fetchData();
+      }
 
       setTotalCount(count || 0);
       setTotalPages(Math.ceil((count || 0) / pageSize));

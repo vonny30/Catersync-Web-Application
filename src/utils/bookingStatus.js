@@ -28,6 +28,35 @@ export const STATUS_ORDER = {
   Cancelled: 6,
 };
 
+// `status_order` duplicates information already in `booking_status`, and
+// nothing in the database keeps the two in step — so they drift, and when
+// they do the list silently sorts a row into the wrong group. It has already
+// happened: three Confirmed bookings carried status_order 5 (Rejected's
+// slot) and a Cancelled one carried 4 (Completed's), which is why Confirmed
+// and Cancelled rows appeared interleaved with Rejected and Completed.
+//
+// Every write path in THIS app sets both, so the drift comes from rows
+// written before that was true, or from the customer mobile app sharing this
+// table — it changes booking_status too (a customer cancelling their own
+// booking), and it has no reason to know about a sort column that exists
+// purely for this UI.
+//
+// Given that, the list can't assume the column is right. This returns the
+// rows whose status_order contradicts their status, so a caller can repair
+// them. booking_status is the authority; status_order is only ever derived.
+export function findStatusOrderDrift(rows) {
+  return (rows || [])
+    .filter(r => r?.booking_id
+      && STATUS_ORDER[r.booking_status] !== undefined
+      && r.status_order !== STATUS_ORDER[r.booking_status])
+    .map(r => ({
+      booking_id: r.booking_id,
+      booking_status: r.booking_status,
+      was: r.status_order,
+      status_order: STATUS_ORDER[r.booking_status],
+    }));
+}
+
 // Business rule: the kitchen can only handle 4 Short Orders on any one
 // calendar day. This caps how many Short Orders can be Approved/Confirmed
 // (i.e. ACTIVE_BOOKING_STATUSES) for the same event date — enforced as a
