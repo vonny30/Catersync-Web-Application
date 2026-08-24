@@ -15,7 +15,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { errorInputClass } from '../utils/formErrors';
-import { getDailyEquipmentSnapshot, checkEquipmentAvailabilityImpact, getStockBreakdown } from '../utils/equipment.jsx';
+import { getDailyEquipmentSnapshot, checkEquipmentAvailabilityImpact, getStockBreakdown, deriveEquipmentDemand } from '../utils/equipment.jsx';
 import { getAssignmentStatus } from '../utils/statusLabels';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange } from './Reports/helpers';
@@ -101,7 +101,8 @@ export default function Equipment() {
   // --- STATE ---
   const [equipmentList, setEquipmentList] = useState([]);
   const [assignments, setAssignments] = useState([]); // ALL booking_equipment rows (returned + active) — feeds Usage history and the grouped Active Assignments section
-  const [bookings, setBookings] = useState([]); // Package bookings, for the Assign modal's booking picker
+  const [bookings, setBookings] = useState([]); // Package bookings, for the Assign modal's booking picker + the Upcoming Prep tab
+  const [packageEquipment, setPackageEquipment] = useState([]); // package→equipment template rows, for required-vs-assigned in the prep view
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [addFieldErrors, setAddFieldErrors] = useState({});
@@ -115,7 +116,9 @@ export default function Equipment() {
   // --- Availability/Inventory/Assignments tab control — all three live in
   // one tabbed panel so a long equipment list never pushes Active
   // Assignments far down the page; only one is on-screen at a time. ---
-  const [activeTableTab, setActiveTableTab] = useState('availability'); // 'availability' | 'inventory' | 'assignments' | 'history'
+  // Opens on Upcoming: the manager's first question is "what's coming up
+  // and is it ready", not "what's free today".
+  const [activeTableTab, setActiveTableTab] = useState('upcoming'); // 'upcoming' | 'availability' | 'inventory' | 'assignments' | 'history'
   const [inventorySearch, setInventorySearch] = useState('');
   const [inventoryTypeFilter, setInventoryTypeFilter] = useState('All'); // 'All' | 'Countable' | 'Decoration'
   // Switched on by the sidebar's Needs Attention panel.
@@ -295,11 +298,15 @@ export default function Equipment() {
       if (equipError) throw equipError;
       setEquipmentList(equipData || []);
 
+      // package_id + package name come along for the Upcoming Prep tab,
+      // which has to answer "which package is this event, and what does
+      // that package require?" — not just "which booking is this?".
       const { data: bookingData, error: bookingError } = await supabase
         .from('booking')
         .select(`
-          booking_id, booking_number, booking_type, booking_status, event_datetime, venue, pax_count, notes,
-          customer:customer_id (first_name, last_name, contact_no, cus_address)
+          booking_id, booking_number, booking_type, booking_status, event_datetime, venue, pax_count, notes, package_id,
+          customer:customer_id (first_name, last_name, contact_no, cus_address),
+          package:package_id (pkg_name)
         `)
         .eq('booking_type', 'Package')
         .in('booking_status', [...ACTIVE_BOOKING_STATUSES, 'Pending'])
@@ -307,6 +314,16 @@ export default function Equipment() {
       if (bookingError) throw bookingError;
       setBookings(bookingData || []);
       setFilteredBookings(bookingData || []);
+
+      // The whole package→equipment template table. It is small (one row
+      // per equipment line per package) and fetching it once here lets the
+      // prep view compute required-vs-assigned for every upcoming event
+      // client-side, instead of one round trip per booking.
+      const { data: pkgEquipData, error: pkgEquipError } = await supabase
+        .from('package_equipment')
+        .select('package_id, equipment_id, included_quantity, per_pax');
+      if (pkgEquipError) throw pkgEquipError;
+      setPackageEquipment(pkgEquipData || []);
 
       const { data: assignData, error: assignError } = await supabase
         .from('booking_equipment')
@@ -1055,6 +1072,85 @@ export default function Equipment() {
   });
   const overdueUnits = overdueAssignments.reduce((sum, a) => sum + (a.quantity || 0), 0);
 
+  // ============================================================
+  // --- UPCOMING PREP: what each upcoming event needs vs what it has ---
+  // ============================================================
+  // The panel's point was that "total units owned" is not a number a
+  // manager can act on — knowing the business owns 500 chairs says nothing
+  // about whether next Saturday's event is ready. What they actually need
+  // is, per upcoming event: which package it is, what that package
+  // requires at this pax count, what has actually been assigned, and
+  // therefore what is still missing.
+  //
+  // Required comes from the package template via deriveEquipmentDemand —
+  // the same rule allocateEquipmentForBooking uses, so "required" here can
+  // never drift from what the Assign action would allocate.
+  const equipmentById = {};
+  equipmentList.forEach(eq => { equipmentById[eq.equipment_id] = eq; });
+
+  const templateByPackage = {};
+  packageEquipment.forEach(row => {
+    (templateByPackage[row.package_id] ||= []).push(row);
+  });
+
+  const PREP_HORIZON_DAYS = 14;
+  const prepHorizonEnd = new Date(now.getTime() + PREP_HORIZON_DAYS * 24 * 60 * 60 * 1000);
+
+  const upcomingPrep = bookings
+    .filter(b => {
+      if (!b.event_datetime) return false;
+      const ev = new Date(b.event_datetime);
+      // Events that already happened are the Active Assignments tab's job
+      // (returns), not prep. Horizon keeps this to what's actionable.
+      return ev >= now && ev <= prepHorizonEnd;
+    })
+    .map(b => {
+      const required = deriveEquipmentDemand(templateByPackage[b.package_id] || [], equipmentById, b.pax_count);
+
+      // Only unreturned rows count as "assigned for this event" — a row
+      // already returned is history, not preparation.
+      const assignedByEquipment = {};
+      assignments
+        .filter(a => a.booking_id === b.booking_id && !a.returned)
+        .forEach(a => {
+          assignedByEquipment[a.equipment_id] = (assignedByEquipment[a.equipment_id] || 0) + (a.quantity || 0);
+        });
+
+      // Union of both sides: an item can be required but unassigned, or
+      // assigned as an extra the package template never listed. Showing
+      // only the template would hide the second kind entirely.
+      const allIds = [...new Set([...Object.keys(required), ...Object.keys(assignedByEquipment)])];
+      const lines = allIds.map(id => {
+        const req = required[id] || 0;
+        const got = assignedByEquipment[id] || 0;
+        return {
+          equipment_id: id,
+          name: equipmentById[id]?.eqm_name || 'Unknown item',
+          required: req,
+          assigned: got,
+          short: Math.max(0, req - got),
+          extra: Math.max(0, got - req),
+        };
+      }).sort((a, b2) => (b2.short - a.short) || a.name.localeCompare(b2.name));
+
+      const shortLines = lines.filter(l => l.short > 0);
+      const unitsShort = shortLines.reduce((sum, l) => sum + l.short, 0);
+      const daysUntil = Math.ceil((new Date(b.event_datetime) - now) / (24 * 60 * 60 * 1000));
+
+      return {
+        ...b,
+        lines,
+        shortLines,
+        unitsShort,
+        hasTemplate: (templateByPackage[b.package_id] || []).length > 0,
+        totalAssignedUnits: Object.values(assignedByEquipment).reduce((s, n) => s + n, 0),
+        isReady: shortLines.length === 0,
+        daysUntil,
+      };
+    });
+
+  const eventsNeedingPrep = upcomingPrep.filter(e => !e.isReady);
+
   const selectedDateObj = new Date(`${selectedDate}T00:00:00`);
   const isSelectedToday = selectedDate === todayISO();
   const isSelectedTomorrow = selectedDate === tomorrowISO();
@@ -1346,13 +1442,26 @@ export default function Equipment() {
       the page is a single column instead of competing for attention with
       a 320px rail. --- */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-2xl p-5 shadow-sm">
-          <p className="text-xs font-semibold text-slate-600 mb-1">Total stock owned</p>
-          <h3 className="text-3xl font-extrabold text-slate-900">{ownedStockAll}</h3>
-          <p className="text-[11px] text-slate-500 mt-1">
-            {usableStockAll} usable · {needsAttentionUnits} out of service
+        {/* "Total stock owned" used to sit here. The panel's point was that
+            it isn't a number anyone acts on — owning 500 chairs says
+            nothing about whether Saturday's event is ready. It moved to
+            the Inventory tab as reference context; this slot now answers
+            the question a manager actually opens this page with: is
+            anything coming up not ready yet? */}
+        <button
+          onClick={() => setActiveTableTab('upcoming')}
+          className={`bg-white border border-slate-200 border-l-4 rounded-2xl p-5 text-left shadow-sm transition-all cursor-pointer group ${eventsNeedingPrep.length > 0 ? 'border-l-amber-500 hover:shadow-md' : 'border-l-[#008A45] hover:shadow-md'}`}
+        >
+          <p className="text-xs font-semibold text-slate-600 mb-1">Events needing prep</p>
+          <h3 className={`text-3xl font-extrabold ${eventsNeedingPrep.length > 0 ? 'text-amber-600' : 'text-[#008A45]'}`}>{eventsNeedingPrep.length}</h3>
+          <p className="text-[11px] text-slate-500 mt-1 group-hover:text-[#008A45] transition-colors">
+            {upcomingPrep.length === 0
+              ? 'No events in the next 14 days'
+              : eventsNeedingPrep.length > 0
+                ? `of ${upcomingPrep.length} upcoming — missing equipment →`
+                : `all ${upcomingPrep.length} upcoming events ready →`}
           </p>
-        </div>
+        </button>
 
         <button
           onClick={showNeedsAttentionInInventory}
@@ -1386,7 +1495,21 @@ export default function Equipment() {
       {/* --- TAB CONTROL --- */}
       <div ref={availabilityPanelRef} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-2 bg-slate-50 border-b border-slate-200">
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-wrap">
+            {/* Upcoming leads the tabs because preparing for what's coming
+                is the job this page exists for; the other three support it
+                (what's free, what we own, what's out). */}
+            <button
+              onClick={() => setActiveTableTab('upcoming')}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${activeTableTab === 'upcoming' ? 'bg-white shadow-sm text-[#008A45] border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <Calendar size={14} /> Upcoming
+              {eventsNeedingPrep.length > 0 && (
+                <span className="ml-0.5 inline-flex items-center justify-center min-w-[1.1rem] h-[1.1rem] px-1 rounded-full text-[10px] font-bold bg-amber-500 text-white">
+                  {eventsNeedingPrep.length}
+                </span>
+              )}
+            </button>
             <button
               onClick={() => setActiveTableTab('availability')}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${activeTableTab === 'availability' ? 'bg-white shadow-sm text-[#008A45] border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}
@@ -1421,12 +1544,144 @@ export default function Equipment() {
               process it covers: what we own → what's free on a date →
               what's out right now → what happened historically. */}
           <p className="text-xs text-slate-500 px-1 pt-2">
+            {activeTableTab === 'upcoming' && <>Events in the next {PREP_HORIZON_DAYS} days — the package each one booked, what that package requires at its pax count, and what's still to assign.</>}
             {activeTableTab === 'availability' && <>What's free to assign on a chosen date, after subtracting what's already committed.</>}
             {activeTableTab === 'inventory' && <>Everything we own — add stock, edit details, or flag damage and repairs.</>}
             {activeTableTab === 'assignments' && <>Everything currently out at an event and not yet returned. {RETURN_POLICY_TEXT}</>}
             {activeTableTab === 'history' && <>The full log of every assignment ever made — assigned and returned — across all equipment.</>}
           </p>
         </div>
+
+        {/* ===== UPCOMING PREP TAB ===== */}
+        {/* Answers the panel's two questions in one place: which packages
+            are coming up, and what equipment is assigned for them. Each
+            event expands to a required-vs-assigned breakdown so the gap is
+            explicit rather than something the manager has to work out by
+            cross-referencing the package template against the assignment
+            list themselves. */}
+        {activeTableTab === 'upcoming' && (
+          <div className="divide-y divide-slate-200">
+            {isLoading ? (
+              <p className="p-6 text-center text-slate-400 text-sm">Loading upcoming events…</p>
+            ) : upcomingPrep.length === 0 ? (
+              <div className="p-8 text-center">
+                <p className="text-sm text-slate-500">No events scheduled in the next {PREP_HORIZON_DAYS} days.</p>
+                <p className="text-xs text-slate-400 mt-1">Confirmed and pending package bookings appear here as their event date approaches.</p>
+              </div>
+            ) : (
+              upcomingPrep.map(ev => {
+                const customerName = ev.customer ? `${ev.customer.first_name} ${ev.customer.last_name}` : 'Unknown';
+                const ref = getBookingRef(ev);
+                return (
+                  <details key={ev.booking_id} open={!ev.isReady} className="group/prep">
+                    <summary className={`p-4 cursor-pointer list-none flex items-center justify-between gap-3 flex-wrap hover:bg-slate-50 transition-colors ${!ev.isReady ? 'bg-amber-50/40' : ''}`}>
+                      <div className="flex items-center gap-3 flex-wrap min-w-0">
+                        <span className="text-slate-400 group-open/prep:rotate-90 transition-transform inline-block">▸</span>
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${ev.isReady ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-amber-100 text-amber-800 border-amber-300'}`}>
+                          {ev.isReady ? 'READY' : `${ev.unitsShort} UNIT${ev.unitsShort === 1 ? '' : 'S'} SHORT`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); goToBookingDetails(ev.booking_id, ev.booking_type); }}
+                          className="font-mono text-xs font-bold text-[#008A45] hover:underline inline-flex items-center gap-0.5 cursor-pointer"
+                          title="View full booking details"
+                        >
+                          {ref} <ExternalLink size={10} />
+                        </button>
+                        <span className="font-bold text-slate-900 text-sm truncate">{customerName}</span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-200">
+                          {ev.package?.pkg_name || 'No package'}
+                        </span>
+                        <span className="text-xs text-slate-500 flex items-center gap-1">
+                          <Users size={11} /> {ev.pax_count || 0} pax
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="text-xs text-slate-500 flex items-center gap-1">
+                          <Calendar size={11} />
+                          {new Date(ev.event_datetime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <span className={`text-[11px] font-bold ${ev.daysUntil <= 1 ? 'text-red-600' : ev.daysUntil <= 3 ? 'text-amber-600' : 'text-slate-500'}`}>
+                          {ev.daysUntil <= 0 ? 'Today' : ev.daysUntil === 1 ? 'Tomorrow' : `in ${ev.daysUntil} days`}
+                        </span>
+                      </div>
+                    </summary>
+
+                    <div className="px-4 pb-4 pt-1 bg-slate-50/50">
+                      {ev.venue && (
+                        <p className="text-xs text-slate-500 flex items-center gap-1 mb-3">
+                          <MapPin size={11} /> {ev.venue}
+                        </p>
+                      )}
+
+                      {ev.lines.length === 0 ? (
+                        <div className="text-xs text-slate-500 italic py-2">
+                          {ev.hasTemplate
+                            ? 'This package lists no equipment, and nothing has been assigned.'
+                            : 'This package has no equipment template set up, and nothing has been assigned yet — assign items manually, or add an equipment template to the package so future bookings know what they need.'}
+                        </div>
+                      ) : (
+                        <>
+                          <table className="w-full text-left text-sm">
+                            <thead>
+                              <tr className="text-[11px] uppercase tracking-wide text-slate-500 border-b border-slate-200">
+                                <th className="py-2 font-bold">Equipment</th>
+                                <th className="py-2 font-bold text-center w-24">Required</th>
+                                <th className="py-2 font-bold text-center w-24">Assigned</th>
+                                <th className="py-2 font-bold text-right w-32">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {ev.lines.map(line => (
+                                <tr key={line.equipment_id}>
+                                  <td className="py-2 text-slate-800 font-medium">{line.name}</td>
+                                  <td className="py-2 text-center text-slate-600">{line.required || '—'}</td>
+                                  <td className="py-2 text-center font-semibold text-slate-900">{line.assigned || '—'}</td>
+                                  <td className="py-2 text-right">
+                                    {line.short > 0 ? (
+                                      <span className="text-xs font-bold text-amber-700">{line.short} to assign</span>
+                                    ) : line.extra > 0 ? (
+                                      <span className="text-xs font-medium text-slate-500" title="Assigned beyond what the package template lists">+{line.extra} extra</span>
+                                    ) : (
+                                      <span className="text-xs font-medium text-emerald-600">Complete</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+
+                          {!ev.hasTemplate && (
+                            <p className="text-[11px] text-slate-500 italic mt-2">
+                              This package has no equipment template, so "Required" is blank — these rows are what was assigned manually.
+                            </p>
+                          )}
+                        </>
+                      )}
+
+                      <div className="flex items-center gap-2 mt-3">
+                        <button
+                          onClick={() => {
+                            setAssignmentQueue([]);
+                            setBookingSearchTerm(ref);
+                            setShowBookingDropdown(false);
+                            setIsAssignModalOpen(true);
+                          }}
+                          className="inline-flex items-center gap-1.5 bg-[#008A45] hover:bg-[#007038] text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <ClipboardList size={13} /> Assign equipment
+                        </button>
+                        <span className="text-[11px] text-slate-500">
+                          {ev.totalAssignedUnits} unit{ev.totalAssignedUnits === 1 ? '' : 's'} assigned so far
+                        </span>
+                      </div>
+                    </div>
+                  </details>
+                );
+              })
+            )}
+          </div>
+        )}
 
         {/* ===== AVAILABILITY TAB ===== */}
         {activeTableTab === 'availability' && (
@@ -1632,6 +1887,21 @@ export default function Equipment() {
         {/* ===== INVENTORY TAB ===== */}
         {activeTableTab === 'inventory' && (
           <>
+            {/* Stock totals live here rather than in a headline card. They
+                are reference context for "what do we own" — the tab that
+                question belongs to — not something a manager acts on at a
+                glance, which was the panel's point about the old
+                "Total stock owned" card. */}
+            <div className="px-4 py-3 border-b border-slate-200 bg-slate-50/60 flex flex-wrap items-center gap-x-6 gap-y-1 text-xs">
+              <span className="text-slate-600">
+                <span className="font-extrabold text-slate-900 text-sm">{ownedStockAll}</span> units owned
+              </span>
+              <span className="text-slate-500">
+                = <span className="font-bold text-emerald-700">{usableStockAll}</span> usable
+                {' + '}
+                <span className="font-bold text-red-600">{needsAttentionUnits}</span> out of service (damaged or under repair)
+              </span>
+            </div>
             <div className={`p-4 border-b flex flex-wrap items-center gap-3 ${activeInventoryFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-200'}`}>
               {activeInventoryFilterCount > 0 && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shrink-0">

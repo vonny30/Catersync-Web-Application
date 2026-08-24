@@ -67,8 +67,9 @@ figure comes from `utils/reportMetrics.js`, every stock figure from
 | PR-31 | Menu Performance | Rivera | How packages vs specific menu items are treated | DONE |
 | PR-32 | Menu Performance | Rivera | Should a Bronze Package sale count toward Beef Caldereta? | **DECIDE** |
 | PR-33 | Equipment | Förster | What is the policy for equipment return? | DONE |
+| PR-34 | Equipment | Adviser | "Does the total number of equipment really matter?" + see upcoming events with their packages and assigned equipment | DONE |
 
-Counts: **22 done**, **4 open**, **3 need a decision**, **2 mobile**, 2 split.
+Counts: **23 done**, **4 open**, **3 need a decision**, **2 mobile**, 2 split.
 
 ---
 
@@ -365,6 +366,58 @@ timestamp on hover — one day late and a week late are different problems.
 **Not changed:** `src/pages/Vehicles.jsx` carries the same event-date overdue
 rule and its own copy of `getReturnAvailability`. Vehicles were out of scope
 here; if the same policy should apply to the fleet, that is a follow-up.
+
+### PR-34 · Equipment prep view — packages and assignments per upcoming event
+
+> "Does the total number of equipment really matter?" and "how to see if there
+> are upcoming events — it should see which packages and what equipment are
+> assigned for that." — Adviser
+
+**DONE.** Both halves are the same point: the page was reporting **stock** when
+the manager's actual job is **preparation**.
+
+**"Total stock owned" was a vanity figure.** Owning 500 chairs says nothing
+about whether Saturday's event is ready, and there is no action a manager takes
+in response to it. It moved to the Inventory tab as reference context (where
+"what do we own" is the question being asked), and the headline slot it
+occupied now shows **Events needing prep** — how many upcoming events are
+missing equipment — which is actionable and links straight to them.
+
+**New Upcoming tab** (now the default tab, since preparing for what's coming is
+the job this page exists for). For each event in the next 14 days it shows the
+booking ref, customer, **the package booked**, pax count, venue, date, and a
+countdown — then expands to a per-item breakdown:
+
+| Equipment | Required | Assigned | Status |
+|---|---|---|---|
+| Chair | 70 | 70 | Complete |
+| Table | 9 | 4 | 5 to assign |
+
+with a **READY** / **N UNITS SHORT** badge per event and an Assign button
+pre-filled with that booking.
+
+**Required** is derived from the package's equipment template at that event's
+pax count. The rule was extracted into a new pure `deriveEquipmentDemand()` in
+`src/utils/equipment.jsx`, and `computeEquipmentDemand()` (used by
+`allocateEquipmentForBooking`) now delegates to it — so what the prep view
+calls "required" can never drift from what the Assign action would actually
+allocate. Verified: 70 pax → 70 chairs (1 pax/unit), 9 tables (⌈70/8⌉), 2 arches
+(fixed decorations don't scale with pax); empty/null templates return `{}`
+rather than throwing.
+
+Rows are the **union** of required and assigned, not just the template, so
+equipment assigned beyond what the package lists still shows (as "+N extra")
+instead of being invisible. Packages with no equipment template say so
+explicitly rather than silently showing a blank Required column.
+
+**Verification limit:** the demand rule is unit-verified, but the end-to-end
+view could not be checked against real equipment rows — `equipment`,
+`booking_equipment`, and `package_equipment` all return 0 rows to an
+unauthenticated client (HTTP 200, no error, i.e. RLS filtering), and no manager
+login was available in the session. Worth a look with real data: if
+`package_equipment` is genuinely empty in production, every event will show the
+"no equipment template" state and Required will be blank until package
+templates are set up under Packages & Menus.
 
 ---
 

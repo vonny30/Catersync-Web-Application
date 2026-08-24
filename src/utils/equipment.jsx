@@ -3,10 +3,53 @@ import { supabase } from '../supabase';
 import { ACTIVE_BOOKING_STATUSES } from './bookingStatus';
 
 /**
+ * The demand rule itself, as a pure function: given a package's equipment
+ * template rows, a lookup of equipment by id, and a pax count, how many
+ * units of each item does the event need?
+ *
+ * Split out of computeEquipmentDemand (below) so callers that ALREADY hold
+ * the template and equipment rows can apply the identical rule without
+ * re-querying per booking. The Equipment page's prep view needs this for
+ * every upcoming event at once — recomputing it there by hand would be a
+ * second copy of the rule, free to drift from the one the allocator uses,
+ * which is exactly how "required" and "assigned" end up disagreeing.
+ *
+ * Returns { equipment_id: quantity }.
+ */
+export const deriveEquipmentDemand = (templateRows, equipmentById, paxCount) => {
+  const demand = {};
+  const pax = paxCount || 0;
+
+  for (const item of (templateRows || [])) {
+    const equip = equipmentById?.[item.equipment_id];
+    let quantity = 0;
+
+    if (item.per_pax) {
+      // Countable item – quantity depends on pax count
+      if (equip?.pax_per_unit && equip.pax_per_unit > 0) {
+        quantity = Math.ceil(pax / equip.pax_per_unit);
+      } else {
+        // Fallback: multiply included_quantity by pax count
+        quantity = Math.max(1, Math.ceil((item.included_quantity || 0) * pax));
+      }
+      // Ensure at least 1 if there are guests
+      if (pax > 0 && quantity < 1) quantity = 1;
+    } else {
+      // Decoration / fixed item – quantity is fixed
+      quantity = item.included_quantity || 1;
+    }
+
+    demand[item.equipment_id] = (demand[item.equipment_id] || 0) + quantity;
+  }
+
+  return demand;
+};
+
+/**
  * Compute equipment demand for a given package and pax count.
- * 
+ *
  * Uses `pax_per_unit` from the equipment table to calculate how many units are needed.
- * 
+ *
  * Returns an object: { equipment_id: quantity }
  * Throws a descriptive error if something goes wrong.
  */
@@ -40,34 +83,9 @@ export const computeEquipmentDemand = async (packageId, paxCount) => {
       equipMap[eq.equipment_id] = eq;
     });
 
-    const demand = {};
-    const pax = paxCount || 0;
-
-    for (const item of equipTemplate) {
-      let quantity = 0;
-      const equip = equipMap[item.equipment_id];
-
-      if (item.per_pax) {
-        // Countable item – quantity depends on pax count
-        if (equip?.pax_per_unit && equip.pax_per_unit > 0) {
-          quantity = Math.ceil(pax / equip.pax_per_unit);
-        } else {
-          // Fallback: multiply included_quantity by pax count
-          quantity = Math.max(1, Math.ceil(item.included_quantity * pax));
-        }
-        // Ensure at least 1 if there are guests
-        if (pax > 0 && quantity < 1) {
-          quantity = 1;
-        }
-      } else {
-        // Decoration / fixed item – quantity is fixed
-        quantity = item.included_quantity || 1;
-      }
-
-      demand[item.equipment_id] = (demand[item.equipment_id] || 0) + quantity;
-    }
-
-    return demand;
+    // The rule lives in deriveEquipmentDemand so the Equipment page's prep
+    // view applies exactly the same one — see the note on that function.
+    return deriveEquipmentDemand(equipTemplate, equipMap, paxCount);
   } catch (error) {
     console.error('Error in computeEquipmentDemand:', error);
     throw new Error(`Failed to compute equipment demand: ${error.message}`);
