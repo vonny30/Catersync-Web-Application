@@ -14,6 +14,7 @@ import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
+import { isPaymentLedgerLocked } from '../utils/payments';
 import { errorInputClass } from '../utils/formErrors';
 import { getDailyEquipmentSnapshot, checkEquipmentAvailabilityImpact, getStockBreakdown, deriveEquipmentDemand } from '../utils/equipment.jsx';
 import { getAssignmentStatus } from '../utils/statusLabels';
@@ -89,6 +90,31 @@ const getReturnAvailability = (eventDatetimeStr) => {
 // treated as overdue rather than being permanently flagged.
 const getReturnDueAt = (eventDatetimeStr) =>
   eventDatetimeStr ? new Date(new Date(eventDatetimeStr).getTime() + RETURN_DUE_AFTER_MS) : null;
+// ============================================================
+// WHEN EQUIPMENT CAN BE ASSIGNED
+// ============================================================
+// Exactly one status: Approved.
+//
+//   Pending    — still an un-reviewed request. Nothing is allocated until
+//                the manager accepts it, and approval is what allocates
+//                (allocateEquipmentForBooking in useApprovalHandlers).
+//   Approved   — accepted and not yet locked. This is the window for
+//                allocation and for any adjustment to it.
+//   Confirmed+ — locked. BookingDetails.jsx already refuses to assign,
+//                edit, or remove equipment from here on
+//                ("equipment can't be assigned once a booking is
+//                Confirmed"), because the event is committed and its
+//                resources are settled.
+//
+// Derived from the two shared constants rather than hardcoding 'Approved',
+// so it keeps following the lifecycle if either list changes. The Equipment
+// page's own Assign modal previously allowed Confirmed bookings, which let
+// a manager do from here exactly what the booking's own page refused —
+// same action, two different answers depending on which screen it was
+// started from.
+const canAssignEquipmentTo = (bookingStatus) =>
+  ACTIVE_BOOKING_STATUSES.includes(bookingStatus) && !isPaymentLedgerLocked(bookingStatus);
+
 const formatReturnOpensAt = (opensAt) =>
   opensAt ? opensAt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
 
@@ -371,20 +397,18 @@ export default function Equipment() {
 
   // --- Filter bookings when search term changes ---
   //
-  // Only Approved/Confirmed bookings can be assigned to. Assigning to a
-  // Pending booking was possible before and produced a row that looked
-  // like a reservation but held nothing: booking_equipment has no status
-  // column, so the row appears in Active Assignments and History, but
-  // every availability query filters assignments to ACTIVE_BOOKING_STATUSES
-  // (utils/equipment.jsx — activeRealAssignments, and the per-date
-  // snapshot). The units therefore still read as free to every other part
-  // of the page, so the manager could hand the same stock to a second
-  // event. Blocking it at the picker is the cheapest place to stop that,
-  // and it costs nothing real: approval auto-allocates from the package
-  // template anyway, so assigning beforehand only duplicates work that is
-  // about to happen — or strands rows if the request is rejected.
+  // Approved only — see canAssignEquipmentTo. Two separate reasons:
+  //
+  // Pending was blocked because booking_equipment has no status column, so
+  // such a row appeared in Active Assignments and History while every
+  // availability query ignored it (they filter to ACTIVE_BOOKING_STATUSES)
+  // — a reservation that held nothing, leaving the same stock free to be
+  // promised to a second event.
+  //
+  // Confirmed is blocked because the booking is locked from that point on;
+  // BookingDetails.jsx already refuses the same action there.
   useEffect(() => {
-    const assignable = bookings.filter(b => ACTIVE_BOOKING_STATUSES.includes(b.booking_status));
+    const assignable = bookings.filter(b => canAssignEquipmentTo(b.booking_status));
     if (!bookingSearchTerm.trim()) {
       setFilteredBookings(assignable);
       return;
@@ -906,6 +930,21 @@ export default function Equipment() {
       return;
     }
 
+    // Enforced here as well as in the picker, matching how
+    // BookingDetails.jsx guards its own equipment actions. The picker only
+    // hides ineligible bookings; a selection made before a status changed
+    // (another manager confirms it while this modal is open) would
+    // otherwise still submit.
+    const targetBooking = bookings.find(b => b.booking_id === assignFormData.booking_id);
+    if (targetBooking && !canAssignEquipmentTo(targetBooking.booking_status)) {
+      toast.error(
+        targetBooking.booking_status === 'Pending'
+          ? "This booking is still Pending — approve it first, which allocates its package equipment automatically."
+          : `Equipment can't be assigned anymore — this booking is ${targetBooking.booking_status}.`
+      );
+      return;
+    }
+
     // Quantity-aware capacity check — equipment isn't exclusive to one event
     // per day, there's just a finite amount of it. Sum what's already
     // committed to OTHER bookings on the same date and make sure adding
@@ -1172,6 +1211,7 @@ export default function Equipment() {
         hasTemplate: (templateByPackage[b.package_id] || []).length > 0,
         totalAssignedUnits: Object.values(assignedByEquipment).reduce((s, n) => s + n, 0),
         isReady: shortLines.length === 0,
+        canAssign: canAssignEquipmentTo(b.booking_status),
         daysUntil,
       };
     });
@@ -1703,21 +1743,41 @@ export default function Equipment() {
                         </>
                       )}
 
-                      <div className="flex items-center gap-2 mt-3">
-                        <button
-                          onClick={() => {
-                            setAssignmentQueue([]);
-                            setBookingSearchTerm(ref);
-                            setShowBookingDropdown(false);
-                            setIsAssignModalOpen(true);
-                          }}
-                          className="inline-flex items-center gap-1.5 bg-[#008A45] hover:bg-[#007038] text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
-                        >
-                          <ClipboardList size={13} /> Assign equipment
-                        </button>
+                      {/* Confirmed events stay listed — they are still
+                          events to prepare for, and a shortage on one is
+                          worth seeing precisely because it can no longer be
+                          fixed by assigning. What changes is the action:
+                          the booking is locked, so Assign is disabled with
+                          the reason rather than failing on click. */}
+                      <div className="flex items-center gap-2 mt-3 flex-wrap">
+                        {ev.canAssign ? (
+                          <button
+                            onClick={() => {
+                              setAssignmentQueue([]);
+                              setBookingSearchTerm(ref);
+                              setShowBookingDropdown(false);
+                              setIsAssignModalOpen(true);
+                            }}
+                            className="inline-flex items-center gap-1.5 bg-[#008A45] hover:bg-[#007038] text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <ClipboardList size={13} /> Assign equipment
+                          </button>
+                        ) : (
+                          <span
+                            className="inline-flex items-center gap-1.5 bg-slate-100 text-slate-500 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200"
+                            title={`Equipment can't be assigned once a booking is ${ev.booking_status}`}
+                          >
+                            <Lock size={13} /> Locked — {ev.booking_status}
+                          </span>
+                        )}
                         <span className="text-[11px] text-slate-500">
                           {ev.totalAssignedUnits} unit{ev.totalAssignedUnits === 1 ? '' : 's'} assigned so far
                         </span>
+                        {!ev.canAssign && !ev.isReady && (
+                          <span className="text-[11px] font-semibold text-amber-700">
+                            Short, and no longer assignable — resolve on the booking itself.
+                          </span>
+                        )}
                       </div>
                     </div>
                   </details>

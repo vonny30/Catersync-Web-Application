@@ -410,8 +410,37 @@ equipment assigned beyond what the package lists still shows (as "+N extra")
 instead of being invisible. Packages with no equipment template say so
 explicitly rather than silently showing a blank Required column.
 
-**Scope: Approved and Confirmed only — and why assigning to Pending is now
-blocked.**
+**Assignment window: Approved only.**
+
+| Status | Assign equipment? | Why |
+|---|---|---|
+| Pending | No | Un-reviewed request; approval is what allocates |
+| **Approved** | **Yes** | Accepted, not yet locked — the window for allocation and adjustment |
+| Confirmed | No | Booking is locked; resources settled |
+| Completed / Cancelled / Rejected | No | Terminal |
+
+Expressed as `ACTIVE_BOOKING_STATUSES.includes(s) && !isPaymentLedgerLocked(s)`
+rather than a hardcoded `'Approved'`, so it keeps following the lifecycle if
+either shared list changes. Verified it resolves to exactly `['Approved']`.
+
+The Confirmed half of this was **already the established rule** — 
+`BookingDetails.jsx` refuses to assign, edit, or remove equipment once
+`isPaymentLedgerLocked` (Confirmed/Completed/Cancelled/Rejected), with the
+message "equipment can't be assigned once a booking is Confirmed". The
+Equipment page's own Assign modal did not follow it, so the same action gave
+two different answers depending on which screen it was started from. Now
+enforced in both the booking picker and `handleAssignSubmit` (the picker only
+hides ineligible bookings; a selection made before another manager confirmed
+it would otherwise still submit) — matching how BookingDetails guards its own
+equipment handlers.
+
+Confirmed events **remain listed** in the prep view: they are still events to
+prepare for, and a shortage on one matters precisely because it can no longer
+be fixed by assigning. Their Assign button is replaced by a "Locked —
+Confirmed" chip, plus a "Short, and no longer assignable — resolve on the
+booking itself" note when there is an actual gap.
+
+**Why Pending is blocked.**
 
 Equipment is allocated by `allocateEquipmentForBooking` at the moment of
 **approval** (`useApprovalHandlers.js`). A Pending booking therefore has no
