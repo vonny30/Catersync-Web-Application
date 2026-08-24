@@ -2267,7 +2267,13 @@ export default function Equipment() {
                     <th className="p-4 font-bold text-center">Usable</th>
                     <th className="p-4 font-bold text-center">Type</th>
                     <th className="p-4 font-bold text-center">Guests per Unit</th>
-                    <th className="p-4 font-bold text-center">Out now</th>
+                    {/* Not "Out now": this counts unreturned ASSIGNMENTS, most
+                        of which are for events that haven't happened yet, and
+                        statusLabels.js is explicit that a chair promised to a
+                        wedding three days out is not in use by any reading of
+                        the word. "Committed" is the settled term for exactly
+                        that state (RESOURCE_STATE.committed). */}
+                    <th className="p-4 font-bold text-center">Committed to</th>
                     <th className="p-4 font-bold text-right">Actions</th>
                   </tr>
                 </thead>
@@ -2278,7 +2284,19 @@ export default function Equipment() {
                     <tr><td colSpan="9" className="p-6 text-center text-slate-400 italic">No equipment found.</td></tr>
                   ) : (
                     sortedFilteredInventory.map((item) => {
-                      const usageCount = assignments.filter(a => a.equipment_id === item.equipment_id && !a.returned).length;
+                      // Unreturned assignments for this item. Counting rows,
+                      // not units — which is the second reason "N out now"
+                      // misread: for Chairs it looked like a chair count when
+                      // it was a booking count. The label now names the unit,
+                      // and the tooltip carries both that and the
+                      // Assigned/In Use split from statusLabels.js.
+                      const activeForItem = assignments.filter(a => a.equipment_id === item.equipment_id && !a.returned);
+                      const usageCount = activeForItem.length;
+                      const inUseCount = activeForItem.filter(
+                        a => getAssignmentStatus(false, a.booking?.event_datetime).key === 'in_use'
+                      ).length;
+                      const upcomingCount = usageCount - inUseCount;
+                      const committedUnits = activeForItem.reduce((sum, a) => sum + (a.quantity || 0), 0);
                       const stock = getStockBreakdown(item);
                       const condition = getConditionSummary(item);
                       return (
@@ -2310,9 +2328,14 @@ export default function Equipment() {
                             <button
                               onClick={() => handleViewUsage(item)}
                               className="text-blue-500 hover:text-blue-700 transition-colors text-xs font-medium flex items-center gap-1 mx-auto"
+                              title={usageCount > 0
+                                ? `${committedUnits} unit${committedUnits === 1 ? '' : 's'} across ${usageCount} booking${usageCount === 1 ? '' : 's'} — ${inUseCount} in use, ${upcomingCount} still upcoming`
+                                : 'No current commitments — click to see past assignments'}
                             >
                               <ClipboardList size={14} />
-                              {usageCount > 0 ? `${usageCount} out now` : 'View history'}
+                              {usageCount > 0
+                                ? `${usageCount} booking${usageCount === 1 ? '' : 's'}`
+                                : 'View history'}
                             </button>
                           </td>
                           <td className="p-4 text-right">
