@@ -15,8 +15,9 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { isPaymentLedgerLocked } from '../utils/payments';
+import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { errorInputClass } from '../utils/formErrors';
-import { getDailyEquipmentSnapshot, checkEquipmentAvailabilityImpact, getStockBreakdown, deriveEquipmentDemand } from '../utils/equipment.jsx';
+import { getDailyEquipmentSnapshot, checkEquipmentAvailabilityImpact, getStockBreakdown, deriveEquipmentDemand, revalidateAssignmentCapacity } from '../utils/equipment.jsx';
 import { getAssignmentStatus } from '../utils/statusLabels';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange } from './Reports/helpers';
@@ -374,6 +375,18 @@ export default function Equipment() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  // Equipment is shared physical stock, so this page is the one most
+  // exposed to two managers working at once — assignments, returns, stock
+  // edits and damage flags all change what everyone else can allocate.
+  // `booking` is included because a booking moving Pending → Approved →
+  // Confirmed changes both what appears in Upcoming and what can still be
+  // assigned to.
+  useRealtimeRefresh(
+    'equipment-page',
+    ['equipment', 'booking_equipment', 'package_equipment', 'booking'],
+    fetchData
+  );
 
   // --- Recompute the date snapshot whenever the selected date (or the
   // underlying data) changes ---
@@ -949,31 +962,42 @@ export default function Equipment() {
     // per day, there's just a finite amount of it. Sum what's already
     // committed to OTHER bookings on the same date and make sure adding
     // this request wouldn't exceed total stock.
+    //
+    // Read fresh from the database rather than from this page's `assignments`
+    // snapshot: two managers assigning the same stock both passed the old
+    // local check against their own stale copies, and both inserts went
+    // through. Realtime keeps the page fresher but can't fix this on its own,
+    // because the check and the insert remain separate steps.
     const eventDate = selectedBooking?.event_datetime ? new Date(selectedBooking.event_datetime) : null;
+    setIsSubmitting(true);
     if (eventDate) {
-      for (const item of assignmentQueue) {
-        const equip = equipmentList.find(e => e.equipment_id === item.equipment_id);
-        if (!equip) continue;
-        const alreadyCommitted = assignments
-          .filter(a =>
-            a.equipment_id === item.equipment_id &&
-            a.booking?.event_datetime &&
-            new Date(a.booking.event_datetime).toDateString() === eventDate.toDateString() &&
-            a.booking_id !== assignFormData.booking_id &&
-            !a.returned
-          )
-          .reduce((sum, a) => sum + (a.quantity || 0), 0);
-        const totalNeeded = alreadyCommitted + item.quantity;
-        if (totalNeeded > equip.quantity_available) {
+      try {
+        const violations = await revalidateAssignmentCapacity(
+          eventDate,
+          assignFormData.booking_id,
+          assignmentQueue.map(i => ({ equipment_id: i.equipment_id, quantity: i.quantity }))
+        );
+        if (violations.length > 0) {
+          const v = violations[0];
           toast.error(
-            `"${equip.eqm_name}": ${alreadyCommitted} already committed to other events on ${eventDate.toLocaleDateString()}, ` +
-            `plus ${item.quantity} requested exceeds the ${equip.quantity_available} in stock.`
+            `"${v.name}": ${v.alreadyCommitted} already committed to other events on ${eventDate.toLocaleDateString()}, ` +
+            `plus ${v.requested} requested exceeds the ${v.available} in stock.` +
+            (violations.length > 1 ? ` (${violations.length - 1} other item${violations.length > 2 ? 's' : ''} also over capacity.)` : '')
           );
+          setIsSubmitting(false);
+          // Someone else's change is why this failed — pull it in so the
+          // manager sees the real numbers instead of the stale ones that
+          // let them build this queue.
+          fetchData();
           return;
         }
+      } catch (capacityError) {
+        console.error('Capacity revalidation failed:', capacityError);
+        toast.error('Could not verify equipment availability. Please try again.');
+        setIsSubmitting(false);
+        return;
       }
     }
-    setIsSubmitting(true);
 
     try {
       const itemsToAssign = [];

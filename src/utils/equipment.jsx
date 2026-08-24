@@ -173,6 +173,95 @@ export const allocateEquipmentForBooking = async (bookingId, packageId, paxCount
  * Returns an array of shortages: { equipment_id, eqm_name, needed, available }
  * Returns empty array if no shortages or if no bookings exist.
  */
+/**
+ * Last-moment capacity re-check, read fresh from the database.
+ *
+ * The Assign modal validates capacity against the page's local `assignments`
+ * state, which is a snapshot from the last fetch. Two managers assigning the
+ * same stock for the same date both pass that check against their own stale
+ * copies, and both inserts succeed — the units are over-committed and nothing
+ * reports it. Realtime narrows that window but cannot close it: the check and
+ * the insert are still two separate steps.
+ *
+ * This re-runs the identical rule against current data immediately before the
+ * insert, so the gap shrinks from "however old the page's state is" to the
+ * round trip. Stock is re-read too, not just assignments — another manager may
+ * have flagged units damaged since the modal opened.
+ *
+ * Honest about what this is NOT: still check-then-act, so two requests landing
+ * inside the same round trip can both pass. Closing it completely needs the
+ * database to enforce the invariant (a constraint or a transaction), which is
+ * a schema change on a shared project. This is the strongest guarantee
+ * available without one.
+ *
+ * @param eventDate   the event's date (capacity is per-day)
+ * @param bookingId   the booking being assigned to, excluded from "already committed"
+ * @param items       [{ equipment_id, quantity }]
+ * @returns array of violations (empty = safe to proceed)
+ */
+export const revalidateAssignmentCapacity = async (eventDate, bookingId, items) => {
+  if (!eventDate || !items?.length) return [];
+
+  const startOfDay = new Date(eventDate);
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(eventDate);
+  endOfDay.setHours(23, 59, 59, 999);
+
+  const equipmentIds = [...new Set(items.map(i => i.equipment_id))];
+
+  // Current stock, not the copy the page loaded.
+  const { data: equipRows, error: equipError } = await supabase
+    .from('equipment')
+    .select('equipment_id, eqm_name, quantity_available')
+    .in('equipment_id', equipmentIds);
+  if (equipError) throw equipError;
+  const stockById = {};
+  (equipRows || []).forEach(e => { stockById[e.equipment_id] = e; });
+
+  // Other actively-committed bookings sharing this date.
+  let bookingQuery = supabase
+    .from('booking')
+    .select('booking_id')
+    .in('booking_status', ACTIVE_BOOKING_STATUSES)
+    .gte('event_datetime', startOfDay.toISOString())
+    .lte('event_datetime', endOfDay.toISOString());
+  if (bookingId) bookingQuery = bookingQuery.neq('booking_id', bookingId);
+  const { data: sameDayBookings, error: bookingError } = await bookingQuery;
+  if (bookingError) throw bookingError;
+
+  const committedById = {};
+  if (sameDayBookings?.length) {
+    const { data: rows, error: rowsError } = await supabase
+      .from('booking_equipment')
+      .select('equipment_id, quantity')
+      .in('booking_id', sameDayBookings.map(b => b.booking_id))
+      .in('equipment_id', equipmentIds)
+      .eq('returned', false);
+    if (rowsError) throw rowsError;
+    (rows || []).forEach(r => {
+      committedById[r.equipment_id] = (committedById[r.equipment_id] || 0) + (r.quantity || 0);
+    });
+  }
+
+  const violations = [];
+  for (const item of items) {
+    const equip = stockById[item.equipment_id];
+    if (!equip) continue;
+    const alreadyCommitted = committedById[item.equipment_id] || 0;
+    const available = equip.quantity_available || 0;
+    if (alreadyCommitted + (item.quantity || 0) > available) {
+      violations.push({
+        equipment_id: item.equipment_id,
+        name: equip.eqm_name,
+        alreadyCommitted,
+        requested: item.quantity || 0,
+        available,
+      });
+    }
+  }
+  return violations;
+};
+
 export const checkEquipmentCapacityForDate = async (eventDate, excludeBookingId = null) => {
   if (!eventDate) {
     throw new Error('Event date is required for capacity check.');

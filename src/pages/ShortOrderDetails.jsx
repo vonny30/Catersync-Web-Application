@@ -9,6 +9,7 @@ import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { usePaymentHandlers } from '../hooks/usePaymentHandlers';
+import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { useCancellationHandlers } from '../hooks/useCancellationHandlers';
@@ -175,6 +176,21 @@ export default function ShortOrderDetails() {
     };
     fetchDropdownData();
   }, [id]);
+
+  // Scoped to THIS order with row filters — same reasoning as
+  // BookingDetails: the status gates on this page are all derived from
+  // booking_status, so acting on a stale copy is where the damage is.
+  useRealtimeRefresh(
+    `short-order-details-${id}`,
+    [
+      { table: 'booking', filter: `booking_id=eq.${id}` },
+      { table: 'payment', filter: `booking_id=eq.${id}` },
+      { table: 'booking_equipment', filter: `booking_id=eq.${id}` },
+      { table: 'vehicle_assign', filter: `booking_id=eq.${id}` },
+    ],
+    fetchOrder,
+    { enabled: !!id }
+  );
 
   // ============================================================
   // HOOKS: Payment, Approval, Rejection, Cancellation

@@ -1,6 +1,7 @@
 // src/pages/Payments.jsx
 import { useState, useEffect, useRef } from 'react';
 import Select from '../components/Select';
+import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Search, Upload, X, Image as ImageIcon, Check, DollarSign, RefreshCw, Eye, Filter, LayoutGrid, RotateCcw, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown, ChevronRight } from 'lucide-react';
@@ -252,6 +253,17 @@ export default function Payments() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  // Payments arrive from the customer mobile app as well as from managers,
+  // so this page goes stale without anyone on the web app doing anything —
+  // a proof submitted mid-session would otherwise sit unseen until a manual
+  // refresh. `booking` matters too: totals and the payment-status labels are
+  // computed against booking.total_amount and booking_status.
+  useRealtimeRefresh(
+    'payments-page',
+    ['payment', 'booking'],
+    fetchData
+  );
 
   // --- FILTER LOGIC (search + type + method + date, independent of status) ---
   const { start: dateRangeStart, end: dateRangeEnd } = getRangeBounds(datePreset, customStart, customEnd);

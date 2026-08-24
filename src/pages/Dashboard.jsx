@@ -1,6 +1,7 @@
 // src/pages/Dashboard.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Select from '../components/Select';
+import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Calendar as CalendarIcon, Clock, CheckCircle, TrendingUp, ChevronLeft, ChevronRight, RefreshCw, X, ArrowRight, Eye, Search } from 'lucide-react';
@@ -342,23 +343,37 @@ export default function Dashboard() {
   });
 
   // ... REST OF THE FILE REMAINS THE SAME (calendar, handlers, render) ...
+  //
+  // The 60s polls these two effects used to run are replaced by realtime
+  // below: polling meant a change could sit invisible for up to a minute,
+  // and it refetched constantly even when nothing had happened. A long
+  // interval is kept as a safety net so the dashboard still self-corrects
+  // if the websocket drops (a laptop waking from sleep, flaky wifi) —
+  // realtime delivers nothing while disconnected, and this page is the one
+  // most likely to be left open unattended.
   useEffect(() => {
     fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 60000);
+    const interval = setInterval(fetchDashboardData, 5 * 60000);
     return () => clearInterval(interval);
   }, []);
 
+  useRealtimeRefresh('dashboard-page', ['booking', 'payment'], fetchDashboardData);
+
   // Refetches the calendar's event dots whenever the viewed month changes
   // (prev/next arrows), not just once for whatever month happened to be
-  // current when the page loaded — and on the same 60s cadence as the
-  // rest of the dashboard, so a booking added by someone else (or from
-  // the mobile app) shows up on the calendar without the manager having
-  // to navigate away from the month and back to force a refetch.
+  // current when the page loaded.
   useEffect(() => {
     fetchCalendarEvents(currentMonth);
-    const interval = setInterval(() => fetchCalendarEvents(currentMonth), 60000);
-    return () => clearInterval(interval);
   }, [currentMonth]);
+
+  // Bookings changing status is exactly what adds or removes a calendar
+  // dot (only Confirmed ones show), so the calendar has to react to the
+  // same events the rest of the dashboard does.
+  useRealtimeRefresh(
+    'dashboard-calendar',
+    ['booking'],
+    useCallback(() => fetchCalendarEvents(currentMonth), [currentMonth])
+  );
 
   // --- Calendar generation ---
   useEffect(() => {

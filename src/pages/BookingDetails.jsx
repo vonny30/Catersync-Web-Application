@@ -9,6 +9,7 @@ import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { usePaymentHandlers } from '../hooks/usePaymentHandlers';
+import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { useCancellationHandlers } from '../hooks/useCancellationHandlers';
@@ -208,6 +209,27 @@ export default function BookingDetails() {
     };
     fetchDropdownData();
   }, [id]);
+
+  // Scoped to THIS booking with row filters, so an unrelated booking
+  // changing elsewhere doesn't refetch this page. `booking` is filtered on
+  // its primary key; the child tables on their booking_id foreign key.
+  //
+  // This is the page where two managers are most likely to collide on the
+  // same record — one verifying a payment while the other approves or
+  // assigns equipment — and where acting on stale data does the most
+  // damage, since the status gates (assign/edit/return locks) are all
+  // derived from booking_status.
+  useRealtimeRefresh(
+    `booking-details-${id}`,
+    [
+      { table: 'booking', filter: `booking_id=eq.${id}` },
+      { table: 'payment', filter: `booking_id=eq.${id}` },
+      { table: 'booking_equipment', filter: `booking_id=eq.${id}` },
+      { table: 'vehicle_assign', filter: `booking_id=eq.${id}` },
+    ],
+    fetchBooking,
+    { enabled: !!id }
+  );
 
   // ============================================================
   // HOOKS: Payment, Approval, Rejection, Cancellation

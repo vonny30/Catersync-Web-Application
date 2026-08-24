@@ -1,6 +1,7 @@
 // src/pages/Vehicles.jsx
 import { useState, useEffect, useRef } from 'react';
 import Select from '../components/Select';
+import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import {
@@ -222,6 +223,14 @@ export default function Vehicles() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  // Same exposure as Equipment: the fleet is shared, so one manager
+  // dispatching a vehicle changes what everyone else can dispatch.
+  useRealtimeRefresh(
+    'vehicles-page',
+    ['vehicle', 'vehicle_assign', 'booking'],
+    fetchData
+  );
 
   // --- Recompute the date snapshot whenever the selected date (or the
   // underlying data) changes ---
