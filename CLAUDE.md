@@ -1,0 +1,106 @@
+# CaterSync Admin — working agreement
+
+React 19 + Vite + Tailwind 4 + Supabase. App code lives in `frontend/`.
+
+## Read before non-trivial work
+
+- `frontend/docs/HANDOFF.md` — hard constraints, settled vocabulary, module
+  ownership, and a "Things that will bite you" list. **The deep reference.**
+- `frontend/docs/panel-revisions-2026-05-29.md` — every oral-defense comment,
+  mapped to files and status. **This is what the project is graded against.**
+  Check it before starting work and update it when an item closes.
+- `frontend/docs/blueprint-01-reporting.md` / `-02-language.md` — settled
+  decisions on the money model and UI vocabulary.
+
+Treat decisions in those files as settled unless Vaughn says otherwise.
+
+## Hard constraints
+
+- **No schema changes.** Derive everything read-only from existing tables.
+  Vaughn chose this explicitly.
+- **The Supabase project is shared** with a groupmate's customer mobile app.
+  Anything touching the database — schema, RLS, publications, or data
+  backfills — affects them. Say so, and don't do it unilaterally.
+- **Files are written LF.**
+
+## Domain model — get this right before designing anything
+
+Booking lifecycle: `Pending → Approved → Confirmed → Completed`, with
+`Rejected` / `Cancelled` as terminal branches.
+
+What happens where matters more than the names:
+
+| Transition | Side effect |
+|---|---|
+| → Approved | **Equipment is auto-allocated** from the package template (`allocateEquipmentForBooking` in `useApprovalHandlers`) |
+| → Confirmed | Booking **locks**: no equipment assign/edit/remove, no booking edits (`isPaymentLedgerLocked`) |
+
+Consequences that are easy to get wrong, and have been:
+
+- **Equipment can only be assigned while a booking is `Approved`.** Not
+  Pending (nothing is allocated until approval — that's what approval does),
+  not Confirmed (locked). Derive it as
+  `ACTIVE_BOOKING_STATUSES.includes(s) && !isPaymentLedgerLocked(s)`, never a
+  hardcoded `'Approved'`.
+- **"Is this booking short of equipment?" is structurally always false** for
+  Approved/Confirmed bookings, because approval allocated the whole template.
+  Shortages are a **per-day, cross-event** question — several events share one
+  pool of stock. A per-booking shortage metric will read zero forever.
+- **Short Orders have no equipment.** Excluding them from equipment views is
+  correct, not an oversight.
+
+## Invariants that break silently
+
+These fail without an error. Check them when touching the area.
+
+- **`booking.status_order` is not maintained by the database.** Every write
+  that changes `booking_status` must set the matching value from
+  `utils/bookingStatus.js`. It has drifted before (Confirmed rows sorting into
+  Rejected's slot) — the mobile app writes `booking_status` too. The list pages
+  self-heal it via `findStatusOrderDrift`.
+- **Realtime on an unpublished table reports `SUBSCRIBED` and delivers
+  nothing, forever.** Any new table you subscribe to must be added to the
+  `supabase_realtime` publication. Row-filtered subscriptions also need
+  `REPLICA IDENTITY FULL` unless the filter is on the primary key.
+- **Subscriptions must not capture stale state.** Use
+  `hooks/useRealtimeRefresh.js`, never an inline `useEffect(..., [])` whose
+  handler calls a fetcher — it captures the first render's closure and will
+  refetch page 1 while the user is on page 2.
+- **`.range()` paging needs a total sort.** Always end an ordering chain with a
+  unique column (`booking_id`), or rows skip and repeat across pages.
+
+## Module ownership — don't reimplement these
+
+| Concern | Owner |
+|---|---|
+| Money definitions | `utils/reportMetrics.js` |
+| Stock totals | `getStockBreakdown` in `utils/equipment.jsx` |
+| Equipment demand from a package | `deriveEquipmentDemand` in `utils/equipment.jsx` |
+| Assignment lifecycle wording | `utils/statusLabels.js` |
+| Booking status constants | `utils/bookingStatus.js` |
+| What counts as collected money | `utils/payments.js` |
+| Date range control | `Reports/DateRangeFilter.jsx` |
+| Dropdowns | `components/Select.jsx` |
+
+If a rule needs to exist in two places, extract it into one and have both call
+it — duplicated rules drift, and that drift has caused real bugs here (a
+displayed availability number that disagreed with the one being validated).
+
+## How to work on this project
+
+1. **Plan before building anything non-trivial.** State the approach and the
+   assumption it rests on before writing code. The expensive mistakes here
+   have been well-built features resting on a wrong premise, not bad code.
+2. **Verify claims against real data**, not reasoning alone. Query Supabase in
+   the browser, or exercise the pure function. Several "fixes" this project
+   has needed were found only by checking actual rows.
+3. **Say what wasn't verified.** RLS hides `equipment`, `booking_equipment` and
+   `package_equipment` from an unauthenticated client, and there is no manager
+   login available in-session — so those paths are usually code-reviewed, not
+   exercised. Flag that rather than implying it was tested.
+4. **Build after changes** (`cd frontend && npm run build`). It catches the
+   import and JSX errors that a large edit tends to introduce.
+5. **Don't push without being asked.** `main` auto-deploys to Vercel
+   production.
+6. **Update the panel tracker** when work closes one of its items, including
+   the evidence — that file is the graded artifact.
