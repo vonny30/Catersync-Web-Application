@@ -742,6 +742,27 @@ export default function Payments() {
   };
 
   // --- Status badge (no warning icon) ---
+  // Borderless variants for the table pills. 'Rejected' is kept here even
+  // though the spec's map omitted it — without it a Rejected booking would
+  // fall through to neutral slate and stop reading as rejected.
+  const getOrderStatusBadgeSoft = (status) => ({
+    'Pending': 'bg-amber-50 text-amber-700',
+    'Approved': 'bg-[#EAF3F2] text-[#00703a]',
+    'Confirmed': 'bg-emerald-50 text-emerald-700',
+    'Completed': 'bg-blue-50 text-blue-700',
+    'Rejected': 'bg-red-50 text-red-700',
+    'Cancelled': 'bg-slate-100 text-slate-600',
+  }[status] || 'bg-slate-100 text-slate-600');
+
+  const getStatusBadgeSoft = (status) => ({
+    'Downpayment': 'bg-amber-50 text-amber-700',
+    'Fully Paid': 'bg-[#EAF3F2] text-slate-800',
+    'Refunded': 'bg-red-50 text-red-700',
+    'Pending': 'bg-slate-100 text-slate-500',
+    'Pending Verification': 'bg-blue-50 text-blue-700',
+    'Proof Rejected': 'bg-red-50 text-red-700',
+  }[status] || 'bg-slate-100 text-slate-600');
+
   const getOrderStatusBadge = (status) => {
     const map = {
       'Pending': 'bg-amber-100 text-amber-800 border-amber-200',
@@ -778,7 +799,9 @@ export default function Payments() {
   const renderSortHeader = (field, label) => (
     <button
       onClick={() => toggleSort(field)}
-      className="flex items-center gap-1 font-bold hover:text-[#008A45] transition-colors cursor-pointer"
+      className={`flex items-center gap-1.5 text-[12.5px] font-bold uppercase tracking-[0.05em] transition-colors cursor-pointer ${
+        sortField === field ? 'text-[#007038]' : 'text-slate-700 hover:text-[#007038]'
+      }`}
     >
       {label}
       {sortField === field ? (
@@ -853,12 +876,12 @@ export default function Payments() {
   // --- Updated renderProof: opens modal instead of new tab ---
   const renderProof = (proofUrl) => {
     if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
-      return <span className="text-xs text-slate-400 italic">None</span>;
+      return <span className="text-[13px] text-slate-400">None</span>;
     }
 
     const fullUrl = getProofUrl(proofUrl);
     if (!fullUrl) {
-      return <span className="text-xs text-slate-400 italic">Invalid</span>;
+      return <span className="text-[13px] text-slate-400">Invalid</span>;
     }
 
     return (
@@ -867,7 +890,7 @@ export default function Payments() {
           setProofModalUrl(fullUrl);
           setIsProofModalOpen(true);
         }}
-        className="inline-flex items-center justify-center w-10 h-10 border border-slate-300 rounded bg-slate-50 hover:bg-slate-100 hover:shadow-md transition-all cursor-pointer"
+        className="inline-flex items-center justify-center w-9 h-9 border border-slate-200 rounded-[9px] bg-slate-50 hover:border-[#c9dfd4] hover:text-[#007038] transition-all cursor-pointer"
         title="Click to view proof"
       >
         <img
@@ -1038,23 +1061,23 @@ export default function Payments() {
 
   // --- RENDER ---
   return (
-    <div className="space-y-6 relative">
+    <div className="space-y-[18px] relative">
       {/* PAGE HEADER */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Payments</h1>
-          <p className="text-sm text-slate-500">Track all booking and short order payments</p>
+          <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Payments</h1>
+          <p className="text-[14.5px] text-slate-600 mt-1.5">Track all booking and short order payments</p>
         </div>
         <div className="flex items-center gap-3">
           <button
             onClick={fetchData}
-            className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-xs"
+            className="bg-white border border-slate-200 text-slate-700 px-4 py-2.5 rounded-[10px] font-semibold transition-colors flex items-center gap-2 text-sm whitespace-nowrap hover:border-[#c9dfd4] hover:text-[#007038]"
           >
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
           </button>
           <button
             onClick={openNewPaymentModal}
-            className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-sm"
+            className="bg-[#008A45] hover:bg-[#007038] text-white px-[17px] py-2.5 rounded-[10px] font-semibold transition-colors flex items-center gap-2 text-sm whitespace-nowrap"
           >
             + Record Payment
           </button>
@@ -1064,68 +1087,65 @@ export default function Payments() {
       {/* SUMMARY CARDS — "Awaiting Verification" only exists when there's something
           to review, so the grid drops to 3 columns then instead of leaving
           a blank fourth slot. */}
-      <div className={`grid grid-cols-1 gap-6 ${pendingVerificationCount > 0 ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
+      <div className={`grid grid-cols-1 gap-3.5 ${pendingVerificationCount > 0 ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
         {pendingVerificationCount > 0 && (
           <button
             onClick={handlePendingVerificationClick}
-            className="relative bg-red-50 border-2 border-red-300 border-l-4 border-l-red-500 rounded-2xl p-5 text-left shadow-sm hover:shadow-md transition-all cursor-pointer group"
+            className="relative overflow-hidden rounded-2xl border border-[#f3c9c9] bg-[#fef4f4] p-5 text-left transition-all cursor-pointer hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]"
           >
-            <span className="absolute top-3 right-3 flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
-            </span>
-            <p className="text-xs font-bold text-red-700 mb-1 uppercase tracking-wide">Awaiting Verification</p>
-            <h3 className="text-3xl font-extrabold text-red-700">{pendingVerificationCount}</h3>
-            <p className="text-xs text-red-600 mt-2 font-medium">Submitted from the mobile app — awaiting verification</p>
-            <span className="text-[10px] text-red-500 font-semibold group-hover:text-red-700 transition-colors">Click to review now →</span>
+            <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-red-500" />
+            <span className="absolute top-4 right-4 w-2 h-2 rounded-full bg-red-500 ring-4 ring-red-500/15" />
+            <p className="text-[13px] font-bold text-red-700 tracking-[0.02em] mb-2">Awaiting Verification</p>
+            <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-red-700">{pendingVerificationCount}</h3>
+            <p className="text-[13px] text-red-600 mt-2.5 font-medium">Submitted from the mobile app — awaiting verification</p>
           </button>
         )}
         <button
           onClick={handleCollectedClick}
-          className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-2xl p-5 text-left shadow-sm hover:shadow-md transition-all cursor-pointer group"
+          className="relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white p-5 text-left transition-all cursor-pointer hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]"
         >
-          <p className="text-xs font-semibold text-slate-600 mb-1">Total Collections</p>
-          <h3 className="text-3xl font-extrabold text-slate-900">₱{received.paymentsReceived.toLocaleString()}</h3>
-          <p className="text-xs text-slate-500 mt-2">
+          <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
+          <p className="text-[13px] font-semibold text-slate-600 mb-2">Total Collections</p>
+          <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">₱{received.paymentsReceived.toLocaleString()}</h3>
+          <p className="text-[13px] text-slate-600 mt-2.5">
             Already subtracts any refunds · {datePreset === 'All Time' ? 'all time' : datePreset.toLowerCase()}
           </p>
-          <span className="text-[10px] text-slate-400 group-hover:text-[#008A45] transition-colors">Click to view details</span>
         </button>
         <button
           onClick={handlePendingClick}
-          className="bg-white border border-slate-200 border-l-4 border-l-amber-500 rounded-2xl p-5 text-left shadow-sm hover:shadow-md transition-all cursor-pointer group"
+          className="relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white p-5 text-left transition-all cursor-pointer hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]"
         >
+          <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500" />
           {/* "Pending Balance" collided with the booking status called Pending:
               this figure has nothing to do with Pending bookings — it is the
               unpaid balance across every active record, whatever its status. */}
-          <p className="text-xs font-semibold text-slate-600 mb-1">Outstanding Balance</p>
-          <h3 className="text-3xl font-extrabold text-slate-900">₱{pendingBalance.toLocaleString()}</h3>
-          <p className="text-xs text-slate-500 mt-2">Unpaid balance on active bookings &amp; orders</p>
-          <span className="text-[10px] text-slate-400 group-hover:text-amber-600 transition-colors">Click to view details</span>
+          <p className="text-[13px] font-semibold text-slate-600 mb-2">Outstanding Balance</p>
+          <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">₱{pendingBalance.toLocaleString()}</h3>
+          <p className="text-[13px] text-slate-600 mt-2.5">Unpaid balance on active bookings &amp; orders</p>
         </button>
         <button
           onClick={handleFullyPaidClick}
-          className="bg-white border border-slate-200 border-l-4 border-l-emerald-500 rounded-2xl p-5 text-left shadow-sm hover:shadow-md transition-all cursor-pointer group"
+          className="relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white p-5 text-left transition-all cursor-pointer hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]"
         >
-          <p className="text-xs font-semibold text-slate-600 mb-1">Fully Paid</p>
-          <h3 className="text-3xl font-extrabold text-slate-900">{fullyPaidCount}</h3>
-          <p className="text-xs text-slate-500 mt-2">Active orders fully paid</p>
-          <span className="text-[10px] text-slate-400 group-hover:text-emerald-600 transition-colors">Click to view details</span>
+          <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-emerald-500" />
+          <p className="text-[13px] font-semibold text-slate-600 mb-2">Fully Paid</p>
+          <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{fullyPaidCount}</h3>
+          <p className="text-[13px] text-slate-600 mt-2.5">Active orders fully paid</p>
         </button>
       </div>
 
       {/* MAIN TABS — Refunds are money going OUT, not a kind of payment, so
           they get their own tab instead of living in the payments list
           behind a dropdown filter. */}
-      <div className="flex items-center gap-2 border-b border-slate-200">
+      <div className="flex items-center gap-2 border-b border-slate-200/80">
         {['Payments', 'Refunds'].map(tab => (
           <button
             key={tab}
             onClick={() => { setMainTab(tab); setActiveTab('All'); scrollToTable(); }}
-            className={`px-4 py-2.5 text-sm font-bold border-b-2 -mb-px transition-colors ${
+            className={`px-4 py-[11px] text-[14.5px] border-b-2 -mb-px transition-colors ${
               mainTab === tab
-                ? 'border-[#008A45] text-[#007038]'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
+                ? 'border-[#008A45] text-[#007038] font-bold'
+                : 'border-transparent font-semibold text-slate-500 hover:text-slate-700'
             }`}
           >
             {tab === 'Payments' ? 'Payments' : 'Refunds'}
@@ -1138,36 +1158,35 @@ export default function Payments() {
           Refunded, so the Downpayment/Fully Paid/Pending Verification split
           doesn't apply there. */}
       {mainTab === 'Payments' && (
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+      <div className="bg-white rounded-2xl border border-slate-200/70 p-5">
         <div className="flex items-center gap-1.5 mb-3">
-          <LayoutGrid size={13} className="text-slate-400" />
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Status Overview</span>
+          <LayoutGrid size={13} className="text-slate-500" />
+          <span className="text-[13px] font-bold text-slate-600 tracking-[0.04em] whitespace-nowrap">Status Overview</span>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))]">
           {statusStats.map((s) => (
             <button
               key={s.key}
               onClick={() => { setActiveTab(s.key); scrollToTable(); }}
-              className={`relative text-left rounded-xl border p-4 transition-all ${
+              className={`relative overflow-hidden text-left rounded-[13px] border p-4 transition-all ${
                 activeTab === s.key
                   ? 'border-[#008A45] ring-2 ring-[#008A45]/15 bg-[#EAF3F2]'
-                  : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+                  : s.key === 'Pending Verification'
+                    ? 'border-[#f3d3d3] bg-[#fef4f4] hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]'
+                    : 'border-slate-100 bg-[#fbfcfd] hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]'
               }`}
             >
-              <p className={`text-xs font-semibold mb-1 flex items-center gap-1.5 ${activeTab === s.key ? 'text-[#007038]' : 'text-slate-500'}`}>
+              <p className={`text-[13px] font-semibold mb-1 flex items-center gap-1.5 whitespace-nowrap ${activeTab === s.key ? 'text-[#007038]' : 'text-slate-600'}`}>
                 {s.label}
                 {s.key === 'Pending Verification' && pendingVerificationCount > 0 && (
-                  <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold">
+                  <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[11px] font-bold">
                     {pendingVerificationCount}
                   </span>
                 )}
               </p>
-              <p className={`text-2xl font-extrabold ${activeTab === s.key ? 'text-[#007038]' : 'text-slate-900'}`}>{s.count}</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">₱{s.amount.toLocaleString()}</p>
-              <p className={`text-[11px] mt-2 ${activeTab === s.key ? 'text-[#007038]/80' : 'text-slate-400'}`}>{s.description}</p>
-              <span className={`text-[10px] font-semibold ${activeTab === s.key ? 'text-[#007038]' : 'text-slate-400'}`}>
-                {activeTab === s.key ? 'Filtering table below ✓' : 'Click to filter table below →'}
-              </span>
+              <p className={`text-[25px] font-semibold tracking-[-0.025em] leading-none tabular-nums ${activeTab === s.key ? 'text-[#007038]' : 'text-slate-900'}`}>{s.count}</p>
+              <p className="text-sm font-medium text-slate-600 mt-[7px] tabular-nums">₱{s.amount.toLocaleString()}</p>
+              <p className={`text-[12.5px] mt-1.5 ${activeTab === s.key ? 'text-[#007038]/80' : 'text-slate-600'}`}>{s.description}</p>
             </button>
           ))}
         </div>
@@ -1175,11 +1194,11 @@ export default function Payments() {
       )}
 
       {/* FILTERS */}
-      <div className={`bg-white rounded-2xl border shadow-sm p-5 transition-colors ${activePaymentFilterCount > 0 ? 'border-[#008A45]/30' : 'border-slate-200'}`}>
+      <div className={`bg-white rounded-2xl border p-5 transition-colors ${activePaymentFilterCount > 0 ? 'border-[#008A45]/30' : 'border-slate-200/70'}`}>
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <div className="flex items-center gap-2">
-            <Filter size={13} className="text-slate-400" />
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Filters</span>
+            <Filter size={13} className="text-slate-500" />
+            <span className="text-[13px] font-bold text-slate-600 tracking-[0.04em] whitespace-nowrap">Filters</span>
             {activePaymentFilterCount > 0 && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#EAF3F2] text-[#007038] text-[10px] font-bold border border-[#008A45]/30">
                 {activePaymentFilterCount} active
@@ -1197,7 +1216,7 @@ export default function Payments() {
             )}
             <button
               onClick={fetchData}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 rounded-[9px] text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
             >
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
             </button>
@@ -1206,25 +1225,25 @@ export default function Payments() {
 
         <div className="flex flex-wrap items-start gap-3">
           <div className="relative flex-1 min-w-[220px]">
-            <label className={`block text-[11px] font-semibold mb-1 ${tableSearchTerm ? 'text-[#007038]' : 'text-slate-500'}`}>Search</label>
+            <label className={`block text-[13px] font-semibold mb-1 ${tableSearchTerm ? 'text-[#007038]' : 'text-slate-600'}`}>Search</label>
             <div className="relative">
               <input
                 type="text"
                 placeholder="Customer name or reference"
                 value={tableSearchTerm}
                 onChange={(e) => setTableSearchTerm(e.target.value)}
-                className={`w-full border rounded-lg py-2.5 pl-4 pr-10 text-sm outline-none transition-colors ${tableSearchTerm ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-300 bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
+                className={`w-full border rounded-[10px] py-2.5 pl-4 pr-10 text-sm text-slate-800 outline-none transition-colors ${tableSearchTerm ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-200 bg-white focus:ring-[3px] focus:ring-[#008A45]/12 focus:border-[#008A45]'}`}
               />
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             </div>
           </div>
 
           <div>
-            <label className={`block text-[11px] font-semibold mb-1 ${typeFilter !== 'All' ? 'text-[#007038]' : 'text-slate-500'}`}>Type</label>
+            <label className={`block text-[13px] font-semibold mb-1 ${typeFilter !== 'All' ? 'text-[#007038]' : 'text-slate-600'}`}>Type</label>
             <Select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
-              className={`border rounded-lg px-3 py-2.5 text-sm outline-none transition-colors ${typeFilter !== 'All' ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-300 bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
+              className={`border rounded-[10px] px-3 py-2.5 text-sm text-slate-800 outline-none transition-colors ${typeFilter !== 'All' ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-200 bg-white focus:ring-[3px] focus:ring-[#008A45]/12 focus:border-[#008A45]'}`}
             >
               <option value="All">All</option>
               <option value="Package">Packages</option>
@@ -1233,11 +1252,11 @@ export default function Payments() {
           </div>
 
           <div>
-            <label className={`block text-[11px] font-semibold mb-1 ${methodFilter !== 'All' ? 'text-[#007038]' : 'text-slate-500'}`}>Method</label>
+            <label className={`block text-[13px] font-semibold mb-1 ${methodFilter !== 'All' ? 'text-[#007038]' : 'text-slate-600'}`}>Method</label>
             <Select
               value={methodFilter}
               onChange={(e) => setMethodFilter(e.target.value)}
-              className={`border rounded-lg px-3 py-2.5 text-sm outline-none transition-colors ${methodFilter !== 'All' ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-300 bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
+              className={`border rounded-[10px] px-3 py-2.5 text-sm text-slate-800 outline-none transition-colors ${methodFilter !== 'All' ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-200 bg-white focus:ring-[3px] focus:ring-[#008A45]/12 focus:border-[#008A45]'}`}
             >
               <option value="All">All</option>
               <option value="Cash">Cash</option>
@@ -1247,7 +1266,7 @@ export default function Payments() {
           </div>
 
           <div>
-            <label className={`block text-[11px] font-semibold mb-1 ${datePreset !== 'All Time' ? 'text-[#007038]' : 'text-slate-500'}`}>Payment Date</label>
+            <label className={`block text-[13px] font-semibold mb-1 ${datePreset !== 'All Time' ? 'text-[#007038]' : 'text-slate-600'}`}>Payment Date</label>
             <DateRangeFilter
               preset={datePreset}
               customStart={customStart}
@@ -1266,10 +1285,10 @@ export default function Payments() {
       {/* PAYMENTS TABLE — one row per booking/short order on the Payments
           tab (click a row to see every payment made against it); refunds
           are each their own event, so that tab stays one row per record. */}
-      <div ref={tableRef} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden scroll-mt-4">
-        <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800 flex justify-between items-center">
+      <div ref={tableRef} className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden scroll-mt-4">
+        <div className="px-5 py-4 border-b border-slate-100 font-bold text-base tracking-[-0.01em] text-slate-900 flex justify-between items-center">
           <span>{mainTab === 'Refunds' ? 'Refunds' : (activeTab === 'All' ? 'All Payments' : activeTab)}</span>
-          <span className="text-xs font-normal text-slate-500">
+          <span className="text-sm font-normal text-slate-600 tabular-nums whitespace-nowrap">
             {mainTab === 'Refunds'
               ? `${filteredPayments.length} result${filteredPayments.length === 1 ? '' : 's'}`
               : `${groupedPayments.length} booking${groupedPayments.length === 1 ? '' : 's'}`}
@@ -1278,25 +1297,25 @@ export default function Payments() {
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
-                <th className="p-4">{renderSortHeader('client', 'Customer')}</th>
-                <th className="p-4 font-bold">Reference</th>
-                <th className="p-4 font-bold">Status</th>
-                <th className="p-4 font-bold">Type</th>
+              <tr className="bg-[#fbfcfd] border-b border-slate-100">
+                <th className="px-4 py-3 whitespace-nowrap">{renderSortHeader('client', 'Customer')}</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap">Reference</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap">Status</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap">Type</th>
                 {mainTab === 'Refunds' ? (
-                  <th className="p-4 font-bold">Method</th>
+                  <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap">Method</th>
                 ) : (
-                  <th className="p-4 font-bold">Payments</th>
+                  <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap">Payments</th>
                 )}
-                <th className="p-4 font-bold">Amount</th>
-                <th className="p-4 font-bold">Payment Status</th>
-                <th className="p-4">{renderSortHeader('date', 'Date')}</th>
-                <th className="p-4 font-bold text-center">Proof</th>
-                {mainTab === 'Refunds' ? null : <th className="p-4 font-bold text-right">Actions</th>}
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap text-right">Amount</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap">Payment Status</th>
+                <th className="px-4 py-3 whitespace-nowrap">{renderSortHeader('date', 'Date')}</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap text-center">Proof</th>
+                {mainTab === 'Refunds' ? null : <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap text-right">Actions</th>}
               </tr>
             </thead>
             {mainTab === 'Refunds' ? (
-              <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
+              <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                 {loading ? (
                   <tr><td colSpan="9" className="p-6 text-center text-slate-400">Loading refunds...</td></tr>
                 ) : filteredPayments.length === 0 ? (
@@ -1307,46 +1326,46 @@ export default function Payments() {
                     return (
                       <tr
                         key={payment.payment_id}
-                        className="hover:bg-slate-50 transition-colors cursor-pointer bg-red-50/50"
+                        className="hover:bg-[#fbfcfd] transition-colors cursor-pointer bg-red-50/50"
                         onClick={() => handleRowClick(payment)}
                       >
-                        <td className="p-4">
-                          <p className="font-bold text-slate-900">{getClientName(payment)}</p>
+                        <td className="px-4 py-[15px]">
+                          <p className="text-[15px] font-semibold text-slate-900">{getClientName(payment)}</p>
                         </td>
-                        <td className="p-4 text-slate-600">
+                        <td className="px-4 py-[15px] text-sm text-slate-800">
                           <button
                             onClick={(e) => { e.stopPropagation(); goToBookingDetails(payment.booking_id, payment.booking?.booking_type); }}
-                            className="text-[#008A45] hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
+                            className="text-[#007038] font-semibold inline-flex items-center gap-1 cursor-pointer hover:text-[#008A45]"
                             title="View full booking details"
                           >
                             {getBookingRef(payment)} <ExternalLink size={11} />
                           </button>
                         </td>
-                        <td className="p-4">
-                          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium border ${getOrderStatusBadge(orderStatus)}`}>
+                        <td className="px-4 py-[15px]">
+                          <span className={`inline-block px-2.5 py-[3px] rounded-full text-[12.5px] font-semibold whitespace-nowrap ${getOrderStatusBadgeSoft(orderStatus)}`}>
                             {orderStatus}
                           </span>
                         </td>
-                        <td className="p-4 text-slate-600">
+                        <td className="px-4 py-[15px] text-sm text-slate-800">
                           {payment.booking?.booking_type === 'Short Order' ? 'Short Order' : 'Package'}
                         </td>
                         {/* No payment method was ever captured for a refund —
                             it's money going out, not a way of paying. */}
-                        <td className="p-4 font-medium text-slate-700">
+                        <td className="px-4 py-[15px] text-sm font-medium text-slate-600">
                           <span className="text-slate-400" title="No payment method was recorded for this refund">—</span>
                         </td>
-                        <td className="p-4 font-bold text-red-600">
+                        <td className="px-4 py-[15px] text-[15px] font-semibold text-red-600 text-right tabular-nums">
                           -₱{Math.abs(payment.amount_paid || 0).toLocaleString()}
                         </td>
-                        <td className="p-4">
-                          <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadge('Refunded')}`}>
+                        <td className="px-4 py-[15px]">
+                          <span className={`px-[11px] py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${getStatusBadgeSoft('Refunded')}`}>
                             Refunded
                           </span>
                         </td>
-                        <td className="p-4 text-slate-600">
+                        <td className="px-4 py-[15px] text-sm text-slate-600 tabular-nums">
                           {payment.pay_datetime ? new Date(payment.pay_datetime).toLocaleDateString() : 'N/A'}
                         </td>
-                        <td className="p-4 text-center">
+                        <td className="px-4 py-[15px] text-center">
                           {renderProof(payment.pay_proof)}
                         </td>
                       </tr>
@@ -1355,7 +1374,7 @@ export default function Payments() {
                 )}
               </tbody>
             ) : (
-              <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
+              <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                 {loading ? (
                   <tr><td colSpan="9" className="p-6 text-center text-slate-400">Loading payments...</td></tr>
                 ) : groupedPayments.length === 0 ? (
@@ -1380,30 +1399,30 @@ export default function Payments() {
                     return (
                       <tr
                         key={group.bookingId}
-                        className={`hover:bg-slate-50 transition-colors cursor-pointer ${isCancelledOrRejected ? 'opacity-70' : ''}`}
+                        className={`hover:bg-[#fbfcfd] transition-colors cursor-pointer ${isCancelledOrRejected ? 'opacity-70' : ''}`}
                         onClick={() => handleRowClick(latest)}
                       >
-                        <td className="p-4">
-                          <p className="font-bold text-slate-900">{getClientName(latest)}</p>
+                        <td className="px-4 py-[15px]">
+                          <p className="text-[15px] font-semibold text-slate-900">{getClientName(latest)}</p>
                         </td>
-                        <td className="p-4 text-slate-600">
+                        <td className="px-4 py-[15px] text-sm text-slate-800">
                           <button
                             onClick={(e) => { e.stopPropagation(); goToBookingDetails(latest.booking_id, group.booking?.booking_type); }}
-                            className="text-[#008A45] hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
+                            className="text-[#007038] font-semibold inline-flex items-center gap-1 cursor-pointer hover:text-[#008A45]"
                             title="View full booking details"
                           >
                             {getBookingRef(latest)} <ExternalLink size={11} />
                           </button>
                         </td>
-                        <td className="p-4">
-                          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium border ${getOrderStatusBadge(orderStatus)}`}>
+                        <td className="px-4 py-[15px]">
+                          <span className={`inline-block px-2.5 py-[3px] rounded-full text-[12.5px] font-semibold whitespace-nowrap ${getOrderStatusBadgeSoft(orderStatus)}`}>
                             {orderStatus}
                           </span>
                         </td>
-                        <td className="p-4 text-slate-600">
+                        <td className="px-4 py-[15px] text-sm text-slate-800">
                           {group.booking?.booking_type === 'Short Order' ? 'Short Order' : 'Package'}
                         </td>
-                        <td className="p-4 font-medium text-slate-700">
+                        <td className="px-4 py-[15px] text-sm font-medium text-slate-600">
                           <button
                             onClick={(e) => { e.stopPropagation(); handleRowClick(latest); }}
                             className="inline-flex items-center gap-1 text-slate-600 hover:text-[#008A45] hover:underline"
@@ -1412,7 +1431,7 @@ export default function Payments() {
                             {group.count} payment{group.count === 1 ? '' : 's'} <ChevronRight size={12} />
                           </button>
                         </td>
-                        <td className="p-4 font-bold text-slate-900">
+                        <td className="px-4 py-[15px] text-[15px] font-semibold text-slate-900 text-right tabular-nums">
                           ₱{group.totalPaid.toLocaleString()}
                         </td>
                         {/* Shows the derived kind of the MOST RECENT payment,
@@ -1421,38 +1440,46 @@ export default function Payments() {
                             Paid as each new payment lands, instead of every
                             row flipping to "Fully Paid" the moment the
                             balance clears. */}
-                        <td className="p-4">
-                          <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadge(latest.pay_status)}`}>
+                        <td className="px-4 py-[15px]">
+                          <span className={`px-[11px] py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${getStatusBadgeSoft(latest.pay_status)}`}>
                             {describePaymentKind(latest, priorForLatest, group.booking?.total_amount)}
                           </span>
                         </td>
-                        <td className="p-4 text-slate-600">
+                        <td className="px-4 py-[15px] text-sm text-slate-600 tabular-nums">
                           {latest.pay_datetime ? new Date(latest.pay_datetime).toLocaleDateString() : 'N/A'}
                         </td>
-                        <td className="p-4 text-center">
+                        <td className="px-4 py-[15px] text-center">
                           {renderProof(latest.pay_proof)}
                         </td>
-                        <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
-                          {hasPendingVerification && (
-                            <div className="flex items-center justify-end gap-3">
-                              <button
-                                onClick={() => openVerifyModal(group.entries.find(p => p.pay_status === 'Pending Verification'))}
-                                disabled={isVerifying}
-                                className="text-green-600 hover:text-green-800 transition-colors disabled:opacity-50"
-                                title="Verify Payment"
-                              >
-                                <Check size={16} />
-                              </button>
-                              <button
-                                onClick={() => openRejectProofModal(group.entries.find(p => p.pay_status === 'Pending Verification'))}
-                                disabled={isVerifying}
-                                className="text-red-500 hover:text-red-700 transition-colors disabled:opacity-50"
-                                title="Reject Proof"
-                              >
-                                <X size={16} />
-                              </button>
-                            </div>
-                          )}
+                        <td className="px-4 py-[15px] text-right" onClick={(e) => e.stopPropagation()}>
+                          {/* Verifying a payment is the riskiest control on
+                              this page, so it gets a label rather than a bare
+                              16px check. The placeholder keeps the column from
+                              collapsing on rows with nothing to action. */}
+                          <div className="flex items-center justify-end gap-1.5 min-h-[32px]">
+                            {hasPendingVerification ? (
+                              <>
+                                <button
+                                  onClick={() => openVerifyModal(group.entries.find(p => p.pay_status === 'Pending Verification'))}
+                                  disabled={isVerifying}
+                                  className="flex items-center gap-1.5 px-3 py-[7px] rounded-[9px] bg-[#008A45] hover:bg-[#007038] text-white text-[12.5px] font-semibold whitespace-nowrap transition-colors disabled:opacity-50"
+                                  title="Verify payment"
+                                >
+                                  <Check size={13} /> Verify
+                                </button>
+                                <button
+                                  onClick={() => openRejectProofModal(group.entries.find(p => p.pay_status === 'Pending Verification'))}
+                                  disabled={isVerifying}
+                                  className="flex items-center justify-center w-8 h-8 rounded-[9px] border border-red-200 bg-white text-red-700 hover:bg-red-50 transition-colors disabled:opacity-50"
+                                  title="Reject proof"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </>
+                            ) : (
+                              <span className="text-[13px] text-slate-300">—</span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
