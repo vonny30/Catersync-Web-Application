@@ -4,7 +4,7 @@ import Select from '../components/Select';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Calendar as CalendarIcon, Clock, CheckCircle, TrendingUp, ChevronLeft, ChevronRight, RefreshCw, X, ArrowRight, Eye, Search } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, CheckCircle, TrendingUp, ChevronLeft, ChevronRight, RefreshCw, X, Eye, Search } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -702,15 +702,15 @@ export default function Dashboard() {
     <div className="space-y-8">
       {/* Header */}
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
+        <h1 className="text-[27px] font-bold text-slate-900 tracking-tight">
           Good day, PG's Catering Manager
-          <span className="text-sm font-normal text-slate-500 block mt-1">
+          <span className="text-[14.5px] font-normal text-slate-500 block mt-1.5">
             {new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
           </span>
         </h1>
         <button
           onClick={fetchDashboardData}
-          className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:border-[#008A45] hover:text-[#008A45] shadow-sm transition-colors"
+          className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-[10px] text-sm font-semibold text-slate-700 hover:border-[#008A45] hover:text-[#008A45] transition-colors"
         >
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
         </button>
@@ -730,81 +730,73 @@ export default function Dashboard() {
         {/* Today's Events */}
         <button
           onClick={handleTodayEventsClick}
-          className="relative overflow-hidden bg-white border border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-[#008A45]/40 transition-all cursor-pointer group"
+          className="relative overflow-hidden bg-white border border-slate-200/70 rounded-2xl p-[22px] flex flex-col items-center justify-center text-center hover:shadow-[0_4px_14px_rgba(15,23,42,0.06)] hover:-translate-y-0.5 hover:border-[#008A45]/30 transition-all cursor-pointer group"
         >
-          <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#008A45]" />
-          <div className="w-11 h-11 rounded-full bg-[#008A45] flex items-center justify-center mb-3 shadow-sm">
-            <CalendarIcon size={20} className="text-white" />
+          <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
+          <div className="w-[42px] h-[42px] rounded-full bg-[#EAF3F2] flex items-center justify-center mb-3">
+            <CalendarIcon size={20} className="text-[#008A45]" />
           </div>
-          <span className="text-3xl font-extrabold text-slate-900 mb-1">{stats.todayEvents}</span>
-          <span className="text-sm font-medium text-slate-600">Today's Events</span>
-          <ArrowRight size={14} className="absolute top-3 right-3 text-[#008A45] opacity-0 group-hover:opacity-100 transition-opacity" />
-          <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
+          <span className="text-[34px] font-semibold tracking-[-0.03em] tabular-nums text-slate-900 mb-2 leading-none">{stats.todayEvents}</span>
+          <span className="text-[15px] font-semibold text-slate-600">Today's Events</span>
         </button>
 
         {/* Pending Orders (combined) */}
         <button
           onClick={handlePendingBookingsClick}
-          className="relative overflow-hidden bg-white border border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-[#008A45]/40 transition-all cursor-pointer group"
+          className="relative overflow-hidden bg-white border border-slate-200/70 rounded-2xl p-[22px] flex flex-col items-center justify-center text-center hover:shadow-[0_4px_14px_rgba(15,23,42,0.06)] hover:-translate-y-0.5 hover:border-[#008A45]/30 transition-all cursor-pointer group"
         >
-          <div className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-600" />
-          <div className="w-11 h-11 rounded-full bg-emerald-600 flex items-center justify-center mb-3 shadow-sm">
-            <Clock size={20} className="text-white" />
+          <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-emerald-600" />
+          <div className="w-[42px] h-[42px] rounded-full bg-amber-50 flex items-center justify-center mb-3">
+            <Clock size={20} className="text-amber-600" />
           </div>
-          <span className="text-3xl font-extrabold text-slate-900 mb-1">{stats.pendingBookings}</span>
-          <span className="text-sm font-medium text-slate-600">Pending Orders</span>
-          <span className="text-[10px] text-slate-400">(Packages + Short Orders)</span>
-          <ArrowRight size={14} className="absolute top-3 right-3 text-[#008A45] opacity-0 group-hover:opacity-100 transition-opacity" />
-          <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
+          <span className="text-[34px] font-semibold tracking-[-0.03em] tabular-nums text-slate-900 mb-2 leading-none">{stats.pendingBookings}</span>
+          <span className="text-[15px] font-semibold text-slate-600">Pending Orders</span>
+          <span className="text-[12.5px] text-slate-400 mt-1">(Packages + Short Orders)</span>
         </button>
 
         {/* Upcoming Events */}
         <button
           onClick={handleUpcomingEventsClick}
-          className="relative overflow-hidden bg-white border border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-[#008A45]/40 transition-all cursor-pointer group"
+          className="relative overflow-hidden bg-white border border-slate-200/70 rounded-2xl p-[22px] flex flex-col items-center justify-center text-center hover:shadow-[0_4px_14px_rgba(15,23,42,0.06)] hover:-translate-y-0.5 hover:border-[#008A45]/30 transition-all cursor-pointer group"
         >
-          <div className="absolute left-0 top-0 bottom-0 w-1 bg-teal-600" />
-          <div className="w-11 h-11 rounded-full bg-teal-600 flex items-center justify-center mb-3 shadow-sm">
-            <CheckCircle size={20} className="text-white" />
+          <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-teal-600" />
+          <div className="w-[42px] h-[42px] rounded-full bg-teal-50 flex items-center justify-center mb-3">
+            <CheckCircle size={20} className="text-teal-600" />
           </div>
-          <span className="text-3xl font-extrabold text-slate-900 mb-1">{stats.upcomingEvents}</span>
-          <span className="text-sm font-medium text-slate-600">Events in the next 7 days</span>
+          <span className="text-[34px] font-semibold tracking-[-0.03em] tabular-nums text-slate-900 mb-2 leading-none">{stats.upcomingEvents}</span>
+          <span className="text-[15px] font-semibold text-slate-600">Events in the next 7 days</span>
           {/* The window includes today: the query is
               .gte(today 00:00) .lt(today+7d 00:00), i.e. today plus the
               following six days. Stating the range beats making the manager
               infer whether "7 days" counts today. */}
-          <span className="text-[10px] text-slate-500 mt-0.5">{upcomingWindowLabel()}</span>
-          <ArrowRight size={14} className="absolute top-3 right-3 text-[#008A45] opacity-0 group-hover:opacity-100 transition-opacity" />
-          <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
+          <span className="text-[12.5px] text-slate-400 mt-1">{upcomingWindowLabel()}</span>
         </button>
 
         {/* Total Collections This Month */}
         <button
           onClick={handleRevenueClick}
-          className="relative overflow-hidden bg-white border border-slate-200 rounded-2xl p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:border-[#008A45]/40 transition-all cursor-pointer group"
+          className="relative overflow-hidden bg-white border border-slate-200/70 rounded-2xl p-[22px] flex flex-col items-center justify-center text-center hover:shadow-[0_4px_14px_rgba(15,23,42,0.06)] hover:-translate-y-0.5 hover:border-[#008A45]/30 transition-all cursor-pointer group"
         >
-          <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#006634]" />
-          <div className="w-11 h-11 rounded-full bg-[#006634] flex items-center justify-center mb-3 shadow-sm">
-            <TrendingUp size={20} className="text-white" />
+          <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#006634]" />
+          <div className="w-[42px] h-[42px] rounded-full bg-[#EAF3F2] flex items-center justify-center mb-3">
+            <TrendingUp size={20} className="text-[#006634]" />
           </div>
-          <span className="text-3xl font-extrabold text-slate-900 mb-1">
+          <span className="text-[28px] font-semibold tracking-[-0.03em] tabular-nums text-slate-900 mb-2 leading-none">
             ₱{stats.revenueThisMonth.toLocaleString()}
           </span>
-          <span className="text-sm font-medium text-slate-600">Total Collections This Month</span>
-          <ArrowRight size={14} className="absolute top-3 right-3 text-[#008A45] opacity-0 group-hover:opacity-100 transition-opacity" />
-          <span className="text-[10px] text-slate-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Click to view</span>
+          <span className="text-[15px] font-semibold text-slate-600">Total Collections This Month</span>
         </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* LEFT: Calendar & Today's Events */}
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <div className="mb-6 border-b border-slate-200 pb-6">
+          <div className="mb-[22px] bg-[#fbfcfd] border border-slate-100 rounded-2xl p-4 pt-[18px]">
             <div className="flex justify-between items-center mb-4 px-2">
               <button onClick={() => changeMonth(-1)} className="p-1.5 hover:bg-[#EAF3F2] hover:text-[#008A45] rounded-lg transition-colors">
                 <ChevronLeft size={20} className="text-slate-600" />
               </button>
-              <h3 className="font-bold text-slate-900 text-sm">{monthName}</h3>
+              <h3 className="font-bold text-slate-900 text-base">{monthName}</h3>
               <button onClick={() => changeMonth(1)} className="p-1.5 hover:bg-[#EAF3F2] hover:text-[#008A45] rounded-lg transition-colors">
                 <ChevronRight size={20} className="text-slate-600" />
               </button>
@@ -812,45 +804,63 @@ export default function Dashboard() {
             {/* Only Confirmed bookings/orders show on this calendar — not
                 Pending, Approved, or Completed — so the dots reflect what's
                 actually locked in for the month, not everything submitted. */}
-            <p className="text-center text-[11px] text-slate-500 mb-3">Showing confirmed bookings &amp; orders only</p>
-            <div className="grid grid-cols-7 gap-y-4 text-center text-sm">
-              {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day, idx) => (
-                <div key={idx} className="text-slate-400 font-semibold text-xs">{day}</div>
-              ))}
-              {calendarDays.map((day, index) => (
-                <div
-                  key={index}
-                  onClick={() => handleDayClick(day)}
-                  className={`relative flex items-center justify-center font-medium text-sm cursor-pointer rounded-full w-7 h-7 mx-auto transition-colors
-                    ${day?.isToday ? 'bg-[#008A45] text-white font-bold shadow-sm' : 'text-slate-900 hover:bg-[#EAF3F2] hover:text-[#008A45]'}
-                  `}
-                >
-                  {day?.day}
-                  {day?.hasEvent && (
-                    <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 flex items-center gap-0.5">
-                      {day.hasPackage && (
-                        <span className={`w-1.5 h-1.5 rounded-full ${day.isToday ? 'bg-white' : 'bg-[#008A45]'}`}></span>
-                      )}
-                      {day.hasShortOrder && (
-                        <span className={`w-1.5 h-1.5 rounded-full ${day.isToday ? 'bg-white/70' : 'bg-purple-500'}`}></span>
-                      )}
-                    </span>
-                  )}
-                </div>
+            <p className="text-center text-[12.5px] text-slate-500 mb-3.5">Showing confirmed bookings &amp; orders only</p>
+            <div className="grid grid-cols-7 gap-1 max-w-[430px] mx-auto mb-2 py-[7px] bg-[#EAF3F2] rounded-[9px]">
+              {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d, i) => (
+                <div key={i} className="text-center text-xs font-bold tracking-[0.06em] text-[#0b6b3c]">{d}</div>
               ))}
             </div>
-            <div className="flex items-center justify-center gap-4 mt-3">
-              <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#008A45]"></span> Package
+            <div className="grid grid-cols-7 gap-y-1.5 gap-x-1 max-w-[430px] mx-auto">
+              {calendarDays.map((day, index) => {
+                // Tint the cell by what kind of event sits on it, so the month
+                // reads at a glance without decoding dots one day at a time.
+                const packageOnly = day?.hasPackage && !day?.hasShortOrder;
+                const shortOnly   = day?.hasShortOrder && !day?.hasPackage;
+                const bothTypes   = day?.hasPackage && day?.hasShortOrder;
+
+                const dayClass = day?.isToday
+                  ? 'bg-[#008A45] text-white font-bold ring-[3px] ring-[#008A45]/15'
+                  : packageOnly
+                    ? 'bg-[#e3f2ea] ring-1 ring-inset ring-[#bfe0cd] text-[#00703a] font-bold'
+                    : shortOnly
+                      ? 'bg-[#f6edfe] ring-1 ring-inset ring-[#e2cdf7] text-[#7e22ce] font-bold'
+                      : bothTypes
+                        ? 'bg-gradient-to-br from-[#e3f2ea] from-50% to-[#f6edfe] to-50% ring-1 ring-inset ring-slate-300 text-slate-700 font-bold'
+                        : 'text-slate-700 font-medium hover:bg-[#EAF3F2] hover:text-[#008A45]';
+
+                return (
+                  <div
+                    key={index}
+                    onClick={() => handleDayClick(day)}
+                    className={`relative flex items-center justify-center cursor-pointer rounded-full w-[30px] h-[30px] text-[14.5px] tabular-nums mx-auto transition-colors ${dayClass}`}
+                  >
+                    {day?.day}
+                    {day?.hasEvent && (
+                      <span className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 flex items-center gap-0.5">
+                        {day.hasPackage && (
+                          <span className={`w-1.5 h-1.5 rounded-full ${day.isToday ? 'bg-white' : 'bg-[#007038]'}`}></span>
+                        )}
+                        {day.hasShortOrder && (
+                          <span className={`w-1.5 h-1.5 rounded-full ${day.isToday ? 'bg-white/70' : 'bg-[#7e22ce]'}`}></span>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-center gap-2 mt-3.5">
+              <span className="flex items-center gap-[7px] px-[11px] py-1 bg-[#EAF3F2] rounded-full text-[12.5px] font-semibold text-[#00703a]">
+                <span className="w-[7px] h-[7px] rounded-full bg-[#007038]" /> Package
               </span>
-              <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
-                <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span> Short Order
+              <span className="flex items-center gap-[7px] px-[11px] py-1 bg-[#f6edfe] rounded-full text-[12.5px] font-semibold text-[#7e22ce]">
+                <span className="w-[7px] h-[7px] rounded-full bg-[#7e22ce]" /> Short Order
               </span>
             </div>
           </div>
 
-          <h3 className="font-bold text-slate-900 mb-4">Today's Events</h3>
-          <div className="space-y-3">
+          <h3 className="text-[17px] font-bold tracking-[-0.01em] text-slate-900 mb-3.5">Today's Events</h3>
+          <div className="space-y-2">
             {todayEvents.length === 0 ? (
               <p className="text-sm text-slate-500 italic text-center py-4">No events scheduled for today.</p>
             ) : (
@@ -858,13 +868,13 @@ export default function Dashboard() {
                 <div
                   key={event.booking_id}
                   onClick={() => navigate(`/app/bookings/${event.booking_id}`)}
-                  className="bg-slate-50 border border-slate-200 rounded-lg p-4 flex justify-between items-center hover:border-[#008A45]/40 hover:bg-[#EAF3F2]/40 transition-colors cursor-pointer"
+                  className="bg-[#fbfcfd] border border-slate-100 rounded-xl px-3.5 py-3.5 flex justify-between items-center hover:border-[#c9dfd4] hover:bg-[#EAF3F2] transition-colors cursor-pointer"
                 >
                   <div>
-                    <p className="font-bold text-slate-900 text-sm">{getClientName(event)}</p>
-                    <p className="text-xs text-slate-500 mt-0.5">{getVenueDisplay(event)} · {event.pax_count || 0} pax</p>
+                    <p className="font-semibold text-slate-900 text-[15.5px]">{getClientName(event)}</p>
+                    <p className="text-[13.5px] text-slate-500 mt-[3px]">{getVenueDisplay(event)} · {event.pax_count || 0} pax</p>
                   </div>
-                  <span className="text-sm font-bold text-[#008A45]">{formatTime(event.event_datetime)}</span>
+                  <span className="text-[15.5px] font-semibold text-[#008A45] tabular-nums">{formatTime(event.event_datetime)}</span>
                 </div>
               ))
             )}
@@ -874,10 +884,10 @@ export default function Dashboard() {
         {/* RIGHT: Pending Orders (combined) */}
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm h-fit">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-bold text-slate-900">Pending Orders</h2>
+            <h2 className="text-[19px] font-bold tracking-[-0.015em] text-slate-900">Pending Orders</h2>
             <button
               onClick={() => navigate('/app/bookings')}
-              className="text-sm font-semibold text-[#008A45] underline decoration-2 underline-offset-4 hover:text-[#007038] transition-colors"
+              className="text-[14.5px] font-semibold text-[#008A45] hover:text-[#007038] transition-colors"
             >
               View All
             </button>
@@ -892,33 +902,33 @@ export default function Dashboard() {
                 const detailPath = isShortOrder ? '/app/orders' : '/app/bookings';
 
                 return (
-                  <div key={item.booking_id} className="bg-slate-50 border border-slate-200 rounded-xl p-4 hover:border-[#008A45]/30 transition-colors">
+                  <div key={item.booking_id} className="bg-[#fbfcfd] border border-slate-100 rounded-2xl p-4 hover:border-slate-200 transition-colors">
                     <div className="flex justify-between items-start mb-4">
                       <div>
                         <div className="flex items-center gap-2">
                           <h4
                             onClick={() => navigate(`${detailPath}/${item.booking_id}`)}
-                            className="font-bold text-slate-900 text-sm cursor-pointer hover:text-[#008A45] transition-colors"
+                            className="font-semibold text-slate-900 text-[15.5px] cursor-pointer hover:text-[#008A45] transition-colors"
                           >
                             {getClientName(item)}
                           </h4>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${isShortOrder ? 'bg-[#EAF3F2] text-[#008A45] border-[#C1DEDC]' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                          <span className={`text-[12.5px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${isShortOrder ? 'bg-[#f6edfe] text-[#7e22ce]' : 'bg-[#EAF3F2] text-[#00703a]'}`}>
                             {isShortOrder ? 'Short Order' : 'Package'}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-500 mt-0.5">
+                        <p className="text-[13.5px] text-slate-500 mt-[5px] tabular-nums">
                           {formatDate(item.event_datetime)} · {item.venue || 'No venue'}
                           {!isShortOrder && ` · ${item.pax_count || 0} pax`}
                         </p>
                       </div>
-                      <span className="bg-amber-50 border border-amber-200 text-amber-700 text-xs px-3 py-1 rounded-full font-medium">
+                      <span className="bg-amber-50 border border-amber-200 text-amber-700 text-[13px] px-3 py-1 rounded-full font-semibold">
                         Pending
                       </span>
                     </div>
-                    <div className="flex gap-3">
+                    <div className="flex gap-2">
                       <button
                         onClick={() => openApprovalModal(item, isShortOrder ? 'shortorder' : 'package')}
-                        className="flex-1 bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-sm py-2 rounded-lg flex justify-center items-center gap-2 shadow-sm transition-colors"
+                        className="flex-1 bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-sm py-2 rounded-[10px] flex justify-center items-center gap-2 transition-colors"
                       >
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -927,7 +937,7 @@ export default function Dashboard() {
                       </button>
                       <button
                         onClick={() => openRejectionModal(item.booking_id)}
-                        className="flex-1 bg-white border border-red-200 text-red-700 font-semibold text-sm py-2 rounded-lg hover:bg-red-50 transition-colors"
+                        className="flex-1 bg-white border border-red-200 text-red-700 font-semibold text-sm py-2 rounded-[10px] hover:bg-red-50 transition-colors"
                       >
                         <svg className="w-4 h-4 inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -936,7 +946,7 @@ export default function Dashboard() {
                       </button>
                       <button
                         onClick={() => navigate(`${detailPath}/${item.booking_id}`)}
-                        className="flex-1 bg-white border border-slate-300 text-slate-800 font-semibold text-sm py-2 rounded-lg hover:bg-slate-50 transition-colors"
+                        className="flex-1 bg-white border border-slate-200 text-slate-700 font-semibold text-sm py-2 rounded-[10px] hover:bg-slate-50 transition-colors"
                       >
                         View Details
                       </button>
