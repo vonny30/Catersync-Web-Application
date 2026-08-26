@@ -1080,6 +1080,17 @@ export default function ShortOrders() {
     return map[status] || 'bg-slate-100 text-slate-600';
   };
 
+  // Borderless variant for the table pills — the bordered map above is still
+  // used where a pill sits on a coloured surface and needs the outline.
+  const getStatusBadgeSoft = (status) => ({
+    Pending: 'bg-amber-50 text-amber-700',
+    Approved: 'bg-[#EAF3F2] text-slate-800',
+    Confirmed: 'bg-emerald-50 text-emerald-700',
+    Completed: 'bg-blue-50 text-blue-700',
+    Rejected: 'bg-red-50 text-red-700',
+    Cancelled: 'bg-slate-100 text-slate-600',
+  }[status] || 'bg-slate-100 text-slate-600');
+
   const getRefundStatusBadge = (status) => {
     if (!status) return null;
     const map = {
@@ -1093,14 +1104,16 @@ export default function ShortOrders() {
 
   // --- STATUS CARDS + QUICK FILTERS (derived from statusCountRows, which
   // reflects every active filter except status/pagination) ---
-  const STATUS_CARD_ACCENT = {
-    All: 'border-l-slate-400',
-    Pending: 'border-l-amber-500',
-    Approved: 'border-l-[#008A45]',
-    Confirmed: 'border-l-emerald-500',
-    Completed: 'border-l-blue-500',
-    Rejected: 'border-l-red-500',
-    Cancelled: 'border-l-slate-400',
+  // Background colours, not border colours — the accent renders as its own
+  // 3px element so it can be thinner than a Tailwind border-l step allows.
+  const STATUS_CARD_BAR = {
+    All: 'bg-slate-400',
+    Pending: 'bg-amber-500',
+    Approved: 'bg-[#008A45]',
+    Confirmed: 'bg-emerald-500',
+    Completed: 'bg-blue-500',
+    Rejected: 'bg-red-500',
+    Cancelled: 'bg-slate-400',
   };
   const STATUS_CARD_TEXT = {
     All: 'text-slate-900',
@@ -1122,69 +1135,70 @@ export default function ShortOrders() {
 
   // --- RENDER ---
   return (
-    <div className="space-y-6 relative">
+    <div className="space-y-[18px] relative">
       {/* HEADER */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Short Orders</h1>
-          <p className="text-sm text-slate-500">Manage food tray orders (pickup/delivery) – each tray serves 35‑50 pax</p>
+          <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Short Orders</h1>
+          <p className="text-[14.5px] text-slate-600 mt-1.5">Manage food tray orders (pickup/delivery) – each tray serves 35‑50 pax</p>
         </div>
         <button
           onClick={openNewModal}
-          className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 text-sm shadow-sm"
+          className="bg-[#008A45] hover:bg-[#007038] text-white px-[17px] py-2.5 rounded-[10px] font-semibold transition-colors flex items-center gap-2 text-sm"
         >
-          + New Short Order
+          <Plus size={15} /> New Short Order
         </button>
       </div>
 
       {/* STATUS OVERVIEW + QUICK LOOKS */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+      <div className="bg-white rounded-2xl border border-slate-200/70 p-5">
         <div className="flex items-center gap-1.5 mb-3">
-          <LayoutGrid size={13} className="text-slate-400" />
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Status Overview</span>
+          <LayoutGrid size={13} className="text-slate-500" />
+          <span className="text-[13px] font-bold text-slate-600 tracking-[0.04em] whitespace-nowrap">Status Overview</span>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+        <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,132px),1fr))]">
           {statusCards.map((s) => (
             <button
               key={s.key}
               onClick={() => { setActiveTab(s.key); setCurrentPage(1); scrollToTable(); }}
-              className={`text-left rounded-xl border-l-4 border border-slate-200 bg-white p-3.5 transition-all ${STATUS_CARD_ACCENT[s.key]} ${
-                activeTab === s.key ? 'ring-2 ring-[#008A45]/20 shadow-sm' : 'hover:shadow-sm hover:border-slate-300'
+              className={`text-left rounded-xl border border-slate-100 bg-[#fbfcfd] p-3.5 relative overflow-hidden transition-all ${
+                activeTab === s.key ? 'ring-2 ring-[#008A45]/20 shadow-sm' : 'hover:border-slate-200 hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]'
               }`}
             >
-              <p className="text-[11px] font-semibold text-slate-500 mb-1 truncate">{s.key === 'All' ? 'All Orders' : s.key}</p>
-              <p className={`text-xl font-extrabold ${STATUS_CARD_TEXT[s.key]}`}>{s.count}</p>
+              <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${STATUS_CARD_BAR[s.key]}`} />
+              <p className="text-[13px] font-semibold text-slate-600 mb-1.5 whitespace-nowrap">{s.key === 'All' ? 'All Orders' : s.key}</p>
+              <p className={`text-[23px] font-semibold tracking-[-0.02em] tabular-nums ${STATUS_CARD_TEXT[s.key]}`}>{s.count}</p>
             </button>
           ))}
         </div>
 
         <div className="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t border-slate-100">
-          <span className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wide">
+          <span className="flex items-center gap-1.5 text-[13px] font-bold text-slate-600 tracking-[0.04em] whitespace-nowrap">
             <CalendarClock size={13} /> Quick filters
           </span>
           <button
             onClick={applyTodayFilter}
-            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:border-slate-300 hover:shadow-sm transition-all"
+            className="flex items-center gap-2 rounded-[10px] border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 whitespace-nowrap hover:border-[#c9dfd4] hover:text-[#007038] transition-all"
           >
             Today's Events
-            <span className="inline-flex items-center justify-center min-w-[20px] h-[20px] px-1.5 rounded-full bg-slate-100 text-slate-700 text-xs font-bold">{todaysEventsCount}</span>
+            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-slate-100 text-slate-700 text-[12.5px] tabular-nums font-bold">{todaysEventsCount}</span>
           </button>
           <button
             onClick={applyUpcomingConfirmedFilter}
-            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:border-slate-300 hover:shadow-sm transition-all"
+            className="flex items-center gap-2 rounded-[10px] border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 whitespace-nowrap hover:border-[#c9dfd4] hover:text-[#007038] transition-all"
           >
             Upcoming Confirmed
-            <span className="inline-flex items-center justify-center min-w-[20px] h-[20px] px-1.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">{upcomingConfirmedCount}</span>
+            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-emerald-100 text-emerald-700 text-[12.5px] tabular-nums font-bold">{upcomingConfirmedCount}</span>
           </button>
         </div>
       </div>
 
       {/* FILTERS */}
-      <div className={`bg-white rounded-2xl border shadow-sm p-5 transition-colors ${activeFilterCount > 0 ? 'border-[#008A45]/30' : 'border-slate-200'}`}>
+      <div className={`bg-white rounded-2xl border p-5 transition-colors ${activeFilterCount > 0 ? 'border-[#008A45]/30' : 'border-slate-200/70'}`}>
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <div className="flex items-center gap-2">
-            <Filter size={13} className="text-slate-400" />
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Filters</span>
+            <Filter size={13} className="text-slate-500" />
+            <span className="text-[13px] font-bold text-slate-600 tracking-[0.04em] whitespace-nowrap">Filters</span>
             {activeFilterCount > 0 && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#EAF3F2] text-[#007038] text-[10px] font-bold border border-[#008A45]/30">
                 {activeFilterCount} active
@@ -1210,7 +1224,7 @@ export default function ShortOrders() {
             )}
             <button
               onClick={fetchData}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 rounded-[9px] text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
             >
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
             </button>
@@ -1219,26 +1233,26 @@ export default function ShortOrders() {
 
         <div className="flex flex-wrap items-start gap-3">
           <div className="relative flex-1 min-w-[220px]">
-            <label className={`block text-[11px] font-semibold mb-1 ${searchTerm ? 'text-[#007038]' : 'text-slate-500'}`}>Search</label>
+            <label className={`block text-[13px] font-semibold mb-1 ${searchTerm ? 'text-[#007038]' : 'text-slate-600'}`}>Search</label>
             <div className="relative">
               <input
                 type="text"
                 placeholder="Customer name or reference"
                 value={searchTerm}
                 onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-                className={`w-full border rounded-lg py-2.5 pl-4 pr-10 text-sm outline-none transition-colors ${searchTerm ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-300 bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
+                className={`w-full border rounded-[10px] py-2.5 pl-4 pr-10 text-sm text-slate-800 outline-none transition-colors ${searchTerm ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-200 bg-white focus:ring-[3px] focus:ring-[#008A45]/12 focus:border-[#008A45]'}`}
               />
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             </div>
           </div>
 
           <div>
-            <label className={`block text-[11px] font-semibold mb-1 ${filters.customerId ? 'text-[#007038]' : 'text-slate-500'}`}>Customer</label>
+            <label className={`block text-[13px] font-semibold mb-1 ${filters.customerId ? 'text-[#007038]' : 'text-slate-600'}`}>Customer</label>
             <Select
               name="customerId"
               value={filters.customerId}
               onChange={handleFilterChange}
-              className={`border rounded-lg px-3 py-2.5 text-sm outline-none transition-colors ${filters.customerId ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-300 bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
+              className={`border rounded-[10px] px-3 py-2.5 text-sm text-slate-800 outline-none transition-colors ${filters.customerId ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-200 bg-white focus:ring-[3px] focus:ring-[#008A45]/12 focus:border-[#008A45]'}`}
             >
               <option value="">All Customers</option>
               {customers.map(c => (
@@ -1248,20 +1262,20 @@ export default function ShortOrders() {
           </div>
 
           <div>
-            <label className={`block text-[11px] font-semibold mb-1 ${filters.venue ? 'text-[#007038]' : 'text-slate-500'}`}>Venue</label>
+            <label className={`block text-[13px] font-semibold mb-1 ${filters.venue ? 'text-[#007038]' : 'text-slate-600'}`}>Venue</label>
             <input
               type="text"
               name="venue"
               value={filters.venue}
               onChange={handleFilterChange}
               placeholder="e.g. Grand Pavilion"
-              className={`border rounded-lg px-3 py-2.5 text-sm w-40 outline-none transition-colors ${filters.venue ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-300 bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
+              className={`border rounded-lg px-3 py-2.5 text-sm w-40 outline-none transition-colors ${filters.venue ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20' : 'border-slate-200 bg-white focus:ring-[3px] focus:ring-[#008A45]/12 focus:border-[#008A45]'}`}
             />
           </div>
 
           <div>
             <div className="flex items-center gap-1.5 mb-1">
-              <label className={`text-[11px] font-semibold ${datePreset !== 'All Time' ? 'text-[#007038]' : 'text-slate-500'}`}>Filter by</label>
+              <label className={`text-[11px] font-semibold ${datePreset !== 'All Time' ? 'text-[#007038]' : 'text-slate-600'}`}>Filter by</label>
               <Select
                 value={dateFilterField}
                 onChange={(e) => { setDateFilterField(e.target.value); setCurrentPage(1); }}
@@ -1287,16 +1301,16 @@ export default function ShortOrders() {
       </div>
 
       {/* TABLE */}
-      <div ref={tableRef} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden scroll-mt-4">
-        <div className="p-4 bg-slate-50 border-b border-slate-200 font-bold text-sm text-slate-800 flex justify-between items-center">
+      <div ref={tableRef} className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden scroll-mt-4">
+        <div className="px-5 py-4 border-b border-slate-100 font-bold text-base tracking-[-0.01em] text-slate-900 flex justify-between items-center">
           <span>{activeTab === 'All' ? 'All Short Orders' : `${activeTab} Short Orders`}</span>
-          <span className="text-xs font-normal text-slate-500">{totalCount} result{totalCount === 1 ? '' : 's'}</span>
+          <span className="text-sm font-normal text-slate-600 tabular-nums whitespace-nowrap">{totalCount} result{totalCount === 1 ? '' : 's'}</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
-                <th className="p-4 w-10">
+              <tr className="bg-[#fbfcfd] border-b border-slate-100">
+                <th className="px-4 py-3 w-10">
                   <input
                     type="checkbox"
                     checked={orders.length > 0 && orders.every(o => selectedOrders.includes(o.booking_id))}
@@ -1305,17 +1319,17 @@ export default function ShortOrders() {
                     disabled={orders.length === 0}
                   />
                 </th>
-                <th className="p-4 font-bold min-w-[130px]">Customer</th>
-                <th className="p-4 font-bold min-w-[120px]">Created</th>
-                <th className="p-4 font-bold min-w-[120px]">Event Date</th>
-                <th className="p-4 font-bold min-w-[100px]">Venue</th>
-                <th className="p-4 font-bold w-16 text-center">Trays</th>
-                <th className="p-4 font-bold w-28 text-right">Amount</th>
-                <th className="p-4 font-bold min-w-[120px] text-center">Status</th>
-                <th className="p-4 font-bold min-w-[200px] text-center">Actions</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[130px]">Customer</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Created</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Event Date</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[100px]">Venue</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-16 text-right">Trays</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-28 text-right">Amount</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Status</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[200px] text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
+            <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
               {loading ? (
                 <tr><td colSpan="9" className="p-6 text-center text-slate-400">Loading orders...</td></tr>
               ) : orders.length === 0 ? (
@@ -1330,13 +1344,18 @@ export default function ShortOrders() {
                       totalTrays = selections.reduce((sum, s) => sum + (s.quantity || 0), 0);
                     }
                   } catch (e) { totalTrays = 0; }
+                  // Hoisted: the Complete button and the Past Due pill both
+                  // need these, and inlining them twice invited the two to
+                  // disagree.
+                  const orderFullyPaid = (order.positivePayments || 0) >= (order.total_amount || 0);
+                  const orderOwed = Math.max(0, (order.total_amount || 0) - (order.positivePayments || 0));
                   return (
                     <tr
                       key={order.booking_id}
-                      className={`hover:bg-slate-50 transition-colors ${!order.is_read ? 'font-bold' : ''}`}
+                      className={`hover:bg-[#fbfcfd] transition-colors ${!order.is_read ? 'font-bold' : ''}`}
                       onClick={() => { if (!order.is_read) markAsRead(order.booking_id); }}
                     >
-                      <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-4 py-[15px]" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={selectedOrders.includes(order.booking_id)}
@@ -1344,116 +1363,116 @@ export default function ShortOrders() {
                           className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
                         />
                       </td>
-                      <td className="p-4">
+                      <td className="px-4 py-[15px]">
                         <div className="flex items-center gap-2">
                           <p
                             onClick={(e) => { e.stopPropagation(); navigate(`/app/orders/${order.booking_id}`); }}
-                            className="font-bold text-slate-900 underline decoration-slate-300 underline-offset-4 cursor-pointer hover:text-[#008A45]"
+                            className="text-[15px] font-semibold text-slate-900 cursor-pointer hover:text-[#008A45]"
                           >
                             {order.customer?.first_name} {order.customer?.last_name}
                           </p>
                           {!order.is_read && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200 animate-pulse">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-[#EAF3F2] text-[#00703a] text-[11px] font-bold tracking-[0.04em]">
                               NEW
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="p-4 text-slate-600 text-xs">
+                      <td className="px-4 py-[15px] text-sm text-slate-600 tabular-nums">
                         {order.book_datetime ? new Date(order.book_datetime).toLocaleDateString() : 'N/A'}
                       </td>
-                      <td className="p-4 text-slate-600 text-xs">
+                      <td className="px-4 py-[15px] text-sm font-medium text-slate-800 tabular-nums">
                         {order.event_datetime ? new Date(order.event_datetime).toLocaleDateString() : 'N/A'}
                       </td>
-                      <td className="p-4 font-medium">{order.venue || 'N/A'}</td>
-                      <td className="p-4 text-center font-semibold">{totalTrays}</td>
-                      <td className="p-4 font-bold text-slate-900 text-right">₱{order.total_amount?.toLocaleString() || '0'}</td>
-                  <td className="p-4">
-  <div className="flex flex-col items-center gap-1">
-    <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getStatusBadge(order.booking_status)} inline-block w-[120px] text-center`}>
-      {order.booking_status}
-    </span>
-    {order.booking_status === 'Completed' && order.positivePayments < (order.total_amount || 0) && (
-      <span className="px-3 py-1.5 rounded-full text-xs font-bold border bg-amber-50 border-amber-200 text-amber-700 inline-block w-[120px] text-center">
-        Balance Remaining
-      </span>
-    )}
-    {hasUnpaidPastEvent(order) && (
-      <span className="px-3 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700 inline-block w-[120px] text-center" title={`Event passed with ₱${Math.max(0, (order.total_amount || 0) - (order.positivePayments || 0)).toLocaleString()} still owed`}>
-        Past Due
-      </span>
-    )}
-    {(order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') && order.refundStatus && (
-      <span className={`px-3 py-1.5 rounded-full text-xs font-bold border ${getRefundStatusBadge(order.refundStatus)} inline-block w-[120px] text-center`}>
-        {order.refundStatus}
-      </span>
-    )}
-  </div>
-</td>
-                      <td className="p-4" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex flex-col items-center gap-1.5 w-full">
-                          {(order.booking_status === 'Pending' || order.booking_status === 'Approved' || order.booking_status === 'Confirmed') && (
-                            <>
-                              <div className="flex items-center justify-center gap-1.5 flex-nowrap whitespace-nowrap">
-                                {order.booking_status === 'Pending' && (
-                                  <>
-                                    <button
-                                      onClick={() => openApprovalModal(order, 'shortorder')}
-                                      className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition-colors"
-                                    >
-                                      <Check size={14} /> Approve
-                                    </button>
-                                    <button
-                                      onClick={() => openRejectionModal(order.booking_id)}
-                                      className="bg-red-100 border border-red-200 text-red-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-red-200 transition-colors"
-                                    >
-                                      <X size={14} /> Reject
-                                    </button>
-                                  </>
-                                )}
-                                {order.booking_status === 'Approved' && (
-                                  <button
-                                    onClick={() => handleConfirmBooking(order.booking_id)}
-                                    className="bg-emerald-100 border border-emerald-200 text-emerald-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-emerald-200 transition-colors"
-                                  >
-                                    <Check size={14} /> Confirm
-                                  </button>
-                                )}
-                                {order.booking_status === 'Confirmed' && (
-                                  <button
-                                    onClick={() => handleMarkCompleted(order.booking_id)}
-                                    className={(order.positivePayments || 0) >= (order.total_amount || 0) ? 'bg-blue-100 border border-blue-200 text-blue-700 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-blue-200 transition-colors' : 'bg-slate-100 border border-slate-200 text-slate-500 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg flex items-center gap-1 hover:bg-slate-200 transition-colors'}
-                                    title={(order.positivePayments || 0) >= (order.total_amount || 0) ? undefined : `Locked — ₱${Math.max(0, (order.total_amount || 0) - (order.positivePayments || 0)).toLocaleString()} still owed`}
-                                  >
-                                    {(order.positivePayments || 0) >= (order.total_amount || 0) ? <Check size={14} /> : <Lock size={14} />} Complete
-                                  </button>
-                                )}
-                              </div>
-                              <span className="h-px w-16 bg-slate-200 shrink-0" />
-                            </>
+                      <td className="px-4 py-[15px] text-sm text-slate-800">{order.venue || 'N/A'}</td>
+                      <td className="px-4 py-[15px] text-sm text-slate-800 text-right tabular-nums">{totalTrays}</td>
+                      <td className="px-4 py-[15px] text-[15px] font-semibold text-slate-900 text-right tabular-nums">₱{order.total_amount?.toLocaleString() || '0'}</td>
+                      <td className="px-4 py-[15px]">
+                        <div className="flex flex-col items-start gap-1.5">
+                          <span className={`px-[11px] py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${getStatusBadgeSoft(order.booking_status)}`}>
+                            {order.booking_status}
+                          </span>
+                          {order.booking_status === 'Completed' && order.positivePayments < (order.total_amount || 0) && (
+                            <span className="px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap bg-amber-50 text-amber-700">
+                              Balance Remaining
+                            </span>
                           )}
-                          <div className="flex items-center justify-center gap-1.5 flex-nowrap whitespace-nowrap">
-                            <button
-                              onClick={() => navigate(`/app/orders/${order.booking_id}`)}
-                              className="bg-white border border-slate-300 text-slate-700 font-semibold text-[11px] px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors"
-                            >
-                              Details
-                            </button>
-                            <button
-                              onClick={() => openEditModal(order)}
-                              className={`flex items-center justify-center w-7 h-7 rounded-lg border transition-colors ${isPaymentLedgerLocked(order.booking_status) ? 'border-slate-200 text-slate-300' : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}
-                              title={isPaymentLedgerLocked(order.booking_status) ? bookingEditLockedMessage(order.booking_status, { noun: 'order' }) : 'Edit'}
-                            >
-                              {isPaymentLedgerLocked(order.booking_status) ? <Lock size={15} /> : <Edit size={15} />}
-                            </button>
-                            <button
-                              onClick={() => handleDelete(order.booking_id)}
-                              className="flex items-center justify-center w-7 h-7 rounded-lg border border-slate-200 text-red-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
-                              title="Delete (password required)"
-                            >
-                              <Trash2 size={15} />
-                            </button>
+                          {hasUnpaidPastEvent(order) && (
+                            <span className="px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap bg-red-50 text-red-700" title={`Event passed with ₱${orderOwed.toLocaleString()} still owed`}>
+                              Past Due
+                            </span>
+                          )}
+                          {(order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') && order.refundStatus && (
+                            <span className={`px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap ${getRefundStatusBadge(order.refundStatus)}`}>
+                              {order.refundStatus}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-[15px]" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-1.5">
+                          {/* Fixed-width slot. It renders for Completed /
+                              Rejected / Cancelled rows too, which have no
+                              primary action — that reserved space is what
+                              keeps Details at the same x on every row. */}
+                          <div className="w-[204px] shrink-0 flex items-center justify-end gap-1.5">
+                            {order.booking_status === 'Pending' && (
+                              <>
+                                <button
+                                  onClick={() => openApprovalModal(order, 'shortorder')}
+                                  className="w-[106px] shrink-0 justify-center bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors"
+                                >
+                                  <Check size={13} /> Approve
+                                </button>
+                                <button
+                                  onClick={() => openRejectionModal(order.booking_id)}
+                                  className="w-[92px] shrink-0 justify-center bg-red-100 hover:bg-red-200 border border-red-200 text-red-700 font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors"
+                                >
+                                  <X size={13} /> Reject
+                                </button>
+                              </>
+                            )}
+                            {order.booking_status === 'Approved' && (
+                              <button
+                                onClick={() => handleConfirmBooking(order.booking_id)}
+                                className="w-[106px] shrink-0 justify-center bg-[#EAF3F2] hover:bg-[#ddeee5] border border-[#c9dfd4] text-[#00703a] font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors"
+                              >
+                                <Check size={13} /> Confirm
+                              </button>
+                            )}
+                            {order.booking_status === 'Confirmed' && (
+                              <button
+                                onClick={() => handleMarkCompleted(order.booking_id)}
+                                title={orderFullyPaid ? undefined : `Locked — ₱${orderOwed.toLocaleString()} still owed`}
+                                className={`w-[106px] shrink-0 justify-center font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 border transition-colors ${
+                                  orderFullyPaid ? 'bg-blue-50 hover:bg-blue-100 border-blue-100 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'
+                                }`}
+                              >
+                                {orderFullyPaid ? <Check size={13} /> : <Lock size={13} />} Complete
+                              </button>
+                            )}
                           </div>
+
+                          <button
+                            onClick={() => navigate(`/app/orders/${order.booking_id}`)}
+                            className="w-[78px] shrink-0 text-center bg-white border border-slate-200 text-slate-700 font-semibold text-[12.5px] px-3 py-[7px] rounded-[9px] hover:bg-slate-50 transition-colors"
+                          >
+                            Details
+                          </button>
+                          <button
+                            onClick={() => openEditModal(order)}
+                            className={`flex items-center justify-center w-[30px] h-[30px] shrink-0 rounded-[9px] border transition-colors ${isPaymentLedgerLocked(order.booking_status) ? 'border-slate-200 text-slate-300' : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}
+                            title={isPaymentLedgerLocked(order.booking_status) ? bookingEditLockedMessage(order.booking_status, { noun: 'order' }) : 'Edit'}
+                          >
+                            {isPaymentLedgerLocked(order.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
+                          </button>
+                          <button
+                            onClick={() => handleDelete(order.booking_id)}
+                            className="flex items-center justify-center w-[30px] h-[30px] shrink-0 rounded-[9px] border border-slate-200 text-red-300 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+                            title="Delete (password required)"
+                          >
+                            <Trash2 size={14} />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1463,21 +1482,21 @@ export default function ShortOrders() {
             </tbody>
           </table>
         </div>
-        <div className="p-4 border-t border-slate-200 flex justify-between items-center bg-white text-sm text-slate-600">
-          <span>Showing {orders.length} of {totalCount} orders</span>
+        <div className="px-5 py-4 border-t border-slate-100 flex justify-between items-center bg-white text-sm text-slate-600">
+          <span className="tabular-nums">Showing {orders.length} of {totalCount} orders</span>
           <div className="flex items-center gap-1">
             <button
               onClick={goToPrevPage}
               disabled={currentPage === 1}
-              className={`p-1 transition-colors ${currentPage === 1 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:text-slate-800'}`}
+              className={`flex items-center justify-center w-[30px] h-[30px] rounded-[9px] border border-slate-100 bg-white transition-colors ${currentPage === 1 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'}`}
             >
               <ChevronLeft size={16} />
             </button>
-            <span className="px-3 py-1 text-xs font-medium text-slate-600">Page {currentPage} of {totalPages}</span>
+            <span className="px-3 py-1 text-[13px] font-semibold tabular-nums text-slate-600">Page {currentPage} of {totalPages}</span>
             <button
               onClick={goToNextPage}
               disabled={currentPage === totalPages}
-              className={`p-1 transition-colors ${currentPage === totalPages ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:text-slate-800'}`}
+              className={`flex items-center justify-center w-[30px] h-[30px] rounded-[9px] border border-slate-100 bg-white transition-colors ${currentPage === totalPages ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'}`}
             >
               <ChevronRight size={16} />
             </button>
