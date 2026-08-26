@@ -126,7 +126,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
       {/* ---------- 2. PACKAGE MIX ---------- */}
       <Panel
         title="Package Mix"
-        description={`Every package measured against total package revenue — this column adds up to 100%, so the top package's share is a real number rather than an automatic full bar. Average per booking is what one sale of that package is worth, which neither revenue nor booking count shows on its own.`}
+        description={`Every package measured against total package revenue — this column adds up to 100%, so the top package's share is a real number rather than an automatic full bar. Average per booking is what one sale of that package is worth, which neither revenue nor booking count shows on its own: each row is that package's revenue divided by its own bookings. The All packages figure divides total revenue by total bookings, so it is pulled toward whichever package sells most often — it is not the average of the rows above it.`}
       >
         {packageMix.length === 0 ? (
           <div className={EMPTY}>No package bookings in this period.</div>
@@ -161,6 +161,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                         { label: 'Bookings', value: pkg.count },
                         { label: 'Share of package bookings', value: formatPercent(pkg.countShare) },
                         { label: 'Average value per booking', value: formatCurrency(pkg.averageValue) },
+                        { label: 'How that is calculated', value: `${formatCurrency(pkg.revenue)} ÷ ${pkg.count} booking${pkg.count === 1 ? '' : 's'}` },
                       ],
                     })}
                     className={`hover:bg-[#fbfcfd] cursor-pointer ${showPareto && index === paretoIndex ? 'border-b-2 border-b-[#008A45]/40' : ''}`}
@@ -170,7 +171,9 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                     <td className="px-5 py-[15px] text-sm text-slate-600 tabular-nums">{formatPercent(pkg.countShare)}</td>
                     <td className="px-5 py-[15px] text-right text-[14.5px] font-semibold text-slate-900 tabular-nums">{formatCurrency(pkg.revenue)}</td>
                     <td className="px-5 py-[15px]"><ShareBar value={pkg.revenueShare} /></td>
-                    <td className="px-5 py-[15px] text-right text-slate-700 tabular-nums">{formatCurrency(pkg.averageValue)}</td>
+                    <td className="px-5 py-[15px] text-right text-slate-700 tabular-nums">
+                      <span title={`${formatCurrency(pkg.revenue)} ÷ ${pkg.count} booking${pkg.count === 1 ? '' : 's'}`}>{formatCurrency(pkg.averageValue)}</span>
+                    </td>
                   </tr>
                 ))}
                 <tr className="bg-[#fbfcfd] font-bold text-slate-900">
@@ -180,7 +183,9 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                   <td className="px-5 py-[15px] text-right tabular-nums">{formatCurrency(packageRevenue)}</td>
                   <td className="px-5 py-[15px] text-sm tabular-nums">100.0%</td>
                   <td className="px-5 py-[15px] text-right tabular-nums">
-                    {formatCurrency(totalPackageBookings > 0 ? packageRevenue / totalPackageBookings : 0)}
+                    <span title={`${formatCurrency(packageRevenue)} ÷ ${totalPackageBookings} bookings — weighted by how often each package sells, not the average of the rows above`}>
+                      {formatCurrency(totalPackageBookings > 0 ? packageRevenue / totalPackageBookings : 0)}
+                    </span>
                   </td>
                 </tr>
               </tbody>
