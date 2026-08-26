@@ -103,7 +103,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                   >
                     <td className="px-5 py-[15px] font-bold text-slate-900">{line.name}</td>
                     <td className="px-5 py-[15px] text-slate-700 tabular-nums">{line.count}</td>
-                    <td className="px-5 py-[15px] text-right font-semibold text-emerald-700 tabular-nums">{formatCurrency(line.revenue)}</td>
+                    <td className="px-5 py-[15px] text-right text-[14.5px] font-semibold text-slate-900 tabular-nums">{formatCurrency(line.revenue)}</td>
                     <td className="px-5 py-[15px]"><ShareBar value={line.revenueShare} /></td>
                   </tr>
                 ))}
@@ -111,7 +111,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                   <td className="px-5 py-[15px]">Total</td>
                   <td className="px-5 py-[15px] tabular-nums">{totalBookings}</td>
                   <td className="px-5 py-[15px] text-right tabular-nums">{formatCurrency(combinedRevenue)}</td>
-                  <td className="px-5 py-[15px] text-xs tabular-nums">100.0%</td>
+                  <td className="px-5 py-[15px] text-sm tabular-nums">100.0%</td>
                 </tr>
               </tbody>
             </table>
@@ -136,7 +136,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Share of Bookings</th>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Revenue</th>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap w-56">Share of Revenue</th>
-                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Cumulative</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Cumulative Share</th>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Avg per Booking</th>
                 </tr>
               </thead>
@@ -162,19 +162,19 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                   >
                     <td className="px-5 py-[15px] font-bold text-slate-900">{pkg.name}</td>
                     <td className="px-5 py-[15px] text-slate-700 tabular-nums">{pkg.count}</td>
-                    <td className="px-5 py-[15px] text-slate-500 text-xs tabular-nums">{formatPercent(pkg.countShare)}</td>
-                    <td className="px-5 py-[15px] text-right font-semibold text-emerald-700 tabular-nums">{formatCurrency(pkg.revenue)}</td>
+                    <td className="px-5 py-[15px] text-sm text-slate-600 tabular-nums">{formatPercent(pkg.countShare)}</td>
+                    <td className="px-5 py-[15px] text-right text-[14.5px] font-semibold text-slate-900 tabular-nums">{formatCurrency(pkg.revenue)}</td>
                     <td className="px-5 py-[15px]"><ShareBar value={pkg.revenueShare} /></td>
-                    <td className="px-5 py-[15px] text-right text-slate-500 text-xs tabular-nums">{formatPercent(pkg.cumulativeShare)}</td>
+                    <td className="px-5 py-[15px] text-right text-sm text-slate-600 tabular-nums"><span title={`${formatPercent(pkg.revenueShare)} for this package, plus every package above it`}>{formatPercent(pkg.cumulativeShare)}</span></td>
                     <td className="px-5 py-[15px] text-right text-slate-700 tabular-nums">{formatCurrency(pkg.averageValue)}</td>
                   </tr>
                 ))}
                 <tr className="bg-[#fbfcfd] font-bold text-slate-900">
                   <td className="px-5 py-[15px]">All packages</td>
                   <td className="px-5 py-[15px] tabular-nums">{totalPackageBookings}</td>
-                  <td className="px-5 py-[15px] text-xs tabular-nums">100.0%</td>
+                  <td className="px-5 py-[15px] text-sm tabular-nums">100.0%</td>
                   <td className="px-5 py-[15px] text-right tabular-nums">{formatCurrency(packageRevenue)}</td>
-                  <td className="px-5 py-[15px] text-xs tabular-nums">100.0%</td>
+                  <td className="px-5 py-[15px] text-sm tabular-nums">100.0%</td>
                   <td className="px-5 py-[15px] text-right text-slate-400">—</td>
                   <td className="px-5 py-[15px] text-right tabular-nums">
                     {formatCurrency(totalPackageBookings > 0 ? packageRevenue / totalPackageBookings : 0)}
@@ -209,7 +209,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                     <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Share of Trays</th>
                     <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Revenue</th>
                     <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap w-56">Share of Revenue</th>
-                    <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Cumulative</th>
+                    <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Cumulative Share</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
@@ -241,18 +241,18 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                         )}
                       </td>
                       <td className="px-5 py-[15px] text-slate-700 tabular-nums">{item.quantity}</td>
-                      <td className="px-5 py-[15px] text-slate-500 text-xs tabular-nums">{formatPercent(item.countShare)}</td>
-                      <td className="px-5 py-[15px] text-right font-semibold text-emerald-700 tabular-nums">{formatCurrency(item.revenue)}</td>
+                      <td className="px-5 py-[15px] text-sm text-slate-600 tabular-nums">{formatPercent(item.countShare)}</td>
+                      <td className="px-5 py-[15px] text-right text-[14.5px] font-semibold text-slate-900 tabular-nums">{formatCurrency(item.revenue)}</td>
                       <td className="px-5 py-[15px]"><ShareBar value={item.revenueShare} tint="bg-[#7e22ce]" /></td>
-                      <td className="px-5 py-[15px] text-right text-slate-500 text-xs tabular-nums">{formatPercent(item.cumulativeShare)}</td>
+                      <td className="px-5 py-[15px] text-right text-sm text-slate-600 tabular-nums"><span title={`${formatPercent(item.revenueShare)} for this item, plus every item above it`}>{formatPercent(item.cumulativeShare)}</span></td>
                     </tr>
                   ))}
                   <tr className="bg-[#fbfcfd] font-bold text-slate-900">
                     <td className="px-5 py-[15px]">All menu items</td>
                     <td className="px-5 py-[15px] tabular-nums">{traysSold}</td>
-                    <td className="px-5 py-[15px] text-xs tabular-nums">100.0%</td>
+                    <td className="px-5 py-[15px] text-sm tabular-nums">100.0%</td>
                     <td className="px-5 py-[15px] text-right tabular-nums">{formatCurrency(menuItemRevenue)}</td>
-                    <td className="px-5 py-[15px] text-xs tabular-nums">100.0%</td>
+                    <td className="px-5 py-[15px] text-sm tabular-nums">100.0%</td>
                     <td className="px-5 py-[15px] text-right text-slate-400">—</td>
                   </tr>
                 </tbody>
