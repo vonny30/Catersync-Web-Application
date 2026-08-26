@@ -359,7 +359,7 @@ export default function Reports() {
       Object.values(packageMap).sort((a, b) => b.revenue - a.revenue),
       packageRevenue,
       packageBookings.length,
-    ).map(row => ({ ...row, averageValue: row.count > 0 ? row.revenue / row.count : 0 }));
+    );
 
     // --- MENU ITEM MIX (each item against all menu-item revenue) ---
     // menu_selections stores only {menu_item_id, quantity} — there is no price
