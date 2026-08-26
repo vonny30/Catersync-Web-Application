@@ -1310,7 +1310,7 @@ export default function ShortOrders() {
             table needs ~1500px and a 1440px laptop has ~1120px of content
             width, so it scrolled sideways on every screen short of a 1920px
             monitor. The table returns at 2xl where it genuinely fits. */}
-        <div className="2xl:hidden divide-y divide-slate-100">
+        <div className="min-[1920px]:hidden divide-y divide-slate-100">
           {loading ? (
             <p className="p-6 text-center text-slate-400 text-sm">Loading orders...</p>
           ) : orders.length === 0 ? (
@@ -1428,7 +1428,7 @@ export default function ShortOrders() {
           )}
         </div>
 
-        <div className="hidden 2xl:block overflow-x-auto">
+        <div className="hidden min-[1920px]:block overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-[#fbfcfd] border-b border-slate-100">
@@ -1442,9 +1442,9 @@ export default function ShortOrders() {
                   />
                 </th>
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[130px]">Customer</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px] hidden min-[1800px]:table-cell">Created</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Created</th>
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Event Date</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[100px] hidden min-[1800px]:table-cell">Venue</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[100px]">Venue</th>
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-16 text-right">Trays</th>
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-28 text-right">Amount</th>
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Status</th>
@@ -1500,13 +1500,13 @@ export default function ShortOrders() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-[15px] text-sm text-slate-600 tabular-nums hidden min-[1800px]:table-cell">
+                      <td className="px-4 py-[15px] text-sm text-slate-600 tabular-nums">
                         {order.book_datetime ? new Date(order.book_datetime).toLocaleDateString() : 'N/A'}
                       </td>
                       <td className="px-4 py-[15px] text-sm font-medium text-slate-800 tabular-nums">
                         {order.event_datetime ? new Date(order.event_datetime).toLocaleDateString() : 'N/A'}
                       </td>
-                      <td className="px-4 py-[15px] text-sm text-slate-800 hidden min-[1800px]:table-cell">{order.venue || 'N/A'}</td>
+                      <td className="px-4 py-[15px] text-sm text-slate-800">{order.venue || 'N/A'}</td>
                       <td className="px-4 py-[15px] text-sm text-slate-800 text-right tabular-nums">{totalTrays}</td>
                       <td className="px-4 py-[15px] text-[15px] font-semibold text-slate-900 text-right tabular-nums">₱{order.total_amount?.toLocaleString() || '0'}</td>
                       <td className="px-4 py-[15px]">

@@ -1427,7 +1427,7 @@ const handleMarkCompleted = async (id) => {
             sideways on every screen short of a 1920px monitor. Rather than
             keep a table nobody can see at once, narrow screens get one card
             per booking; the table returns at 2xl where it genuinely fits. */}
-        <div className="2xl:hidden divide-y divide-slate-100">
+        <div className="min-[1920px]:hidden divide-y divide-slate-100">
           {loading ? (
             <p className="p-6 text-center text-slate-400 text-sm">Loading bookings...</p>
           ) : bookings.length === 0 ? (
@@ -1540,7 +1540,7 @@ const handleMarkCompleted = async (id) => {
           )}
         </div>
 
-        <div className="hidden 2xl:block overflow-x-auto">
+        <div className="hidden min-[1920px]:block overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-[#fbfcfd] border-b border-slate-100">
@@ -1554,11 +1554,11 @@ const handleMarkCompleted = async (id) => {
                   />
                 </th>
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[130px]">Customer</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px] hidden min-[1800px]:table-cell">Created</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Created</th>
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Event Date</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[100px] hidden min-[1800px]:table-cell">Venue</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[100px]">Venue</th>
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-16 text-right">Pax</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[110px] hidden min-[1800px]:table-cell">Package</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[110px]">Package</th>
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-28 text-right">Amount</th>
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Status</th>
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[200px] text-center">Actions</th>
@@ -1612,15 +1612,15 @@ const handleMarkCompleted = async (id) => {
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-[15px] text-sm text-slate-600 tabular-nums hidden min-[1800px]:table-cell">
+                    <td className="px-4 py-[15px] text-sm text-slate-600 tabular-nums">
                       {booking.book_datetime ? new Date(booking.book_datetime).toLocaleDateString() : 'N/A'}
                     </td>
                     <td className="px-4 py-[15px] text-sm font-medium text-slate-800 tabular-nums">
                       {booking.event_datetime ? new Date(booking.event_datetime).toLocaleDateString() : 'N/A'}
                     </td>
-                    <td className="px-4 py-[15px] text-sm text-slate-800 hidden min-[1800px]:table-cell">{booking.venue || 'N/A'}</td>
+                    <td className="px-4 py-[15px] text-sm text-slate-800">{booking.venue || 'N/A'}</td>
                     <td className="px-4 py-[15px] text-sm text-slate-800 text-right tabular-nums">{booking.pax_count || 0}</td>
-                    <td className="px-4 py-[15px] text-sm text-slate-800 hidden min-[1800px]:table-cell">{booking.package?.pkg_name || 'N/A'}</td>
+                    <td className="px-4 py-[15px] text-sm text-slate-800">{booking.package?.pkg_name || 'N/A'}</td>
                     <td className="px-4 py-[15px] text-[15px] font-semibold text-slate-900 text-right tabular-nums">₱{booking.total_amount?.toLocaleString() || '0'}</td>
                     <td className="px-4 py-[15px]">
                       <div className="flex flex-col items-start gap-1.5">
