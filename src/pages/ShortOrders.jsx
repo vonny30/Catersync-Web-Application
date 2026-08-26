@@ -5,8 +5,8 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
   Search, Check, Edit, Trash2, Lock, ChevronLeft, ChevronRight,
-  Filter, X, RefreshCw, RotateCcw, UserPlus, Plus, Users,
-  LayoutGrid, CalendarClock
+  Filter, X, RefreshCw, RotateCcw, UserPlus, Users,
+  LayoutGrid, CalendarClock, Plus, Eye
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
@@ -1310,7 +1310,7 @@ export default function ShortOrders() {
             table needs ~1500px and a 1440px laptop has ~1120px of content
             width, so it scrolled sideways on every screen short of a 1920px
             monitor. The table returns at 2xl where it genuinely fits. */}
-        <div className="min-[1920px]:hidden divide-y divide-slate-100">
+        <div className="xl:hidden divide-y divide-slate-100">
           {loading ? (
             <p className="p-6 text-center text-slate-400 text-sm">Loading orders...</p>
           ) : orders.length === 0 ? (
@@ -1428,11 +1428,11 @@ export default function ShortOrders() {
           )}
         </div>
 
-        <div className="hidden min-[1920px]:block overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+        <div className="hidden xl:block overflow-x-auto">
+          <table className="w-full table-fixed text-left border-collapse">
             <thead>
               <tr className="bg-[#fbfcfd] border-b border-slate-100">
-                <th className="px-4 py-3 w-10">
+                <th className="px-3 py-3 w-[3%]">
                   <input
                     type="checkbox"
                     checked={orders.length > 0 && orders.every(o => selectedOrders.includes(o.booking_id))}
@@ -1441,14 +1441,14 @@ export default function ShortOrders() {
                     disabled={orders.length === 0}
                   />
                 </th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[130px]">Customer</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Created</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Event Date</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[100px]">Venue</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-16 text-right">Trays</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-28 text-right">Amount</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Status</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[200px] text-center">Actions</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[16%] min-[1920px]:w-[18%]">Customer</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[11%] min-[1920px]:w-[9%]">Created</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[11%] min-[1920px]:w-[9%]">Event Date</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[12%] min-[1920px]:w-[14%]">Venue</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[5%] text-right">Trays</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[11%] min-[1920px]:w-[9%] text-right">Amount</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[10%] min-[1920px]:w-[12%]">Status</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[21%] min-[1920px]:w-[23%] text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
@@ -1477,7 +1477,7 @@ export default function ShortOrders() {
                       className={`hover:bg-[#fbfcfd] transition-colors ${!order.is_read ? 'font-bold' : ''}`}
                       onClick={() => { if (!order.is_read) markAsRead(order.booking_id); }}
                     >
-                      <td className="px-4 py-[15px]" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-3 py-[15px]" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={selectedOrders.includes(order.booking_id)}
@@ -1485,7 +1485,7 @@ export default function ShortOrders() {
                           className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
                         />
                       </td>
-                      <td className="px-4 py-[15px]">
+                      <td className="px-3 py-[15px]">
                         <div className="flex items-center gap-2">
                           <p
                             onClick={(e) => { e.stopPropagation(); navigate(`/app/orders/${order.booking_id}`); }}
@@ -1500,16 +1500,16 @@ export default function ShortOrders() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-[15px] text-sm text-slate-600 tabular-nums">
+                      <td className="px-3 py-[15px] text-sm text-slate-600 tabular-nums">
                         {order.book_datetime ? new Date(order.book_datetime).toLocaleDateString() : 'N/A'}
                       </td>
-                      <td className="px-4 py-[15px] text-sm font-medium text-slate-800 tabular-nums">
+                      <td className="px-3 py-[15px] text-sm font-medium text-slate-800 tabular-nums">
                         {order.event_datetime ? new Date(order.event_datetime).toLocaleDateString() : 'N/A'}
                       </td>
-                      <td className="px-4 py-[15px] text-sm text-slate-800">{order.venue || 'N/A'}</td>
-                      <td className="px-4 py-[15px] text-sm text-slate-800 text-right tabular-nums">{totalTrays}</td>
-                      <td className="px-4 py-[15px] text-[15px] font-semibold text-slate-900 text-right tabular-nums">₱{order.total_amount?.toLocaleString() || '0'}</td>
-                      <td className="px-4 py-[15px]">
+                      <td className="px-3 py-[15px] text-sm text-slate-800 break-words" title={order.venue || 'N/A'}>{order.venue || 'N/A'}</td>
+                      <td className="px-3 py-[15px] text-sm text-slate-800 text-right tabular-nums">{totalTrays}</td>
+                      <td className="px-3 py-[15px] text-[15px] font-semibold text-slate-900 text-right tabular-nums">₱{order.total_amount?.toLocaleString() || '0'}</td>
+                      <td className="px-3 py-[15px]">
                         <div className="flex flex-col items-start gap-1.5">
                           <span className={`px-[11px] py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${getStatusBadgeSoft(order.booking_status)}`}>
                             {order.booking_status}
@@ -1531,55 +1531,59 @@ export default function ShortOrders() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-[15px]" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-3 py-[15px]" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1.5">
                           {/* Fixed-width slot. It renders for Completed /
                               Rejected / Cancelled rows too, which have no
                               primary action — that reserved space is what
                               keeps Details at the same x on every row. */}
-                          <div className="w-[204px] shrink-0 flex items-center justify-end gap-1.5">
+                          <div className="w-[66px] min-[1920px]:w-[204px] shrink-0 flex items-center justify-end gap-1.5">
                             {order.booking_status === 'Pending' && (
                               <>
                                 <button
                                   onClick={() => openApprovalModal(order, 'shortorder')}
-                                  className="w-[106px] shrink-0 justify-center bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors"
+                                title="Approve"
+                                  className="w-[30px] min-[1920px]:w-[106px] shrink-0 justify-center bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-[12.5px] px-0 min-[1920px]:px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors"
                                 >
-                                  <Check size={13} /> Approve
+                                  <Check size={13} /> <span className="hidden min-[1920px]:inline">Approve</span>
                                 </button>
                                 <button
                                   onClick={() => openRejectionModal(order.booking_id)}
-                                  className="w-[92px] shrink-0 justify-center bg-red-100 hover:bg-red-200 border border-red-200 text-red-700 font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors"
+                                title="Reject"
+                                  className="w-[30px] min-[1920px]:w-[92px] shrink-0 justify-center bg-red-100 hover:bg-red-200 border border-red-200 text-red-700 font-semibold text-[12.5px] px-0 min-[1920px]:px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors"
                                 >
-                                  <X size={13} /> Reject
+                                  <X size={13} /> <span className="hidden min-[1920px]:inline">Reject</span>
                                 </button>
                               </>
                             )}
                             {order.booking_status === 'Approved' && (
                               <button
                                 onClick={() => handleConfirmBooking(order.booking_id)}
-                                className="w-[106px] shrink-0 justify-center bg-[#EAF3F2] hover:bg-[#ddeee5] border border-[#c9dfd4] text-[#00703a] font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors"
+                              title="Confirm"
+                                className="w-[30px] min-[1920px]:w-[106px] shrink-0 justify-center bg-[#EAF3F2] hover:bg-[#ddeee5] border border-[#c9dfd4] text-[#00703a] font-semibold text-[12.5px] px-0 min-[1920px]:px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors"
                               >
-                                <Check size={13} /> Confirm
+                                <Check size={13} /> <span className="hidden min-[1920px]:inline">Confirm</span>
                               </button>
                             )}
                             {order.booking_status === 'Confirmed' && (
                               <button
                                 onClick={() => handleMarkCompleted(order.booking_id)}
-                                title={orderFullyPaid ? undefined : `Locked — ₱${orderOwed.toLocaleString()} still owed`}
-                                className={`w-[106px] shrink-0 justify-center font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 border transition-colors ${
+                                title={orderFullyPaid ? 'Mark completed' : `Locked — ₱${orderOwed.toLocaleString()} still owed`}
+                                className={`w-[30px] min-[1920px]:w-[106px] shrink-0 justify-center font-semibold text-[12.5px] px-0 min-[1920px]:px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 border transition-colors ${
                                   orderFullyPaid ? 'bg-blue-50 hover:bg-blue-100 border-blue-100 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'
                                 }`}
                               >
-                                {orderFullyPaid ? <Check size={13} /> : <Lock size={13} />} Complete
+                                {orderFullyPaid ? <Check size={13} /> : <Lock size={13} />} <span className="hidden min-[1920px]:inline">Complete</span>
                               </button>
                             )}
                           </div>
 
                           <button
                             onClick={() => navigate(`/app/orders/${order.booking_id}`)}
-                            className="w-[78px] shrink-0 text-center bg-white border border-slate-200 text-slate-700 font-semibold text-[12.5px] px-3 py-[7px] rounded-[9px] hover:bg-slate-50 transition-colors"
+                            title="View details"
+                            className="w-[30px] min-[1920px]:w-[78px] shrink-0 justify-center bg-white border border-slate-200 text-slate-700 font-semibold text-[12.5px] px-0 min-[1920px]:px-3 py-[7px] rounded-[9px] hover:bg-slate-50 transition-colors flex items-center gap-1.5"
                           >
-                            Details
+                            <Eye size={14} /><span className="hidden min-[1920px]:inline">Details</span>
                           </button>
                           <button
                             onClick={() => openEditModal(order)}

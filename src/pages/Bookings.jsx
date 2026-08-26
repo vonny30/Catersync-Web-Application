@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Search, Check, Edit, Trash2, Lock, ChevronLeft, ChevronRight,
   Filter, X, RefreshCw, RotateCcw, UserPlus, Image as ImageIcon, User, Users,
-  LayoutGrid, CalendarClock, Plus
+  LayoutGrid, CalendarClock, Plus, Eye
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
@@ -1427,7 +1427,7 @@ const handleMarkCompleted = async (id) => {
             sideways on every screen short of a 1920px monitor. Rather than
             keep a table nobody can see at once, narrow screens get one card
             per booking; the table returns at 2xl where it genuinely fits. */}
-        <div className="min-[1920px]:hidden divide-y divide-slate-100">
+        <div className="xl:hidden divide-y divide-slate-100">
           {loading ? (
             <p className="p-6 text-center text-slate-400 text-sm">Loading bookings...</p>
           ) : bookings.length === 0 ? (
@@ -1540,11 +1540,11 @@ const handleMarkCompleted = async (id) => {
           )}
         </div>
 
-        <div className="hidden min-[1920px]:block overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+        <div className="hidden xl:block overflow-x-auto">
+          <table className="w-full table-fixed text-left border-collapse">
             <thead>
               <tr className="bg-[#fbfcfd] border-b border-slate-100">
-                <th className="px-4 py-3 w-10">
+                <th className="px-3 py-3 w-[3%]">
                   <input
                     type="checkbox"
                     checked={bookings.length > 0 && bookings.every(b => selectedBookings.includes(b.booking_id))}
@@ -1553,15 +1553,15 @@ const handleMarkCompleted = async (id) => {
                     disabled={bookings.length === 0}
                   />
                 </th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[130px]">Customer</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Created</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Event Date</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[100px]">Venue</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-16 text-right">Pax</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[110px]">Package</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-28 text-right">Amount</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Status</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[200px] text-center">Actions</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[13%] min-[1920px]:w-[16%]">Customer</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[10%] min-[1920px]:w-[8%]">Created</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[10%] min-[1920px]:w-[8%]">Event Date</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[9%] min-[1920px]:w-[10%]">Venue</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[4%] text-right">Pax</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[10%]">Package</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[10%] min-[1920px]:w-[8%] text-right">Amount</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[9%] min-[1920px]:w-[8%]">Status</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[22%] min-[1920px]:w-[25%] text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
@@ -1586,7 +1586,7 @@ const handleMarkCompleted = async (id) => {
                       }
                     }}
                   >
-                    <td className="px-4 py-[15px]" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-3 py-[15px]" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={selectedBookings.includes(booking.booking_id)}
@@ -1594,7 +1594,7 @@ const handleMarkCompleted = async (id) => {
                         className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
                       />
                     </td>
-                    <td className="px-4 py-[15px]">
+                    <td className="px-3 py-[15px]">
                       <div className="flex items-center gap-2">
                         <p
                           onClick={(e) => {
@@ -1612,17 +1612,17 @@ const handleMarkCompleted = async (id) => {
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-[15px] text-sm text-slate-600 tabular-nums">
+                    <td className="px-3 py-[15px] text-sm text-slate-600 tabular-nums">
                       {booking.book_datetime ? new Date(booking.book_datetime).toLocaleDateString() : 'N/A'}
                     </td>
-                    <td className="px-4 py-[15px] text-sm font-medium text-slate-800 tabular-nums">
+                    <td className="px-3 py-[15px] text-sm font-medium text-slate-800 tabular-nums">
                       {booking.event_datetime ? new Date(booking.event_datetime).toLocaleDateString() : 'N/A'}
                     </td>
-                    <td className="px-4 py-[15px] text-sm text-slate-800">{booking.venue || 'N/A'}</td>
-                    <td className="px-4 py-[15px] text-sm text-slate-800 text-right tabular-nums">{booking.pax_count || 0}</td>
-                    <td className="px-4 py-[15px] text-sm text-slate-800">{booking.package?.pkg_name || 'N/A'}</td>
-                    <td className="px-4 py-[15px] text-[15px] font-semibold text-slate-900 text-right tabular-nums">₱{booking.total_amount?.toLocaleString() || '0'}</td>
-                    <td className="px-4 py-[15px]">
+                    <td className="px-3 py-[15px] text-sm text-slate-800 break-words" title={booking.venue || 'N/A'}>{booking.venue || 'N/A'}</td>
+                    <td className="px-3 py-[15px] text-sm text-slate-800 text-right tabular-nums">{booking.pax_count || 0}</td>
+                    <td className="px-3 py-[15px] text-sm text-slate-800 break-words" title={booking.package?.pkg_name || 'N/A'}>{booking.package?.pkg_name || 'N/A'}</td>
+                    <td className="px-3 py-[15px] text-[15px] font-semibold text-slate-900 text-right tabular-nums">₱{booking.total_amount?.toLocaleString() || '0'}</td>
+                    <td className="px-3 py-[15px]">
                       <div className="flex flex-col items-start gap-1.5">
                         <span className={`px-[11px] py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${getStatusBadgeSoft(booking.booking_status)}`}>
                           {booking.booking_status}
@@ -1644,55 +1644,59 @@ const handleMarkCompleted = async (id) => {
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-[15px]" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-3 py-[15px]" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-1.5">
                         {/* Fixed-width slot. It renders for Completed /
                             Rejected / Cancelled rows too, which have no
                             primary action — that reserved space is what keeps
                             Details at the same x on every row. */}
-                        <div className="w-[204px] shrink-0 flex items-center justify-end gap-1.5">
+                        <div className="w-[66px] min-[1920px]:w-[204px] shrink-0 flex items-center justify-end gap-1.5">
                           {booking.booking_status === 'Pending' && (
                             <>
                               <button
                                 onClick={() => openApprovalModal(booking)}
-                                className="w-[106px] shrink-0 justify-center bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors"
+                                title="Approve"
+                                className="w-[30px] min-[1920px]:w-[106px] shrink-0 justify-center bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-[12.5px] px-0 min-[1920px]:px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors"
                               >
-                                <Check size={13} /> Approve
+                                <Check size={13} /> <span className="hidden min-[1920px]:inline">Approve</span>
                               </button>
                               <button
                                 onClick={() => openRejectionModal(booking.booking_id)}
-                                className="w-[92px] shrink-0 justify-center bg-red-100 hover:bg-red-200 border border-red-200 text-red-700 font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors"
+                                title="Reject"
+                                className="w-[30px] min-[1920px]:w-[92px] shrink-0 justify-center bg-red-100 hover:bg-red-200 border border-red-200 text-red-700 font-semibold text-[12.5px] px-0 min-[1920px]:px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors"
                               >
-                                <X size={13} /> Reject
+                                <X size={13} /> <span className="hidden min-[1920px]:inline">Reject</span>
                               </button>
                             </>
                           )}
                           {booking.booking_status === 'Approved' && (
                             <button
                               onClick={() => handleConfirmBooking(booking.booking_id)}
-                              className="w-[106px] shrink-0 justify-center bg-[#EAF3F2] hover:bg-[#ddeee5] border border-[#c9dfd4] text-[#00703a] font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors"
+                              title="Confirm"
+                              className="w-[30px] min-[1920px]:w-[106px] shrink-0 justify-center bg-[#EAF3F2] hover:bg-[#ddeee5] border border-[#c9dfd4] text-[#00703a] font-semibold text-[12.5px] px-0 min-[1920px]:px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors"
                             >
-                              <Check size={13} /> Confirm
+                              <Check size={13} /> <span className="hidden min-[1920px]:inline">Confirm</span>
                             </button>
                           )}
                           {booking.booking_status === 'Confirmed' && (
                             <button
                               onClick={() => handleMarkCompleted(booking.booking_id)}
-                              title={bookingFullyPaid ? undefined : `Locked — ₱${bookingOwed.toLocaleString()} still owed`}
-                              className={`w-[106px] shrink-0 justify-center font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 border transition-colors ${
+                              title={bookingFullyPaid ? 'Mark completed' : `Locked — ₱${bookingOwed.toLocaleString()} still owed`}
+                              className={`w-[30px] min-[1920px]:w-[106px] shrink-0 justify-center font-semibold text-[12.5px] px-0 min-[1920px]:px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 border transition-colors ${
                                 bookingFullyPaid ? 'bg-blue-50 hover:bg-blue-100 border-blue-100 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'
                               }`}
                             >
-                              {bookingFullyPaid ? <Check size={13} /> : <Lock size={13} />} Complete
+                              {bookingFullyPaid ? <Check size={13} /> : <Lock size={13} />} <span className="hidden min-[1920px]:inline">Complete</span>
                             </button>
                           )}
                         </div>
 
                         <button
                           onClick={() => navigate(`/app/bookings/${booking.booking_id}`)}
-                          className="w-[78px] shrink-0 text-center bg-white border border-slate-200 text-slate-700 font-semibold text-[12.5px] px-3 py-[7px] rounded-[9px] hover:bg-slate-50 transition-colors"
+                          title="View details"
+                          className="w-[30px] min-[1920px]:w-[78px] shrink-0 justify-center bg-white border border-slate-200 text-slate-700 font-semibold text-[12.5px] px-0 min-[1920px]:px-3 py-[7px] rounded-[9px] hover:bg-slate-50 transition-colors flex items-center gap-1.5"
                         >
-                          Details
+                          <Eye size={14} /><span className="hidden min-[1920px]:inline">Details</span>
                         </button>
                         <button
                           onClick={() => openEditModal(booking)}
