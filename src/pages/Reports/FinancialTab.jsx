@@ -20,6 +20,9 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
     ? (financialSummary.paidAgainstEvents / financialSummary.contractValue) * 100
     : 0;
 
+  // Shared class string for the three event-anchored figures.
+  const FIG = 'block text-[21px] font-semibold tracking-[-0.02em] tabular-nums';
+
   const goToBookingDetails = (id, type) => {
     if (!id) return;
     navigate(`/app/${type === 'Short Order' ? 'orders' : 'bookings'}/${id}`);
@@ -81,9 +84,24 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
           <div className="mt-[22px] mb-2.5 h-2 rounded-full bg-slate-100 overflow-hidden">
             <div className="h-full rounded-full bg-[#008A45]" style={{ width: `${Math.min(100, Math.max(0, collectedPct))}%` }} />
           </div>
-          <span className="block text-[13px] text-slate-600 tabular-nums">
-            {formatPercent(collectedPct)} of contract value paid for these events
-          </span>
+          {/* The figure alone invites "where does that number come from?", so
+              the division that produced it is printed underneath in the same
+              two amounts shown above. Both sides are event-anchored, which is
+              what makes the ratio meaningful. */}
+          {financialSummary.contractValue > 0 ? (
+            <>
+              <span className="block text-[13px] text-slate-600 tabular-nums">
+                {formatPercent(collectedPct)} of contract value paid for these events
+              </span>
+              <span className="block text-[12.5px] text-slate-500 mt-1 tabular-nums">
+                {formatCurrency(financialSummary.paidAgainstEvents)} paid ÷ {formatCurrency(financialSummary.contractValue)} contract value
+              </span>
+            </>
+          ) : (
+            <span className="block text-[13px] text-slate-600">
+              No events fall in this period, so there is no contract value to measure against.
+            </span>
+          )}
         </div>
       </section>
 

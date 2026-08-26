@@ -1068,20 +1068,9 @@ export default function ShortOrders() {
   const hasActiveFilters = datePreset !== 'All Time' || filters.customerId || filters.venue;
   const activeFilterCount = [!!searchTerm, datePreset !== 'All Time', !!filters.customerId, !!filters.venue].filter(Boolean).length;
 
-  const getStatusBadge = (status) => {
-    const map = {
-      Pending: 'bg-amber-50 border-amber-200 text-amber-700',
-      Approved: 'bg-[#EAF3F2] border-[#C1DEDC] text-slate-800',
-      Confirmed: 'bg-emerald-50 border-emerald-200 text-emerald-700',
-      Completed: 'bg-blue-50 border-blue-200 text-blue-700',
-      Rejected: 'bg-red-50 border-red-200 text-red-700',
-      Cancelled: 'bg-slate-100 border-slate-300 text-slate-600',
-    };
-    return map[status] || 'bg-slate-100 text-slate-600';
-  };
-
-  // Borderless variant for the table pills — the bordered map above is still
-  // used where a pill sits on a coloured surface and needs the outline.
+  // The only status pill map on this page. Payments.jsx keeps a bordered
+  // variant alongside its soft one because its modals put pills on coloured
+  // surfaces; nothing here does, so there is one map rather than two.
   const getStatusBadgeSoft = (status) => ({
     Pending: 'bg-amber-50 text-amber-700',
     Approved: 'bg-[#EAF3F2] text-slate-800',
