@@ -1263,7 +1263,7 @@ const handleMarkCompleted = async (id) => {
               key={s.key}
               onClick={() => { setActiveTab(s.key); setCurrentPage(1); scrollToTable(); }}
               className={`text-left rounded-xl border border-slate-100 bg-[#fbfcfd] p-3.5 relative overflow-hidden transition-all ${
-                activeTab === s.key ? 'ring-2 ring-[#008A45]/20 shadow-sm' : 'hover:border-slate-200 hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]'
+                activeTab === s.key ? 'ring-2 ring-[#008A45]/20 shadow-sm' : 'hover:shadow-[0_4px_14px_rgba(15,23,42,0.06)] hover:-translate-y-0.5 hover:border-[#008A45]/30'
               }`}
             >
               <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${STATUS_CARD_BAR[s.key]}`} />
