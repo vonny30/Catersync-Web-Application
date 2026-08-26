@@ -1443,7 +1443,7 @@ const handleMarkCompleted = async (id) => {
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[110px]">Package</th>
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-28 text-right">Amount</th>
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Status</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[200px] text-right">Actions</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[200px] text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
@@ -1527,7 +1527,7 @@ const handleMarkCompleted = async (id) => {
                       </div>
                     </td>
                     <td className="px-4 py-[15px]" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center justify-end gap-1.5">
+                      <div className="flex items-center justify-center gap-1.5">
                         {/* Fixed-width slot. It renders for Completed /
                             Rejected / Cancelled rows too, which have no
                             primary action — that reserved space is what keeps
