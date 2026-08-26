@@ -17,6 +17,9 @@
 import { formatCurrency, formatPercent, cardColorClasses } from './helpers';
 
 const PARETO_LINE = 80;
+// Below this many rows a Pareto split says nothing you cannot see by reading
+// the two or three rows themselves.
+const PARETO_MIN_ROWS = 4;
 
 // `tint` lets the menu-item table use violet, matching the product-line mix,
 // so the two product lines stay visually distinct wherever they appear.
@@ -62,6 +65,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
   // The row where the running total first reaches 80% — everything down to and
   // including it is what the business actually runs on.
   const paretoIndex = packageMix.findIndex(p => p.cumulativeShare >= PARETO_LINE);
+  const showPareto = paretoIndex !== -1 && packageMix.length >= PARETO_MIN_ROWS;
 
   return (
     <div className="space-y-[18px]">
@@ -122,7 +126,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
       {/* ---------- 2. PACKAGE MIX ---------- */}
       <Panel
         title="Package Mix"
-        description={`Every package measured against total package revenue — this column adds up to 100%, so the top package's share is a real number rather than an automatic full bar. Cumulative shows the running total down the list; where it passes ${PARETO_LINE}% is the line between the packages the business runs on and the tail worth reviewing.`}
+        description={`Every package measured against total package revenue — this column adds up to 100%, so the top package's share is a real number rather than an automatic full bar. Average per booking is what one sale of that package is worth, which neither revenue nor booking count shows on its own.`}
       >
         {packageMix.length === 0 ? (
           <div className={EMPTY}>No package bookings in this period.</div>
@@ -136,8 +140,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Share of Bookings</th>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Revenue</th>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap w-56">Share of Revenue</th>
-                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Cumulative Share</th>
-                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Avg per Booking</th>
+                                    <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Avg per Booking</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
@@ -147,9 +150,11 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                     onClick={() => onOpenDetail({
                       title: pkg.name,
                       description: 'From the booking table: active bookings of this package with an event date in the selected period. Share is this package’s revenue divided by the revenue of all packages.',
-                      badge: index <= paretoIndex && paretoIndex !== -1
-                        ? { label: `Top ${PARETO_LINE}%`, variant: 'good' }
-                        : { label: 'Tail', variant: 'neutral' },
+                      badge: showPareto
+                        ? (index <= paretoIndex
+                            ? { label: `Top ${PARETO_LINE}%`, variant: 'good' }
+                            : { label: 'Tail', variant: 'neutral' })
+                        : null,
                       fields: [
                         { label: 'Revenue', value: formatCurrency(pkg.revenue), emphasis: true },
                         { label: 'Share of package revenue', value: formatPercent(pkg.revenueShare) },
@@ -158,14 +163,13 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                         { label: 'Average value per booking', value: formatCurrency(pkg.averageValue) },
                       ],
                     })}
-                    className={`hover:bg-[#fbfcfd] cursor-pointer ${paretoIndex !== -1 && index === paretoIndex ? 'border-b-2 border-b-[#008A45]/40' : ''}`}
+                    className={`hover:bg-[#fbfcfd] cursor-pointer ${showPareto && index === paretoIndex ? 'border-b-2 border-b-[#008A45]/40' : ''}`}
                   >
                     <td className="px-5 py-[15px] font-bold text-slate-900">{pkg.name}</td>
                     <td className="px-5 py-[15px] text-slate-700 tabular-nums">{pkg.count}</td>
                     <td className="px-5 py-[15px] text-sm text-slate-600 tabular-nums">{formatPercent(pkg.countShare)}</td>
                     <td className="px-5 py-[15px] text-right text-[14.5px] font-semibold text-slate-900 tabular-nums">{formatCurrency(pkg.revenue)}</td>
                     <td className="px-5 py-[15px]"><ShareBar value={pkg.revenueShare} /></td>
-                    <td className="px-5 py-[15px] text-right text-sm text-slate-600 tabular-nums"><span title={`${formatPercent(pkg.revenueShare)} for this package, plus every package above it`}>{formatPercent(pkg.cumulativeShare)}</span></td>
                     <td className="px-5 py-[15px] text-right text-slate-700 tabular-nums">{formatCurrency(pkg.averageValue)}</td>
                   </tr>
                 ))}
@@ -175,7 +179,6 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                   <td className="px-5 py-[15px] text-sm tabular-nums">100.0%</td>
                   <td className="px-5 py-[15px] text-right tabular-nums">{formatCurrency(packageRevenue)}</td>
                   <td className="px-5 py-[15px] text-sm tabular-nums">100.0%</td>
-                  <td className="px-5 py-[15px] text-right text-slate-400">—</td>
                   <td className="px-5 py-[15px] text-right tabular-nums">
                     {formatCurrency(totalPackageBookings > 0 ? packageRevenue / totalPackageBookings : 0)}
                   </td>
@@ -184,7 +187,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
             </table>
           </div>
         )}
-        {paretoIndex !== -1 && packageMix.length > 1 && (
+        {showPareto && (
           <div className="px-5 py-3 border-t border-slate-100 bg-[#fbfcfd] text-[12.5px] text-slate-600">
             <span className="font-semibold text-slate-800">{paretoIndex + 1}</span> of {packageMix.length} package{packageMix.length === 1 ? '' : 's'} account for the first {PARETO_LINE}% of package revenue.
           </div>
@@ -209,8 +212,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                     <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Share of Trays</th>
                     <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Revenue</th>
                     <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap w-56">Share of Revenue</th>
-                    <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Cumulative Share</th>
-                  </tr>
+                                      </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
                   {menuItemMix.map((item) => (
@@ -244,7 +246,6 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                       <td className="px-5 py-[15px] text-sm text-slate-600 tabular-nums">{formatPercent(item.countShare)}</td>
                       <td className="px-5 py-[15px] text-right text-[14.5px] font-semibold text-slate-900 tabular-nums">{formatCurrency(item.revenue)}</td>
                       <td className="px-5 py-[15px]"><ShareBar value={item.revenueShare} tint="bg-[#7e22ce]" /></td>
-                      <td className="px-5 py-[15px] text-right text-sm text-slate-600 tabular-nums"><span title={`${formatPercent(item.revenueShare)} for this item, plus every item above it`}>{formatPercent(item.cumulativeShare)}</span></td>
                     </tr>
                   ))}
                   <tr className="bg-[#fbfcfd] font-bold text-slate-900">
@@ -253,8 +254,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                     <td className="px-5 py-[15px] text-sm tabular-nums">100.0%</td>
                     <td className="px-5 py-[15px] text-right tabular-nums">{formatCurrency(menuItemRevenue)}</td>
                     <td className="px-5 py-[15px] text-sm tabular-nums">100.0%</td>
-                    <td className="px-5 py-[15px] text-right text-slate-400">—</td>
-                  </tr>
+                    </tr>
                 </tbody>
               </table>
             </div>
