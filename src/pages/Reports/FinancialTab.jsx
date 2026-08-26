@@ -1,16 +1,24 @@
 // src/pages/Reports/FinancialTab.jsx
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 import { ExternalLink } from 'lucide-react';
-import { formatCurrency, formatDate, cardColorClasses } from './helpers';
-
-const COLORS = ['#008A45', '#2d9b5e', '#5cb885', '#8cd4a8', '#b5e8ca', '#d4f0e0'];
+import { formatCurrency, formatPercent, formatDate } from './helpers';
 
 export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
   const navigate = useNavigate();
   const { financialSummary, monthlyRevenueData, paymentMethodData, refunds, totalRefunded, bookingSummaryData } = derived;
+
+  // Share of contracted value that has been paid. BOTH sides are event-anchored
+  // (contract value and payments against those same events), so the ratio is
+  // like-for-like. It deliberately does NOT use paymentsReceived: that figure
+  // is anchored on payment date and counts cash from events outside this
+  // period, so dividing it by this period's contract value would compare two
+  // different populations and produce a number that means nothing.
+  const collectedPct = financialSummary.contractValue > 0
+    ? (financialSummary.paidAgainstEvents / financialSummary.contractValue) * 100
+    : 0;
 
   const goToBookingDetails = (id, type) => {
     if (!id) return;
@@ -19,99 +27,110 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
 
   return (
     <>
-      {/* Cash in, by payment date. Deliberately separated from the three
-          event-anchored figures below it: this is the only card here that
-          answers "how much money arrived in this period?", and it is the one
-          that must agree with the Dashboard. */}
-      <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-2xl p-6 mb-4">
-        <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Total Collections</p>
-        <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.paymentsReceived)}</h3>
-        <p className="text-xs text-slate-500 font-medium mt-2">
-          Money actually received in this period, by payment date · any refunds are already subtracted
-        </p>
-        <div className="flex flex-wrap gap-x-6 gap-y-1 mt-3 text-xs">
-          {financialSummary.refundsIssued > 0 && (
-            <span className="text-slate-500">
-              {formatCurrency(financialSummary.refundsIssued)} refunded in this period
+      {/* One section instead of four hero cards, but the two anchors stay
+          visually separated by a rule and each keeps its own heading.
+          Collapsing them into a single undifferentiated block is what
+          reportMetrics.js warns against: cash received in a period and the
+          value of events in that period are different questions, and the page
+          disagreed with the Dashboard for exactly that reason. */}
+      <section className="bg-white border border-slate-200/70 rounded-2xl p-6 mb-[18px]">
+        <div>
+          <span className="block text-[13px] font-semibold text-slate-600 mb-2.5">Total Collections</span>
+          <span className="block text-[38px] font-semibold tracking-[-0.035em] leading-none tabular-nums text-slate-900">
+            {formatCurrency(financialSummary.paymentsReceived)}
+          </span>
+          <span className="block text-[13.5px] text-slate-600 mt-3">
+            Cash received in this period, by payment date
+            {financialSummary.refundsNettedAgainstReceived > 0
+              ? ` — net of ${formatCurrency(financialSummary.refundsNettedAgainstReceived)} refunded`
+              : ''}
+          </span>
+          {/* Money kept from cancelled bookings is real cash that is not in the
+              figure above, so it is stated rather than folded in. */}
+          {financialSummary.retainedFromCancellations > 0 && (
+            <span className="block text-[13px] text-slate-600 mt-1.5">
+              A further {formatCurrency(financialSummary.retainedFromCancellations)} was retained from cancelled bookings.
             </span>
           )}
         </div>
-      </div>
 
-      {/* The event-anchored trio. These three reconcile with each other —
-          contract value minus paid equals outstanding — which is exactly why
-          they belong together and apart from the cash figure above. */}
-      <p className="text-xs text-slate-500 mb-2">
-        For events happening in this period, whenever they were paid for:
-      </p>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <button
-          onClick={() => onCardClick('revenue')}
-          className={`rounded-2xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 border ${cardColorClasses('green')}`}
-        >
-          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Contract Value</p>
-          <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.contractValue)}</h3>
-          <p className="text-xs text-slate-500 font-medium mt-2">What those events are worth</p>
-          <p className="text-[10px] text-emerald-600 font-semibold mt-2 opacity-0 hover:opacity-100 transition-opacity">Click to view breakdown →</p>
-        </button>
-        <button
-          onClick={() => onCardClick('collected')}
-          className={`rounded-2xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 border ${cardColorClasses('teal')}`}
-        >
-          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Paid to Date</p>
-          <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.paidAgainstEvents)}</h3>
-          <p className="text-xs text-slate-500 font-medium mt-2">Paid against those events</p>
-          <p className="text-[10px] text-emerald-600 font-semibold mt-2 opacity-0 hover:opacity-100 transition-opacity">Click to view breakdown →</p>
-        </button>
-        <button
-          onClick={() => onCardClick('outstanding')}
-          className={`rounded-2xl p-6 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 border ${cardColorClasses('amber')}`}
-        >
-          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Outstanding Balance</p>
-          <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(financialSummary.outstanding)}</h3>
-          <p className="text-xs text-slate-500 font-medium mt-2">Still to collect</p>
-          <p className="text-[10px] text-emerald-600 font-semibold mt-2 opacity-0 hover:opacity-100 transition-opacity">Click to view breakdown →</p>
-        </button>
-      </div>
+        <div className="h-px bg-slate-100 my-[22px]" />
 
-      <div className="bg-white border border-slate-200 rounded-2xl p-6">
-        <h3 className="text-base font-bold text-slate-900 mb-4">Monthly Collections</h3>
+        <div>
+          <span className="block text-[13px] font-bold text-slate-600 tracking-[0.04em] mb-4">
+            Events happening in this period
+          </span>
+          <div className="flex flex-wrap gap-8">
+            <button onClick={() => onCardClick('revenue')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
+              <span className="block text-[13px] text-slate-600 mb-1.5">Contract Value</span>
+              <span className={`${FIG} text-slate-900`}>{formatCurrency(financialSummary.contractValue)}</span>
+            </button>
+            <button onClick={() => onCardClick('collected')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
+              <span className="block text-[13px] text-slate-600 mb-1.5">Paid to Date</span>
+              <span className={`${FIG} text-slate-900`}>{formatCurrency(financialSummary.paidAgainstEvents)}</span>
+            </button>
+            <button onClick={() => onCardClick('outstanding')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
+              <span className="block text-[13px] text-slate-600 mb-1.5">Outstanding Balance</span>
+              <span className={`${FIG} text-amber-700`}>{formatCurrency(financialSummary.outstanding)}</span>
+            </button>
+          </div>
+
+          {/* The relationship the three separate cards never showed. Width is
+              clamped at 100% so an overpaid booking cannot render a bar wider
+              than its track, while the printed percentage stays truthful. */}
+          <div className="mt-[22px] mb-2.5 h-2 rounded-full bg-slate-100 overflow-hidden">
+            <div className="h-full rounded-full bg-[#008A45]" style={{ width: `${Math.min(100, Math.max(0, collectedPct))}%` }} />
+          </div>
+          <span className="block text-[13px] text-slate-600 tabular-nums">
+            {formatPercent(collectedPct)} of contract value paid for these events
+          </span>
+        </div>
+      </section>
+
+      <div className="bg-white border border-slate-200/70 rounded-2xl p-6">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
+          <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Monthly Collections</h3>
+          <span className="text-[13px] text-slate-600">Refunds already subtracted</span>
+        </div>
         {monthlyRevenueData.length === 0 ? (
           <div className="h-64 flex items-center justify-center text-slate-400 text-sm">No payment data available.</div>
         ) : (
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={monthlyRevenueData} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis tickFormatter={(value) => `₱${value.toLocaleString()}`} />
+              <XAxis dataKey="month" tick={{ fontSize: 13, fill: '#475569' }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} />
+              <YAxis tickFormatter={(value) => `₱${value.toLocaleString()}`} tick={{ fontSize: 13, fill: '#475569' }} tickLine={false} axisLine={false} width={90} />
               <Tooltip formatter={(value) => [`₱${value.toLocaleString()}`, 'Collected']} labelFormatter={(label) => `Month: ${label}`} />
-              <Legend />
-              <Bar dataKey="revenue" fill="#008A45" radius={[4, 4, 0, 0]}>
+              {/* Six rotating greens carried no meaning -- adjacent months were
+                  different colours for no reason. One neutral fill for history
+                  and brand green for the most recent month, so "now" is the
+                  only thing the colour marks. */}
+              <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
                 {monthlyRevenueData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  <Cell key={`cell-${index}`} fill={index === monthlyRevenueData.length - 1 ? '#008A45' : '#cbd5e1'} />
                 ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         )}
-        <div className="mt-2 text-xs text-slate-500 text-right">Each bar is the total confirmed payments for that month, with any refunds already subtracted</div>
+        <p className="mt-2 text-[13px] text-slate-600">Each bar is the total verified payments for that month.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-slate-200"><h3 className="text-base font-bold text-slate-900">Payment Methods</h3></div>
+        <div className="bg-white border border-slate-200/70 rounded-2xl overflow-hidden">
+          <div className="px-5 pt-[18px] pb-4 border-b border-slate-100"><h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Payment Methods</h3></div>
           {paymentMethodData.length === 0 ? (
-            <div className="p-8 text-center text-slate-400 text-sm">No payments in this period.</div>
+            <div className="p-8 text-center text-slate-500 text-sm">No payments in this period.</div>
           ) : (
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-[#EAF3F2] text-slate-800 text-xs font-bold border-b border-slate-200">
-                  <th className="p-3">Method</th>
-                  <th className="p-3">Payments</th>
-                  <th className="p-3 text-right">Total</th>
+                <tr className="bg-[#fbfcfd] border-b border-slate-100">
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Method</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Payments</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Total</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-sm">
+              <tbody className="divide-y divide-slate-100 text-sm">
                 {paymentMethodData.map((m) => (
                   <tr
                     key={m.method}
@@ -123,11 +142,11 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
                         { label: 'Number of payments', value: m.count },
                       ],
                     })}
-                    className="hover:bg-slate-50 cursor-pointer"
+                    className="hover:bg-[#fbfcfd] cursor-pointer"
                   >
-                    <td className="p-3 font-bold text-slate-900">{m.method}</td>
-                    <td className="p-3 text-slate-600">{m.count}</td>
-                    <td className="p-3 text-right font-semibold text-emerald-700">{formatCurrency(m.total)}</td>
+                    <td className="px-5 py-[15px] text-[14.5px] font-semibold text-slate-900">{m.method}</td>
+                    <td className="px-5 py-[15px] text-sm text-slate-800 tabular-nums">{m.count}</td>
+                    <td className="px-5 py-[15px] text-[14.5px] font-semibold text-slate-900 text-right tabular-nums">{formatCurrency(m.total)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -135,24 +154,24 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
           )}
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-slate-200 flex items-center justify-between">
-            <h3 className="text-base font-bold text-slate-900">Refunds</h3>
-            <span className="text-xs font-bold text-red-600">{formatCurrency(totalRefunded)} total</span>
+        <div className="bg-white border border-slate-200/70 rounded-2xl overflow-hidden">
+          <div className="px-5 pt-[18px] pb-4 border-b border-slate-100 flex items-center justify-between">
+            <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Refunds</h3>
+            <span className="text-[13px] font-semibold text-red-700 tabular-nums">{formatCurrency(totalRefunded)} total</span>
           </div>
           {refunds.length === 0 ? (
-            <div className="p-8 text-center text-slate-400 text-sm">No refunds in this period.</div>
+            <div className="p-8 text-center text-slate-500 text-sm">No refunds in this period.</div>
           ) : (
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-[#EAF3F2] text-slate-800 text-xs font-bold border-b border-slate-200">
-                  <th className="p-3">Booking</th>
-                  <th className="p-3">Date</th>
-                  <th className="p-3">Method</th>
-                  <th className="p-3 text-right">Amount</th>
+                <tr className="bg-[#fbfcfd] border-b border-slate-100">
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Booking</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Date</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Method</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Amount</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-sm">
+              <tbody className="divide-y divide-slate-100 text-sm">
                 {refunds.map((r) => (
                   <tr
                     key={r.payment_id}
@@ -166,9 +185,9 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
                         { label: 'Method', value: r.pay_method || 'Unspecified' },
                       ],
                     })}
-                    className="hover:bg-slate-50 cursor-pointer"
+                    className="hover:bg-[#fbfcfd] cursor-pointer"
                   >
-                    <td className="p-3">
+                    <td className="px-5 py-[15px]">
                       {r.bookingRef ? (
                         <button
                           onClick={(e) => { e.stopPropagation(); goToBookingDetails(r.booking_id, r.bookingType); }}
@@ -181,9 +200,9 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
                         <span className="text-xs text-slate-400">Unknown</span>
                       )}
                     </td>
-                    <td className="p-3 text-slate-600">{formatDate(r.pay_datetime)}</td>
-                    <td className="p-3 text-slate-600">{r.pay_method || 'Unspecified'}</td>
-                    <td className="p-3 text-right font-semibold text-red-600">{formatCurrency(Math.abs(r.amount_paid))}</td>
+                    <td className="px-5 py-[15px] text-sm text-slate-800 tabular-nums">{formatDate(r.pay_datetime)}</td>
+                    <td className="px-5 py-[15px] text-sm text-slate-800 tabular-nums">{r.pay_method || 'Unspecified'}</td>
+                    <td className="px-5 py-[15px] text-right font-semibold text-red-600">{formatCurrency(Math.abs(r.amount_paid))}</td>
                   </tr>
                 ))}
               </tbody>
@@ -192,22 +211,22 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
         </div>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-200"><h3 className="text-base font-bold text-slate-900">Monthly Booking Summary (Completed)</h3></div>
+      <div className="bg-white border border-slate-200/70 rounded-2xl overflow-hidden">
+        <div className="px-5 pt-[18px] pb-4 border-b border-slate-100"><h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Monthly Booking Summary (Completed)</h3></div>
         {bookingSummaryData.length === 0 ? (
-          <div className="p-8 text-center text-slate-400 text-sm">No completed bookings yet.</div>
+          <div className="p-8 text-center text-slate-500 text-sm">No completed bookings yet.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-[#EAF3F2] text-slate-800 text-xs font-bold border-b border-slate-200">
-                  <th className="p-4">Month</th>
-                  <th className="p-4">Completed Bookings</th>
-                  <th className="p-4">Revenue</th>
-                  <th className="p-4">Top Package</th>
+                <tr className="bg-[#fbfcfd] border-b border-slate-100">
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Month</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Completed Bookings</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Revenue</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Top Package</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-xs sm:text-sm">
+              <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
                 {bookingSummaryData.slice(0, 3).map((row) => (
                   <tr
                     key={row.id}
@@ -220,12 +239,12 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
                         { label: 'Top package', value: row.topPackage },
                       ],
                     })}
-                    className="hover:bg-slate-50 cursor-pointer"
+                    className="hover:bg-[#fbfcfd] cursor-pointer"
                   >
-                    <td className="p-4 font-bold text-slate-900">{row.month}</td>
-                    <td className="p-4">{row.bookings}</td>
-                    <td className="p-4 font-semibold text-slate-900">{formatCurrency(row.revenue)}</td>
-                    <td className="p-4">{row.topPackage}</td>
+                    <td className="px-5 py-[15px] text-[14.5px] font-semibold text-slate-900">{row.month}</td>
+                    <td className="px-5 py-[15px]">{row.bookings}</td>
+                    <td className="px-5 py-[15px] font-semibold text-slate-900">{formatCurrency(row.revenue)}</td>
+                    <td className="px-5 py-[15px]">{row.topPackage}</td>
                   </tr>
                 ))}
               </tbody>

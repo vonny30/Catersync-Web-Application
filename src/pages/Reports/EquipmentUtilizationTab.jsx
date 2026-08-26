@@ -1,5 +1,5 @@
 // src/pages/Reports/EquipmentUtilizationTab.jsx
-import { cardColorClasses } from './helpers';
+import { cardColorClasses, cardAccentClass } from './helpers';
 
 export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
   const { equipmentUtilizationData } = derived;
@@ -16,8 +16,8 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
   const utilizationRate = totalUsable > 0 ? Math.round((totalDeployed / totalUsable) * 100) : 0;
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="space-y-[18px]">
+      <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))]">
         <button
           onClick={() => onOpenDetail({
             title: 'Fleet Utilization',
@@ -29,11 +29,12 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
               { label: 'Units owned', value: totalUnits },
             ],
           })}
-          className={`border rounded-2xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('blue')}`}
+          className={`border rounded-2xl p-5 text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 ${cardColorClasses()}`}
         >
-          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Utilization</p>
-          <h3 className="text-2xl font-extrabold text-slate-900">{utilizationRate}%</h3>
-          <p className="text-xs text-slate-500 font-medium mt-1.5">{totalDeployed} of {totalUsable} usable units in use</p>
+          <span className={cardAccentClass('green')} />
+          <p className="text-[13px] font-semibold text-slate-600 mb-2">Utilization</p>
+          <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{utilizationRate}%</h3>
+          <p className="text-[13px] text-slate-600 mt-2.5">{totalDeployed} of {totalUsable} usable units in use</p>
         </button>
         <button
           onClick={() => onOpenDetail({
@@ -45,11 +46,12 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
               { label: 'In use', value: totalDeployed },
             ],
           })}
-          className={`border rounded-2xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('green')}`}
+          className={`border rounded-2xl p-5 text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 ${cardColorClasses()}`}
         >
-          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Free Now</p>
-          <h3 className="text-2xl font-extrabold text-slate-900">{totalFree}</h3>
-          <p className="text-xs text-slate-500 font-medium mt-1.5">{totalUsable} usable − {totalDeployed} in use</p>
+          <span className={cardAccentClass('teal')} />
+          <p className="text-[13px] font-semibold text-slate-600 mb-2">Free Now</p>
+          <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{totalFree}</h3>
+          <p className="text-[13px] text-slate-600 mt-2.5">{totalUsable} usable − {totalDeployed} in use</p>
         </button>
         <button
           onClick={() => onOpenDetail({
@@ -58,11 +60,12 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
             badge: totalDamaged > 0 ? { label: 'Needs attention', variant: 'warning' } : { label: 'None reported', variant: 'good' },
             fields: [{ label: 'Damaged units', value: totalDamaged, emphasis: true }],
           })}
-          className={`border rounded-2xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('red')}`}
+          className="relative overflow-hidden border border-[#f3d3d3] bg-[#fef4f4] rounded-2xl p-5 text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)]"
         >
-          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">Damaged</p>
-          <h3 className="text-2xl font-extrabold text-slate-900">{totalDamaged}</h3>
-          <p className="text-xs text-slate-500 font-medium mt-1.5">Flagged, unavailable for booking</p>
+          <span className={cardAccentClass('red')} />
+          <p className="text-[13px] font-semibold text-red-700 mb-2">Damaged</p>
+          <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-red-700">{totalDamaged}</h3>
+          <p className="text-[13px] text-red-600 mt-2.5">Flagged, unavailable for booking</p>
         </button>
         <button
           onClick={() => onOpenDetail({
@@ -70,11 +73,12 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
             description: 'From the equipment table: units currently set aside for maintenance (equipment.maintenance_quantity).',
             fields: [{ label: 'In maintenance', value: totalMaintenance, emphasis: true }],
           })}
-          className={`border rounded-2xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('amber')}`}
+          className={`border rounded-2xl p-5 text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 ${cardColorClasses()}`}
         >
-          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">In Maintenance</p>
-          <h3 className="text-2xl font-extrabold text-slate-900">{totalMaintenance}</h3>
-          <p className="text-xs text-slate-500 font-medium mt-1.5">Temporarily out of rotation</p>
+          <span className={cardAccentClass('amber')} />
+          <p className="text-[13px] font-semibold text-slate-600 mb-2">In Maintenance</p>
+          <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{totalMaintenance}</h3>
+          <p className="text-[13px] text-slate-600 mt-2.5">Temporarily out of rotation</p>
         </button>
       </div>
 
@@ -84,22 +88,22 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
           <p className="text-xs text-slate-500 mt-1">Live snapshot — not affected by the date range above. Owned − out of service = usable; usable − in use = free.</p>
         </div>
         {equipmentUtilizationData.length === 0 ? (
-          <div className="p-8 text-center text-slate-400 text-sm">No equipment data available.</div>
+          <div className="p-8 text-center text-slate-500 text-sm">No equipment data available.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-[#EAF3F2] text-slate-800 text-xs font-bold border-b border-slate-200">
-                  <th className="p-4">Equipment</th>
-                  <th className="p-4">Owned</th>
-                  <th className="p-4">Out of service</th>
-                  <th className="p-4">Usable</th>
-                  <th className="p-4">In use</th>
-                  <th className="p-4">Free</th>
-                  <th className="p-4">Utilization</th>
+                <tr className="bg-[#fbfcfd] border-b border-slate-100">
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Equipment</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Owned</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Out of service</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Usable</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">In use</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Free</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Utilization</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-sm">
+              <tbody className="divide-y divide-slate-100 text-sm">
                 {equipmentUtilizationData.map((item) => {
                   const usageRate = item.usable > 0 ? Math.round((item.deployed / item.usable) * 100) : 0;
                   return (
@@ -119,24 +123,27 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
                           { label: 'Units owned', value: item.total },
                         ],
                       })}
-                      className="hover:bg-slate-50 cursor-pointer"
+                      className="hover:bg-[#fbfcfd] cursor-pointer"
                     >
-                      <td className="p-4 font-bold text-slate-900">{item.name}</td>
-                      <td className="p-4 text-slate-700 font-semibold">{item.total}</td>
-                      <td className="p-4 text-slate-600 font-medium">
+                      <td className="px-5 py-[15px] text-[14.5px] font-semibold text-slate-900">{item.name}</td>
+                      <td className="px-5 py-[15px] text-sm text-slate-800 text-right tabular-nums">{item.total}</td>
+                      <td className="px-5 py-[15px] text-sm text-right tabular-nums">
                         {item.outOfService > 0
-                          ? <span title={`${item.damaged} damaged, ${item.maintenance} under maintenance`}>−{item.outOfService}</span>
+                          ? <span className="text-amber-700 font-medium" title={`${item.damaged} damaged, ${item.maintenance} under maintenance`}>−{item.outOfService}</span>
                           : <span className="text-slate-400">None</span>}
                       </td>
-                      <td className="p-4 text-slate-900 font-bold">{item.usable}</td>
-                      <td className="p-4 text-blue-600 font-medium">{item.deployed}</td>
-                      <td className="p-4 text-emerald-600 font-medium">{item.free}</td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-2">
-                          <div className="w-16 bg-slate-200 rounded-full h-1.5">
-                            <div className="h-1.5 rounded-full bg-slate-700" style={{ width: `${usageRate}%` }}></div>
+                      <td className="px-5 py-[15px] text-sm font-semibold text-slate-900 text-right tabular-nums">{item.usable}</td>
+                      <td className="px-5 py-[15px] text-sm text-slate-800 text-right tabular-nums">{item.deployed}</td>
+                      <td className="px-5 py-[15px] text-sm text-slate-800 text-right tabular-nums">{item.free}</td>
+                      <td className="px-5 py-[15px]">
+                        <div className="flex items-center justify-end gap-2.5">
+                          <div className="w-16 bg-slate-100 rounded-full h-[7px] overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${usageRate >= 70 ? 'bg-amber-500' : 'bg-[#008A45]'}`}
+                              style={{ width: `${Math.min(100, usageRate)}%` }}
+                            />
                           </div>
-                          <span className="text-xs font-bold text-slate-700">{usageRate}%</span>
+                          <span className="w-[42px] text-right text-[13.5px] font-semibold text-slate-700 tabular-nums">{usageRate}%</span>
                         </div>
                       </td>
                     </tr>

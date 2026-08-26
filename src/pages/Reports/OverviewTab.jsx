@@ -1,18 +1,24 @@
 // src/pages/Reports/OverviewTab.jsx
-import { formatCurrency, formatPercent, cardColorClasses } from './helpers';
+import { formatCurrency, formatPercent, cardColorClasses, cardAccentClass } from './helpers';
 
-function StatCard({ label, value, sub, color, onClick }) {
+// `count` renders a plain integer, which carries a larger optical size than a
+// currency string of the same weight.
+function StatCard({ label, value, sub, color, onClick, count = false }) {
   return (
     <button
       onClick={onClick}
-      className={`border rounded-2xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses(color)}`}
+      className={`border rounded-2xl p-5 text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 ${cardColorClasses()}`}
     >
-      <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-1">{label}</p>
-      <h3 className="text-2xl font-extrabold text-slate-900">{value}</h3>
-      {sub && <p className="text-xs text-slate-500 font-medium mt-1.5">{sub}</p>}
+      <span className={cardAccentClass(color)} />
+      <p className="text-[13px] font-semibold text-slate-600 mb-2">{label}</p>
+      <h3 className={`font-semibold tracking-[-0.03em] tabular-nums text-slate-900 ${count ? 'text-[32px] leading-none' : 'text-[26px] leading-[1.05]'}`}>{value}</h3>
+      {sub && <p className="text-[13px] text-slate-600 mt-2.5">{sub}</p>}
     </button>
   );
 }
+
+const SECTION_GRID = 'grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))]';
+const SECTION_HEAD = 'text-[13px] font-bold text-slate-600 tracking-[0.04em] mb-3';
 
 export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
   const {
@@ -33,13 +39,23 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
   const totalCompletedBookings = bookingSummaryData.reduce((sum, r) => sum + r.bookings, 0);
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="space-y-[18px]">
+      {/* The eight cards shipped as two arbitrary rows of four with nothing
+          saying which was which. They already split cleanly, so the headings
+          name a grouping that was always there but never stated.
+          Everything in this first group is anchored on the EVENT date -- hence
+          the "events in this period" sub-lines. Completed Events is a count
+          rather than an amount, but it belongs here because it is the volume
+          those money figures are earned on. */}
+      <section>
+        <h2 className={SECTION_HEAD}>Financial</h2>
+        <div className={SECTION_GRID}>
         <StatCard label="Contract Value" value={formatCurrency(financialSummary.contractValue)} sub="Events in this period" color="green" onClick={() => onCardClick('revenue')} />
         <StatCard label="Paid to Date" value={formatCurrency(financialSummary.paidAgainstEvents)} sub="Against those events" color="teal" onClick={() => onCardClick('collected')} />
         <StatCard label="Outstanding Balance" value={formatCurrency(financialSummary.outstanding)} sub="Still to collect" color="amber" onClick={() => onCardClick('outstanding')} />
         <StatCard
           label="Completed Events"
+          count
           value={totalCompletedBookings}
           sub="In selected period"
           color="blue"
@@ -49,11 +65,15 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
             fields: [{ label: 'Completed events', value: totalCompletedBookings, emphasis: true }],
           })}
         />
-      </div>
+        </div>
+      </section>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <section>
+        <h2 className={SECTION_HEAD}>Operations</h2>
+        <div className={SECTION_GRID}>
         <StatCard
           label="Bookings Submitted"
+          count
           value={totalSubmitted}
           sub="All statuses"
           color="purple"
@@ -107,9 +127,10 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
             ],
           })}
         />
-      </div>
+        </div>
+      </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid gap-[18px] [grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))]">
         <button
           onClick={() => hasTopSellers && onOpenDetail({
             title: 'Top Sellers',
@@ -131,26 +152,37 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
             ],
           })}
           disabled={!hasTopSellers}
-          className={`border rounded-2xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 disabled:cursor-default disabled:hover:shadow-none ${cardColorClasses('purple')}`}
+          className={`border rounded-2xl p-5 text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 disabled:cursor-default ${cardColorClasses()}`}
         >
-          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-2">Top Sellers</p>
+          <span className={cardAccentClass('purple')} />
+          <p className="text-[13px] font-semibold text-slate-600 mb-3">Top Sellers</p>
           {hasTopSellers ? (
-            <div className="space-y-1.5">
+            <div className="space-y-3">
               {topPackage && (
-                <div>
-                  <h3 className="text-base font-bold text-slate-900 leading-tight">{topPackage.name}</h3>
-                  <p className="text-xs text-slate-500">{formatPercent(topPackage.revenueShare)} of package revenue</p>
+                <div className="flex items-baseline justify-between gap-3.5">
+                  <div className="min-w-0">
+                    <span className="block text-base font-semibold text-slate-900">{topPackage.name}</span>
+                    <span className="block text-[13px] text-slate-600 mt-0.5">Best-selling package</span>
+                  </div>
+                  <span className="shrink-0 text-[15px] font-semibold text-[#007038] tabular-nums">{formatPercent(topPackage.revenueShare)}</span>
                 </div>
               )}
+              {topPackage && topItem && <div className="h-px bg-slate-100" />}
               {topItem && (
-                <div>
-                  <h3 className="text-base font-bold text-slate-900 leading-tight">{topItem.name}</h3>
-                  <p className="text-xs text-slate-500">{formatPercent(topItem.revenueShare)} of menu item revenue</p>
+                <div className="flex items-baseline justify-between gap-3.5">
+                  <div className="min-w-0">
+                    <span className="block text-base font-semibold text-slate-900">{topItem.name}</span>
+                    <span className="block text-[13px] text-slate-600 mt-0.5">Best-selling menu item</span>
+                  </div>
+                  <span className="shrink-0 text-[15px] font-semibold text-[#007038] tabular-nums">{formatPercent(topItem.revenueShare)}</span>
                 </div>
               )}
+              {/* Each share is measured against its OWN product line, so the
+                  two percentages are not comparable and must never be summed. */}
+              <p className="text-[12.5px] text-slate-600 pt-1">Each share is of its own product line's revenue.</p>
             </div>
           ) : (
-            <p className="text-sm text-slate-400 italic">No sales data in this period.</p>
+            <p className="text-sm text-slate-500">No sales data in this period.</p>
           )}
         </button>
         <button
@@ -163,11 +195,21 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
               { label: 'One-time customers', value: oneTimeCustomers },
             ],
           })}
-          className={`border rounded-2xl p-5 text-left transition-all hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-opacity-50 ${cardColorClasses('green')}`}
+          className={`border rounded-2xl p-5 text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 ${cardColorClasses()}`}
         >
-          <p className="text-xs font-bold text-slate-500 tracking-wider uppercase mb-2">Customers</p>
-          <h3 className="text-lg font-bold text-slate-900">{totalCustomers} total</h3>
-          <p className="text-sm text-slate-500 mt-1">{repeatCustomers} repeat, {oneTimeCustomers} one-time</p>
+          <span className={cardAccentClass('green')} />
+          <p className="text-[13px] font-semibold text-slate-600 mb-2">Customers</p>
+          <span className="block text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{totalCustomers}</span>
+          <div className="flex gap-7 mt-[18px] pt-4 border-t border-slate-100">
+            <div>
+              <span className="block text-[13px] text-slate-600 mb-1">Repeat</span>
+              <span className="block text-[19px] font-semibold tabular-nums text-slate-900">{repeatCustomers}</span>
+            </div>
+            <div>
+              <span className="block text-[13px] text-slate-600 mb-1">One-time</span>
+              <span className="block text-[19px] font-semibold tabular-nums text-slate-900">{oneTimeCustomers}</span>
+            </div>
+          </div>
         </button>
       </div>
     </div>

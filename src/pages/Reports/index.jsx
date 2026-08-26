@@ -205,6 +205,17 @@ export default function Reports() {
       paymentsReceived: received.paymentsReceived,
       retainedFromCancellations: received.retainedFromCancellations,
       refundsIssued: received.refundsIssued,
+      // Refunds actually netted out of paymentsReceived.
+      //
+      // refundsIssued counts every refund in the period, including those on
+      // Rejected/Cancelled bookings -- but those rows land in
+      // retainedFromCancellations, NOT in paymentsReceived. Since a refund is
+      // most often issued precisely because a booking was cancelled, quoting
+      // refundsIssued beside paymentsReceived would claim a deduction that
+      // was never made. This is the figure that honestly describes it.
+      refundsNettedAgainstReceived: received.activeRows
+        .filter(p => (p.amount_paid || 0) < 0)
+        .reduce((sum, p) => sum + Math.abs(p.amount_paid), 0),
       _revenueBreakdown: revenueBreakdown,
       _collectedBreakdown: collectedBreakdown,
       _outstandingBreakdown: outstandingBreakdown,
@@ -590,13 +601,16 @@ export default function Reports() {
   };
 
   return (
-    <div className="space-y-6 relative pb-12 pr-2">
+    <div className="space-y-[18px] relative pb-12 pr-2">
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Financial & Reports</h1>
-          <p className="text-sm text-slate-500 max-w-2xl">
-            Financial and operational summary of PG's Catering — bookings, payments, menu popularity, and equipment/vehicle usage.
-            <span className="block text-xs text-slate-400 mt-1">Financial figures exclude Rejected and Cancelled bookings. Click any card or row for details.</span>
+          <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Financial &amp; Reports</h1>
+          {/* One sentence at one size. The old version nested a 12px grey line
+              inside a 14px grey paragraph, and "click any card for details" is
+              an instruction for an affordance the cards already carry. The
+              exclusion is kept -- it changes what the figures mean. */}
+          <p className="text-[14.5px] text-slate-600 mt-1.5 max-w-[620px] [text-wrap:pretty]">
+            Bookings, payments, menu popularity, and equipment usage for PG's Catering. Figures exclude rejected and cancelled bookings.
           </p>
         </div>
         <DateRangeFilter
@@ -612,16 +626,16 @@ export default function Reports() {
         />
       </div>
 
-      <div className="border-b border-slate-200">
-        <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
+      <div className="border-b border-slate-200/80">
+        <nav className="-mb-px flex gap-0.5 overflow-x-auto" aria-label="Tabs">
           {TABS.map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`whitespace-nowrap py-3 px-1 border-b-2 font-semibold text-sm transition-all duration-200 ${
+              className={`whitespace-nowrap px-[15px] py-[11px] border-b-2 text-[14.5px] transition-colors ${
                 activeTab === tab
-                  ? 'border-emerald-600 text-emerald-600 font-bold'
-                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                  ? 'border-[#008A45] text-[#007038] font-bold'
+                  : 'border-transparent text-slate-600 font-semibold hover:text-slate-900'
               }`}
             >
               {tab}
@@ -631,11 +645,11 @@ export default function Reports() {
       </div>
 
       {isLoading || !derived ? (
-        <div className="w-full py-20 flex justify-center items-center text-slate-400 font-medium animate-pulse">
+        <div className="w-full py-20 flex justify-center items-center text-slate-500 font-medium">
           Loading metrics and database summaries...
         </div>
       ) : (
-        <div className="animate-in fade-in duration-200 space-y-6">
+        <div className="animate-in fade-in duration-200 space-y-[18px]">
           {activeTab === 'Overview' && <OverviewTab derived={derived} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Financial' && <FinancialTab derived={derived} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Menu & Packages' && <MenuPerformanceTab derived={derived} onOpenDetail={openSimpleModal} />}

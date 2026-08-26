@@ -161,18 +161,18 @@ export default function DetailModal({ detailModal, onClose }) {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
-                      <th className="p-3">Reference</th>
-                      <th className="p-3">Customer</th>
-                      <th className="p-3">Type</th>
-                      <th className="p-3">Event Date</th>
-                      <th className="p-3 text-right">Contract Value</th>
-                      <th className="p-3 text-right">Status</th>
+                      <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Reference</th>
+                      <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Customer</th>
+                      <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Type</th>
+                      <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Event Date</th>
+                      <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Contract Value</th>
+                      <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
                     {filteredData.map((item) => (
                       <tr key={item.id} className="hover:bg-slate-50">
-                        <td className="p-3">
+                        <td className="px-5 py-[15px]">
                           <button
                             onClick={() => goToBookingDetails(item.id, item.type)}
                             className="font-mono text-xs font-bold text-[#008A45] hover:underline inline-flex items-center gap-1 cursor-pointer"
@@ -181,15 +181,15 @@ export default function DetailModal({ detailModal, onClose }) {
                             {item.bookingRef} <ExternalLink size={10} />
                           </button>
                         </td>
-                        <td className="p-3 font-medium text-slate-900">{item.customer}</td>
-                        <td className="p-3">
+                        <td className="px-5 py-[15px] font-medium text-slate-900">{item.customer}</td>
+                        <td className="px-5 py-[15px]">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${item.type === 'Short Order' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
                             {item.type === 'Short Order' ? 'Short Order' : 'Package'}
                           </span>
                         </td>
-                        <td className="p-3 text-slate-600">{formatDate(item.eventDate)}</td>
-                        <td className="p-3 text-right font-bold text-slate-900">{formatCurrency(item.total)}</td>
-                        <td className="p-3 text-right">
+                        <td className="px-5 py-[15px] text-slate-600">{formatDate(item.eventDate)}</td>
+                        <td className="px-5 py-[15px] text-right font-bold text-slate-900">{formatCurrency(item.total)}</td>
+                        <td className="px-5 py-[15px] text-right">
                           <span className={`px-2 py-1 rounded-full text-xs font-bold ${item.status === 'Completed' ? 'bg-green-100 text-green-700' : item.status === 'Confirmed' ? 'bg-emerald-100 text-emerald-700' : item.status === 'Approved' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
                             {item.status}
                           </span>
@@ -200,8 +200,8 @@ export default function DetailModal({ detailModal, onClose }) {
                   <tfoot className="bg-slate-50 border-t-2 border-slate-200">
                     <tr>
                       <td colSpan="4" className="p-3 text-right font-bold text-slate-700">Total:</td>
-                      <td className="p-3 text-right font-bold text-emerald-700">{formatCurrency(filteredData.reduce((sum, item) => sum + item.total, 0))}</td>
-                      <td className="p-3"></td>
+                      <td className="px-5 py-[15px] text-right font-bold text-emerald-700">{formatCurrency(filteredData.reduce((sum, item) => sum + item.total, 0))}</td>
+                      <td className="px-5 py-[15px]"></td>
                     </tr>
                   </tfoot>
                 </table>
@@ -257,19 +257,19 @@ export default function DetailModal({ detailModal, onClose }) {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
-                      <th className="p-3">Reference</th>
-                      <th className="p-3">Customer</th>
-                      <th className="p-3">Type</th>
-                      <th className="p-3">Event Date</th>
-                      <th className="p-3 text-right">Total</th>
-                      <th className="p-3 text-right">Paid</th>
-                      <th className="p-3 text-right">Balance</th>
+                      <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Reference</th>
+                      <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Customer</th>
+                      <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Type</th>
+                      <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Event Date</th>
+                      <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Total</th>
+                      <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Paid</th>
+                      <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Balance</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
                     {filteredData.map((item) => (
                       <tr key={item.id} className="hover:bg-slate-50">
-                        <td className="p-3">
+                        <td className="px-5 py-[15px]">
                           <button
                             onClick={() => goToBookingDetails(item.id, item.type)}
                             className="font-mono text-xs font-bold text-[#008A45] hover:underline inline-flex items-center gap-1 cursor-pointer"
@@ -278,23 +278,23 @@ export default function DetailModal({ detailModal, onClose }) {
                             {item.bookingRef} <ExternalLink size={10} />
                           </button>
                         </td>
-                        <td className="p-3 font-medium text-slate-900">{item.customer}</td>
-                        <td className="p-3">
+                        <td className="px-5 py-[15px] font-medium text-slate-900">{item.customer}</td>
+                        <td className="px-5 py-[15px]">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${item.type === 'Short Order' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
                             {item.type === 'Short Order' ? 'Short Order' : 'Package'}
                           </span>
                         </td>
-                        <td className="p-3 text-slate-600">{formatDate(item.eventDate)}</td>
-                        <td className="p-3 text-right text-slate-600">{formatCurrency(item.total)}</td>
-                        <td className="p-3 text-right text-emerald-600">{formatCurrency(item.paid)}</td>
-                        <td className="p-3 text-right font-bold text-red-600">{formatCurrency(item.outstanding)}</td>
+                        <td className="px-5 py-[15px] text-slate-600">{formatDate(item.eventDate)}</td>
+                        <td className="px-5 py-[15px] text-right text-slate-600">{formatCurrency(item.total)}</td>
+                        <td className="px-5 py-[15px] text-right text-emerald-600">{formatCurrency(item.paid)}</td>
+                        <td className="px-5 py-[15px] text-right font-bold text-red-600">{formatCurrency(item.outstanding)}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot className="bg-slate-50 border-t-2 border-slate-200">
                     <tr>
                       <td colSpan="6" className="p-3 text-right font-bold text-slate-700">Total Outstanding:</td>
-                      <td className="p-3 text-right font-bold text-red-600">{formatCurrency(filteredData.reduce((sum, item) => sum + item.outstanding, 0))}</td>
+                      <td className="px-5 py-[15px] text-right font-bold text-red-600">{formatCurrency(filteredData.reduce((sum, item) => sum + item.outstanding, 0))}</td>
                     </tr>
                   </tfoot>
                 </table>

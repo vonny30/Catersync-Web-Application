@@ -87,50 +87,33 @@ export function isWithinRange(dateValue, start, end) {
   return true;
 }
 
-// Shared card color palette so stat cards across every Reports tab share the
-// same white-card-with-accent look as the Dashboard stat cards and the rest
-// of the app, instead of each tab having its own flat pastel-filled boxes.
-// Each entry supplies a colored left accent border and a matching value
-// color; the card itself stays white for consistent contrast against the
-// page's slate-50 shell.
-export const CARD_COLORS = {
-  green: {
-    bg: 'bg-white', border: 'border-slate-200 border-l-4 border-l-[#008A45]',
-    hoverBorder: 'hover:border-slate-300', hoverBg: 'hover:bg-slate-50',
-    value: 'text-[#008A45]',
-  },
-  blue: {
-    bg: 'bg-white', border: 'border-slate-200 border-l-4 border-l-blue-500',
-    hoverBorder: 'hover:border-slate-300', hoverBg: 'hover:bg-slate-50',
-    value: 'text-blue-600',
-  },
-  amber: {
-    bg: 'bg-white', border: 'border-slate-200 border-l-4 border-l-amber-500',
-    hoverBorder: 'hover:border-slate-300', hoverBg: 'hover:bg-slate-50',
-    value: 'text-amber-600',
-  },
-  red: {
-    bg: 'bg-white', border: 'border-slate-200 border-l-4 border-l-red-500',
-    hoverBorder: 'hover:border-slate-300', hoverBg: 'hover:bg-slate-50',
-    value: 'text-red-600',
-  },
-  purple: {
-    bg: 'bg-white', border: 'border-slate-200 border-l-4 border-l-violet-500',
-    hoverBorder: 'hover:border-slate-300', hoverBg: 'hover:bg-slate-50',
-    value: 'text-violet-600',
-  },
-  teal: {
-    bg: 'bg-white', border: 'border-slate-200 border-l-4 border-l-teal-600',
-    hoverBorder: 'hover:border-slate-300', hoverBg: 'hover:bg-slate-50',
-    value: 'text-teal-700',
-  },
+// One card treatment across every tab: white surface, hairline border, and a
+// 3px accent bar that carries the colour. The accent is a positioned element
+// rather than a border-l, so eight cards side by side read as one family
+// instead of eight tinted blocks.
+const CARD_ACCENTS = {
+  green:  'bg-[#008A45]',
+  teal:   'bg-teal-600',
+  amber:  'bg-amber-500',
+  blue:   'bg-blue-500',
+  purple: 'bg-purple-600',
+  red:    'bg-red-500',
+  slate:  'bg-slate-400',
 };
 
-export function cardColorClasses(color = 'green') {
-  const c = CARD_COLORS[color] || CARD_COLORS.green;
-  return `${c.bg} ${c.border} ${c.hoverBorder} ${c.hoverBg}`;
+// Shell classes. `relative overflow-hidden` are required — the accent bar is
+// absolutely positioned inside. Keeps its old call signature (the colour
+// argument is now ignored) so no call site breaks.
+export function cardColorClasses() {
+  return 'relative overflow-hidden bg-white border-slate-200/70 hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)]';
 }
 
+export function cardAccentClass(color = 'green') {
+  return `absolute left-0 top-0 bottom-0 w-[3px] ${CARD_ACCENTS[color] || CARD_ACCENTS.green}`;
+}
+
+// Figures are near-black everywhere now; colour lives in the accent bar, not
+// the number. The red "damaged" card is the one intentional exception.
 export function cardValueClass(color = 'green') {
-  return (CARD_COLORS[color] || CARD_COLORS.green).value;
+  return color === 'red' ? 'text-red-700' : 'text-slate-900';
 }

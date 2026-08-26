@@ -18,34 +18,37 @@ import { formatCurrency, formatPercent, cardColorClasses } from './helpers';
 
 const PARETO_LINE = 80;
 
-function ShareBar({ value, muted = false }) {
+// `tint` lets the menu-item table use violet, matching the product-line mix,
+// so the two product lines stay visually distinct wherever they appear.
+function ShareBar({ value, muted = false, tint }) {
+  const fill = muted ? 'bg-slate-400' : (tint || 'bg-[#008A45]');
   return (
     <div className="flex items-center gap-2.5">
-      <span className="text-xs font-semibold text-slate-600 w-12 text-right tabular-nums">{formatPercent(value)}</span>
-      <div className="w-full bg-slate-200 rounded-full h-2 max-w-[160px]">
+      <div className="flex-1 min-w-[60px] max-w-[160px] h-[7px] rounded-full bg-slate-100 overflow-hidden">
         <div
-          className={`h-2 rounded-full ${muted ? 'bg-slate-400' : 'bg-[#008A45]'}`}
+          className={`h-full rounded-full ${fill}`}
           style={{ width: `${Math.min(100, Math.max(0, value))}%` }}
         />
       </div>
+      <span className="shrink-0 w-[46px] text-right text-[13.5px] font-semibold text-slate-700 tabular-nums">{formatPercent(value)}</span>
     </div>
   );
 }
 
 function Panel({ title, description, children }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-      <div className="p-5 border-b border-slate-200">
-        <h3 className="text-base font-bold text-slate-900">{title}</h3>
-        {description && <p className="text-xs text-slate-500 mt-1 max-w-3xl">{description}</p>}
+    <div className="bg-white border border-slate-200/70 rounded-2xl overflow-hidden">
+      <div className="px-5 pt-[18px] pb-4 border-b border-slate-100">
+        <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">{title}</h3>
+        {description && <p className="text-[13.5px] text-slate-600 mt-1.5 max-w-3xl [text-wrap:pretty]">{description}</p>}
       </div>
       {children}
     </div>
   );
 }
 
-const TH = 'bg-[#EAF3F2] text-slate-800 text-xs font-bold border-b border-slate-200';
-const EMPTY = 'p-8 text-center text-slate-400 text-sm';
+const TH = 'bg-[#fbfcfd] border-b border-slate-100';
+const EMPTY = 'p-8 text-center text-slate-500 text-sm';
 
 export default function MenuPerformanceTab({ derived, onOpenDetail }) {
   const {
@@ -61,7 +64,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
   const paretoIndex = packageMix.findIndex(p => p.cumulativeShare >= PARETO_LINE);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-[18px]">
 
       {/* ---------- 1. PRODUCT LINE ---------- */}
       <Panel
@@ -75,13 +78,13 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className={TH}>
-                  <th className="p-4">Product Line</th>
-                  <th className="p-4">Bookings</th>
-                  <th className="p-4 text-right">Revenue</th>
-                  <th className="p-4 w-1/3">Share of Revenue</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Product Line</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Bookings</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Revenue</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap w-1/3">Share of Revenue</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-sm">
+              <tbody className="divide-y divide-slate-100 text-sm">
                 {productLineMix.map((line) => (
                   <tr
                     key={line.key}
@@ -96,19 +99,19 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                         { label: 'Bookings', value: line.count },
                       ],
                     })}
-                    className="hover:bg-slate-50 cursor-pointer"
+                    className="hover:bg-[#fbfcfd] cursor-pointer"
                   >
-                    <td className="p-4 font-bold text-slate-900">{line.name}</td>
-                    <td className="p-4 text-slate-700 tabular-nums">{line.count}</td>
-                    <td className="p-4 text-right font-semibold text-emerald-700 tabular-nums">{formatCurrency(line.revenue)}</td>
-                    <td className="p-4"><ShareBar value={line.revenueShare} /></td>
+                    <td className="px-5 py-[15px] font-bold text-slate-900">{line.name}</td>
+                    <td className="px-5 py-[15px] text-slate-700 tabular-nums">{line.count}</td>
+                    <td className="px-5 py-[15px] text-right font-semibold text-emerald-700 tabular-nums">{formatCurrency(line.revenue)}</td>
+                    <td className="px-5 py-[15px]"><ShareBar value={line.revenueShare} /></td>
                   </tr>
                 ))}
-                <tr className="bg-slate-50 font-bold text-slate-900">
-                  <td className="p-4">Total</td>
-                  <td className="p-4 tabular-nums">{totalBookings}</td>
-                  <td className="p-4 text-right tabular-nums">{formatCurrency(combinedRevenue)}</td>
-                  <td className="p-4 text-xs tabular-nums">100.0%</td>
+                <tr className="bg-[#fbfcfd] font-bold text-slate-900">
+                  <td className="px-5 py-[15px]">Total</td>
+                  <td className="px-5 py-[15px] tabular-nums">{totalBookings}</td>
+                  <td className="px-5 py-[15px] text-right tabular-nums">{formatCurrency(combinedRevenue)}</td>
+                  <td className="px-5 py-[15px] text-xs tabular-nums">100.0%</td>
                 </tr>
               </tbody>
             </table>
@@ -128,16 +131,16 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className={TH}>
-                  <th className="p-4">Package</th>
-                  <th className="p-4">Bookings</th>
-                  <th className="p-4">Share of Bookings</th>
-                  <th className="p-4 text-right">Revenue</th>
-                  <th className="p-4 w-56">Share of Revenue</th>
-                  <th className="p-4 text-right">Cumulative</th>
-                  <th className="p-4 text-right">Avg per Booking</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Package</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Bookings</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Share of Bookings</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Revenue</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap w-56">Share of Revenue</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Cumulative</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Avg per Booking</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-sm">
+              <tbody className="divide-y divide-slate-100 text-sm">
                 {packageMix.map((pkg, index) => (
                   <tr
                     key={pkg.id}
@@ -155,25 +158,25 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                         { label: 'Average value per booking', value: formatCurrency(pkg.averageValue) },
                       ],
                     })}
-                    className={`hover:bg-slate-50 cursor-pointer ${paretoIndex !== -1 && index === paretoIndex ? 'border-b-2 border-b-[#008A45]/40' : ''}`}
+                    className={`hover:bg-[#fbfcfd] cursor-pointer ${paretoIndex !== -1 && index === paretoIndex ? 'border-b-2 border-b-[#008A45]/40' : ''}`}
                   >
-                    <td className="p-4 font-bold text-slate-900">{pkg.name}</td>
-                    <td className="p-4 text-slate-700 tabular-nums">{pkg.count}</td>
-                    <td className="p-4 text-slate-500 text-xs tabular-nums">{formatPercent(pkg.countShare)}</td>
-                    <td className="p-4 text-right font-semibold text-emerald-700 tabular-nums">{formatCurrency(pkg.revenue)}</td>
-                    <td className="p-4"><ShareBar value={pkg.revenueShare} /></td>
-                    <td className="p-4 text-right text-slate-500 text-xs tabular-nums">{formatPercent(pkg.cumulativeShare)}</td>
-                    <td className="p-4 text-right text-slate-700 tabular-nums">{formatCurrency(pkg.averageValue)}</td>
+                    <td className="px-5 py-[15px] font-bold text-slate-900">{pkg.name}</td>
+                    <td className="px-5 py-[15px] text-slate-700 tabular-nums">{pkg.count}</td>
+                    <td className="px-5 py-[15px] text-slate-500 text-xs tabular-nums">{formatPercent(pkg.countShare)}</td>
+                    <td className="px-5 py-[15px] text-right font-semibold text-emerald-700 tabular-nums">{formatCurrency(pkg.revenue)}</td>
+                    <td className="px-5 py-[15px]"><ShareBar value={pkg.revenueShare} /></td>
+                    <td className="px-5 py-[15px] text-right text-slate-500 text-xs tabular-nums">{formatPercent(pkg.cumulativeShare)}</td>
+                    <td className="px-5 py-[15px] text-right text-slate-700 tabular-nums">{formatCurrency(pkg.averageValue)}</td>
                   </tr>
                 ))}
-                <tr className="bg-slate-50 font-bold text-slate-900">
-                  <td className="p-4">All packages</td>
-                  <td className="p-4 tabular-nums">{totalPackageBookings}</td>
-                  <td className="p-4 text-xs tabular-nums">100.0%</td>
-                  <td className="p-4 text-right tabular-nums">{formatCurrency(packageRevenue)}</td>
-                  <td className="p-4 text-xs tabular-nums">100.0%</td>
-                  <td className="p-4 text-right text-slate-400">—</td>
-                  <td className="p-4 text-right tabular-nums">
+                <tr className="bg-[#fbfcfd] font-bold text-slate-900">
+                  <td className="px-5 py-[15px]">All packages</td>
+                  <td className="px-5 py-[15px] tabular-nums">{totalPackageBookings}</td>
+                  <td className="px-5 py-[15px] text-xs tabular-nums">100.0%</td>
+                  <td className="px-5 py-[15px] text-right tabular-nums">{formatCurrency(packageRevenue)}</td>
+                  <td className="px-5 py-[15px] text-xs tabular-nums">100.0%</td>
+                  <td className="px-5 py-[15px] text-right text-slate-400">—</td>
+                  <td className="px-5 py-[15px] text-right tabular-nums">
                     {formatCurrency(totalPackageBookings > 0 ? packageRevenue / totalPackageBookings : 0)}
                   </td>
                 </tr>
@@ -182,7 +185,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
           </div>
         )}
         {paretoIndex !== -1 && packageMix.length > 1 && (
-          <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 text-xs text-slate-600">
+          <div className="px-5 py-3 border-t border-slate-100 bg-[#fbfcfd] text-[12.5px] text-slate-600">
             <span className="font-semibold text-slate-800">{paretoIndex + 1}</span> of {packageMix.length} package{packageMix.length === 1 ? '' : 's'} account for the first {PARETO_LINE}% of package revenue.
           </div>
         )}
@@ -201,15 +204,15 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className={TH}>
-                    <th className="p-4">Menu Item</th>
-                    <th className="p-4">Trays Sold</th>
-                    <th className="p-4">Share of Trays</th>
-                    <th className="p-4 text-right">Revenue</th>
-                    <th className="p-4 w-56">Share of Revenue</th>
-                    <th className="p-4 text-right">Cumulative</th>
+                    <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Menu Item</th>
+                    <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Trays Sold</th>
+                    <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Share of Trays</th>
+                    <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Revenue</th>
+                    <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap w-56">Share of Revenue</th>
+                    <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Cumulative</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 text-sm">
+                <tbody className="divide-y divide-slate-100 text-sm">
                   {menuItemMix.map((item) => (
                     <tr
                       key={item.id}
@@ -227,37 +230,37 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                           { label: 'Orders including this item', value: item.count },
                         ],
                       })}
-                      className="hover:bg-slate-50 cursor-pointer"
+                      className="hover:bg-[#fbfcfd] cursor-pointer"
                     >
-                      <td className="p-4 font-bold text-slate-900">
+                      <td className="px-5 py-[15px] font-bold text-slate-900">
                         {item.name}
                         {topSellingItem && topSellingItem.id === item.id && (
-                          <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-semibold rounded-full border border-blue-200 whitespace-nowrap">
+                          <span className="ml-2 px-2 py-[3px] bg-blue-50 text-blue-700 text-[11.5px] font-semibold rounded-full whitespace-nowrap">
                             Most ordered
                           </span>
                         )}
                       </td>
-                      <td className="p-4 text-slate-700 tabular-nums">{item.quantity}</td>
-                      <td className="p-4 text-slate-500 text-xs tabular-nums">{formatPercent(item.countShare)}</td>
-                      <td className="p-4 text-right font-semibold text-emerald-700 tabular-nums">{formatCurrency(item.revenue)}</td>
-                      <td className="p-4"><ShareBar value={item.revenueShare} /></td>
-                      <td className="p-4 text-right text-slate-500 text-xs tabular-nums">{formatPercent(item.cumulativeShare)}</td>
+                      <td className="px-5 py-[15px] text-slate-700 tabular-nums">{item.quantity}</td>
+                      <td className="px-5 py-[15px] text-slate-500 text-xs tabular-nums">{formatPercent(item.countShare)}</td>
+                      <td className="px-5 py-[15px] text-right font-semibold text-emerald-700 tabular-nums">{formatCurrency(item.revenue)}</td>
+                      <td className="px-5 py-[15px]"><ShareBar value={item.revenueShare} tint="bg-[#7e22ce]" /></td>
+                      <td className="px-5 py-[15px] text-right text-slate-500 text-xs tabular-nums">{formatPercent(item.cumulativeShare)}</td>
                     </tr>
                   ))}
-                  <tr className="bg-slate-50 font-bold text-slate-900">
-                    <td className="p-4">All menu items</td>
-                    <td className="p-4 tabular-nums">{traysSold}</td>
-                    <td className="p-4 text-xs tabular-nums">100.0%</td>
-                    <td className="p-4 text-right tabular-nums">{formatCurrency(menuItemRevenue)}</td>
-                    <td className="p-4 text-xs tabular-nums">100.0%</td>
-                    <td className="p-4 text-right text-slate-400">—</td>
+                  <tr className="bg-[#fbfcfd] font-bold text-slate-900">
+                    <td className="px-5 py-[15px]">All menu items</td>
+                    <td className="px-5 py-[15px] tabular-nums">{traysSold}</td>
+                    <td className="px-5 py-[15px] text-xs tabular-nums">100.0%</td>
+                    <td className="px-5 py-[15px] text-right tabular-nums">{formatCurrency(menuItemRevenue)}</td>
+                    <td className="px-5 py-[15px] text-xs tabular-nums">100.0%</td>
+                    <td className="px-5 py-[15px] text-right text-slate-400">—</td>
                   </tr>
                 </tbody>
               </table>
             </div>
             {/* Ties this table back to the Short Orders row in panel 1, so the
                 two panels can be checked against each other. */}
-            <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 text-xs text-slate-600 space-y-1">
+            <div className="px-5 py-3 border-t border-slate-100 bg-[#fbfcfd] text-[12.5px] text-slate-600 space-y-1">
               <div className="flex justify-between max-w-md">
                 <span>Menu items</span>
                 <span className="font-semibold tabular-nums">{formatCurrency(menuItemRevenue)}</span>
@@ -287,7 +290,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
       >
         <div className="p-5 space-y-3">
           {categoryDemandData.length === 0 ? (
-            <p className="text-sm text-slate-400 italic text-center py-4">No category data for this period.</p>
+            <p className="text-sm text-slate-500 text-center py-4">No category data for this period.</p>
           ) : (
             categoryDemandData.map((cat) => (
               <button
@@ -309,9 +312,9 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                     {cat.bookings} of {totalPackageBookings} bookings · {formatPercent(cat.share)}
                   </span>
                 </div>
-                <div className="w-full bg-slate-200 rounded-full h-2">
+                <div className="w-full bg-slate-100 rounded-full h-[7px] overflow-hidden">
                   <div
-                    className="h-2 rounded-full bg-[#008A45]"
+                    className="h-full rounded-full bg-[#008A45]"
                     style={{ width: `${Math.min(100, Math.max(0, cat.share))}%` }}
                   />
                 </div>
