@@ -76,10 +76,17 @@ export default function ShortOrderDetails() {
         `)
         .eq('booking_id', id)
         .eq('booking_type', 'Short Order')
-        .single();
+        .maybeSingle();
 
       if (orderError) throw orderError;
       setOrder(orderData);
+      if (!orderData) {
+        // The row is gone -- deleted here or from the mobile app while this
+        // page was open. That is an ordinary outcome for a link that outlived
+        // its record, so it renders as "not found" rather than raising an
+        // error toast. .single() would have made it a 406 and thrown.
+        return;
+      }
 
       if (orderData && !orderData.is_read) {
         await supabase.from('booking').update({ is_read: true }).eq('booking_id', id);

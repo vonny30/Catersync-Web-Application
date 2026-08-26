@@ -24,6 +24,12 @@ function getVerifyClient() {
         persistSession: false,
         autoRefreshToken: false,
         detectSessionInUrl: false,
+        // Without its own key this registers under the same storage key as
+        // the main client, which makes GoTrue log a "Multiple GoTrueClient
+        // instances" warning on every load. Nothing is persisted here
+        // (persistSession is false); the distinct key just keeps the two
+        // clients from claiming the same slot.
+        storageKey: 'catersync-verify-only',
       },
     });
   }

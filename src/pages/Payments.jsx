@@ -1643,11 +1643,22 @@ export default function Payments() {
                             );
                         const isSelected = p.payment_id === selectedPaymentDetail.payment_id;
                         return (
-                          <button
+                          // A div, not a button: this row contains the proof
+                          // thumbnail, which is itself a button, and a button
+                          // cannot nest inside a button. role/tabIndex/onKeyDown
+                          // keep it operable by keyboard the way the button was.
+                          <div
                             key={p.payment_id}
-                            type="button"
+                            role="button"
+                            tabIndex={0}
                             onClick={() => setSelectedPaymentDetail(p)}
-                            className={`w-full flex justify-between items-center gap-3 rounded-lg px-4 py-2 text-sm border text-left transition-colors ${
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setSelectedPaymentDetail(p);
+                              }
+                            }}
+                            className={`w-full flex justify-between items-center gap-3 rounded-lg px-4 py-2 text-sm border text-left cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#008A45]/40 ${
                               isSelected ? 'bg-[#EAF3F2] border-[#008A45]/40 ring-1 ring-[#008A45]/20' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
                             }`}
                             title="View this payment's full details"
@@ -1665,7 +1676,7 @@ export default function Payments() {
                               <span className="text-slate-500">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleDateString() : ''}</span>
                               {renderProof(p.pay_proof)}
                             </span>
-                          </button>
+                          </div>
                         );
                       })}
                   </div>

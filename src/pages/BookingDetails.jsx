@@ -98,9 +98,16 @@ export default function BookingDetails() {
           package:package_id (pkg_name, pkg_price, pkg_description, pricing_type, max_pax, extra_pax_price)
         `)
         .eq('booking_id', id)
-        .single();
+        .maybeSingle();
       if (bookingError) throw bookingError;
       setBooking(bookingData);
+      if (!bookingData) {
+        // The row is gone -- deleted here or from the mobile app while this
+        // page was open. That is an ordinary outcome for a link that outlived
+        // its record, so it renders as "not found" rather than raising an
+        // error toast. .single() would have made it a 406 and thrown.
+        return;
+      }
 
       if (bookingData && !bookingData.is_read) {
         await supabase.from('booking').update({ is_read: true }).eq('booking_id', id);
