@@ -1306,7 +1306,129 @@ export default function ShortOrders() {
           <span>{activeTab === 'All' ? 'All Short Orders' : `${activeTab} Short Orders`}</span>
           <span className="text-sm font-normal text-slate-600 tabular-nums whitespace-nowrap">{totalCount} result{totalCount === 1 ? '' : 's'}</span>
         </div>
-        <div className="overflow-x-auto">
+        {/* CARD LIST — below 2xl. See the matching note in Bookings.jsx: the
+            table needs ~1500px and a 1440px laptop has ~1120px of content
+            width, so it scrolled sideways on every screen short of a 1920px
+            monitor. The table returns at 2xl where it genuinely fits. */}
+        <div className="2xl:hidden divide-y divide-slate-100">
+          {loading ? (
+            <p className="p-6 text-center text-slate-400 text-sm">Loading orders...</p>
+          ) : orders.length === 0 ? (
+            <p className="p-6 text-center text-slate-500 italic text-sm">No short orders found.</p>
+          ) : (
+            orders.map((order) => {
+              let cardTrays = 0;
+              try {
+                let selections = order.menu_selections;
+                if (typeof selections === 'string') selections = JSON.parse(selections);
+                if (Array.isArray(selections)) {
+                  cardTrays = selections.reduce((sum, sel) => sum + (sel.quantity || 0), 0);
+                }
+              } catch (e) { cardTrays = 0; }
+              const cardFullyPaid = (order.positivePayments || 0) >= (order.total_amount || 0);
+              const cardOwed = Math.max(0, (order.total_amount || 0) - (order.positivePayments || 0));
+              return (
+                <div
+                  key={order.booking_id}
+                  className={`p-4 transition-colors hover:bg-[#fbfcfd] ${!order.is_read ? 'bg-[#EAF3F2]/30' : ''}`}
+                  onClick={() => { if (!order.is_read) markAsRead(order.booking_id); }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={selectedOrders.includes(order.booking_id)}
+                        onChange={() => toggleSelectOrder(order.booking_id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-1 w-4 h-4 shrink-0 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
+                      />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p
+                            onClick={(e) => { e.stopPropagation(); navigate(`/app/orders/${order.booking_id}`); }}
+                            className="text-[15px] font-semibold text-slate-900 cursor-pointer hover:text-[#008A45]"
+                          >
+                            {order.customer?.first_name} {order.customer?.last_name}
+                          </p>
+                          {!order.is_read && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-[#EAF3F2] text-[#00703a] text-[11px] font-bold tracking-[0.04em]">
+                              NEW
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[13.5px] text-slate-500 mt-[3px] tabular-nums">
+                          {order.event_datetime ? new Date(order.event_datetime).toLocaleDateString() : 'No date'}
+                          {order.venue ? ` · ${order.venue}` : ''}
+                          {cardTrays ? ` · ${cardTrays} tray${cardTrays === 1 ? '' : 's'}` : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5 shrink-0">
+                      <span className="text-[15px] font-semibold text-slate-900 tabular-nums">
+                        ₱{order.total_amount?.toLocaleString() || '0'}
+                      </span>
+                      <span className={`px-[11px] py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${getStatusBadgeSoft(order.booking_status)}`}>
+                        {order.booking_status}
+                      </span>
+                      {hasUnpaidPastEvent(order) && (
+                        <span className="px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap bg-red-50 text-red-700" title={`Event passed with ₱${cardOwed.toLocaleString()} still owed`}>
+                          Past Due
+                        </span>
+                      )}
+                      {(order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') && order.refundStatus && (
+                        <span className={`px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap ${getRefundStatusBadge(order.refundStatus)}`}>
+                          {order.refundStatus}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5 mt-3" onClick={(e) => e.stopPropagation()}>
+                    {order.booking_status === 'Pending' && (
+                      <>
+                        <button onClick={() => openApprovalModal(order, 'shortorder')} className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors">
+                          <Check size={13} /> Approve
+                        </button>
+                        <button onClick={() => openRejectionModal(order.booking_id)} className="bg-red-100 hover:bg-red-200 border border-red-200 text-red-700 font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors">
+                          <X size={13} /> Reject
+                        </button>
+                      </>
+                    )}
+                    {order.booking_status === 'Approved' && (
+                      <button onClick={() => handleConfirmBooking(order.booking_id)} className="bg-[#EAF3F2] hover:bg-[#ddeee5] border border-[#c9dfd4] text-[#00703a] font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors">
+                        <Check size={13} /> Confirm
+                      </button>
+                    )}
+                    {order.booking_status === 'Confirmed' && (
+                      <button
+                        onClick={() => handleMarkCompleted(order.booking_id)}
+                        title={cardFullyPaid ? undefined : `Locked — ₱${cardOwed.toLocaleString()} still owed`}
+                        className={`font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 border transition-colors ${cardFullyPaid ? 'bg-blue-50 hover:bg-blue-100 border-blue-100 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
+                      >
+                        {cardFullyPaid ? <Check size={13} /> : <Lock size={13} />} Complete
+                      </button>
+                    )}
+                    <button onClick={() => navigate(`/app/orders/${order.booking_id}`)} className="bg-white border border-slate-200 text-slate-700 font-semibold text-[12.5px] px-3 py-[7px] rounded-[9px] hover:bg-slate-50 transition-colors">
+                      Details
+                    </button>
+                    <button
+                      onClick={() => openEditModal(order)}
+                      title={isPaymentLedgerLocked(order.booking_status) ? bookingEditLockedMessage(order.booking_status, { noun: 'order' }) : 'Edit'}
+                      className={`flex items-center justify-center w-[30px] h-[30px] rounded-[9px] border transition-colors ${isPaymentLedgerLocked(order.booking_status) ? 'border-slate-200 text-slate-300' : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}
+                    >
+                      {isPaymentLedgerLocked(order.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
+                    </button>
+                    <button onClick={() => handleDelete(order.booking_id)} title="Delete (password required)" className="flex items-center justify-center w-[30px] h-[30px] rounded-[9px] border border-slate-200 text-red-300 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="hidden 2xl:block overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-[#fbfcfd] border-b border-slate-100">
@@ -1320,9 +1442,9 @@ export default function ShortOrders() {
                   />
                 </th>
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[130px]">Customer</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Created</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px] hidden min-[1800px]:table-cell">Created</th>
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Event Date</th>
-                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[100px]">Venue</th>
+                <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[100px] hidden min-[1800px]:table-cell">Venue</th>
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-16 text-right">Trays</th>
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-28 text-right">Amount</th>
                 <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap min-w-[120px]">Status</th>
@@ -1378,13 +1500,13 @@ export default function ShortOrders() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-[15px] text-sm text-slate-600 tabular-nums">
+                      <td className="px-4 py-[15px] text-sm text-slate-600 tabular-nums hidden min-[1800px]:table-cell">
                         {order.book_datetime ? new Date(order.book_datetime).toLocaleDateString() : 'N/A'}
                       </td>
                       <td className="px-4 py-[15px] text-sm font-medium text-slate-800 tabular-nums">
                         {order.event_datetime ? new Date(order.event_datetime).toLocaleDateString() : 'N/A'}
                       </td>
-                      <td className="px-4 py-[15px] text-sm text-slate-800">{order.venue || 'N/A'}</td>
+                      <td className="px-4 py-[15px] text-sm text-slate-800 hidden min-[1800px]:table-cell">{order.venue || 'N/A'}</td>
                       <td className="px-4 py-[15px] text-sm text-slate-800 text-right tabular-nums">{totalTrays}</td>
                       <td className="px-4 py-[15px] text-[15px] font-semibold text-slate-900 text-right tabular-nums">₱{order.total_amount?.toLocaleString() || '0'}</td>
                       <td className="px-4 py-[15px]">
