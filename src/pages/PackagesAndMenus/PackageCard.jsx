@@ -1,99 +1,131 @@
 // src/pages/PackagesAndMenus/PackageCard.jsx
+import { Trash2 } from 'lucide-react';
 import ImageWithFallback from './ImageWithFallback';
 
+// Shared action-button classes. Deliberately heavier than the rest of the
+// card's chrome: these are the only things on it you can act on, and as 12px
+// text links they read as captions rather than controls.
+const ACTION_BTN = 'px-[13px] py-[7px] text-[13px] font-semibold rounded-[9px] border border-slate-300 '
+  + 'bg-white text-slate-700 transition-colors hover:bg-[#f4f9f6] hover:border-[#c9dfd4] hover:text-[#007038] '
+  + 'focus:outline-none focus:ring-2 focus:ring-[#008A45]/40';
+
+const STAT_LABEL = 'block text-[12.5px] text-slate-600 mb-1';
+const STAT_VALUE = 'block text-xl font-semibold tracking-[-0.02em] tabular-nums text-slate-900';
+
 export default function PackageCard({ pkg, categoryNames, equipmentNames, onEdit, onArchive, onDelete }) {
+  const isArchived = pkg.pkg_availability === 'Archived';
+  // Extra-pax pricing only means anything on a fixed package that caps its
+  // headcount -- on a per-pax package every guest is already charged, so
+  // showing an "extra pax" rate there would describe a charge that is never
+  // applied. Same condition the card has always used.
+  const showExtraPax = pkg.pricing_type === 'fixed' && pkg.max_pax && pkg.extra_pax_price > 0;
+
   return (
-    <div className="flex flex-col md:flex-row bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md hover:border-[#008A45]/30 transition-all">
-      <div className="w-full md:w-72 h-48 md:h-auto bg-slate-200 shrink-0 relative">
+    <div className="flex flex-col md:flex-row bg-white border border-slate-200/70 rounded-2xl overflow-hidden transition-all hover:border-[#c9dfd4] hover:shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
+      <div className="w-full md:w-[236px] h-48 md:h-auto bg-slate-100 shrink-0 relative">
         <ImageWithFallback src={pkg.pkg_image} alt={pkg.pkg_name} className="w-full h-full object-cover" />
       </div>
-      <div className="p-6 flex-1 flex flex-col justify-between">
-        <div>
-          <div className="flex flex-wrap justify-between items-start gap-4 mb-2">
-            <div>
-              <h3 className="text-xl font-bold text-slate-900">{pkg.pkg_name}</h3>
-              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium mt-1 ${
-                pkg.pricing_type === 'fixed'
-                  ? 'bg-purple-50 border border-purple-200 text-purple-700'
-                  : 'bg-blue-50 border border-blue-200 text-blue-700'
+
+      <div className="px-[22px] py-5 flex-1 flex flex-col gap-3.5">
+        {/* title + actions */}
+        <div className="flex flex-wrap justify-between items-start gap-4">
+          <div className="min-w-0">
+            <h3 className="text-[19px] font-bold tracking-[-0.015em] text-slate-900">{pkg.pkg_name}</h3>
+            <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+              <span className={`inline-flex px-2.5 py-[3px] rounded-full text-[12.5px] font-semibold whitespace-nowrap ${
+                pkg.pricing_type === 'fixed' ? 'bg-[#f6edfe] text-purple-700' : 'bg-blue-50 text-blue-700'
               }`}>
-                {pkg.pricing_type === 'fixed' ? '📦 Fixed Price' : '👤 Per Pax'}
+                {pkg.pricing_type === 'fixed' ? 'Fixed price' : 'Per pax'}
               </span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => onEdit(pkg)}
-                className="px-3 py-1 bg-white border border-slate-300 text-slate-700 text-xs font-semibold rounded-md hover:bg-slate-50 transition-colors"
-              >
-                Edit
-              </button>
-              <button
-                onClick={() => onArchive(pkg.package_id)}
-                className="px-3 py-1 bg-white border border-slate-300 text-slate-700 text-xs font-semibold rounded-md hover:bg-slate-50 transition-colors"
-              >
-                {pkg.pkg_availability === 'Archived' ? 'Unarchive' : 'Archive'}
-              </button>
-              <button
-                onClick={() => onDelete(pkg.package_id)}
-                className="px-3 py-1 bg-red-50 border border-red-200 text-red-600 text-xs font-semibold rounded-md hover:bg-red-100 transition-colors"
-              >
-                Delete
-              </button>
+              {/* Without this an archived package is indistinguishable from a
+                  live one on the Archived tab. */}
+              {isArchived && (
+                <span className="inline-flex px-2.5 py-[3px] rounded-full bg-slate-100 text-slate-600 text-[12.5px] font-semibold whitespace-nowrap">
+                  Archived
+                </span>
+              )}
             </div>
           </div>
-          <p className="text-sm text-slate-600 mb-3 max-w-2xl">{pkg.pkg_description}</p>
+          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+            <button onClick={() => onEdit(pkg)} className={ACTION_BTN}>Edit</button>
+            <button onClick={() => onArchive(pkg.package_id)} className={`${ACTION_BTN} whitespace-nowrap`}>
+              {isArchived ? 'Unarchive' : 'Archive'}
+            </button>
+            <button
+              onClick={() => onDelete(pkg.package_id)}
+              title="Delete"
+              className="flex items-center justify-center w-8 h-8 rounded-[9px] border border-slate-300 bg-white text-red-500 transition-colors hover:bg-red-50 hover:text-red-700 hover:border-red-300 focus:outline-none focus:ring-2 focus:ring-red-400/40"
+            >
+              <Trash2 size={15} />
+            </button>
+          </div>
+        </div>
 
-          {categoryNames.length > 0 && (
-            <div className="mb-3">
-              <p className="text-xs font-medium text-slate-500 mb-1.5">Included Categories:</p>
-              <div className="flex flex-wrap gap-1.5">
-                {categoryNames.map((name, index) => (
-                  <span key={index} className="px-2.5 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full border border-blue-200">
-                    {name}
-                  </span>
-                ))}
-              </div>
+        {pkg.pkg_description && (
+          <p className="text-sm text-slate-600 max-w-[620px] [text-wrap:pretty]">{pkg.pkg_description}</p>
+        )}
+
+        {/* Pricing was last and smallest on the card while being the thing
+            people scan for. Its own band, above the chips. */}
+        <div className="flex flex-wrap gap-[22px] py-3.5 border-y border-slate-100">
+          <div>
+            <span className={STAT_LABEL}>{pkg.pricing_type === 'fixed' ? 'Fixed price' : 'Price per pax'}</span>
+            <span className={STAT_VALUE}>
+              ₱{Number(pkg.pkg_price).toLocaleString()}
+              {pkg.pricing_type === 'per_pax' && <span className="text-sm font-medium text-slate-600">/pax</span>}
+            </span>
+          </div>
+          <div>
+            <span className={STAT_LABEL}>Min pax</span>
+            <span className={STAT_VALUE}>{pkg.minimum_pax}</span>
+          </div>
+          {pkg.pricing_type === 'fixed' && pkg.max_pax && (
+            <div>
+              <span className={STAT_LABEL}>Max pax included</span>
+              <span className={STAT_VALUE}>{pkg.max_pax}</span>
             </div>
           )}
-
-          {equipmentNames.length > 0 && (
-            <div className="mb-3">
-              <p className="text-xs font-medium text-slate-500 mb-1.5">Included Equipment:</p>
-              <div className="flex flex-wrap gap-1.5">
-                {equipmentNames.map((item, index) => (
-                  <span key={index} className="px-2.5 py-0.5 bg-[#EAF3F2] text-slate-700 text-xs rounded-full border border-[#CBDEDD]">
-                    {item.name}
-                  </span>
-                ))}
-              </div>
+          {showExtraPax && (
+            <div>
+              <span className={STAT_LABEL}>Extra pax</span>
+              <span className={STAT_VALUE}>
+                ₱{Number(pkg.extra_pax_price).toLocaleString()}
+                <span className="text-sm font-medium text-slate-600">/pax</span>
+              </span>
             </div>
           )}
+        </div>
 
-          <div className="flex gap-8 flex-wrap">
-            <div>
-              <p className="text-xs text-slate-500 mb-0.5">
-                {pkg.pricing_type === 'fixed' ? 'Fixed Price' : 'Price per Pax'}
-              </p>
-              <p className="font-bold text-slate-900">
-                ₱{Number(pkg.pkg_price).toLocaleString()}
-                {pkg.pricing_type === 'per_pax' && <span className="text-sm font-normal text-slate-500">/pax</span>}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-500 mb-0.5">Min pax.</p>
-              <p className="font-bold text-slate-900">{pkg.minimum_pax}</p>
-            </div>
-            {pkg.pricing_type === 'fixed' && pkg.max_pax && (
-              <div>
-                <p className="text-xs text-slate-500 mb-0.5">Max pax included</p>
-                <p className="font-bold text-slate-900">{pkg.max_pax}</p>
-                {pkg.extra_pax_price > 0 && (
-                  <p className="text-xs text-slate-500">Extra: ₱{pkg.extra_pax_price}/pax</p>
-                )}
+        {/* Two short lists side by side rather than stacked -- stacking wasted
+            the width of a full-bleed card. */}
+        {(categoryNames.length > 0 || equipmentNames.length > 0) && (
+          <div className="flex flex-wrap gap-5">
+            {categoryNames.length > 0 && (
+              <div className="min-w-0">
+                <p className="text-[12.5px] font-semibold text-slate-600 mb-[7px]">Included categories</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {categoryNames.map((name, index) => (
+                    <span key={index} className="inline-flex px-[11px] py-1 rounded-full bg-slate-100 text-slate-700 text-[12.5px] font-medium whitespace-nowrap">
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {equipmentNames.length > 0 && (
+              <div className="min-w-0">
+                <p className="text-[12.5px] font-semibold text-slate-600 mb-[7px]">Included equipment</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {equipmentNames.map((item, index) => (
+                    <span key={index} className="inline-flex px-[11px] py-1 rounded-full bg-[#EAF3F2] text-[#00703a] text-[12.5px] font-medium whitespace-nowrap">
+                      {item.name}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

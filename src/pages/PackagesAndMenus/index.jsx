@@ -1052,6 +1052,15 @@ export default function PackagesAndMenus() {
   const totalArchived = packages.filter(p => p.pkg_availability === 'Archived').length
     + menuItems.filter(m => m.menu_availability === 'Archived').length;
 
+  // Counts on the tabs themselves, so what sits in Archived is visible without
+  // having to switch to it. Same numbers the stat cards use.
+  const tabCounts = {
+    'All': totalActivePackages + totalActiveMenuItems,
+    'Catering Packages': totalActivePackages,
+    'Menu Items': totalActiveMenuItems,
+    'Archived': totalArchived,
+  };
+
   // --- useEffect to load data on mount ---
   useEffect(() => {
     fetchData();
@@ -1059,22 +1068,21 @@ export default function PackagesAndMenus() {
 
   // ========== RENDER ==========
   return (
-    <div className="space-y-6 relative pb-12">
+    <div className="space-y-[18px] relative pb-12">
       {/* HEADER */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Packages & Menu</h1>
-          <p className="text-sm text-slate-500">
-            Manage catering packages and short‑order menu items.
-            <span className="block text-xs text-slate-400 mt-1">
-              Menu items for short orders are priced <strong>per tray</strong> – each tray serves 35‑50 pax.
-            </span>
+          <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Packages &amp; Menu</h1>
+          {/* The per-tray fact moved to the menu section subhead, where it is
+              actually relevant, instead of a 12px grey line nested in a 14px one. */}
+          <p className="text-[14.5px] text-slate-600 mt-1.5 max-w-[560px] [text-wrap:pretty]">
+            Catering packages and short-order menu items. Menu items are priced per tray, serving 35–50 pax.
           </p>
         </div>
         <div className="flex items-center gap-3">
           <button
             onClick={() => handleOpenCategoryModal()}
-            className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 px-4 py-2 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-xs"
+            className="bg-white border border-slate-300 text-slate-700 px-4 py-2.5 rounded-[10px] font-semibold transition-colors flex items-center gap-2 text-sm whitespace-nowrap shadow-sm hover:bg-[#f4f9f6] hover:border-[#c9dfd4] hover:text-[#007038] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -1083,7 +1091,7 @@ export default function PackagesAndMenus() {
           </button>
           <button
             onClick={() => handleOpenModal('Package')}
-            className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors flex items-center gap-2 shadow-sm"
+            className="bg-[#008A45] hover:bg-[#007038] text-white px-[17px] py-2.5 rounded-[10px] font-bold text-sm transition-all flex items-center gap-2 whitespace-nowrap shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 focus:ring-offset-1"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
@@ -1094,30 +1102,33 @@ export default function PackagesAndMenus() {
       </div>
 
       {/* STAT CARDS */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))]">
         <button
           onClick={() => handleTabChange('Catering Packages')}
-          className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
+          className="relative overflow-hidden bg-white border border-slate-200/70 rounded-[15px] px-5 py-[17px] text-left cursor-pointer transition-all hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
         >
-          <p className="text-xs font-semibold text-slate-600 mb-1">Total Packages</p>
-          <h3 className="text-3xl font-extrabold text-[#008A45]">{totalActivePackages}</h3>
-          <p className="text-[10px] text-slate-400 group-hover:text-[#008A45] transition-colors mt-1">Click to view</p>
+          <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
+          <span className="block text-[13px] font-semibold text-slate-600 mb-2 whitespace-nowrap">Catering packages</span>
+          <span className="block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{totalActivePackages}</span>
+          <span className="block text-[13px] text-slate-600 mt-2.5">Active and bookable</span>
         </button>
         <button
           onClick={() => handleTabChange('Menu Items')}
-          className="bg-white border border-slate-200 border-l-4 border-l-blue-500 rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
+          className="relative overflow-hidden bg-white border border-slate-200/70 rounded-[15px] px-5 py-[17px] text-left cursor-pointer transition-all hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
         >
-          <p className="text-xs font-semibold text-slate-600 mb-1">Total Menu Items</p>
-          <h3 className="text-3xl font-extrabold text-blue-700">{totalActiveMenuItems}</h3>
-          <p className="text-[10px] text-slate-400 group-hover:text-blue-600 transition-colors mt-1">Click to view</p>
+          <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-purple-600" />
+          <span className="block text-[13px] font-semibold text-slate-600 mb-2 whitespace-nowrap">Menu items</span>
+          <span className="block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{totalActiveMenuItems}</span>
+          <span className="block text-[13px] text-slate-600 mt-2.5">Sold as short orders</span>
         </button>
         <button
           onClick={() => handleTabChange('Archived')}
-          className="bg-white border border-slate-200 border-l-4 border-l-slate-400 rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
+          className="relative overflow-hidden bg-white border border-slate-200/70 rounded-[15px] px-5 py-[17px] text-left cursor-pointer transition-all hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
         >
-          <p className="text-xs font-semibold text-slate-600 mb-1">Archived</p>
-          <h3 className="text-3xl font-extrabold text-slate-600">{totalArchived}</h3>
-          <p className="text-[10px] text-slate-400 group-hover:text-slate-600 transition-colors mt-1">Click to view</p>
+          <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-slate-400" />
+          <span className="block text-[13px] font-semibold text-slate-600 mb-2 whitespace-nowrap">Archived</span>
+          <span className="block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{totalArchived}</span>
+          <span className="block text-[13px] text-slate-600 mt-2.5">Hidden from booking</span>
         </button>
       </div>
 
@@ -1126,27 +1137,30 @@ export default function PackagesAndMenus() {
       items don't), Menu Items gets just Category (a menu item only ever
       belongs to one category, unlike a package which can span several).
       All/Archived mix both types, so they get the generic combined set. */}
-      <div className={`bg-white rounded-2xl border p-4 flex flex-wrap items-center gap-3 ${activeCatalogFilterCount > 0 ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200'}`}>
+      {/* The bar used to signal "filtered" three ways at once -- tinted panel,
+          count pill, and emerald inputs. The count pill is the clearest, so it
+          stays and the panel tint goes. */}
+      <div className="bg-white rounded-2xl border border-slate-200/70 px-[18px] py-4 flex flex-wrap items-center gap-2.5">
         {activeCatalogFilterCount > 0 && (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shrink-0">
             {activeCatalogFilterCount} active
           </span>
         )}
         <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+          <Search className="absolute left-[13px] top-1/2 -translate-y-1/2 text-slate-400" size={16} />
           <input
             type="text"
             placeholder={isPackagesTab ? 'Search packages by name or description...' : isMenuItemsTab ? 'Search menu items by name or description...' : 'Search by name or description...'}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className={`w-full pl-8 pr-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${searchTerm.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
+            className={`w-full pl-[38px] pr-3.5 py-[11px] border rounded-[10px] text-sm text-slate-800 focus:ring-[3px] focus:ring-[#008A45]/12 focus:border-[#008A45] outline-none bg-white ${searchTerm.trim() ? 'border-[#008A45]' : 'border-slate-200'}`}
           />
         </div>
         <Select
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}
           title={isPackagesTab ? 'Filter by a category included in the package' : 'Filter by category'}
-          className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${categoryFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
+          className={`border rounded-[10px] px-3.5 py-[11px] text-sm text-slate-800 bg-white focus:ring-[3px] focus:ring-[#008A45]/12 focus:border-[#008A45] outline-none ${categoryFilter !== 'All' ? 'border-[#008A45]' : 'border-slate-200'}`}
         >
           <option value="All">All categories</option>
           {categories.map(cat => (
@@ -1158,7 +1172,7 @@ export default function PackagesAndMenus() {
             value={pricingTypeFilter}
             onChange={(e) => setPricingTypeFilter(e.target.value)}
             title="Filter by pricing type"
-            className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${pricingTypeFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
+            className={`border rounded-[10px] px-3.5 py-[11px] text-sm text-slate-800 bg-white focus:ring-[3px] focus:ring-[#008A45]/12 focus:border-[#008A45] outline-none ${pricingTypeFilter !== 'All' ? 'border-[#008A45]' : 'border-slate-200'}`}
           >
             <option value="All">All pricing types</option>
             <option value="per_pax">Per Pax</option>
@@ -1168,28 +1182,36 @@ export default function PackagesAndMenus() {
         {activeCatalogFilterCount > 0 && (
           <button
             onClick={clearCatalogFilters}
-            className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors cursor-pointer"
+            className="text-[13px] font-semibold text-slate-600 hover:text-red-600 transition-colors cursor-pointer"
           >
             Clear filters
           </button>
         )}
+        {/* The page never said how much you were looking at. */}
+        <span className="ml-auto text-[13.5px] text-slate-600 tabular-nums whitespace-nowrap">
+          {displayedPackages.length + displayedMenuItems.length} result{displayedPackages.length + displayedMenuItems.length === 1 ? '' : 's'}
+        </span>
       </div>
 
       {/* TABS */}
-      <div className="border-b border-slate-200">
-        <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
+      <div className="border-b border-slate-200/80">
+        <nav className="-mb-px flex gap-0.5 overflow-x-auto" aria-label="Tabs">
           {['All', 'Catering Packages', 'Menu Items', 'Archived'].map((tab) => (
             <button
               key={tab}
               onClick={() => handleTabChange(tab)}
-              className={`
-                whitespace-nowrap py-3 px-1 border-b-2 font-semibold text-sm transition-colors
-                ${activeTab === tab
-                  ? 'border-[#008A45] text-slate-900'
-                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'}
-              `}
+              className={`shrink-0 flex items-center gap-[7px] whitespace-nowrap px-[15px] py-[11px] border-b-2 text-[14.5px] transition-colors ${
+                activeTab === tab
+                  ? 'border-[#008A45] text-[#007038] font-bold'
+                  : 'border-transparent text-slate-600 font-semibold hover:text-slate-900'
+              }`}
             >
               {tab}
+              <span className={`inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full text-[12.5px] font-bold tabular-nums ${
+                activeTab === tab ? 'bg-[#EAF3F2] text-[#00703a]' : 'bg-slate-100 text-slate-600'
+              }`}>
+                {tabCounts[tab]}
+              </span>
             </button>
           ))}
         </nav>
@@ -1197,7 +1219,7 @@ export default function PackagesAndMenus() {
 
       {/* CONTENT */}
       {isLoading ? (
-        <div className="w-full py-20 flex justify-center items-center text-slate-400 font-medium animate-pulse">
+        <div className="w-full py-20 flex justify-center items-center text-slate-500 font-medium">
           <svg className="w-6 h-6 mr-2 animate-spin text-[#008A45]" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
@@ -1205,17 +1227,25 @@ export default function PackagesAndMenus() {
           Loading catalog data...
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-[18px]">
           {/* Packages */}
           {showPackages && (
-            <div className="space-y-4">
+            <div className="space-y-3.5">
               {(activeTab === 'All' || activeTab === 'Catering Packages') && (
-                <h3 className="text-lg font-bold text-slate-900 border-b pb-2">Catering Packages</h3>
+                <div className="flex items-baseline justify-between gap-3">
+                  <h2 className="text-[17px] font-bold tracking-[-0.015em] text-slate-900">Catering packages</h2>
+                  <span className="text-[13.5px] text-slate-600 tabular-nums whitespace-nowrap">
+                    {displayedPackages.length} package{displayedPackages.length === 1 ? '' : 's'}
+                  </span>
+                </div>
               )}
               {displayedPackages.length === 0 && (
-                <p className="text-sm text-slate-500 italic">
-                  {activeCatalogFilterCount > 0 ? 'No packages match your search/filter.' : 'No packages found.'}
-                </p>
+                <div className="py-10 px-6 border border-dashed border-slate-200 rounded-2xl bg-white text-center">
+                  <p className="text-[14.5px] font-semibold text-slate-700">No packages in this view</p>
+                  <p className="text-[13.5px] text-slate-600 mt-1.5">
+                    {activeCatalogFilterCount > 0 ? 'Adjust the search or category filter, or add a new package.' : 'Add a package to get started.'}
+                  </p>
+                </div>
               )}
               {displayedPackages.map((pkg) => (
                 <PackageCard
@@ -1235,19 +1265,36 @@ export default function PackagesAndMenus() {
           {showMenuItems && (
             <div className={`${activeTab === 'Archived' && displayedPackages.length > 0 ? 'border-t pt-8' : ''}`}>
               {(activeTab === 'All' || activeTab === 'Archived') && (
-                <h3 className="text-lg font-bold text-slate-900 mb-4 border-b pb-2">
-                  {activeTab === 'Archived' ? 'Archived Menu Items' : 'Individual Menu Items (Short Orders)'}
-                </h3>
+                <div className="mb-4">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <h2 className="text-[17px] font-bold tracking-[-0.015em] text-slate-900">{activeTab === 'Archived' ? 'Archived menu items' : 'Menu items'}</h2>
+                    <span className="text-[13.5px] text-slate-600 tabular-nums whitespace-nowrap">
+                      {displayedMenuItems.length} item{displayedMenuItems.length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                  <p className="text-[13.5px] text-slate-600 mt-1.5">Sold individually as short orders. Each tray serves 35–50 pax.</p>
+                </div>
               )}
               {activeTab === 'Menu Items' && (
-                <h3 className="text-lg font-bold text-slate-900 mb-4 border-b pb-2">Individual Menu Items (Short Orders)</h3>
+                <div className="mb-4">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <h2 className="text-[17px] font-bold tracking-[-0.015em] text-slate-900">Menu items</h2>
+                    <span className="text-[13.5px] text-slate-600 tabular-nums whitespace-nowrap">
+                      {displayedMenuItems.length} item{displayedMenuItems.length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                  <p className="text-[13.5px] text-slate-600 mt-1.5">Sold individually as short orders. Each tray serves 35–50 pax.</p>
+                </div>
               )}
               {displayedMenuItems.length === 0 ? (
-                <p className="text-sm text-slate-500 italic">
-                  {activeCatalogFilterCount > 0 ? 'No menu items match your search/filter.' : 'No menu items found.'}
-                </p>
+                <div className="py-10 px-6 border border-dashed border-slate-200 rounded-2xl bg-white text-center">
+                  <p className="text-[14.5px] font-semibold text-slate-700">No menu items in this view</p>
+                  <p className="text-[13.5px] text-slate-600 mt-1.5">
+                    {activeCatalogFilterCount > 0 ? 'Adjust the search or category filter, or add a new menu item.' : 'Add a menu item to get started.'}
+                  </p>
+                </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fill,minmax(min(100%,236px),1fr))]">
                   {displayedMenuItems.map((item) => (
                     <MenuItemCard
                       key={item.menu_item_id}
