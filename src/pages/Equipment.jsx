@@ -1275,53 +1275,102 @@ export default function Equipment() {
   // This also matches the rule the rest of the equipment logic already
   // follows: every availability query in utils/equipment.jsx filters on
   // ACTIVE_BOOKING_STATUSES, per the note on that constant.
+  // What one booking's package calls for, what is actually assigned against
+  // it, and therefore what is still missing.
+  //
+  // Extracted from upcomingPrep so the Assign modal can ask the same question
+  // about any booking a manager searches for, not just the ones inside the
+  // 14-day prep horizon. One definition, two callers — the modal can never
+  // tell a manager a booking needs something the prep view says it doesn't.
+  const getBookingEquipmentLines = (b) => {
+    if (!b) return { lines: [], shortLines: [], unitsShort: 0, hasTemplate: false, totalAssignedUnits: 0, isReady: true };
+
+    const required = deriveEquipmentDemand(templateByPackage[b.package_id] || [], equipmentById, b.pax_count);
+
+    // Only unreturned rows count as "assigned for this event" — a row
+    // already returned is history, not preparation.
+    const assignedByEquipment = {};
+    assignments
+      .filter(a => a.booking_id === b.booking_id && !a.returned)
+      .forEach(a => {
+        assignedByEquipment[a.equipment_id] = (assignedByEquipment[a.equipment_id] || 0) + (a.quantity || 0);
+      });
+
+    // Union of both sides: an item can be required but unassigned, or
+    // assigned as an extra the package template never listed. Showing
+    // only the template would hide the second kind entirely.
+    const allIds = [...new Set([...Object.keys(required), ...Object.keys(assignedByEquipment)])];
+    const lines = allIds.map(id => {
+      const req = required[id] || 0;
+      const got = assignedByEquipment[id] || 0;
+      return {
+        equipment_id: id,
+        name: equipmentById[id]?.eqm_name || 'Unknown item',
+        required: req,
+        assigned: got,
+        short: Math.max(0, req - got),
+        extra: Math.max(0, got - req),
+      };
+    }).sort((a, b2) => (b2.short - a.short) || a.name.localeCompare(b2.name));
+
+    const shortLines = lines.filter(l => l.short > 0);
+    return {
+      lines,
+      shortLines,
+      unitsShort: shortLines.reduce((sum, l) => sum + l.short, 0),
+      hasTemplate: (templateByPackage[b.package_id] || []).length > 0,
+      totalAssignedUnits: Object.values(assignedByEquipment).reduce((s, n) => s + n, 0),
+      isReady: shortLines.length === 0,
+    };
+  };
+
+  // The selected booking's equipment plan: what its package calls for, what is
+  // already allocated against it, and what is therefore still missing. Same
+  // helper the Upcoming tab uses, so the modal cannot tell a manager a booking
+  // needs something the prep view says it does not.
+  const assignPlan = getBookingEquipmentLines(selectedBooking);
+  // Shortfalls not already sitting in this session's queue.
+  const unqueuedShortLines = assignPlan.shortLines.filter(
+    l => !assignmentQueue.some(q => q.equipment_id === l.equipment_id)
+  );
+
+  // Queue every missing item at exactly its shortfall. This is the
+  // anti-overlap path: it can only ever add what the template still calls for,
+  // so it cannot double up on what approval already allocated.
+  const queueAllMissing = () => {
+    if (!selectedBooking) {
+      toast.error('Select a booking first.');
+      return;
+    }
+    const additions = [];
+    const skipped = [];
+    unqueuedShortLines.forEach(l => {
+      // Never offer more than is actually free on the event's date -- the same
+      // date-scoped number the picker and the submit check both use.
+      const free = freeOnDateFor(l.equipment_id);
+      const cap = free !== null ? free : l.short;
+      const take = Math.min(l.short, cap);
+      if (take > 0) additions.push({ equipment_id: l.equipment_id, quantity: take });
+      if (take < l.short) skipped.push(`${l.name} (${l.short - take} still uncovered)`);
+    });
+    if (additions.length === 0) {
+      toast.error('Nothing can be added — the missing items are already committed to other events on this date.');
+      return;
+    }
+    setAssignmentQueue([...assignmentQueue, ...additions]);
+    if (skipped.length > 0) {
+      toast.error(`Added what is free on this date. Still uncovered: ${skipped.join(', ')}.`);
+    }
+  };
+
   const upcomingPrep = bookings
     .filter(b => ACTIVE_BOOKING_STATUSES.includes(b.booking_status) && isInPrepWindow(b))
-    .map(b => {
-      const required = deriveEquipmentDemand(templateByPackage[b.package_id] || [], equipmentById, b.pax_count);
-
-      // Only unreturned rows count as "assigned for this event" — a row
-      // already returned is history, not preparation.
-      const assignedByEquipment = {};
-      assignments
-        .filter(a => a.booking_id === b.booking_id && !a.returned)
-        .forEach(a => {
-          assignedByEquipment[a.equipment_id] = (assignedByEquipment[a.equipment_id] || 0) + (a.quantity || 0);
-        });
-
-      // Union of both sides: an item can be required but unassigned, or
-      // assigned as an extra the package template never listed. Showing
-      // only the template would hide the second kind entirely.
-      const allIds = [...new Set([...Object.keys(required), ...Object.keys(assignedByEquipment)])];
-      const lines = allIds.map(id => {
-        const req = required[id] || 0;
-        const got = assignedByEquipment[id] || 0;
-        return {
-          equipment_id: id,
-          name: equipmentById[id]?.eqm_name || 'Unknown item',
-          required: req,
-          assigned: got,
-          short: Math.max(0, req - got),
-          extra: Math.max(0, got - req),
-        };
-      }).sort((a, b2) => (b2.short - a.short) || a.name.localeCompare(b2.name));
-
-      const shortLines = lines.filter(l => l.short > 0);
-      const unitsShort = shortLines.reduce((sum, l) => sum + l.short, 0);
-      const daysUntil = Math.ceil((new Date(b.event_datetime) - now) / (24 * 60 * 60 * 1000));
-
-      return {
-        ...b,
-        lines,
-        shortLines,
-        unitsShort,
-        hasTemplate: (templateByPackage[b.package_id] || []).length > 0,
-        totalAssignedUnits: Object.values(assignedByEquipment).reduce((s, n) => s + n, 0),
-        isReady: shortLines.length === 0,
-        canAssign: canAssignEquipmentTo(b.booking_status),
-        daysUntil,
-      };
-    });
+    .map(b => ({
+      ...b,
+      ...getBookingEquipmentLines(b),
+      canAssign: canAssignEquipmentTo(b.booking_status),
+      daysUntil: Math.ceil((new Date(b.event_datetime) - now) / (24 * 60 * 60 * 1000)),
+    }));
 
   // ============================================================
   // --- PREP, GROUPED BY DAY ---
@@ -3481,6 +3530,87 @@ export default function Equipment() {
                       </div>
                     )}
                   </div>
+                </div>
+              )}
+
+              {/* ---- WHAT THIS PACKAGE CALLS FOR ----
+                  Approval allocates the whole package template, so most of what
+                  a booking needs is usually already there. Without seeing that,
+                  a manager assigning here is guessing at what is left, and only
+                  finds out something is already covered when addToQueue rejects
+                  it. This states the position before anything is picked:
+                  required, already allocated, still missing. */}
+              {selectedBooking && (
+                <div className="border border-slate-200 rounded-lg overflow-hidden">
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-[#fbfcfd] border-b border-slate-100">
+                    <p className="text-[13px] font-bold text-slate-700 flex items-center gap-1.5">
+                      <ClipboardList size={13} /> What this package calls for
+                    </p>
+                    {unqueuedShortLines.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={queueAllMissing}
+                        className="inline-flex items-center gap-1.5 px-3 py-[7px] rounded-[9px] bg-[#008A45] hover:bg-[#007038] text-white text-[12.5px] font-semibold whitespace-nowrap transition-colors cursor-pointer"
+                      >
+                        <Plus size={13} /> Add all missing ({assignPlan.unitsShort})
+                      </button>
+                    )}
+                  </div>
+
+                  {!assignPlan.hasTemplate ? (
+                    <p className="px-4 py-3 text-[13px] text-amber-700">
+                      This package has no equipment template, so approval allocated nothing automatically. Everything for this event has to be assigned here.
+                    </p>
+                  ) : assignPlan.lines.length === 0 ? (
+                    <p className="px-4 py-3 text-[13px] text-slate-600">Nothing recorded for this booking yet.</p>
+                  ) : (
+                    <>
+                      <div className="max-h-40 overflow-y-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-white border-b border-slate-100">
+                              <th className="px-4 py-2 text-[11.5px] font-bold uppercase tracking-[0.05em] text-slate-600">Item</th>
+                              <th className="px-3 py-2 text-[11.5px] font-bold uppercase tracking-[0.05em] text-slate-600 text-right whitespace-nowrap">Needs</th>
+                              <th className="px-3 py-2 text-[11.5px] font-bold uppercase tracking-[0.05em] text-slate-600 text-right whitespace-nowrap">Allocated</th>
+                              <th className="px-4 py-2 text-[11.5px] font-bold uppercase tracking-[0.05em] text-slate-600 text-right whitespace-nowrap">Missing</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {assignPlan.lines.map(l => {
+                              const queued = assignmentQueue
+                                .filter(q => q.equipment_id === l.equipment_id)
+                                .reduce((sum, q) => sum + (q.quantity || 0), 0);
+                              return (
+                                <tr key={l.equipment_id} className={l.short > 0 ? 'bg-[#fefafa]' : ''}>
+                                  <td className="px-4 py-2 text-[13px] text-slate-800">
+                                    {l.name}
+                                    {/* An item with no required figure was never in the
+                                        template -- it is an extra someone added. */}
+                                    {l.required === 0 && (
+                                      <span className="ml-2 text-[11.5px] font-semibold px-2 py-[2px] rounded-full bg-slate-100 text-slate-600">Extra</span>
+                                    )}
+                                    {queued > 0 && (
+                                      <span className="ml-2 text-[11.5px] font-semibold px-2 py-[2px] rounded-full bg-[#EAF3F2] text-[#00703a]">+{queued} queued</span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2 text-[13px] text-right tabular-nums text-slate-600">{l.required || '—'}</td>
+                                  <td className="px-3 py-2 text-[13px] text-right tabular-nums text-slate-800">{l.assigned}</td>
+                                  <td className={`px-4 py-2 text-[13px] text-right tabular-nums font-semibold ${l.short > 0 ? 'text-red-700' : 'text-slate-400'}`}>
+                                    {l.short > 0 ? l.short : '—'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="px-4 py-2.5 border-t border-slate-100 bg-[#fbfcfd] text-[12.5px] text-slate-600">
+                        {assignPlan.isReady
+                          ? 'Everything this package calls for is already allocated. Anything added here is an extra on top of the template.'
+                          : `${assignPlan.unitsShort} unit${assignPlan.unitsShort === 1 ? '' : 's'} still missing against the template.`}
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
 
