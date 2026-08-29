@@ -1,7 +1,7 @@
 // src/pages/Login.jsx
 import { useState, useEffect } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Eye, EyeOff, Mail, Lock, AlertCircle, Info, Check } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
@@ -155,61 +155,107 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-white font-sans">
-      <header className="bg-[#008A45] text-white h-[72px] flex items-center px-6 w-full shrink-0 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-sm flex-shrink-0">
+    <div className="min-h-screen flex font-sans">
+      {/* BRAND PANEL — the old green header bar and the footer both fold into
+          this. Hidden below lg, where the form stands alone with the mobile
+          logo block instead, so nothing is lost on a phone. */}
+      <div className="relative overflow-hidden flex-[1_1_46%] min-w-0 hidden lg:flex flex-col justify-between px-12 py-11 bg-[linear-gradient(155deg,#00753b_0%,#008A45_45%,#00A854_100%)]">
+        {/* Depth without an image asset. */}
+        <div className="absolute -top-[120px] -right-[140px] w-[420px] h-[420px] rounded-full bg-white/[0.06]" />
+        <div className="absolute -bottom-[180px] -left-[120px] w-[460px] h-[460px] rounded-full bg-white/[0.05]" />
+        <div className="absolute top-[190px] right-[90px] w-[130px] h-[130px] rounded-full bg-white/[0.04]" />
+
+        <div className="relative flex items-center gap-3">
+          <div className="w-[46px] h-[46px] rounded-full overflow-hidden bg-white/10 ring-2 ring-white/50 shrink-0">
             <img src="/logo.svg" alt="CaterSync" className="w-full h-full object-cover" />
           </div>
-          <h1 className="text-2xl font-bold tracking-wide">CaterSync</h1>
-        </div>
-      </header>
-
-      <main className="flex-1 flex flex-col items-center justify-center px-4 py-12">
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-slate-900 mb-2">Welcome back</h2>
-          <p className="text-lg text-slate-700">Sign-in to your account</p>
+          <span className="text-[22px] font-bold tracking-[0.02em] text-white">CaterSync</span>
         </div>
 
-        <div className="bg-[#F8F9FA] border-2 border-slate-200 rounded-lg shadow-lg w-full max-w-md p-10">
-          <h3 className="text-2xl font-bold text-slate-900 text-center mb-6">Login</h3>
+        <div className="relative max-w-[420px]">
+          <h2 className="text-[34px] leading-[1.2] font-bold tracking-[-0.025em] text-white [text-wrap:pretty]">
+            Every event, every tray, every peso — in one place.
+          </h2>
+          <p className="mt-4 text-[15.5px] leading-[1.55] text-white/80 [text-wrap:pretty]">
+            The manager console for PG&apos;s Catering. Bookings, payments, equipment and fleet, from one dashboard.
+          </p>
+          <div className="flex flex-wrap gap-2.5 mt-8 pt-[26px] border-t border-white/[0.18]">
+            {['Bookings & short orders', 'Payment verification', 'Equipment & fleet', 'Reports'].map(f => (
+              <span key={f} className="inline-flex items-center gap-2 pl-3 pr-3.5 py-[7px] rounded-full bg-white/[0.12] text-[13.5px] font-medium text-white/90 whitespace-nowrap">
+                <Check size={13} className="shrink-0" /> {f}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <p className="relative text-[13px] text-white/60">
+          &copy; {new Date().getFullYear()} PG&apos;s Catering. All rights reserved.
+        </p>
+      </div>
+
+      {/* FORM PANEL */}
+      <div className="flex-[1_1_54%] min-w-0 flex items-center justify-center px-8 py-11 bg-slate-50">
+        <div className="w-full max-w-[392px]">
+          <div className="flex lg:hidden items-center gap-3 mb-8">
+            <div className="w-11 h-11 rounded-full overflow-hidden ring-2 ring-[#008A45]/20 shrink-0">
+              <img src="/logo.svg" alt="CaterSync" className="w-full h-full object-cover" />
+            </div>
+            <span className="text-xl font-bold text-slate-900">CaterSync</span>
+          </div>
+
+          {/* One heading. The page previously said the same thing three times
+              in three sizes: "Welcome back", "Sign-in to your account", "Login". */}
+          <h1 className="text-[28px] font-bold tracking-[-0.025em] text-slate-900">Welcome back</h1>
+          <p className="mt-2 mb-[30px] text-[15px] text-slate-600">Sign in to your account.</p>
 
           {errorMsg && (
-            <div className="mb-6 p-3 bg-red-50 border border-red-200 text-red-600 text-sm rounded-md text-center">
-              {errorMsg}
+            <div className="flex items-start gap-2.5 mb-[22px] px-[15px] py-3.5 border border-[#f3c9c9] rounded-[11px] bg-[#fef4f4]">
+              <AlertCircle size={16} className="shrink-0 mt-px text-red-700" />
+              <span className="text-[13.5px] leading-[1.45] text-red-700 [text-wrap:pretty]">{errorMsg}</span>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="flex flex-col gap-[18px]">
             <div>
-              <label htmlFor="email" className="block text-xs font-semibold text-slate-500 mb-1">
+              <label htmlFor="email" className="block text-[13px] font-semibold text-slate-700 mb-[7px]">
                 Email
               </label>
-              <input
-                id="email"
-                type="email"
-                name="email"
-                value={formData.email}
-                onChange={handleInputChange}
-                className="w-full border border-slate-300 rounded-md p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
-                required
-                placeholder="Enter your email"
-                disabled={isLoading}
-              />
+              <div className="relative">
+                <Mail size={17} className="absolute left-[15px] top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  id="email"
+                  type="email"
+                  name="email"
+                  value={formData.email}
+                  onChange={handleInputChange}
+                  className="w-full border border-slate-200 rounded-[11px] pl-[42px] pr-[15px] py-[13px] text-[15px] focus:ring-[3px] focus:ring-[#008A45]/12 focus:border-[#008A45] outline-none bg-white"
+                  required
+                  placeholder="Enter your email"
+                  disabled={isLoading}
+                />
+              </div>
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-xs font-semibold text-slate-500 mb-1">
-                Password
-              </label>
+              {/* The forgot-password route existed but nothing linked to it —
+                  the only way there was typing the URL. */}
+              <div className="flex items-baseline justify-between gap-3 mb-[7px]">
+                <label htmlFor="password" className="text-[13px] font-semibold text-slate-700">
+                  Password
+                </label>
+                <Link to="/forgot-password" className="text-[13px] font-semibold text-[#007038] hover:text-[#00532a]">
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
+                <Lock size={17} className="absolute left-[15px] top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
                   name="password"
                   value={formData.password}
                   onChange={handleInputChange}
-                  className="w-full border border-slate-300 rounded-md p-2.5 pr-10 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
+                  className="w-full border border-slate-200 rounded-[11px] pl-[42px] pr-[46px] py-[13px] text-[15px] focus:ring-[3px] focus:ring-[#008A45]/12 focus:border-[#008A45] outline-none bg-white"
                   required
                   placeholder="Enter your password"
                   disabled={isLoading}
@@ -217,7 +263,7 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center justify-center w-[34px] h-[34px] rounded-[9px] text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                   title={showPassword ? 'Hide password' : 'Show password'}
                   disabled={isLoading}
@@ -227,39 +273,39 @@ export default function Login() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between mt-2">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  name="rememberMe"
-                  checked={formData.rememberMe}
-                  onChange={handleInputChange}
-                  className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
-                  disabled={isLoading}
-                />
-                <span className="text-xs font-medium text-slate-500">Remember me</span>
-              </label>
-            </div>
-
-            <div className="pt-4 flex justify-center">
-              <button
-                type="submit"
+            <label className="flex items-center gap-[9px] cursor-pointer select-none">
+              <input
+                type="checkbox"
+                name="rememberMe"
+                checked={formData.rememberMe}
+                onChange={handleInputChange}
+                className="w-[17px] h-[17px] rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
                 disabled={isLoading}
-                className={`bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm py-2.5 px-8 rounded transition-colors shadow-sm ${
-                  isLoading ? 'opacity-70 cursor-not-allowed' : ''
-                }`}
-              >
-                {isLoading ? 'SIGNING IN...' : 'SIGN-IN'}
-              </button>
-            </div>
-          </form>
-        </div>
-      </main>
+              />
+              <span className="text-sm text-slate-700">Remember me</span>
+            </label>
 
-      <footer className="bg-[#C1DEDC] py-5 text-center flex items-center justify-center gap-4 text-xs font-semibold text-slate-800">
-        <span>@2023 all rights reserved</span>
-        <span>PG's Catering</span>
-      </footer>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className={`w-full mt-1 py-3.5 rounded-[11px] bg-[#008A45] hover:bg-[#007038] text-white text-[15px] font-semibold transition-colors ${
+                isLoading ? 'opacity-70 cursor-not-allowed' : ''
+              }`}
+            >
+              {isLoading ? 'Signing in…' : 'Sign in'}
+            </button>
+          </form>
+
+          {/* AuthContext enforces one session per account. Users met that rule
+              only at the moment it blocked them, where it reads like a bug. */}
+          <div className="flex items-start gap-[9px] mt-[26px] pt-[22px] border-t border-slate-100">
+            <Info size={15} className="shrink-0 mt-px text-slate-400" />
+            <p className="text-[13px] leading-[1.5] text-slate-500 [text-wrap:pretty]">
+              Only one session per account. If this account is already signed in elsewhere, you&apos;ll be told where before you can continue.
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
