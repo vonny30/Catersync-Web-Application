@@ -7,6 +7,10 @@ this codebase; treat their decisions as settled unless Vaughn says otherwise.
   business reporting. Money model, defect list, report catalogue, build order.
 - `blueprint-02-language.md` — the UI vocabulary standard and the corrected
   report percentage maths. Screen-by-screen rewrite table.
+- `blueprint-03-dispatch.md` — the Vehicles page: the job of the page, the
+  eight moments where a vehicle attaches to a booking, the dispatch-window
+  model, and a screen-by-screen concept. Phase 1 is built; §9 holds four
+  decisions Vaughn has not answered yet.
 - `panel-revisions-2026-05-29.md` — **every comment from the 1st Increment oral
   defense**, mapped to files and status. Read this before starting new work: it
   is the list the project is actually graded against. 13 of its 32 items are
@@ -103,6 +107,11 @@ Drafted 21 Aug 2026. Line references are against the tree as it stood that day.
   range in the system is trapped against inversion. See the two entries under
   *Conventions worth preserving*.
 
+- **Blueprint 03 Phase 1, the dispatch model** (28 Aug 2026). `utils/vehicle.js`
+  and `Vehicles.jsx`. Nothing looks different except that a second same-day trip
+  stops disappearing — the value is in the four defects closed underneath. See
+  *Conventions worth preserving* and blueprint-03 §8.
+
 **Next up** — the panel queue in `panel-revisions-2026-05-29.md` §6, starting
 with **PR-19** (uncapped queries in `Payments.jsx`, the likely cause of the
 "Fully Paid count doesn't match" comment). Blueprint 02 §9 step 6 — the
@@ -151,6 +160,9 @@ usable figure.
   three pages now import `utils/reportMetrics.js`. Anything new that reports
   money must use it too rather than summing payments inline; that inline sum is
   how three different answers appeared in the first place.
+- ~~Six unbounded vehicle queries.~~ **Fixed** — `Vehicles.jsx` and
+  `utils/vehicle.js` page every read through `fetchAllRows`. `vehicle_assign`
+  is the table most likely to cross 1000 rows next; it grows with every trip.
 - **`booking.status_order` is not maintained by the database.** Every write that
   changes `booking_status` must set the matching `status_order` from
   `utils/bookingStatus.js`, or the row stops sorting into its group.
@@ -214,6 +226,23 @@ usable figure.
   `Aug 23 – Aug 29, 2026`. Both queries read the constant. Don't reintroduce a
   hard-coded `7` — the label and the query drifting apart is exactly the
   ambiguity the panel flagged (PR-15).
+- **`utils/vehicle.js` owns the dispatch window.** A vehicle is exclusive for
+  the length of a **trip**, never for a calendar day — that distinction is the
+  whole reason three vehicles can serve more than three events. `TRIP_PROFILE`
+  and `TURNAROUND_HOURS` are the calibration knobs and are meant to be edited;
+  `getDispatchWindow` and `windowsOverlap` are the only correct way to ask
+  whether two dispatches collide. Never compare event dates with
+  `toDateString()` to answer that question — that comparison is the defect
+  blueprint-03 D1 exists to remove, and `Vehicles.jsx:611` and `:2136` still
+  carry it until Phase 2.
+- **`getDailyVehicleSnapshot` returns an `assignments` ARRAY per vehicle**, not
+  a single slot. The old scalar shape silently kept only the last trip read,
+  which is invisible until the day a van does two runs. Anything consuming the
+  snapshot must handle 0, 1 or many.
+- **A vehicle with dispatch history is retired, not deleted.** Flag issue →
+  Unavailable. Deleting it would take its `vehicle_assign` rows with it, and
+  those rows are what the utilization reports are built from. Same rule as
+  Equipment.
 - **Past dates are trapped at `DateTimePicker.jsx`**, via
   `min={disablePast ? dateStrOffsetDays(minLeadDays) : undefined}`. Bookings,
   ShortOrders and both detail pages pass `minLeadDays={3}`.

@@ -11,10 +11,18 @@
 // don't track equipment. Recomputes equipment demand using the pax count as
 // currently adjusted in the modal (base pax + extra pax), not the original
 // booking value, so it stays accurate while the manager is still editing.
+//
+// Fleet Availability was added 29 Aug 2026 and applies to BOTH booking types,
+// because short orders are delivered too. Three vehicles is the tightest
+// constraint the business has, and until this existed a manager could approve
+// an event on a day the whole fleet was already committed and only discover it
+// at dispatch time. Approving now shows the plan and then commits it, the same
+// way equipment already worked.
 import { useState, useEffect, useRef } from 'react';
-import { Calendar, Clock, Users, PackageCheck, MapPin, Loader2, AlertTriangle, Check } from 'lucide-react';
+import { Calendar, Clock, Users, PackageCheck, MapPin, Loader2, AlertTriangle, Check, Truck } from 'lucide-react';
 import { getBookingsOnDate } from '../utils/availability';
 import { getEquipmentAvailabilityPreview } from '../utils/equipment';
+import { getVehicleAvailabilityPreview } from '../utils/vehicle';
 import { MAX_SHORT_ORDERS_PER_DAY } from '../utils/bookingStatus';
 
 export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, onEquipmentStatusChange }) {
@@ -22,6 +30,8 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
   const [loadingDay, setLoadingDay] = useState(false);
   const [equipmentAvailability, setEquipmentAvailability] = useState([]);
   const [loadingEquipment, setLoadingEquipment] = useState(false);
+  const [fleet, setFleet] = useState(null);
+  const [loadingFleet, setLoadingFleet] = useState(false);
 
   // Keep the latest callback in a ref so the notify-effect below doesn't
   // need it as a dependency — parents often pass an inline function that's
@@ -76,6 +86,31 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
     return () => { cancelled = true; };
   }, [booking?.booking_id, booking?.package_id, effectivePaxCount, booking?.event_datetime]);
 
+  // Fleet check. Depends on pax because the number of vehicles is sized from
+  // it, so it re-runs while the manager adjusts the guest count — same as the
+  // equipment preview above.
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (!booking?.event_datetime) {
+        if (!cancelled) setFleet(null);
+        return;
+      }
+      if (!cancelled) setLoadingFleet(true);
+      try {
+        const data = await getVehicleAvailabilityPreview({ ...booking, pax_count: effectivePaxCount });
+        if (!cancelled) setFleet(data);
+      } catch (err) {
+        console.error('Fleet availability check failed:', err);
+        if (!cancelled) setFleet(null);
+      } finally {
+        if (!cancelled) setLoadingFleet(false);
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [booking?.booking_id, booking?.event_datetime, booking?.booking_type, effectivePaxCount]);
+
   // Report equipment status up to the parent so it can disable the Approve
   // button instead of letting the manager click through and get blocked
   // afterward.
@@ -119,6 +154,16 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
     clear: { wrap: 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-white', bar: 'bg-emerald-500', icon: 'text-emerald-600', pill: 'bg-emerald-600 text-white' },
     warning: { wrap: 'border-amber-200 bg-gradient-to-br from-amber-50 to-white', bar: 'bg-amber-500', icon: 'text-amber-600', pill: 'bg-amber-500 text-white' },
   }[eqStatus];
+
+  const fleetStatus = loadingFleet ? 'loading' : !fleet ? 'empty' : fleet.sufficient ? 'clear' : 'warning';
+  const fleetTheme = {
+    loading: { wrap: 'border-slate-200 bg-slate-50', bar: 'bg-slate-300', icon: 'text-slate-400', pill: 'bg-slate-200 text-slate-600' },
+    empty: { wrap: 'border-slate-200 bg-slate-50', bar: 'bg-slate-300', icon: 'text-slate-400', pill: 'bg-slate-200 text-slate-600' },
+    clear: { wrap: 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-white', bar: 'bg-emerald-500', icon: 'text-emerald-600', pill: 'bg-emerald-600 text-white' },
+    warning: { wrap: 'border-amber-200 bg-gradient-to-br from-amber-50 to-white', bar: 'bg-amber-500', icon: 'text-amber-600', pill: 'bg-amber-500 text-white' },
+  }[fleetStatus];
+
+  const atTime = (d) => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   return (
     <div className="space-y-3">
@@ -252,6 +297,71 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
           </div>
         </div>
       )}
+
+      {/* Fleet Availability — both booking types. Three vehicles is the
+      tightest constraint the business has. */}
+      <div className={`relative overflow-hidden border rounded-xl shadow-sm ${fleetTheme.wrap}`}>
+        <div className={`absolute left-0 top-0 bottom-0 w-1 ${fleetTheme.bar}`} />
+        <div className="pl-4 pr-3 py-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Truck size={16} className={fleetTheme.icon} />
+              <span className="font-bold text-slate-900 text-sm">Fleet Availability</span>
+              {fleet && (
+                <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                  {fleet.tripType}
+                </span>
+              )}
+            </div>
+            {!loadingFleet && fleet && (
+              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${fleetTheme.pill}`}>
+                {fleet.sufficient
+                  ? `${fleet.picks.length} of ${fleet.fleetSize} ready`
+                  : `Short by ${fleet.shortfall.needed - fleet.picks.length}`}
+              </span>
+            )}
+          </div>
+
+          {loadingFleet ? (
+            <p className="text-slate-500 text-xs flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Checking which vehicles are free...</p>
+          ) : !fleet ? (
+            <p className="text-slate-500 text-xs">No event date yet, so nothing can be scheduled around it.</p>
+          ) : (
+            <>
+              <p className="text-[10px] text-slate-400 mb-2">
+                This booking needs {fleet.vehiclesNeeded} vehicle{fleet.vehiclesNeeded !== 1 ? 's' : ''}.
+                {fleet.outOfService > 0 && ` ${fleet.outOfService} of ${fleet.fleetSize} out of service.`}
+                {' '}Approving assigns these automatically — you can change them on the Vehicles page.
+              </p>
+
+              {!fleet.sufficient && (
+                <p className="text-amber-800 text-xs font-bold flex items-center gap-1.5 mb-2">
+                  <AlertTriangle size={12} /> {fleet.shortfall.reason} You can still approve, then reschedule or hire in.
+                </p>
+              )}
+
+              {fleet.picks.length === 0 ? (
+                <p className="text-slate-500 text-xs">No vehicle can make this event as scheduled.</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {fleet.picks.map(p => (
+                    <li key={p.vehicle_id} className="rounded-lg border border-slate-200 bg-white/70 px-2.5 py-1.5 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-800">{p.plate_number}</span>
+                        <span className="text-slate-500">{p.reason}</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Leaves {atTime(p.setupDispatch)}, set up by {atTime(p.setupEnds)}
+                        {p.pickupDispatch && ` · collects from ${atTime(p.pickupDispatch)}`}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

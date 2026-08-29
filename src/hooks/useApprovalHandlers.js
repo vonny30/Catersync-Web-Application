@@ -4,6 +4,7 @@ import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { allocateEquipmentForBooking, getEquipmentAvailabilityPreview } from '../utils/equipment';
+import { allocateVehiclesForBooking } from '../utils/vehicle';
 import { sumVerifiedPositivePayments } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, MAX_SHORT_ORDERS_PER_DAY, STATUS_ORDER } from '../utils/bookingStatus';
 
@@ -246,6 +247,34 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
           console.warn('Equipment allocation warning:', allocError);
           toast('Equipment allocation had issues: ' + allocError.message, { icon: '⚠️' });
         }
+      }
+
+      // 3b. Allocate vehicles — both booking types, since short orders are
+      // delivered too. This runs AFTER the equipment step on purpose: the
+      // fleet is sized partly from the equipment units just allocated.
+      //
+      // Approval order is the dispatch order. Everything already on a vehicle
+      // was approved before this booking and keeps its slot; this one queues
+      // behind it, and the chain is re-timed so every setup still finishes
+      // before its own event starts.
+      try {
+        const dispatch = await allocateVehiclesForBooking({
+          ...approvalBooking,
+          pax_count: approvalBooking.pax_count + (approvalData.extraPax || 0),
+        });
+        if (dispatch.shortfall) {
+          toast(
+            `Approved, but only ${dispatch.picks.length} of ${dispatch.shortfall.needed} vehicle(s) could be scheduled. Assign the rest from the Vehicles page.`,
+            { icon: '⚠️', duration: 8000 }
+          );
+        } else if (dispatch.pickupsSkipped) {
+          toast('Vehicles dispatched. Add the collection run manually — it could not be saved automatically.', { icon: '⚠️', duration: 7000 });
+        }
+      } catch (vehicleError) {
+        // Never fail an approval over dispatch. The booking is approved; the
+        // Vehicles page still lets a manager assign by hand.
+        console.warn('Vehicle allocation warning:', vehicleError);
+        toast('Approved, but no vehicle was assigned: ' + vehicleError.message, { icon: '⚠️', duration: 8000 });
       }
 
       // ✅ 4. Update already-verified payments – set to Fully Paid if paid in

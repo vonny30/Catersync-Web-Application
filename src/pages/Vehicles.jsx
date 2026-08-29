@@ -16,7 +16,10 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { errorInputClass } from '../utils/formErrors';
-import { getDailyVehicleSnapshot } from '../utils/vehicle';
+import {
+  getDailyVehicleSnapshot, getDispatchWindow, tripsConflict, defaultSetupDispatch,
+} from '../utils/vehicle';
+import { fetchAllRows } from '../utils/fetchAllRows';
 import { getAssignmentStatus, RESOURCE_STATE } from '../utils/statusLabels';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange } from './Reports/helpers';
@@ -39,6 +42,15 @@ const tomorrowISO = () => {
 // as Equipment's Return trap, for the same reason (covers events running
 // long) and the same consistency. No event_datetime at all is treated as
 // returnable rather than permanently locked out.
+// A dispatch window rendered as the vehicle's actual hours. Times only: on a
+// day view the date is already the column heading, and a trip that runs past
+// midnight reads correctly as e.g. 22:00 - 04:00.
+const formatTripWindow = (window) => {
+  if (!window) return 'Time not set';
+  const at = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return `${at(window.start)} - ${at(window.end)}`;
+};
+
 const RETURN_GRACE_MS = 3 * 60 * 60 * 1000;
 const getReturnAvailability = (eventDatetimeStr) => {
   if (!eventDatetimeStr) return { canReturn: true, opensAt: null };
@@ -181,38 +193,52 @@ export default function Vehicles() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const { data: vehicleData, error: vehicleError } = await supabase
-        .from('vehicle')
-        .select('*')
-        .order('plate_number');
-      if (vehicleError) throw vehicleError;
-      setVehicles(vehicleData || []);
+      // All three are paged. vehicle_assign in particular grows without bound -
+      // three vehicles doing a few trips a day crosses PostgREST's 1000-row cap
+      // inside a year, and past that History silently loses its oldest rows
+      // with nothing thrown and nothing warned. Each .order() ends on a primary
+      // key so the paging is stable. See utils/fetchAllRows.js.
+      const vehicleData = await fetchAllRows(
+        () => supabase
+          .from('vehicle')
+          .select('*')
+          .order('plate_number')
+          .order('vehicle_id'),
+        'vehicles'
+      );
+      setVehicles(vehicleData);
 
-      const { data: bookingData, error: bookingError } = await supabase
-        .from('booking')
-        .select(`
-          booking_id, booking_number, booking_type, booking_status, event_datetime, venue, pax_count, notes,
-          customer:customer_id (first_name, last_name, contact_no, cus_address)
-        `)
-        .in('booking_status', ACTIVE_BOOKING_STATUSES)
-        .order('event_datetime', { ascending: true });
-      if (bookingError) throw bookingError;
-      setBookings(bookingData || []);
-      setFilteredBookings(bookingData || []);
+      const bookingData = await fetchAllRows(
+        () => supabase
+          .from('booking')
+          .select(`
+            booking_id, booking_number, booking_type, booking_status, event_datetime, venue, pax_count, notes,
+            customer:customer_id (first_name, last_name, contact_no, cus_address)
+          `)
+          .in('booking_status', ACTIVE_BOOKING_STATUSES)
+          .order('event_datetime', { ascending: true })
+          .order('booking_id'),
+        'active bookings'
+      );
+      setBookings(bookingData);
+      setFilteredBookings(bookingData);
 
-      const { data: assignData, error: assignError } = await supabase
-        .from('vehicle_assign')
-        .select(`
-          *,
-          booking:booking_id (
-            booking_id, booking_number, booking_type, venue, event_datetime, booking_status,
-            customer:customer_id (first_name, last_name)
-          ),
-          vehicle:vehicle_id (plate_number, vehicle_type)
-        `)
-        .order('dispatch_datetime', { ascending: false });
-      if (assignError) throw assignError;
-      setAssignments(assignData || []);
+      const assignData = await fetchAllRows(
+        () => supabase
+          .from('vehicle_assign')
+          .select(`
+            *,
+            booking:booking_id (
+              booking_id, booking_number, booking_type, venue, event_datetime, booking_status,
+              customer:customer_id (first_name, last_name)
+            ),
+            vehicle:vehicle_id (plate_number, vehicle_type)
+          `)
+          .order('dispatch_datetime', { ascending: false })
+          .order('assignment_id'),
+        'vehicle assignments'
+      );
+      setAssignments(assignData);
     } catch (error) {
       handleError(error, 'Unable to load vehicle data. Please refresh the page.');
     } finally {
@@ -279,14 +305,14 @@ export default function Vehicles() {
 
     // Auto-suggest dispatch time: 2 hours before the event, clamped to now
     // if that would already be in the past.
-    if (selected.event_datetime) {
-      const eventDate = new Date(selected.event_datetime);
-      const dispatchDate = new Date(eventDate.getTime() - 2 * 60 * 60 * 1000);
-      if (dispatchDate < new Date()) {
-        dispatchDate.setTime(Date.now());
-      }
-      const formatted = dispatchDate.toISOString().slice(0, 16);
-      setAssignForm(prev => ({ ...prev, dispatch_datetime: formatted }));
+    // Leave late enough to be efficient, early enough that the setup FINISHES
+    // as the event starts - travel plus setup, from the trip profile. A flat
+    // two hours was the same guess for a 40-minute delivery and a wedding.
+    const suggested = defaultSetupDispatch(selected);
+    if (suggested) {
+      if (suggested < new Date()) suggested.setTime(Date.now());
+      const offsetMs = suggested.getTime() - suggested.getTimezoneOffset() * 60 * 1000;
+      setAssignForm(prev => ({ ...prev, dispatch_datetime: new Date(offsetMs).toISOString().slice(0, 16) }));
     }
     setSelectedVehicleIds([]);
   };
@@ -300,19 +326,22 @@ export default function Vehicles() {
   // --- FETCH USAGE (full history, any date, for the Inventory tab) ---
   const fetchVehicleUsage = async (vehicleId) => {
     try {
-      const { data, error } = await supabase
-        .from('vehicle_assign')
-        .select(`
-          *,
-          booking:booking_id (
-            booking_id, booking_number, booking_type, venue, event_datetime,
-            customer:customer_id (first_name, last_name)
-          )
-        `)
-        .eq('vehicle_id', vehicleId)
-        .order('dispatch_datetime', { ascending: false });
-      if (error) throw error;
-      setVehicleUsageAssignments(data || []);
+      const data = await fetchAllRows(
+        () => supabase
+          .from('vehicle_assign')
+          .select(`
+            *,
+            booking:booking_id (
+              booking_id, booking_number, booking_type, venue, event_datetime,
+              customer:customer_id (first_name, last_name)
+            )
+          `)
+          .eq('vehicle_id', vehicleId)
+          .order('dispatch_datetime', { ascending: false })
+          .order('assignment_id'),
+        'vehicle usage history'
+      );
+      setVehicleUsageAssignments(data);
     } catch (error) {
       console.error('Error fetching usage:', error);
       setVehicleUsageAssignments([]);
@@ -410,6 +439,35 @@ export default function Vehicles() {
   // is an overdue-return bookkeeping issue (already surfaced separately
   // in the sidebar), not a real scheduling conflict — it shouldn't block
   // an unrelated status change today.
+  // D1, both halves. A vehicle is exclusive for the length of a TRIP, not for
+  // the calendar day - that is what lets three vehicles serve more than three
+  // events. This single helper answers "is this van free for that run", and
+  // both the Assign submit guard and the picker's disabled state call it, so
+  // the checkbox the manager sees can never disagree with what submit accepts.
+  const conflictingTripFor = (vehicleId, booking, dispatchValue) => {
+    if (!booking?.event_datetime) return null;
+    const proposed = getDispatchWindow(
+      { dispatch_datetime: dispatchValue || defaultSetupDispatch(booking)?.toISOString() },
+      booking
+    );
+    if (!proposed) return null;
+    return assignments.find(a => {
+      if (a.vehicle_id !== vehicleId) return false;
+      if (a.assignment_status === 'Completed') return false;
+      if (a.booking?.booking_status === 'Rejected' || a.booking?.booking_status === 'Cancelled') return false;
+      if (a.booking_id === booking.booking_id) return false; // its own other leg
+      return tripsConflict(getDispatchWindow(a, a.booking), proposed);
+    }) || null;
+  };
+
+  const describeTrip = (a) => {
+    const ref = a.booking?.booking_number || 'another booking';
+    const w = getDispatchWindow(a, a.booking);
+    if (!w) return ref;
+    const at = (d) => d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return `${ref} (${w.leg.toLowerCase()} run, ${at(w.start)} to ${at(w.end)})`;
+  };
+
   const activeAssignmentsFor = (vehicleId) => assignments.filter(a => {
     if (a.vehicle_id !== vehicleId) return false;
     if (a.assignment_status === 'Completed') return false;
@@ -425,8 +483,16 @@ export default function Vehicles() {
   // Builds the specific, accurate reason a status change is blocked —
   // naming the actual event(s) so the manager knows exactly what to
   // reassign, instead of a vague "N active event(s)" count.
+  // A booking now holds up to two rows on one vehicle — a setup run and a
+  // pickup run — so anything counting "events" or "vehicles" has to count
+  // DISTINCT ones, or a single wedding reads as two.
+  const countDistinct = (rows, key) => new Set(rows.map(r => r[key])).size;
+
   const describeActiveAssignments = (activeAssigns, newStatus) => {
+    const eventCount = countDistinct(activeAssigns, 'booking_id');
+    const seen = new Set();
     const preview = activeAssigns
+      .filter(a => (seen.has(a.booking_id) ? false : seen.add(a.booking_id)))
       .slice(0, 3)
       .map(a => {
         const ref = a.booking?.booking_number || 'a booking';
@@ -434,8 +500,8 @@ export default function Vehicles() {
         return `${ref} (${when})`;
       })
       .join(', ');
-    const more = activeAssigns.length > 3 ? `, and ${activeAssigns.length - 3} more` : '';
-    return `Can't mark this vehicle ${newStatus} — it's still dispatched to ${activeAssigns.length} upcoming event(s): ${preview}${more}. Reassign or complete those first.`;
+    const more = eventCount > 3 ? `, and ${eventCount - 3} more` : '';
+    return `Can't mark this vehicle ${newStatus} — it's still dispatched to ${eventCount} upcoming event(s): ${preview}${more}. Reassign or complete those first.`;
   };
 
   const handleEditSubmit = async (e) => {
@@ -454,7 +520,7 @@ export default function Vehicles() {
       if (activeAssigns.length > 0) {
         const message = describeActiveAssignments(activeAssigns, editVehicleForm.vehicle_status);
         toast.error(message, { duration: 7000 });
-        setEditFieldErrors({ vehicle_status: `Still dispatched to ${activeAssigns.length} upcoming event(s).` });
+        setEditFieldErrors({ vehicle_status: `Still dispatched to ${countDistinct(activeAssigns, 'booking_id')} upcoming event(s).` });
         return;
       }
     }
@@ -524,10 +590,48 @@ export default function Vehicles() {
   };
 
   // --- DELETE VEHICLE ---
+  // Both blocking checks run BEFORE the confirm and the password prompt.
+  // Asking a manager to type their password and only then telling them the
+  // deletion was never possible wastes the one interaction we ask most of -
+  // the same fix Equipment got on 21 Aug.
   const handleDeleteVehicle = async (vehicleId) => {
+    let assignmentRows;
+    try {
+      assignmentRows = await fetchAllRows(
+        () => supabase
+          .from('vehicle_assign')
+          .select('assignment_id, assignment_status, booking:booking_id (booking_status)')
+          .eq('vehicle_id', vehicleId)
+          .order('assignment_id'),
+        'assignments for vehicle delete check'
+      );
+    } catch (error) {
+      handleError(error, 'Unable to check this vehicle before deleting.');
+      return;
+    }
+
+    const committedCount = assignmentRows.filter(
+      a => a.assignment_status !== 'Completed'
+        && a.booking?.booking_status
+        && ACTIVE_BOOKING_STATUSES.includes(a.booking.booking_status)
+    ).length;
+    if (committedCount > 0) {
+      toast.error(`This vehicle can't be deleted — it's dispatched to ${committedCount} active booking(s). Reassign or complete those first.`, { duration: 7000 });
+      return;
+    }
+
+    // Deleting the vehicle would take its dispatch history with it, and that
+    // history is what the utilization reports are built from. A vehicle that
+    // has ever made a trip is retired, not deleted: Flag issue -> Unavailable
+    // takes it out of service and keeps the record. Same rule as Equipment.
+    if (assignmentRows.length > 0) {
+      toast.error(`This vehicle can't be deleted — it has ${assignmentRows.length} past dispatch(es) that the reports read from. Use Flag issue to mark it Unavailable instead, which retires it without losing the history.`, { duration: 8000 });
+      return;
+    }
+
     const confirmed = await showConfirm({
       title: 'Delete Vehicle?',
-      message: 'This will delete the vehicle and all its assignment history. Are you sure?',
+      message: 'This vehicle has never been dispatched, so nothing else refers to it. Delete it permanently?',
       confirmLabel: 'Delete',
       confirmVariant: 'danger',
     });
@@ -540,27 +644,6 @@ export default function Vehicles() {
     if (!passwordOk) return;
 
     try {
-      const { data: activeAssignmentsData, error: activeCheckError } = await supabase
-        .from('vehicle_assign')
-        .select('assignment_id, booking:booking_id (booking_status)')
-        .eq('vehicle_id', vehicleId)
-        .neq('assignment_status', 'Completed');
-      if (activeCheckError) throw activeCheckError;
-
-      const committedCount = (activeAssignmentsData || []).filter(
-        a => a.booking?.booking_status && ACTIVE_BOOKING_STATUSES.includes(a.booking.booking_status)
-      ).length;
-      if (committedCount > 0) {
-        toast.error(`This vehicle can't be deleted — it's dispatched to ${committedCount} active booking(s). Reassign or complete those first.`);
-        return;
-      }
-
-      const { error: deleteAssignError } = await supabase
-        .from('vehicle_assign')
-        .delete()
-        .eq('vehicle_id', vehicleId);
-      if (deleteAssignError) throw deleteAssignError;
-
       const { error } = await supabase
         .from('vehicle')
         .delete()
@@ -600,23 +683,18 @@ export default function Vehicles() {
       return;
     }
 
-    // Conflict check for every selected vehicle — same date, still active.
+    // Overlapping RUNS block an assignment; another booking on the same day
+    // does not. Same helper the picker uses.
     const conflicts = [];
     for (const vehicleId of selectedVehicleIds) {
-      const existing = assignments.find(a => {
-        if (a.vehicle_id !== vehicleId) return false;
-        if (!a.booking?.event_datetime) return false;
-        if (a.assignment_status === 'Completed') return false;
-        if (a.booking.booking_status === 'Rejected' || a.booking.booking_status === 'Cancelled') return false;
-        return new Date(a.booking.event_datetime).toDateString() === eventDate.toDateString();
-      });
-      if (existing) {
+      const clash = conflictingTripFor(vehicleId, selectedBooking, assignForm.dispatch_datetime);
+      if (clash) {
         const vehicle = vehicles.find(v => v.vehicle_id === vehicleId);
-        conflicts.push(vehicle?.plate_number || vehicleId);
+        conflicts.push(`${vehicle?.plate_number || vehicleId} - ${describeTrip(clash)}`);
       }
     }
     if (conflicts.length > 0) {
-      toast.error(`Cannot assign: ${conflicts.join(', ')} already assigned to another event on ${eventDate.toLocaleDateString()}.`);
+      toast.error(`This run overlaps work already booked: ${conflicts.join('; ')}. Move the dispatch time or pick another vehicle.`, { duration: 8000 });
       return;
     }
 
@@ -730,8 +808,10 @@ export default function Vehicles() {
   // ============================================================
   const totalFleet = vehicles.length;
   const eventsOnDateCount = snapshot.eventsOnDate.length;
-  const deployedCount = snapshot.vehicles.filter(v => v.assignment).length;
-  const freeCount = snapshot.vehicles.filter(v => v.vehicle_status === 'Available' && !v.assignment).length;
+  // A vehicle counts once however many trips it makes that day - these are
+  // vehicle counts, not trip counts, and the card says "vehicles".
+  const deployedCount = snapshot.vehicles.filter(v => v.assignments.length > 0).length;
+  const freeCount = snapshot.vehicles.filter(v => v.vehicle_status === 'Available' && v.assignments.length === 0).length;
 
   // Live/always-current — not scoped to the date picker.
   const needsAttentionVehicles = vehicles
@@ -771,7 +851,7 @@ export default function Vehicles() {
   const getVehicleAvailabilityStatus = (v) => {
     if (v.vehicle_status === 'Maintenance') return { key: 'maintenance', label: RESOURCE_STATE.underMaintenance, rank: 0, pillClass: 'bg-orange-100 border-orange-300 text-orange-700' };
     if (v.vehicle_status === 'Unavailable') return { key: 'unavailable', label: RESOURCE_STATE.unavailable, rank: 0, pillClass: 'bg-slate-200 border-slate-300 text-slate-600' };
-    if (v.assignment) return { key: 'deployed', label: RESOURCE_STATE.committed, rank: 1, pillClass: 'bg-amber-100 border-amber-300 text-amber-700' };
+    if (v.assignments.length > 0) return { key: 'deployed', label: RESOURCE_STATE.committed, rank: 1, pillClass: 'bg-amber-100 border-amber-300 text-amber-700' };
     return { key: 'free', label: RESOURCE_STATE.available, rank: 2, pillClass: 'bg-emerald-100 border-emerald-300 text-emerald-700' };
   };
 
@@ -1182,10 +1262,17 @@ export default function Vehicles() {
                             <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${status.pillClass}`}>{status.label}</span>
                           </td>
                           <td className="p-4">
-                            {v.assignment ? (
-                              <div>
-                                <p className="font-semibold text-slate-800">{v.assignment.customerName}</p>
-                                <p className="text-xs text-slate-500">{v.assignment.ref} · {v.assignment.dispatch_datetime ? new Date(v.assignment.dispatch_datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No dispatch time'}</p>
+                            {v.assignments.length > 0 ? (
+                              <div className="space-y-1.5">
+                                {v.assignments.map((trip) => (
+                                  <div key={trip.assignment_id}>
+                                    <p className={`font-semibold ${trip.completed ? 'text-slate-500' : 'text-slate-800'}`}>
+                                      {trip.customerName}
+                                      {trip.completed && <span className="ml-1.5 text-[10px] font-bold text-slate-400 uppercase">returned</span>}
+                                    </p>
+                                    <p className="text-xs text-slate-500">{trip.ref} · {trip.tripType} · {formatTripWindow(trip.window)}</p>
+                                  </div>
+                                ))}
                               </div>
                             ) : (
                               <span className="text-slate-400 text-xs">—</span>
@@ -1445,7 +1532,7 @@ export default function Vehicles() {
                       )}
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="text-xs font-semibold text-slate-500">{group.items.length} vehicle{group.items.length !== 1 ? 's' : ''}</span>
+                      <span className="text-xs font-semibold text-slate-500">{countDistinct(group.items, 'vehicle_id')} vehicle{countDistinct(group.items, 'vehicle_id') !== 1 ? 's' : ''}{group.items.length > countDistinct(group.items, 'vehicle_id') ? `, ${group.items.length} runs` : ''}</span>
                       <button
                         type="button"
                         onClick={(e) => { e.preventDefault(); handleReturnAllForBooking(group.booking_id, group.items.length); }}
@@ -1682,7 +1769,7 @@ export default function Vehicles() {
                   >
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-red-700 truncate">{customerName}</p>
-                      <p className="text-xs text-slate-500">{group.items.length} vehicle{group.items.length !== 1 ? 's' : ''} overdue</p>
+                      <p className="text-xs text-slate-500">{countDistinct(group.items, 'vehicle_id')} vehicle{countDistinct(group.items, 'vehicle_id') !== 1 ? 's' : ''} overdue</p>
                     </div>
                     <span className="shrink-0 text-xs font-bold text-red-600">{days === 0 ? 'Today' : `${days} day${days !== 1 ? 's' : ''}`}</span>
                   </button>
@@ -1785,33 +1872,45 @@ export default function Vehicles() {
               <button onClick={() => setIsAvailabilityDetailOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"><X size={18} /></button>
             </div>
             <div className="p-4">
-              {availabilityDetailVehicle.assignment ? (
-                <div className="border border-slate-200 rounded-lg p-3 space-y-2">
-                  <p className="font-bold text-slate-900 text-sm">{availabilityDetailVehicle.assignment.customerName}</p>
-                  <p className="text-xs text-slate-500">{availabilityDetailVehicle.assignment.venue || 'No venue'}</p>
-                  <button
-                    onClick={() => goToBookingDetails(availabilityDetailVehicle.assignment.booking_id, availabilityDetailVehicle.assignment.booking_type)}
-                    className="font-mono text-xs font-bold text-[#008A45] hover:underline inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    {availabilityDetailVehicle.assignment.ref} <ExternalLink size={11} />
-                  </button>
-                  <p className="text-xs text-slate-500">Dispatch: {availabilityDetailVehicle.assignment.dispatch_datetime ? new Date(availabilityDetailVehicle.assignment.dispatch_datetime).toLocaleString() : 'N/A'}</p>
-                  <div className="pt-2">
-                    {(() => {
-                      const { canReturn: detailCanReturn, opensAt: detailOpensAt } = getReturnAvailability(availabilityDetailVehicle.assignment.event_datetime);
-                      return (
+              {availabilityDetailVehicle.assignments.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-slate-500">
+                    {availabilityDetailVehicle.assignments.length} trip{availabilityDetailVehicle.assignments.length !== 1 ? 's' : ''} on this date, in order
+                  </p>
+                  {availabilityDetailVehicle.assignments.map((trip) => {
+                    const { canReturn: detailCanReturn, opensAt: detailOpensAt } = getReturnAvailability(trip.event_datetime);
+                    return (
+                      <div key={trip.assignment_id} className={`border rounded-lg p-3 space-y-2 ${trip.completed ? 'border-slate-200 bg-slate-50' : 'border-slate-200'}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-bold text-slate-900 text-sm">{trip.customerName}</p>
+                          <span className="shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#CBDEDD]/60 border border-[#a3c7c4] text-slate-800">{trip.tripType}</span>
+                        </div>
+                        <p className="text-xs text-slate-500">{trip.venue || 'No venue'}</p>
                         <button
-                          onClick={async () => { await handleReturnVehicle(availabilityDetailVehicle.assignment.assignment_id); setIsAvailabilityDetailOpen(false); }}
-                          className={detailCanReturn
-                            ? 'text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1 text-xs font-medium'
-                            : 'text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-1 text-xs font-medium'}
-                          title={detailCanReturn ? undefined : `Locked — returns open 3 hours after the event, at ${formatReturnOpensAt(detailOpensAt)}`}
+                          onClick={() => goToBookingDetails(trip.booking_id, trip.booking_type)}
+                          className="font-mono text-xs font-bold text-[#008A45] hover:underline inline-flex items-center gap-1 cursor-pointer"
                         >
-                          {detailCanReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return
+                          {trip.ref} <ExternalLink size={11} />
                         </button>
-                      );
-                    })()}
-                  </div>
+                        <p className="text-xs text-slate-500">On the road {formatTripWindow(trip.window)}</p>
+                        <div className="pt-1">
+                          {trip.completed ? (
+                            <span className="text-xs font-semibold text-slate-400 flex items-center gap-1"><CheckCircle2 size={13} /> Returned</span>
+                          ) : (
+                            <button
+                              onClick={async () => { await handleReturnVehicle(trip.assignment_id); setIsAvailabilityDetailOpen(false); }}
+                              className={detailCanReturn
+                                ? 'text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1 text-xs font-medium'
+                                : 'text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-1 text-xs font-medium'}
+                              title={detailCanReturn ? undefined : `Locked — returns open 3 hours after the event, at ${formatReturnOpensAt(detailOpensAt)}`}
+                            >
+                              {detailCanReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="text-sm text-slate-500 italic text-center py-6">
@@ -2127,14 +2226,8 @@ export default function Vehicles() {
                     vehicles
                       .filter(v => v.vehicle_status === 'Available' && v.plate_number.toLowerCase().includes(vehiclePickerSearch.toLowerCase()))
                       .map((v) => {
-                        const eventDate = selectedBooking?.event_datetime ? new Date(selectedBooking.event_datetime) : null;
-                        const alreadyAssigned = eventDate && assignments.some(a => {
-                          if (a.vehicle_id !== v.vehicle_id) return false;
-                          if (a.assignment_status === 'Completed') return false;
-                          if (a.booking?.booking_status === 'Rejected' || a.booking?.booking_status === 'Cancelled') return false;
-                          const aDate = a.booking?.event_datetime ? new Date(a.booking.event_datetime) : null;
-                          return aDate && aDate.toDateString() === eventDate.toDateString();
-                        });
+                        const clashingTrip = conflictingTripFor(v.vehicle_id, selectedBooking, assignForm.dispatch_datetime);
+                        const alreadyAssigned = !!clashingTrip;
                         return (
                           <label key={v.vehicle_id} className={`flex items-center gap-2 p-2 hover:bg-slate-100 rounded cursor-pointer ${alreadyAssigned ? 'opacity-50 cursor-not-allowed' : ''}`}>
                             <input
@@ -2146,7 +2239,7 @@ export default function Vehicles() {
                             />
                             <span className="text-sm font-medium text-slate-700">{v.plate_number}</span>
                             <span className="text-xs text-slate-500">({v.vehicle_type})</span>
-                            {alreadyAssigned && <span className="text-xs text-red-500 ml-2">already assigned to this date</span>}
+                            {alreadyAssigned && <span className="text-xs text-red-500 ml-2">busy: {describeTrip(clashingTrip)}</span>}
                           </label>
                         );
                       })
