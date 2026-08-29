@@ -66,10 +66,23 @@ export function useCompletionHandlers({ booking, payments, fetchData, noun = 'bo
       if (vehicleReturnError) throw vehicleReturnError;
 
       if (totalPaid > 0) {
+        // Scoped to Downpayment rows only. This used to update EVERY payment
+        // row on the booking, which rewrote the status of rows that had no
+        // business changing: a 'Pending Verification' proof nobody had
+        // reviewed, a 'Proof Rejected' one a manager had explicitly turned
+        // down, and zero-amount 'Pending' placeholders all became 'Fully
+        // Paid'. Because sumVerifiedPositivePayments counts anything outside
+        // the unverified statuses, that silently promoted rejected and
+        // unreviewed money into real revenue.
+        //
+        // 'Downpayment' is exactly the set that should be relabelled here:
+        // verified, positive, and not yet marked fully paid.
         const { error: updatePaymentsError } = await supabase
           .from('payment')
           .update({ pay_status: 'Fully Paid' })
-          .eq('booking_id', booking.booking_id);
+          .eq('booking_id', booking.booking_id)
+          .eq('pay_status', 'Downpayment')
+          .gt('amount_paid', 0);
         if (updatePaymentsError) throw updatePaymentsError;
       }
       toast.success(`${noun[0].toUpperCase()}${noun.slice(1)} completed. Remaining payments marked Fully Paid.`);

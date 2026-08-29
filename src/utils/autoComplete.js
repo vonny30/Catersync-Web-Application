@@ -62,10 +62,16 @@ export async function autoCompletePastEvents(records) {
       .in('booking_id', ids);
     if (vehicleReturnError) throw vehicleReturnError;
 
+    // Same scoping as useCompletionHandlers, and it matters more here: this
+    // runs automatically, across several bookings at once, with no manager
+    // watching. Updating every payment row promoted unreviewed and explicitly
+    // rejected proofs into settled money without anyone verifying them.
     const { error: paymentError } = await supabase
       .from('payment')
       .update({ pay_status: 'Fully Paid' })
-      .in('booking_id', ids);
+      .in('booking_id', ids)
+      .eq('pay_status', 'Downpayment')
+      .gt('amount_paid', 0);
     if (paymentError) throw paymentError;
 
     return ids;
