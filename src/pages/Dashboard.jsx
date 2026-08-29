@@ -30,6 +30,22 @@ const toLocalDateStr = (d) => {
   return `${yr}-${mo}-${da}`;
 };
 
+// event_datetime and pay_datetime are `timestamp with time zone`. Comparing
+// them against a naive string like "2026-08-01 00:00:00" makes Postgres read
+// that string in the DATABASE's timezone — UTC on Supabase — while the string
+// was built from a local calendar date here. In Manila that shifted every
+// window eight hours late: payments in the first hours of a month fell outside
+// it, and some from the following month fell inside.
+//
+// Sending an instant instead removes the ambiguity: toISOString() converts a
+// local Date to the exact moment it represents, which is what a timestamptz
+// comparison actually wants.
+const startOfLocalDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const addLocalDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+// Half-open [start, end) throughout. An inclusive "23:59:59" end both drops
+// the final second and invites the rounding questions that come with it.
+const instant = (d) => d.toISOString();
+
 // The last day inside the "next 7 days" window: today + 6. The query runs
 // .gte(today 00:00) .lt(today+7d 00:00), so the window INCLUDES today and
 // covers today plus the following six days — which "7 days" alone left the
@@ -157,13 +173,11 @@ export default function Dashboard() {
     setLoading(true);
     try {
       const today = new Date();
-      const todayStr = toLocalDateStr(today);
       // Always the real current month — "Total Collections This Month" isn't
       // tied to whatever month the calendar happens to be showing.
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-      const startOfMonthStr = toLocalDateStr(startOfMonth);
-      const endOfMonthStr = toLocalDateStr(endOfMonth);
+      // First moment of NEXT month, used as an exclusive upper bound.
+      const startOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
 
       // --- Today's Events (Package only) ---
       const { data: todayData, error: todayError } = await supabase
@@ -179,8 +193,8 @@ export default function Dashboard() {
         `)
         .eq('booking_type', 'Package')
         .in('booking_status', ACTIVE_BOOKING_STATUSES)
-        .gte('event_datetime', `${todayStr} 00:00:00`)
-        .lt('event_datetime', `${todayStr} 23:59:59`)
+        .gte('event_datetime', instant(startOfLocalDay(today)))
+        .lt('event_datetime', instant(addLocalDays(today, 1)))
         .order('event_datetime', { ascending: true });
 
       if (todayError) throw todayError;
@@ -262,8 +276,8 @@ export default function Dashboard() {
         .select('booking_id')
         .eq('booking_type', 'Package')
         .in('booking_status', ACTIVE_BOOKING_STATUSES)
-        .gte('event_datetime', `${todayStr} 00:00:00`)
-        .lt('event_datetime', `${toLocalDateStr(new Date(today.getTime() + UPCOMING_WINDOW_DAYS * 24 * 60 * 60 * 1000))} 00:00:00`);
+        .gte('event_datetime', instant(startOfLocalDay(today)))
+        .lt('event_datetime', instant(addLocalDays(today, UPCOMING_WINDOW_DAYS)));
 
       if (upcomingError) throw upcomingError;
       setStats(prev => ({ ...prev, upcomingEvents: upcomingData?.length || 0 }));
@@ -282,8 +296,8 @@ export default function Dashboard() {
         () => supabase
           .from('payment')
           .select('amount_paid, pay_status, pay_datetime, booking:booking_id (booking_status)')
-          .gte('pay_datetime', `${startOfMonthStr} 00:00:00`)
-          .lte('pay_datetime', `${endOfMonthStr} 23:59:59`)
+          .gte('pay_datetime', instant(startOfMonth))
+          .lt('pay_datetime', instant(startOfNextMonth))
           .order('payment_id', { ascending: true }),
         'collections this month'
       );
@@ -504,7 +518,6 @@ export default function Dashboard() {
   const handleTodayEventsClick = async () => {
     try {
       const today = new Date();
-      const todayStr = toLocalDateStr(today);
       const { data, error } = await supabase
         .from('booking')
         .select(`
@@ -518,8 +531,8 @@ export default function Dashboard() {
         `)
         .eq('booking_type', 'Package')
         .in('booking_status', ACTIVE_BOOKING_STATUSES)
-        .gte('event_datetime', `${todayStr} 00:00:00`)
-        .lt('event_datetime', `${todayStr} 23:59:59`)
+        .gte('event_datetime', instant(startOfLocalDay(today)))
+        .lt('event_datetime', instant(addLocalDays(today, 1)))
         .order('event_datetime', { ascending: true });
       if (error) throw error;
       setStatsModalData(data || []);
@@ -562,9 +575,6 @@ export default function Dashboard() {
   const handleUpcomingEventsClick = async () => {
     try {
       const today = new Date();
-      const todayStr = toLocalDateStr(today);
-      const futureDate = new Date(today.getTime() + UPCOMING_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-      const futureStr = toLocalDateStr(futureDate);
       const { data, error } = await supabase
         .from('booking')
         .select(`
@@ -578,8 +588,8 @@ export default function Dashboard() {
         `)
         .eq('booking_type', 'Package')
         .in('booking_status', ACTIVE_BOOKING_STATUSES)
-        .gte('event_datetime', `${todayStr} 00:00:00`)
-        .lt('event_datetime', `${futureStr} 00:00:00`)
+        .gte('event_datetime', instant(startOfLocalDay(today)))
+        .lt('event_datetime', instant(addLocalDays(today, UPCOMING_WINDOW_DAYS)))
         .order('event_datetime', { ascending: true });
       if (error) throw error;
       setStatsModalData(data || []);
@@ -596,9 +606,8 @@ export default function Dashboard() {
     try {
       const today = new Date();
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-      const startOfMonthStr = toLocalDateStr(startOfMonth);
-      const endOfMonthStr = toLocalDateStr(endOfMonth);
+      // First moment of NEXT month, used as an exclusive upper bound.
+      const startOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
       // Paged for the same reason as the card. It matters more here: this
       // modal exists to reconcile with the figure that was clicked, and a
       // truncated list would disagree with a card that had itself been fixed.
@@ -620,8 +629,8 @@ export default function Dashboard() {
               customer:customer_id (first_name, last_name)
             )
           `)
-          .gte('pay_datetime', `${startOfMonthStr} 00:00:00`)
-          .lte('pay_datetime', `${endOfMonthStr} 23:59:59`)
+          .gte('pay_datetime', instant(startOfMonth))
+          .lt('pay_datetime', instant(startOfNextMonth))
           .order('pay_datetime', { ascending: false })
           .order('payment_id', { ascending: false }),
         'collections modal'
