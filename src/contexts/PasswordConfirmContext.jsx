@@ -51,8 +51,20 @@ export function PasswordConfirmProvider({ children }) {
           setPasswordConfirmState((prev) => ({ ...prev, verifying: false }));
           close(true);
         } catch (err) {
+          // verifyPassword now throws when it could not CHECK the password,
+          // rather than reporting every failure as a wrong one. "Try again" is
+          // the wrong advice for a rate limit -- retrying is the one thing that
+          // cannot work -- so name that case.
           console.error('Password confirm error:', err);
-          setPasswordConfirmState((prev) => ({ ...prev, verifying: false, error: 'Something went wrong verifying your password. Please try again.' }));
+          const raw = (err?.message || '').toLowerCase();
+          const rateLimited = err?.status === 429 || err?.code === 'over_request_rate_limit' || raw.includes('rate limit');
+          setPasswordConfirmState((prev) => ({
+            ...prev,
+            verifying: false,
+            error: rateLimited
+              ? 'Too many attempts in a short time. Wait a minute, then try again.'
+              : 'Could not check your password just now. Check your connection and try again.',
+          }));
         }
       };
 
