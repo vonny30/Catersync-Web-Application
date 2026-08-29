@@ -155,80 +155,85 @@ export default function Login() {
   };
 
   return (
+    // Panels split 46/54, but every block inside them is capped and centred in
+    // its own half. Before, brand copy sat at a fixed 48px from the left while
+    // the form floated dead centre, so at 2560px the headline clung to the edge
+    // of 710px of empty green and the two halves shared no alignment at all.
+    // Centring both means the gutters grow together instead of one staying
+    // pinned while the other doubles.
     <div className="min-h-screen flex font-sans">
-      {/* BRAND PANEL — the old green header bar and the footer both fold into
-          this. Hidden below lg, where the form stands alone with the mobile
-          logo block instead, so nothing is lost on a phone. */}
-      <div className="relative overflow-hidden flex-[1_1_46%] min-w-0 hidden lg:flex flex-col justify-between px-12 py-11 bg-[linear-gradient(155deg,#00753b_0%,#008A45_45%,#00A854_100%)]">
-        {/* Depth without an image asset. */}
+      {/* BRAND PANEL */}
+      <div className="relative overflow-hidden flex-[1_1_46%] min-w-0 hidden lg:flex flex-col justify-between px-[clamp(2rem,3.5vw,4.5rem)] py-[clamp(2.5rem,4vh,3.5rem)] bg-[linear-gradient(155deg,#00753b_0%,#008A45_45%,#00A854_100%)]">
         <div className="absolute -top-[120px] -right-[140px] w-[420px] h-[420px] rounded-full bg-white/[0.06]" />
         <div className="absolute -bottom-[180px] -left-[120px] w-[460px] h-[460px] rounded-full bg-white/[0.05]" />
         <div className="absolute top-[190px] right-[90px] w-[130px] h-[130px] rounded-full bg-white/[0.04]" />
 
-        <div className="relative flex items-center gap-3">
-          <div className="w-[46px] h-[46px] rounded-full overflow-hidden bg-white/10 ring-2 ring-white/50 shrink-0">
+        <div className="relative w-full max-w-[560px] mx-auto flex items-center gap-3.5">
+          <div className="w-[52px] h-[52px] rounded-full overflow-hidden bg-white/10 ring-2 ring-white/50 shrink-0">
             <img src="/logo.svg" alt="CaterSync" className="w-full h-full object-cover" />
           </div>
-          <span className="text-[22px] font-bold tracking-[0.02em] text-white">CaterSync</span>
+          <span className="text-[clamp(22px,1.6vw,26px)] font-bold tracking-[0.02em] text-white">CaterSync</span>
         </div>
 
-        <div className="relative max-w-[420px]">
-          <h2 className="text-[34px] leading-[1.2] font-bold tracking-[-0.025em] text-white [text-wrap:pretty]">
+        <div className="relative w-full max-w-[560px] mx-auto py-8">
+          {/* Fluid rather than fixed: a 34px headline that never grows looks
+              stranded once the panel passes ~1000px. */}
+          <h2 className="text-[clamp(30px,2.7vw,46px)] leading-[1.18] font-bold tracking-[-0.025em] text-white [text-wrap:pretty]">
             Every event, every tray, every peso — in one place.
           </h2>
-          <p className="mt-4 text-[15.5px] leading-[1.55] text-white/80 [text-wrap:pretty]">
+          <p className="mt-5 text-[clamp(16px,1.15vw,19px)] leading-[1.55] text-white/85 [text-wrap:pretty]">
             The manager console for PG&apos;s Catering. Bookings, payments, equipment and fleet, from one dashboard.
           </p>
-          <div className="flex flex-wrap gap-2.5 mt-8 pt-[26px] border-t border-white/[0.18]">
+          <div className="flex flex-wrap gap-2.5 mt-9 pt-7 border-t border-white/[0.18]">
             {['Bookings & short orders', 'Payment verification', 'Equipment & fleet', 'Reports'].map(f => (
-              <span key={f} className="inline-flex items-center gap-2 pl-3 pr-3.5 py-[7px] rounded-full bg-white/[0.12] text-[13.5px] font-medium text-white/90 whitespace-nowrap">
-                <Check size={13} className="shrink-0" /> {f}
+              <span key={f} className="inline-flex items-center gap-2 pl-3.5 pr-4 py-2 rounded-full bg-white/[0.12] text-[clamp(13.5px,0.95vw,15px)] font-medium text-white/90 whitespace-nowrap">
+                <Check size={14} className="shrink-0" /> {f}
               </span>
             ))}
           </div>
         </div>
 
-        <p className="relative text-[13px] text-white/60">
+        <p className="relative w-full max-w-[560px] mx-auto text-[13.5px] text-white/60">
           &copy; {new Date().getFullYear()} PG&apos;s Catering. All rights reserved.
         </p>
       </div>
 
       {/* FORM PANEL */}
-      <div className="flex-[1_1_54%] min-w-0 flex items-center justify-center px-8 py-11 bg-slate-50">
-        <div className="w-full max-w-[392px]">
-          <div className="flex lg:hidden items-center gap-3 mb-8">
-            <div className="w-11 h-11 rounded-full overflow-hidden ring-2 ring-[#008A45]/20 shrink-0">
+      <div className="flex-[1_1_54%] min-w-0 flex items-center justify-center px-[clamp(1.25rem,3.5vw,4.5rem)] py-[clamp(2.5rem,4vh,3.5rem)] bg-slate-50">
+        <div className="w-full max-w-[440px]">
+          <div className="flex lg:hidden items-center gap-3 mb-9">
+            <div className="w-12 h-12 rounded-full overflow-hidden ring-2 ring-[#008A45]/20 shrink-0">
               <img src="/logo.svg" alt="CaterSync" className="w-full h-full object-cover" />
             </div>
-            <span className="text-xl font-bold text-slate-900">CaterSync</span>
+            <span className="text-[22px] font-bold text-slate-900">CaterSync</span>
           </div>
 
-          {/* One heading. The page previously said the same thing three times
-              in three sizes: "Welcome back", "Sign-in to your account", "Login". */}
-          <h1 className="text-[28px] font-bold tracking-[-0.025em] text-slate-900">Welcome back</h1>
-          <p className="mt-2 mb-[30px] text-[15px] text-slate-600">Sign in to your account.</p>
+          <h1 className="text-[clamp(28px,2.1vw,36px)] font-bold tracking-[-0.025em] text-slate-900">Welcome back</h1>
+          <p className="mt-2.5 mb-8 text-[clamp(15.5px,1.1vw,17px)] text-slate-600">Sign in to your account.</p>
 
           {errorMsg && (
-            <div className="flex items-start gap-2.5 mb-[22px] px-[15px] py-3.5 border border-[#f3c9c9] rounded-[11px] bg-[#fef4f4]">
-              <AlertCircle size={16} className="shrink-0 mt-px text-red-700" />
-              <span className="text-[13.5px] leading-[1.45] text-red-700 [text-wrap:pretty]">{errorMsg}</span>
+            <div className="flex items-start gap-2.5 mb-6 px-4 py-3.5 border border-[#f3c9c9] rounded-xl bg-[#fef4f4]">
+              <AlertCircle size={17} className="shrink-0 mt-px text-red-700" />
+              <span className="text-[14.5px] leading-[1.45] text-red-700 [text-wrap:pretty]">{errorMsg}</span>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="flex flex-col gap-[18px]">
+          <form onSubmit={handleSubmit} className="flex flex-col gap-5">
             <div>
-              <label htmlFor="email" className="block text-[13px] font-semibold text-slate-700 mb-[7px]">
+              <label htmlFor="email" className="block text-[14px] font-semibold text-slate-700 mb-2">
                 Email
               </label>
               <div className="relative">
-                <Mail size={17} className="absolute left-[15px] top-1/2 -translate-y-1/2 text-slate-400" />
+                <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                {/* 16px, not 15: below 16 iOS Safari zooms the whole page when
+                    the field takes focus, which is its own kind of weird. */}
                 <input
                   id="email"
                   type="email"
                   name="email"
                   value={formData.email}
                   onChange={handleInputChange}
-                  className="w-full border border-slate-200 rounded-[11px] pl-[42px] pr-[15px] py-[13px] text-[15px] focus:ring-[3px] focus:ring-[#008A45]/12 focus:border-[#008A45] outline-none bg-white"
+                  className="w-full border border-slate-200 rounded-xl pl-[46px] pr-4 py-[15px] text-[16px] text-slate-900 focus:ring-[3px] focus:ring-[#008A45]/12 focus:border-[#008A45] outline-none bg-white"
                   required
                   placeholder="Enter your email"
                   disabled={isLoading}
@@ -237,25 +242,23 @@ export default function Login() {
             </div>
 
             <div>
-              {/* The forgot-password route existed but nothing linked to it —
-                  the only way there was typing the URL. */}
-              <div className="flex items-baseline justify-between gap-3 mb-[7px]">
-                <label htmlFor="password" className="text-[13px] font-semibold text-slate-700">
+              <div className="flex items-baseline justify-between gap-3 mb-2">
+                <label htmlFor="password" className="text-[14px] font-semibold text-slate-700">
                   Password
                 </label>
-                <Link to="/forgot-password" className="text-[13px] font-semibold text-[#007038] hover:text-[#00532a]">
+                <Link to="/forgot-password" className="text-[14px] font-semibold text-[#007038] hover:text-[#00532a]">
                   Forgot password?
                 </Link>
               </div>
               <div className="relative">
-                <Lock size={17} className="absolute left-[15px] top-1/2 -translate-y-1/2 text-slate-400" />
+                <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
                   name="password"
                   value={formData.password}
                   onChange={handleInputChange}
-                  className="w-full border border-slate-200 rounded-[11px] pl-[42px] pr-[46px] py-[13px] text-[15px] focus:ring-[3px] focus:ring-[#008A45]/12 focus:border-[#008A45] outline-none bg-white"
+                  className="w-full border border-slate-200 rounded-xl pl-[46px] pr-[50px] py-[15px] text-[16px] text-slate-900 focus:ring-[3px] focus:ring-[#008A45]/12 focus:border-[#008A45] outline-none bg-white"
                   required
                   placeholder="Enter your password"
                   disabled={isLoading}
@@ -263,32 +266,32 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center justify-center w-[34px] h-[34px] rounded-[9px] text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center w-9 h-9 rounded-[10px] text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                   title={showPassword ? 'Hide password' : 'Show password'}
                   disabled={isLoading}
                 >
-                  {showPassword ? <Eye size={18} /> : <EyeOff size={18} />}
+                  {showPassword ? <Eye size={19} /> : <EyeOff size={19} />}
                 </button>
               </div>
             </div>
 
-            <label className="flex items-center gap-[9px] cursor-pointer select-none">
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
               <input
                 type="checkbox"
                 name="rememberMe"
                 checked={formData.rememberMe}
                 onChange={handleInputChange}
-                className="w-[17px] h-[17px] rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
+                className="w-[18px] h-[18px] rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
                 disabled={isLoading}
               />
-              <span className="text-sm text-slate-700">Remember me</span>
+              <span className="text-[15px] text-slate-700">Remember me</span>
             </label>
 
             <button
               type="submit"
               disabled={isLoading}
-              className={`w-full mt-1 py-3.5 rounded-[11px] bg-[#008A45] hover:bg-[#007038] text-white text-[15px] font-semibold transition-colors ${
+              className={`w-full mt-1 py-4 rounded-xl bg-[#008A45] hover:bg-[#007038] text-white text-[16px] font-semibold transition-colors ${
                 isLoading ? 'opacity-70 cursor-not-allowed' : ''
               }`}
             >
@@ -296,11 +299,9 @@ export default function Login() {
             </button>
           </form>
 
-          {/* AuthContext enforces one session per account. Users met that rule
-              only at the moment it blocked them, where it reads like a bug. */}
-          <div className="flex items-start gap-[9px] mt-[26px] pt-[22px] border-t border-slate-100">
-            <Info size={15} className="shrink-0 mt-px text-slate-400" />
-            <p className="text-[13px] leading-[1.5] text-slate-500 [text-wrap:pretty]">
+          <div className="flex items-start gap-2.5 mt-7 pt-6 border-t border-slate-200">
+            <Info size={16} className="shrink-0 mt-px text-slate-400" />
+            <p className="text-[13.5px] leading-[1.5] text-slate-500 [text-wrap:pretty]">
               Only one session per account. If this account is already signed in elsewhere, you&apos;ll be told where before you can continue.
             </p>
           </div>
