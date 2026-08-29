@@ -35,9 +35,24 @@ export default function Login() {
   // the login form (still authenticated underneath, just a confusing
   // "am I logged in or not" flash) instead of leaving the app entirely.
   useEffect(() => {
-    if (!authLoading && isManager) {
-      navigate('/app', { replace: true });
-    }
+    if (authLoading || !isManager) return undefined;
+
+    // isManager alone is not enough to redirect on. On SIGNED_OUT the context
+    // defers clearing it by 500ms, so for that half-second it still reads true
+    // with no session behind it. The password-reset flow lands exactly in that
+    // window -- updateUser fires USER_UPDATED (which re-verifies the manager
+    // and sets the flag), then signOut, then navigate here -- and this effect
+    // would bounce to /app, only for the deferred clear to eject back to
+    // /login a moment later. Confirming the session makes the flag's staleness
+    // harmless: no session, no redirect.
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!cancelled && data?.session) {
+        navigate('/app', { replace: true });
+      }
+    })();
+    return () => { cancelled = true; };
   }, [authLoading, isManager, navigate]);
 
   // A fresh login can be rejected because the account is already active

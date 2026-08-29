@@ -360,10 +360,18 @@ if (event === 'SIGNED_OUT') {
             // it as its own inline error), so skip the generic toast here.
             isBlockedRef.current = false;
           } else {
-            // Only show this if they're not already on the login page —
-            // avoids toast spam when we force a logout during email/password
-            // updates. Plain-language wording, not "session expired".
-            const isLoginPage = window.location.pathname === '/' || window.location.pathname === '/login';
+            // Only show this if they're not already on a page that has just
+            // explained the logout itself — avoids toast spam when we force a
+            // logout during email/password updates. Plain-language wording,
+            // not "session expired".
+            //
+            // /reset-password is included because it signs the user out on
+            // purpose the moment the new password is saved: it has already
+            // said "Password updated. Sign in with your new password", and
+            // following that with "You were logged out. Please log in again."
+            // reads like something went wrong.
+            const selfExplanatory = ['/', '/login', '/reset-password', '/forgot-password'];
+            const isLoginPage = selfExplanatory.includes(window.location.pathname);
             if (!isLoginPage) {
               toast.error('You were logged out. Please log in again.', { id: AUTH_TOAST_ID, duration: 4000 });
             }
