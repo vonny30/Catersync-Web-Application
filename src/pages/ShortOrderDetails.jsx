@@ -442,9 +442,20 @@ export default function ShortOrderDetails() {
 
   // --- DELETE ---
   const handleDelete = async () => {
+    // Same warning as the booking delete: name the money, because "associated
+    // payments will also be deleted" does not convey the size of what is
+    // leaving the reports.
+    const recordedMoney = sumVerifiedPositivePayments(payments);
+    const paymentRowCount = (payments || []).length;
+    const moneyWarning = paymentRowCount > 0
+      ? `
+
+This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ? '' : 's'} totalling ₱${recordedMoney.toLocaleString()}. That money will disappear from every report.`
+      : '';
+
     const confirmed = await showConfirm({
       title: 'Delete Short Order?',
-      message: `Are you sure you want to permanently delete this ${order.booking_status} order? This action cannot be undone. All associated payments and vehicle assignments will also be deleted.`,
+      message: `Are you sure you want to permanently delete this ${order.booking_status} order? This action cannot be undone. Its vehicle assignments will be released.${moneyWarning}`,
       confirmLabel: 'Delete',
       confirmVariant: 'danger',
     });
@@ -474,7 +485,13 @@ export default function ShortOrderDetails() {
       navigate('/app/orders');
     } catch (error) {
       console.error(error);
-      toast.error('Failed to delete order.');
+      // Children are deleted before the parent for the foreign keys, so a
+      // failure at the last step leaves the order standing with its payments
+      // already gone.
+      toast.error(
+        'Failed to delete this order, and some of its records may already have been removed. Check it on the Payments page before trying again.',
+        { duration: 10000 }
+      );
     }
   };
 

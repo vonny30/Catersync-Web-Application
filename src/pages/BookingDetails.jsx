@@ -486,9 +486,21 @@ export default function BookingDetails() {
 
   // --- DELETE (unique) ---
   const handleDelete = async () => {
+    // Name the money. This is the most destructive action in the app, and
+    // "associated payments will also be deleted" does not convey that a
+    // six-figure sum is about to disappear from every report. The figure is
+    // the same verified total the rest of the page shows.
+    const recordedMoney = sumVerifiedPositivePayments(payments);
+    const paymentRowCount = (payments || []).length;
+    const moneyWarning = paymentRowCount > 0
+      ? `
+
+This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ? '' : 's'} totalling ₱${recordedMoney.toLocaleString()}. That money will disappear from every report.`
+      : '';
+
     const confirmed = await showConfirm({
       title: 'Delete Booking?',
-      message: `Are you sure you want to permanently delete this ${booking.booking_status} booking? This action cannot be undone. All associated payments, equipment, and vehicle assignments will also be deleted.`,
+      message: `Are you sure you want to permanently delete this ${booking.booking_status} booking? This action cannot be undone. Its equipment and vehicle assignments will be released.${moneyWarning}`,
       confirmLabel: 'Delete',
       confirmVariant: 'danger',
     });
@@ -517,7 +529,14 @@ export default function BookingDetails() {
       navigate('/app/bookings');
     } catch (error) {
       console.error(error);
-      toast.error('Failed to delete booking.');
+      // Children have to go before the parent for the foreign keys, so a
+      // failure at the last step leaves the booking standing with its
+      // payments already gone. "Failed to delete" would suggest nothing
+      // happened, which is the one thing that cannot be true here.
+      toast.error(
+        'Failed to delete this booking, and some of its records may already have been removed. Check it on the Payments page before trying again.',
+        { duration: 10000 }
+      );
     }
   };
 
@@ -762,15 +781,62 @@ export default function BookingDetails() {
       // computed from pax_count — leaving old equipment in place after a
       // pax change would silently under/over-provision the event)
       if (shouldReallocateEquipment) {
-        // Delete existing equipment assignments for this booking
-        await supabase.from('booking_equipment').delete().eq('booking_id', id);
-        // Allocate equipment based on the (possibly new) package and pax count
+        // Look before deleting.
+        //
+        // This used to delete every equipment row and then allocate. Two ways
+        // that lost data silently:
+        //
+        //   allocateEquipmentForBooking RETURNS [] rather than throwing when a
+        //   package has no equipment template, so switching to such a package
+        //   wiped the equipment, skipped the catch, and still reported
+        //   "Equipment reassigned."
+        //
+        //   The delete had no `returned` filter, so rows already marked
+        //   returned — the booking's return history, which the Equipment page's
+        //   History tab reads and which its own delete guard refuses to
+        //   destroy — went with them.
+        let templateCount = null;
         try {
-          await allocateEquipmentForBooking(id, effectivePackageId, newPaxCount);
-          toast.success('Equipment reassigned.');
-        } catch (allocError) {
-          console.warn('Equipment re‑allocation warning:', allocError);
-          toast('Equipment re‑allocation had issues: ' + allocError.message, { icon: '⚠️' });
+          const { count, error: templateError } = await supabase
+            .from('package_equipment')
+            .select('*', { count: 'exact', head: true })
+            .eq('package_id', effectivePackageId);
+          if (templateError) throw templateError;
+          templateCount = count || 0;
+        } catch (templateError) {
+          console.warn('Could not read the package equipment template:', templateError);
+        }
+
+        if (templateCount === null) {
+          toast.error('Could not check the package’s equipment template, so equipment was left unchanged. Review it on the Equipment page.', { duration: 8000 });
+        } else if (templateCount === 0) {
+          // Nothing would be allocated, so destroying what is there would
+          // leave the event with no equipment at all.
+          toast.error('This package has no equipment template, so nothing could be re-allocated. The existing equipment was left as it is — adjust it from the Equipment page if it no longer fits.', { duration: 9000 });
+        } else {
+          // Only what is still out. Returned rows are history, not a current
+          // assignment, and re-allocation has no business rewriting them.
+          const { error: clearError } = await supabase
+            .from('booking_equipment')
+            .delete()
+            .eq('booking_id', id)
+            .eq('returned', false);
+          if (clearError) {
+            console.warn('Could not clear current equipment:', clearError);
+            toast.error('Equipment could not be re-allocated. It was left unchanged — review it on the Equipment page.', { duration: 8000 });
+          } else {
+            try {
+              const allocated = await allocateEquipmentForBooking(id, effectivePackageId, newPaxCount);
+              if (allocated && allocated.length > 0) {
+                toast.success(`Equipment reassigned (${allocated.length} item${allocated.length === 1 ? '' : 's'}).`);
+              } else {
+                toast.error('Equipment was cleared but nothing was allocated in its place. Assign it from the Equipment page.', { duration: 9000 });
+              }
+            } catch (allocError) {
+              console.warn('Equipment re-allocation failed:', allocError);
+              toast.error(`Equipment was cleared but could not be reassigned: ${allocError.message}. Assign it from the Equipment page.`, { duration: 10000 });
+            }
+          }
         }
       }
 
