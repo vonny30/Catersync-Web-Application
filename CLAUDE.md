@@ -4,6 +4,11 @@ React 19 + Vite + Tailwind 4 + Supabase. App code lives in `frontend/`.
 
 ## Read before non-trivial work
 
+- `frontend/docs/pages/` — **one file per page**: what it is for, the rules
+  that govern it, exactly which tables it reads and writes, and what is known
+  to be missing. `pages/README.md` indexes them and collects every recorded
+  gap in one table. Start here for a question about a specific page; the
+  table/write sections are extracted from the source, so they do not drift.
 - `frontend/docs/HANDOFF.md` — hard constraints, settled vocabulary, module
   ownership, and a "Things that will bite you" list. **The deep reference.**
 - `frontend/docs/panel-revisions-2026-05-29.md` — every oral-defense comment,
