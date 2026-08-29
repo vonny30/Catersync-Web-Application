@@ -13,6 +13,7 @@ import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { sumVerifiedPositivePayments, sumVerifiedDownpayments } from '../utils/payments';
 import { getPaymentsReceived } from '../utils/reportMetrics';
+import { fetchAllRows } from '../utils/fetchAllRows';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange } from './Reports/helpers';
 
@@ -272,14 +273,21 @@ export default function Dashboard() {
       // function the Payments page and Reports now use. The booking status comes
       // along so cash retained from a cancelled booking can be reported on its
       // own line instead of quietly inflating (or vanishing from) the headline.
-      const { data: revenueData, error: revenueError } = await supabase
-        .from('payment')
-        .select('amount_paid, pay_status, pay_datetime, booking:booking_id (booking_status)')
-        .gte('pay_datetime', `${startOfMonthStr} 00:00:00`)
-        .lte('pay_datetime', `${endOfMonthStr} 23:59:59`);
-
-      if (revenueError) throw revenueError;
-      const received = getPaymentsReceived(revenueData || []);
+      // Paged. A month's payments are not capped at anything, and PostgREST
+      // truncates at 1000 rows WITHOUT an error — so past that the headline
+      // collections figure would quietly under-report, growing more wrong as
+      // the business grows. Ordered by primary key so paging cannot skip or
+      // repeat rows.
+      const revenueData = await fetchAllRows(
+        () => supabase
+          .from('payment')
+          .select('amount_paid, pay_status, pay_datetime, booking:booking_id (booking_status)')
+          .gte('pay_datetime', `${startOfMonthStr} 00:00:00`)
+          .lte('pay_datetime', `${endOfMonthStr} 23:59:59`)
+          .order('payment_id', { ascending: true }),
+        'collections this month'
+      );
+      const received = getPaymentsReceived(revenueData);
       setStats(prev => ({
         ...prev,
         revenueThisMonth: received.paymentsReceived,
@@ -591,27 +599,33 @@ export default function Dashboard() {
       const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
       const startOfMonthStr = toLocalDateStr(startOfMonth);
       const endOfMonthStr = toLocalDateStr(endOfMonth);
-      const { data, error } = await supabase
-        .from('payment')
-        .select(`
-          payment_id,
-          amount_paid,
-          pay_datetime,
-          pay_method,
-          pay_status,
-          booking:booking_id (
-            booking_id,
-            booking_number,
-            booking_type,
-            booking_status,
-            venue,
-            customer:customer_id (first_name, last_name)
-          )
-        `)
-        .gte('pay_datetime', `${startOfMonthStr} 00:00:00`)
-        .lte('pay_datetime', `${endOfMonthStr} 23:59:59`)
-        .order('pay_datetime', { ascending: false });
-      if (error) throw error;
+      // Paged for the same reason as the card. It matters more here: this
+      // modal exists to reconcile with the figure that was clicked, and a
+      // truncated list would disagree with a card that had itself been fixed.
+      const data = await fetchAllRows(
+        () => supabase
+          .from('payment')
+          .select(`
+            payment_id,
+            amount_paid,
+            pay_datetime,
+            pay_method,
+            pay_status,
+            booking:booking_id (
+              booking_id,
+              booking_number,
+              booking_type,
+              booking_status,
+              venue,
+              customer:customer_id (first_name, last_name)
+            )
+          `)
+          .gte('pay_datetime', `${startOfMonthStr} 00:00:00`)
+          .lte('pay_datetime', `${endOfMonthStr} 23:59:59`)
+          .order('pay_datetime', { ascending: false })
+          .order('payment_id', { ascending: false }),
+        'collections modal'
+      );
       // List exactly the rows the card counted, so the modal's own total
       // reconciles with the figure that was clicked. Cash retained from
       // cancelled bookings is reported on the card's second line instead —
