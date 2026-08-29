@@ -14,7 +14,7 @@ const RESEND_COOLDOWN_SECONDS = 60;
 export default function ForgotPassword() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
-  // Supabase's recovery email template can send either a link or a 6-digit
+  // Supabase's recovery email template can send either a link or an 8-digit
   // code, and this project's is configured for a code. The page accepts the
   // code here rather than assuming a link that never arrives — and the link
   // path still works, because ResetPassword takes either.
@@ -150,7 +150,7 @@ export default function ForgotPassword() {
               <h1 className="text-[clamp(28px,2.1vw,36px)] font-bold tracking-[-0.025em] text-slate-900">Reset your password</h1>
               {/* Say what pressing the button will do, before it is pressed. */}
               <p className="mt-2.5 mb-8 text-[clamp(15.5px,1.1vw,17px)] leading-[1.5] text-slate-600 [text-wrap:pretty]">
-                Enter the email you sign in with and we&apos;ll send you a 6-digit code to set a new password.
+                Enter the email you sign in with and we&apos;ll send you an 8-digit code to set a new password.
               </p>
 
               {errorMsg && (
@@ -199,7 +199,7 @@ export default function ForgotPassword() {
               </div>
               <h1 className="text-[clamp(28px,2.1vw,36px)] font-bold tracking-[-0.025em] text-slate-900">Enter the code</h1>
               <p className="mt-2.5 text-[clamp(15.5px,1.1vw,17px)] leading-[1.5] text-slate-600 [text-wrap:pretty]">
-                If an account exists for <strong className="font-semibold text-slate-900">{email}</strong>, we&apos;ve emailed it a 6-digit code.
+                If an account exists for <strong className="font-semibold text-slate-900">{email}</strong>, we&apos;ve emailed it an 8-digit code.
               </p>
 
               {errorMsg && (
@@ -213,7 +213,7 @@ export default function ForgotPassword() {
                   thing under the heading rather than buried below instructions. */}
               <form onSubmit={handleVerifyCode} className="mt-6">
                 <label htmlFor="reset-code" className="block text-[14px] font-semibold text-slate-700 mb-2">
-                  6-digit code
+                  8-digit code
                 </label>
                 <div className="relative">
                   <KeyRound size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -226,7 +226,7 @@ export default function ForgotPassword() {
                     value={code}
                     onChange={(e) => setCode(e.target.value)}
                     className="w-full border border-slate-200 rounded-xl pl-[46px] pr-4 py-[15px] text-[18px] font-semibold tracking-[0.25em] tabular-nums text-slate-900 focus:ring-[3px] focus:ring-[#008A45]/12 focus:border-[#008A45] outline-none bg-white"
-                    placeholder="000000"
+                    placeholder="00000000"
                     disabled={isVerifying}
                     autoFocus
                   />
@@ -244,7 +244,7 @@ export default function ForgotPassword() {
 
               <ol className="mt-7 space-y-3.5">
                 {[
-                  'Open the email from CaterSync and copy the 6-digit code.',
+                  'Open the email from CaterSync and copy the 8-digit code.',
                   'Paste it above, then set your new password.',
                   'No email after a minute? Check your spam or junk folder.',
                 ].map((step, i) => (
