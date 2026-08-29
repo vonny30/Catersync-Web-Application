@@ -138,7 +138,11 @@ export const AuthProvider = ({ children }) => {
     isKickedRef.current = true;
     kickedAtRef.current = startedAt || null;
     teardownSessionLock();
-    supabase.auth.signOut();
+    // Local scope: this tab lost the session, so it drops its OWN copy.
+    // A default (global) signOut revokes every token for the user — including
+    // the device that just legitimately claimed the session, so being kicked
+    // would kick the winner too.
+    supabase.auth.signOut({ scope: 'local' });
   };
 
   useEffect(() => {
@@ -202,7 +206,12 @@ export const AuthProvider = ({ children }) => {
       }
 
       if (!manager) {
-        await supabase.auth.signOut();
+        // Local scope matters most here. This Supabase project is shared with
+        // the customer mobile app, so a customer trying the admin sign-in is a
+        // normal event — and a global signOut would revoke their tokens
+        // everywhere, silently signing them out of the mobile app for using
+        // the wrong login page.
+        await supabase.auth.signOut({ scope: 'local' });
         setUser(null);
         setIsManager(false);
         return false;
@@ -244,7 +253,7 @@ export const AuthProvider = ({ children }) => {
 
       if (lockResult.status === 'kicked') {
         isKickedRef.current = true;
-        await supabase.auth.signOut();
+        await supabase.auth.signOut({ scope: 'local' });
         return false;
       }
 
@@ -269,7 +278,7 @@ export const AuthProvider = ({ children }) => {
       console.error('Manager check error:', error);
 
       if (error.message === 'Session expired') {
-        await supabase.auth.signOut();
+        await supabase.auth.signOut({ scope: 'local' });
         setUser(null);
         setIsManager(false);
         return false;

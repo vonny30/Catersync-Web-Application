@@ -140,7 +140,11 @@ export default function Login() {
         .maybeSingle();
 
       if (managerError || !managerData) {
-        await supabase.auth.signOut();
+        // Local scope: this rejects a non-manager from the admin console, it
+        // does not sign them out of everything. The customer mobile app shares
+        // this Supabase project, so a global signOut here would log a customer
+        // out of that app for the crime of trying the wrong login page.
+        await supabase.auth.signOut({ scope: 'local' });
         toast.error('Access denied. This login page is restricted to authorized manager accounts only.', {
           duration: 6000
         });

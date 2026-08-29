@@ -64,9 +64,18 @@ export async function verifyPassword(email, password) {
     // caller can say what actually went wrong, as the docblock always claimed.
     throw error;
   }
-  // Immediately drop whatever session this throwaway client just created —
-  // it's not persisted and isn't the app's real session, but there's no
-  // reason to keep it in memory either.
-  await client.auth.signOut();
+  // scope: 'local' is load-bearing, not tidiness. supabase-js defaults
+  // signOut to scope: 'global', which revokes EVERY refresh token for the
+  // user server-side — including the real session of the app that is calling
+  // this. Checking your current password therefore destroyed the session
+  // needed to change it: updateUser came straight back with a 403 and
+  // AuthSessionMissingError, and the manager was signed out mid-form.
+  //
+  // Local scope drops this throwaway client's in-memory session and touches
+  // nothing on the server. Nothing is persisted here anyway (persistSession
+  // is false), so there is nothing else to clear.
+  //
+  // AuthContext already guards the same trap where it re-checks a session.
+  await client.auth.signOut({ scope: 'local' });
   return true;
 }
