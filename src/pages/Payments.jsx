@@ -9,7 +9,7 @@ import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
-import { sumVerifiedPositivePayments, UNVERIFIED_PAY_STATUSES, describePaymentKind } from '../utils/payments';
+import { sumVerifiedPositivePayments, getPaymentsAwaitingVerification, UNVERIFIED_PAY_STATUSES, describePaymentKind } from '../utils/payments';
 import { getPaymentsReceived } from '../utils/reportMetrics';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import DateRangeFilter from './Reports/DateRangeFilter';
@@ -501,6 +501,25 @@ export default function Payments() {
     const totalAmount = selectedBooking.total_amount || 0;
     const remainingBalance = Math.max(0, totalAmount - paid);
     const isFirstPayment = paid === 0;
+
+    // Verification comes first — same rule as the detail pages' record-payment
+    // form. A proof awaiting review may be for the very money about to be
+    // entered by hand, and verifying it afterwards would count the same
+    // payment twice with nothing to flag it.
+    const awaitingVerification = getPaymentsAwaitingVerification(
+      payments.filter(p => p.booking_id === formData.booking_id)
+    );
+    if (awaitingVerification.length > 0) {
+      const pendingTotal = awaitingVerification.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+      toast.error(
+        awaitingVerification.length === 1
+          ? `There is a ₱${pendingTotal.toLocaleString()} payment awaiting verification on this booking. Verify or reject it first — recording another payment now could count the same money twice.`
+          : `There are ${awaitingVerification.length} payments (₱${pendingTotal.toLocaleString()}) awaiting verification on this booking. Verify or reject them first — recording another payment now could count the same money twice.`,
+        { duration: 8000 }
+      );
+      setIsSubmitting(false);
+      return;
+    }
 
     if (remainingBalance <= 0) {
       toast.error("This booking is fully paid — there's no balance left to record against.");

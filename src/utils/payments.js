@@ -20,6 +20,20 @@ export function sumVerifiedPositivePayments(payments) {
     .reduce((sum, p) => sum + p.amount_paid, 0);
 }
 
+// Payments the customer has submitted that a manager has not ruled on yet.
+//
+// Recording a manual payment while one of these is outstanding is how the same
+// money gets counted twice: the manager enters the transfer they can see in the
+// bank, then later verifies the customer's proof of that same transfer, and the
+// booking now shows both. Verification has to come first — it is the step that
+// decides whether that money exists at all.
+//
+// 'Proof Rejected' is deliberately NOT included: it has already been ruled on,
+// and it is never going to become money.
+export function getPaymentsAwaitingVerification(payments) {
+  return (payments || []).filter(p => p.pay_status === 'Pending Verification');
+}
+
 // Sum of confirmed Downpayment-status payments.
 export function sumVerifiedDownpayments(payments) {
   return (payments || [])

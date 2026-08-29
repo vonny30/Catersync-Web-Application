@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
-import { sumVerifiedPositivePayments } from '../utils/payments';
+import { sumVerifiedPositivePayments, getPaymentsAwaitingVerification } from '../utils/payments';
 
 export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData, customerId }) {
   // Modal state
@@ -90,6 +90,23 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     const positivePayments = sumVerifiedPositivePayments(payments);
     const remainingBalance = Math.max(0, totalAmount - positivePayments);
     const isFirstPayment = positivePayments === 0;
+
+    // Verification comes first. A proof awaiting review may be for the very
+    // money about to be entered by hand, and verifying it afterwards would
+    // count the same payment twice with nothing to flag it.
+    const awaitingVerification = getPaymentsAwaitingVerification(payments);
+    if (awaitingVerification.length > 0) {
+      const total = awaitingVerification.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+      toast.error(
+        awaitingVerification.length === 1
+          ? `There is a ₱${total.toLocaleString()} payment awaiting verification on this booking. Verify or reject it first — recording another payment now could count the same money twice.`
+          : `There are ${awaitingVerification.length} payments (₱${total.toLocaleString()}) awaiting verification on this booking. Verify or reject them first — recording another payment now could count the same money twice.`,
+        { duration: 8000 }
+      );
+      setIsPaymentSubmitting(false);
+      return;
+    }
+
 
     if (remainingBalance <= 0) {
       toast.error('This booking is already fully paid. No additional payments are allowed.');
