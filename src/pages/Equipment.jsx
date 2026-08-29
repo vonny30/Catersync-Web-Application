@@ -1,10 +1,10 @@
 // src/pages/Equipment.jsx
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import Select from '../components/Select';
 import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import {
-  Plus, Edit, Trash2, X, Settings, ClipboardList, RefreshCw, Undo2,
+  Plus, Edit, Trash2, X, ClipboardList, RefreshCw, Undo2,
   Calendar, MapPin, Users, Search, CalendarClock, LayoutGrid, AlertTriangle,
   ChevronRight, Wrench, CheckCircle2, History, ExternalLink, Lock,
   ArrowUpDown, ArrowUp, ArrowDown,
@@ -184,6 +184,8 @@ export default function Equipment() {
   const [inventorySort, setInventorySort] = useState({ field: null, direction: 'asc' });
   const [assignmentSort, setAssignmentSort] = useState({ field: 'priority', direction: 'asc' }); // 'priority' | 'date' | 'customer'
   const [historySort, setHistorySort] = useState({ field: null, direction: 'desc' });
+  // Which grouped history rows are expanded. A Set of booking ids.
+  const [expandedHistoryGroups, setExpandedHistoryGroups] = useState(() => new Set());
 
   const makeToggleSort = (setter, defaultDirection = 'asc') => (field) => {
     setter(prev => prev.field === field
@@ -521,7 +523,7 @@ export default function Equipment() {
     setAssignFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // --- "Damaged or under repair" card -> the Inventory tab, filtered ---
+  // --- "Damaged or under maintenance" card -> the Inventory tab, filtered ---
   // Sends the manager to the list that can actually fix the problem rather
   // than to a read-only copy of it.
   const showNeedsAttentionInInventory = () => {
@@ -1222,21 +1224,13 @@ export default function Equipment() {
   const unitsFree = usableStockAll - unitsCommitted;
   const needsAttentionUnits = equipmentList.reduce((sum, eq) => sum + (eq.damaged_quantity || 0) + (eq.maintenance_quantity || 0), 0);
 
-  // Overdue: not returned and past the 24-hour return deadline — see the
-  // RETURN POLICY block at the top of this file. Deliberately based on
-  // "now", not the date selected in the Availability tab, since this asks
-  // "is anything overdue right now", not "overdue relative to whatever
-  // date I'm browsing". Uses the same due-time rule as assignmentGroups'
-  // isOverdue below, so the tab badge and the rows can't disagree — this
-  // previously counted from the event date while the rows counted from
-  // the deadline.
+  // "Now", not the date selected in the Availability tab: overdue asks "is
+  // anything late right now", not "late relative to whatever date I am
+  // browsing". Overdue itself is worked out once, in assignmentGroups below,
+  // against the 24-hour return deadline from the RETURN POLICY block at the
+  // top of this file — never against the event date, which would flag an item
+  // overdue while its Return button was still locked.
   const now = new Date();
-  const overdueAssignments = assignments.filter(a => {
-    if (a.returned || !a.booking?.event_datetime) return false;
-    const dueAt = getReturnDueAt(a.booking.event_datetime);
-    return dueAt && dueAt < now;
-  });
-  const overdueUnits = overdueAssignments.reduce((sum, a) => sum + (a.quantity || 0), 0);
 
   // ============================================================
   // --- UPCOMING PREP: what each upcoming event needs vs what it has ---
@@ -1657,28 +1651,99 @@ export default function Equipment() {
   const sortedFilteredHistoryRows = historySort.field
     ? [...filteredHistoryRows].sort((a, b) => {
         let result = 0;
-        if (historySort.field === 'equipment') result = (a.equipment?.eqm_name || '').localeCompare(b.equipment?.eqm_name || '');
+        if (historySort.field === 'customer') {
+          const nameOf = (x) => (x.booking?.customer ? `${x.booking.customer.first_name} ${x.booking.customer.last_name}` : '');
+          result = nameOf(a).localeCompare(nameOf(b));
+        }
         else if (historySort.field === 'eventDate') result = new Date(a.booking?.event_datetime || 0) - new Date(b.booking?.event_datetime || 0);
         else if (historySort.field === 'assignedOn') result = new Date(a.assigned_at || 0) - new Date(b.assigned_at || 0);
         return historySort.direction === 'asc' ? result : -result;
       })
     : filteredHistoryRows;
 
+  // ============================================================
+  // --- HISTORY: one row per booking, not per equipment type ---
+  // ============================================================
+  // booking_equipment stores a row per equipment type, so a booking that took
+  // eight different items produced eight history rows carrying the same
+  // reference, customer and event date. Grouped by booking the way the Active
+  // Assignments tab already groups, and expandable to the individual items --
+  // the same shape the Payments page uses for a booking's payments.
+  //
+  // Grouping happens AFTER filtering, so a group summarises what matched: a
+  // search for one equipment name shows that booking with the one item that
+  // matched, not the whole booking. Group order follows the row order above,
+  // so whichever sort is active still drives the list.
+  const historyGroups = (() => {
+    const map = new Map();
+    sortedFilteredHistoryRows.forEach(a => {
+      // A row with no booking can't be grouped with anything -- keep it as its
+      // own group rather than collapsing unrelated orphans together.
+      const key = a.booking_id || `orphan-${a.assignment_id}`;
+      if (!map.has(key)) {
+        map.set(key, { key, booking_id: a.booking_id, booking: a.booking, items: [], totalUnits: 0 });
+      }
+      const g = map.get(key);
+      g.items.push(a);
+      g.totalUnits += (a.quantity || 0);
+    });
+
+    return Array.from(map.values()).map(g => {
+      const returnedCount = g.items.filter(i => i.returned).length;
+      const allReturned = returnedCount === g.items.length;
+      const openItems = g.items.filter(i => !i.returned);
+      const anyOverdue = openItems.some(i => {
+        const dueAt = getReturnDueAt(i.booking?.event_datetime);
+        return dueAt ? dueAt < now : false;
+      });
+      // The group takes the least-finished stage among its items, from the
+      // same getAssignmentStatus every other tab uses, so a group can never
+      // report a stage its rows disagree with.
+      const anyInUse = openItems.some(i => getAssignmentStatus(i.returned, i.booking?.event_datetime).key === 'in_use');
+      const stage = allReturned
+        ? { key: 'returned', label: 'Returned' }
+        : anyOverdue
+          ? { key: 'overdue', label: 'Overdue' }
+          : anyInUse
+            ? { key: 'in_use', label: 'In Use' }
+            : { key: 'assigned', label: 'Assigned' };
+      const assignedTimes = g.items.map(i => new Date(i.assigned_at || 0).getTime()).filter(Boolean);
+      return {
+        ...g,
+        returnedCount,
+        allReturned,
+        stage,
+        // Newest assignment in the group -- matches the default newest-first sort.
+        latestAssignedAt: assignedTimes.length ? new Date(Math.max(...assignedTimes)) : null,
+      };
+    });
+  })();
+
+  const toggleHistoryGroup = (key) => {
+    setExpandedHistoryGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
   // --- RENDER ---
   return (
-    <div className="space-y-6 relative pb-12">
+    <div className="space-y-[18px] relative pb-12">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Equipment</h1>
-          <p className="text-sm text-slate-500">See what's actually free on a given date, manage inventory, and track assignments</p>
+          <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Equipment</h1>
+          <p className="text-[14.5px] text-slate-600 mt-1.5 max-w-[540px] [text-wrap:pretty]">
+            See what's actually free on a given date, manage inventory, and track assignments.
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <button
             onClick={() => { setAddFieldErrors({}); setIsAddModalOpen(true); }}
-            className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-xs cursor-pointer"
+            className="bg-white border border-slate-300 text-slate-700 px-4 py-2.5 rounded-[10px] font-semibold transition-colors flex items-center gap-2 text-sm whitespace-nowrap shadow-sm cursor-pointer hover:bg-[#f4f9f6] hover:border-[#c9dfd4] hover:text-[#007038] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
           >
-            <Settings size={16} /> Add Stock
+            <Plus size={16} /> Add Stock
           </button>
           <button
             onClick={() => {
@@ -1694,7 +1759,7 @@ export default function Equipment() {
               setAssignBookingLocked(false);
               setIsAssignModalOpen(true);
             }}
-            className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-sm cursor-pointer"
+            className="bg-[#008A45] hover:bg-[#007038] text-white px-[17px] py-2.5 rounded-[10px] font-bold transition-all flex items-center gap-2 text-sm whitespace-nowrap shadow-sm hover:shadow-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 focus:ring-offset-1"
           >
             <ClipboardList size={16} /> Assign Equipment
           </button>
@@ -1735,45 +1800,48 @@ export default function Equipment() {
             coming, and whether any day is over capacity. */}
         <button
           onClick={() => setActiveTableTab('upcoming')}
-          className={`bg-white border border-slate-200 border-l-4 rounded-2xl p-5 text-left shadow-sm transition-all cursor-pointer group ${overCapacityDays.length > 0 ? 'border-l-red-500 hover:shadow-md' : 'border-l-[#008A45] hover:shadow-md'}`}
+          className={`relative overflow-hidden rounded-[15px] border px-5 py-[18px] text-left cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 ${overCapacityDays.length > 0 ? 'bg-[#fef4f4] border-[#f3d3d3] hover:border-[#e8bcbc]' : 'bg-white border-slate-200/70 hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)]'}`}
         >
-          <p className="text-xs font-semibold text-slate-600 mb-1">Upcoming events</p>
-          <h3 className={`text-3xl font-extrabold ${overCapacityDays.length > 0 ? 'text-red-600' : 'text-slate-900'}`}>{upcomingPrep.length}</h3>
-          <p className="text-[11px] mt-1 transition-colors">
+          <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${overCapacityDays.length > 0 ? 'bg-red-500' : 'bg-[#008A45]'}`} />
+          <span className={`block text-[13px] font-semibold mb-2 whitespace-nowrap ${overCapacityDays.length > 0 ? 'text-red-700' : 'text-slate-600'}`}>Upcoming events</span>
+          <span className={`block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums ${overCapacityDays.length > 0 ? 'text-red-700' : 'text-slate-900'}`}>{upcomingPrep.length}</span>
+          <span className="block text-[13px] mt-2.5">
             {overCapacityDays.length > 0 ? (
               <span className="font-semibold text-red-600">
-                {overCapacityDays.length} date{overCapacityDays.length === 1 ? '' : 's'} over capacity →
+                {overCapacityDays.length} date{overCapacityDays.length === 1 ? '' : 's'} over capacity
               </span>
             ) : upcomingPrep.length === 0 ? (
-              <span className="text-slate-500">Nothing booked in the next {PREP_HORIZON_DAYS} days</span>
+              <span className="text-slate-600">Nothing booked in the next {PREP_HORIZON_DAYS} days</span>
             ) : (
-              <span className="text-slate-500 group-hover:text-[#008A45]">
-                Next: {nextEvent?.daysUntil <= 0 ? 'today' : nextEvent?.daysUntil === 1 ? 'tomorrow' : `in ${nextEvent?.daysUntil} days`} · {prepDays.length} day{prepDays.length === 1 ? '' : 's'} with events →
+              <span className="text-slate-600">
+                Next: {nextEvent?.daysUntil <= 0 ? 'today' : nextEvent?.daysUntil === 1 ? 'tomorrow' : `in ${nextEvent?.daysUntil} days`} · {prepDays.length} day{prepDays.length === 1 ? '' : 's'} with events
               </span>
             )}
-          </p>
+          </span>
         </button>
 
         <button
           onClick={showNeedsAttentionInInventory}
-          className={`bg-white border border-slate-200 border-l-4 rounded-2xl p-5 text-left shadow-sm transition-all cursor-pointer group ${needsAttentionUnits > 0 ? 'border-l-red-500 hover:shadow-md' : 'border-l-slate-300'}`}
+          className="relative overflow-hidden rounded-[15px] border px-5 py-[18px] text-left cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 bg-white border-slate-200/70 hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)]"
         >
-          <p className="text-xs font-semibold text-slate-600 mb-1">Damaged or under repair</p>
-          <h3 className={`text-3xl font-extrabold ${needsAttentionUnits > 0 ? 'text-red-600' : 'text-slate-400'}`}>{needsAttentionUnits}</h3>
-          <p className="text-[11px] text-slate-500 mt-1 group-hover:text-[#008A45] transition-colors">
-            {needsAttentionUnits > 0 ? 'Never counted as available →' : 'Nothing needs attention'}
-          </p>
+          <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500" />
+          <span className="block text-[13px] font-semibold mb-2 whitespace-nowrap text-slate-600">Damaged or under maintenance</span>
+          <span className={`block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums ${needsAttentionUnits > 0 ? 'text-slate-900' : 'text-slate-400'}`}>{needsAttentionUnits}</span>
+          <span className="block text-[13px] mt-2.5 text-slate-600">
+            {needsAttentionUnits > 0 ? 'Never counted as available' : 'Nothing needs attention'}
+          </span>
         </button>
 
         <button
           onClick={() => { setAssignmentSectionFilter('Overdue'); setActiveTableTab('assignments'); }}
-          className={`bg-white border border-slate-200 border-l-4 rounded-2xl p-5 text-left shadow-sm transition-all cursor-pointer group ${overdueGroups.length > 0 ? 'border-l-red-500 hover:shadow-md' : 'border-l-slate-300'}`}
+          className="relative overflow-hidden rounded-[15px] border px-5 py-[18px] text-left cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 bg-white border-slate-200/70 hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)]"
         >
-          <p className="text-xs font-semibold text-slate-600 mb-1">Overdue returns</p>
-          <h3 className={`text-3xl font-extrabold ${overdueGroups.length > 0 ? 'text-red-600' : 'text-slate-400'}`}>{overdueGroups.length}</h3>
-          <p className="text-[11px] text-slate-500 mt-1 group-hover:text-[#008A45] transition-colors">
-            {overdueGroups.length > 0 ? 'Past the 24-hour return window →' : 'All returns up to date'}
-          </p>
+          <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${overdueGroups.length > 0 ? 'bg-red-500' : 'bg-slate-400'}`} />
+          <span className="block text-[13px] font-semibold mb-2 whitespace-nowrap text-slate-600">Overdue returns</span>
+          <span className={`block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums ${overdueGroups.length > 0 ? 'text-red-700' : 'text-slate-400'}`}>{overdueGroups.length}</span>
+          <span className="block text-[13px] mt-2.5 text-slate-600">
+            {overdueGroups.length > 0 ? 'Past the 24-hour return window' : 'All returns up to date'}
+          </span>
         </button>
       </div>
 
@@ -1784,64 +1852,57 @@ export default function Equipment() {
       <div>
 
       {/* --- TAB CONTROL --- */}
-      <div ref={availabilityPanelRef} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-2 bg-slate-50 border-b border-slate-200">
-          <div className="flex items-center gap-1 flex-wrap">
-            {/* Upcoming leads the tabs because preparing for what's coming
-                is the job this page exists for; the other three support it
-                (what's free, what we own, what's out). */}
-            <button
-              onClick={() => setActiveTableTab('upcoming')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${activeTableTab === 'upcoming' ? 'bg-white shadow-sm text-[#008A45] border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <Calendar size={14} /> Upcoming
-              {overCapacityDays.length > 0 && (
-                <span className="ml-0.5 inline-flex items-center justify-center min-w-[1.1rem] h-[1.1rem] px-1 rounded-full text-[10px] font-bold bg-red-600 text-white">
-                  {overCapacityDays.length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTableTab('availability')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${activeTableTab === 'availability' ? 'bg-white shadow-sm text-[#008A45] border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <CalendarClock size={14} /> Availability
-            </button>
-            <button
-              onClick={() => setActiveTableTab('inventory')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${activeTableTab === 'inventory' ? 'bg-white shadow-sm text-[#008A45] border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <LayoutGrid size={14} /> Inventory
-            </button>
-            <button
-              onClick={() => setActiveTableTab('assignments')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${activeTableTab === 'assignments' ? 'bg-white shadow-sm text-[#008A45] border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <ClipboardList size={14} /> Active Assignments
-              {activeAssignmentRows.length > 0 && (
-                <span className={`ml-0.5 inline-flex items-center justify-center min-w-[1.1rem] h-[1.1rem] px-1 rounded-full text-[10px] font-bold ${overdueUnits > 0 ? 'bg-red-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
-                  {assignmentGroups.length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTableTab('history')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${activeTableTab === 'history' ? 'bg-white shadow-sm text-[#008A45] border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              <History size={14} /> History
-            </button>
-          </div>
-          {/* One line per tab, describing the step of the equipment
-              process it covers: what we own → what's free on a date →
-              what's out right now → what happened historically. */}
-          <p className="text-xs text-slate-500 px-1 pt-2">
-            {activeTableTab === 'upcoming' && <>Events in the next {PREP_HORIZON_DAYS} days, grouped by day — what goes out, and whether stock covers everything happening that day.</>}
-            {activeTableTab === 'availability' && <>What's free to assign on a chosen date, after subtracting what's already committed.</>}
-            {activeTableTab === 'inventory' && <>Everything we own — add stock, edit details, or flag damage and repairs.</>}
-            {activeTableTab === 'assignments' && <>Everything currently out at an event and not yet returned. {RETURN_POLICY_TEXT}</>}
-            {activeTableTab === 'history' && <>The full log of every assignment ever made — assigned and returned — across all equipment.</>}
-          </p>
+      <div ref={availabilityPanelRef} className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden">
+        {/* Underline tabs, matching every other page. These were white pills on
+            a grey bar, which is a control style used nowhere else in the app.
+            Counts sit on the tab so what is waiting in Active Assignments is
+            visible without switching to it.
+
+            Upcoming leads because preparing for what's coming is the job this
+            page exists for; the other four support it (what's free, what we
+            own, what's out, what happened). */}
+        <div className="flex items-center gap-0.5 px-2 border-b border-slate-100 overflow-x-auto">
+          {[
+            { key: 'upcoming', label: 'Upcoming', Icon: Calendar, count: upcomingPrep.length, alert: overCapacityDays.length > 0 },
+            { key: 'availability', label: 'Availability', Icon: CalendarClock },
+            { key: 'inventory', label: 'Inventory', Icon: LayoutGrid, count: equipmentList.length },
+            { key: 'assignments', label: 'Active Assignments', Icon: ClipboardList, count: assignmentGroups.length, alert: overdueGroups.length > 0 },
+            { key: 'history', label: 'History', Icon: History },
+          ].map(t => {
+            const isActive = activeTableTab === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setActiveTableTab(t.key)}
+                className={`shrink-0 flex items-center gap-[7px] whitespace-nowrap px-[15px] py-[13px] -mb-px border-b-2 text-[14.5px] transition-colors cursor-pointer ${
+                  isActive
+                    ? 'border-[#008A45] text-[#007038] font-bold'
+                    : 'border-transparent text-slate-600 font-semibold hover:text-slate-900'
+                }`}
+              >
+                <t.Icon size={15} /> {t.label}
+                {t.count !== undefined && t.count > 0 && (
+                  <span className={`inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full text-[12.5px] font-bold tabular-nums ${
+                    t.alert ? 'bg-red-100 text-red-700' : isActive ? 'bg-[#EAF3F2] text-[#00703a]' : 'bg-slate-100 text-slate-600'
+                  }`}>
+                    {t.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
+
+        {/* One line per tab, describing the step of the equipment process it
+            covers. These explain scope, which is this page's hardest concept —
+            they were 12px grey inside the tab bar and easy to miss. */}
+        <p className="px-5 py-3.5 border-b border-slate-100 text-[13.5px] text-slate-600 [text-wrap:pretty]">
+          {activeTableTab === 'upcoming' && <>Events in the next {PREP_HORIZON_DAYS} days, grouped by day — what goes out, and whether stock covers everything happening that day.</>}
+          {activeTableTab === 'availability' && <>What's free to assign on a chosen date, after subtracting what's already committed.</>}
+          {activeTableTab === 'inventory' && <>Everything we own — add stock, edit details, or flag damage and repairs.</>}
+          {activeTableTab === 'assignments' && <>Everything currently out at an event and not yet returned. {RETURN_POLICY_TEXT}</>}
+          {activeTableTab === 'history' && <>Every assignment ever made — assigned and returned — grouped by booking. Open a row to see the individual items.</>}
+        </p>
 
         {/* ===== UPCOMING PREP TAB ===== */}
         {/* Answers the panel's two questions in one place: which packages
@@ -1851,7 +1912,7 @@ export default function Equipment() {
             cross-referencing the package template against the assignment
             list themselves. */}
         {activeTableTab === 'upcoming' && (
-          <div className="divide-y divide-slate-200">
+          <div className="divide-y divide-slate-100">
             {/* Pending requests are surfaced as a count, not as rows. They
                 have no allocation yet by design (approval is what
                 allocates), so listing them as prep work would report the
@@ -1867,7 +1928,7 @@ export default function Equipment() {
                       <span className="font-semibold text-amber-700"> {pendingPastDue.length} {pendingPastDue.length === 1 ? 'has' : 'have'} an event date that already passed.</span>
                     )}
                   </span>
-                  <span className="ml-auto text-[11px] font-semibold text-[#008A45] shrink-0">View</span>
+                  <span className="ml-auto text-[13px] font-semibold text-[#007038] shrink-0">View</span>
                 </summary>
                 <div className="px-4 pb-3 pt-1 space-y-1.5 border-t border-slate-200">
                   {pendingBookings.map(pb => {
@@ -1882,18 +1943,18 @@ export default function Equipment() {
                         title="Open this booking to approve or reject it"
                       >
                         <span className="flex items-center gap-2 flex-wrap min-w-0">
-                          <span className="font-mono text-[11px] font-bold text-[#008A45]">{getBookingRef(pb)}</span>
+                          <span className="text-[13px] font-semibold text-[#007038] tabular-nums">{getBookingRef(pb)}</span>
                           <span className="text-xs font-semibold text-slate-800 truncate">
                             {pb.customer ? `${pb.customer.first_name} ${pb.customer.last_name}` : 'Unknown'}
                           </span>
                           {pb.package?.pkg_name && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200">
+                            <span className="text-[11.5px] font-semibold px-2 py-[3px] rounded-full bg-blue-50 text-blue-700">
                               {pb.package.pkg_name}
                             </span>
                           )}
                         </span>
                         <span className="flex items-center gap-2 shrink-0">
-                          <span className={`text-[11px] ${isPastDue ? 'font-bold text-amber-700' : 'text-slate-500'}`}>
+                          <span className={`text-[13px] ${isPastDue ? 'font-semibold text-amber-700' : 'text-slate-600'}`}>
                             {pbDate ? pbDate.toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'No date'}
                             {isPastDue ? ' · passed' : ''}
                           </span>
@@ -1906,7 +1967,7 @@ export default function Equipment() {
               </details>
             )}
             {isLoading ? (
-              <p className="p-6 text-center text-slate-400 text-sm">Loading upcoming events…</p>
+              <p className="p-6 text-center text-slate-500 text-sm">Loading upcoming events…</p>
             ) : prepDays.length === 0 ? (
               <div className="p-8 text-center">
                 <p className="text-sm text-slate-500">No approved events in the next {PREP_HORIZON_DAYS} days.</p>
@@ -1917,22 +1978,22 @@ export default function Equipment() {
                 const dayLabel = day.date.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
                 return (
                   <details key={day.dateKey} open={day.isToday || day.isTomorrow || day.shortages.length > 0} className="group/day">
-                    <summary className={`p-4 cursor-pointer list-none flex items-center justify-between gap-3 flex-wrap hover:bg-slate-50 transition-colors ${day.shortages.length > 0 ? 'bg-red-50/50' : ''}`}>
+                    <summary className={`p-4 cursor-pointer list-none flex items-center justify-between gap-3 flex-wrap hover:bg-[#fbfcfd] transition-colors ${day.shortages.length > 0 ? 'bg-red-50/50' : ''}`}>
                       <div className="flex items-center gap-3 flex-wrap min-w-0">
                         <span className="text-slate-400 group-open/day:rotate-90 transition-transform inline-block">▸</span>
                         <span className="font-bold text-slate-900 text-sm">{dayLabel}</span>
                         {day.isToday && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#008A45] text-white">TODAY</span>
+                          <span className="inline-flex items-center px-2.5 py-[3px] rounded-full text-[11.5px] font-bold bg-[#008A45] text-white">TODAY</span>
                         )}
                         {day.isTomorrow && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">TOMORROW</span>
+                          <span className="inline-flex items-center px-2.5 py-[3px] rounded-full text-[11.5px] font-semibold bg-emerald-50 text-emerald-700">TOMORROW</span>
                         )}
                         <span className="text-xs text-slate-500">
                           {day.events.length} event{day.events.length === 1 ? '' : 's'} · {day.totalUnits} unit{day.totalUnits === 1 ? '' : 's'} going out
                         </span>
                       </div>
                       {day.shortages.length > 0 && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-300">
+                        <span className="inline-flex items-center gap-1 px-3 py-[5px] rounded-full text-[12.5px] font-semibold bg-red-50 text-red-700">
                           <AlertTriangle size={10} /> OVER CAPACITY
                         </span>
                       )}
@@ -1956,8 +2017,8 @@ export default function Equipment() {
                               </p>
                             ))}
                           </div>
-                          <p className="text-[11px] text-red-600 mt-1.5">
-                            Free units up by returning stock early, repairing damaged items, or moving equipment between these events.
+                          <p className="text-[13px] text-red-600 mt-1.5">
+                            Free up units by returning stock early, repairing damaged items, or moving equipment between these events.
                           </p>
                         </div>
                       )}
@@ -1966,7 +2027,7 @@ export default function Equipment() {
                           staging happens per van-load, not per booking. */}
                       {day.items.length > 0 && (
                         <div className="rounded-lg border border-slate-200 bg-white p-3">
-                          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-2">To prepare this day</p>
+                          <p className="text-[13px] font-bold text-slate-600 tracking-[0.04em] mb-2">To prepare this day</p>
                           <div className="flex flex-wrap gap-1.5">
                             {day.items.map(i => (
                               <span
@@ -2003,13 +2064,13 @@ export default function Equipment() {
                                   {ref} <ExternalLink size={10} />
                                 </button>
                                 <span className="text-sm font-semibold text-slate-900 truncate">{customerName}</span>
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200">
+                                <span className="text-[11.5px] font-semibold px-2.5 py-[3px] rounded-full bg-blue-50 text-blue-700">
                                   {ev.package?.pkg_name || 'No package'}
                                 </span>
                                 <span className="text-xs text-slate-500 flex items-center gap-1">
                                   <Users size={11} /> {ev.pax_count || 0} pax
                                 </span>
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${ev.booking_status === 'Confirmed' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-amber-100 text-amber-800 border-amber-200'}`}>
+                                <span className={`text-[11.5px] font-semibold px-2.5 py-[3px] rounded-full ${ev.booking_status === 'Confirmed' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>
                                   {ev.booking_status}
                                 </span>
                               </div>
@@ -2044,7 +2105,7 @@ export default function Equipment() {
                             )}
 
                             {assignedLines.length === 0 ? (
-                              <p className="text-xs text-slate-500 italic">
+                              <p className="text-[13px] text-slate-600">
                                 No equipment assigned to this event yet.
                                 {!ev.hasTemplate && ' Its package has no equipment template, so nothing was allocated automatically.'}
                               </p>
@@ -2185,20 +2246,20 @@ export default function Equipment() {
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
-                  <th className="p-4">{renderSortHeader(availabilitySort, toggleAvailabilitySort, 'name', 'Equipment')}</th>
-                  <th className="p-4 font-bold text-center">Usable</th>
-                  <th className="p-4 font-bold text-center">In use on this date</th>
-                  <th className="p-4 text-center">{renderSortHeader(availabilitySort, toggleAvailabilitySort, 'free', 'Available', 'justify-center mx-auto')}</th>
-                  <th className="p-4 font-bold">Status</th>
-                  <th className="p-4 font-bold w-8"></th>
+                <tr className="bg-[#fbfcfd] border-b border-slate-100">
+                  <th className="px-4 py-3">{renderSortHeader(availabilitySort, toggleAvailabilitySort, 'name', 'Equipment')}</th>
+                  <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Usable</th>
+                  <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">In use on this date</th>
+                  <th className="px-4 py-3 text-center">{renderSortHeader(availabilitySort, toggleAvailabilitySort, 'free', 'Available', 'justify-center mx-auto')}</th>
+                  <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Status</th>
+                  <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap w-8"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
+              <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                 {isLoading || snapshotLoading ? (
-                  <tr><td colSpan="6" className="p-6 text-center text-slate-400">Calculating availability…</td></tr>
+                  <tr><td colSpan="6" className="p-6 text-center text-slate-500">Calculating availability…</td></tr>
                 ) : filteredAvailabilityItems.length === 0 ? (
-                  <tr><td colSpan="6" className="p-6 text-center text-slate-400 italic">No equipment matches your search/filter.</td></tr>
+                  <tr><td colSpan="6" className="p-6 text-center text-slate-500">No equipment matches your search/filter.</td></tr>
                 ) : (
                   sortedFilteredAvailabilityItems.map((item) => {
                     const status = getAvailabilityStatus(item);
@@ -2221,12 +2282,12 @@ export default function Equipment() {
                         key={item.equipment_id}
                         onClick={() => { setAvailabilityDetailItem(item); setIsAvailabilityDetailOpen(true); }}
                         title="Click for the list of events using this item"
-                        className={`hover:bg-slate-50 transition-colors cursor-pointer group ${status.key === 'overbooked' ? 'bg-red-50/40' : ''}`}
+                        className={`hover:bg-[#fbfcfd] transition-colors cursor-pointer group ${status.key === 'overbooked' ? 'bg-red-50/40' : ''}`}
                       >
-                        <td className="p-4">
+                        <td className="px-4 py-[15px]">
                           <div className="flex items-center gap-2">
                             <p className="font-bold text-slate-900">{item.eqm_name}</p>
-                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold border ${item.equipment_type === 'Decoration' ? 'bg-purple-50 border-purple-200 text-purple-700' : 'bg-blue-50 border-blue-200 text-blue-700'}`}>
+                            <span className={`inline-flex items-center px-2 py-[3px] rounded-full text-[11.5px] font-semibold ${item.equipment_type === 'Decoration' ? 'bg-[#f6edfe] text-purple-700' : 'bg-blue-50 text-blue-700'}`}>
                               {item.equipment_type === 'Decoration' ? 'Decoration' : 'Countable'}
                             </span>
                           </div>
@@ -2246,14 +2307,14 @@ export default function Equipment() {
                             </p>
                           )}
                         </td>
-                        <td className="p-4 text-center font-bold text-slate-900">{stock.usable}</td>
-                        <td className="p-4 text-center font-semibold text-slate-700">{stock.committed} <span className="text-slate-400 font-normal">units</span></td>
-                        <td className="p-4 text-center">
+                        <td className="px-4 py-[15px] text-right font-bold text-slate-900">{stock.usable}</td>
+                        <td className="px-4 py-[15px] text-right font-semibold text-slate-700">{stock.committed} <span className="text-slate-400 font-normal">units</span></td>
+                        <td className="px-4 py-[15px] text-right">
                           <span className={`inline-flex items-center justify-center min-w-[3rem] px-3 py-1 rounded-full text-xl font-extrabold ${status.key === 'overbooked' ? 'bg-red-100 text-red-700' : status.rank === 1 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
                             {stock.free}
                           </span>
                         </td>
-                        <td className="p-4">
+                        <td className="px-4 py-[15px]">
                           <div className="flex items-center gap-2">
                             <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${status.pillClass}`}>{status.label}</span>
                             <div className="w-14 h-1.5 rounded-full bg-slate-200 overflow-hidden shrink-0">
@@ -2261,7 +2322,7 @@ export default function Equipment() {
                             </div>
                           </div>
                         </td>
-                        <td className="p-4 text-right">
+                        <td className="px-4 py-[15px] text-right">
                           <ChevronRight size={16} className="text-slate-300 group-hover:text-[#008A45] transition-colors" />
                         </td>
                       </tr>
@@ -2289,7 +2350,7 @@ export default function Equipment() {
               <span className="text-slate-500">
                 = <span className="font-bold text-emerald-700">{usableStockAll}</span> usable
                 {' + '}
-                <span className="font-bold text-red-600">{needsAttentionUnits}</span> out of service (damaged or under repair)
+                <span className="font-bold text-red-600">{needsAttentionUnits}</span> out of service (damaged or under maintenance)
               </span>
             </div>
             <div className={`p-4 border-b flex flex-wrap items-center gap-3 ${activeInventoryFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-200'}`}>
@@ -2341,29 +2402,29 @@ export default function Equipment() {
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
-                    <th className="p-4">{renderSortHeader(inventorySort, toggleInventorySort, 'name', 'Equipment')}</th>
-                    <th className="p-4 font-bold text-center">Owned</th>
-                    <th className="p-4 font-bold text-center">Damaged</th>
-                    <th className="p-4 font-bold text-center">Under Maintenance</th>
-                    <th className="p-4 font-bold text-center">Usable</th>
-                    <th className="p-4 font-bold text-center">Type</th>
-                    <th className="p-4 font-bold text-center">Guests per Unit</th>
+                  <tr className="bg-[#fbfcfd] border-b border-slate-100">
+                    <th className="px-4 py-3">{renderSortHeader(inventorySort, toggleInventorySort, 'name', 'Equipment')}</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Owned</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Damaged</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Under Maintenance</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Usable</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Type</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Guests per Unit</th>
                     {/* Not "Out now": this counts unreturned ASSIGNMENTS, most
                         of which are for events that haven't happened yet, and
                         statusLabels.js is explicit that a chair promised to a
                         wedding three days out is not in use by any reading of
                         the word. "Committed" is the settled term for exactly
                         that state (RESOURCE_STATE.committed). */}
-                    <th className="p-4 font-bold text-center">Committed to</th>
-                    <th className="p-4 font-bold text-right">Actions</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Committed to</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
+                <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                   {isLoading ? (
-                    <tr><td colSpan="9" className="p-6 text-center text-slate-400">Loading equipment...</td></tr>
+                    <tr><td colSpan="9" className="p-6 text-center text-slate-500">Loading equipment...</td></tr>
                   ) : filteredInventory.length === 0 ? (
-                    <tr><td colSpan="9" className="p-6 text-center text-slate-400 italic">No equipment found.</td></tr>
+                    <tr><td colSpan="9" className="p-6 text-center text-slate-500">No equipment found.</td></tr>
                   ) : (
                     sortedFilteredInventory.map((item) => {
                       // Unreturned assignments for this item. Counting rows,
@@ -2382,31 +2443,31 @@ export default function Equipment() {
                       const stock = getStockBreakdown(item);
                       const condition = getConditionSummary(item);
                       return (
-                        <tr key={item.equipment_id} className="hover:bg-slate-50 transition-colors">
-                          <td className="p-4">
+                        <tr key={item.equipment_id} className="hover:bg-[#fbfcfd] transition-colors">
+                          <td className="px-4 py-[15px]">
                             <div className="flex items-center gap-2">
                               <p className="font-bold text-slate-900">{item.eqm_name}</p>
                               {condition.dbValue !== 'Good Condition' && (
-                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold border ${condition.className}`}>
+                                <span className={`inline-flex items-center px-2 py-[3px] rounded-full text-[11.5px] font-semibold ${condition.className}`}>
                                   {condition.label}
                                 </span>
                               )}
                             </div>
                             <p className="text-xs text-slate-500 mt-0.5">{item.eqm_description}</p>
                           </td>
-                          <td className="p-4 text-center font-semibold text-slate-800">{stock.total}</td>
-                          <td className="p-4 text-center font-semibold text-red-600">{stock.damaged}</td>
-                          <td className="p-4 text-center font-semibold text-amber-600">{stock.maintenance}</td>
-                          <td className="p-4 text-center font-bold text-slate-900">{stock.usable}</td>
-                          <td className="p-4 text-center">
-                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${item.equipment_type === 'Decoration' ? 'bg-purple-50 border-purple-200 text-purple-700' : 'bg-blue-50 border-blue-200 text-blue-700'}`}>
+                          <td className="px-4 py-[15px] text-right font-semibold text-slate-800">{stock.total}</td>
+                          <td className="px-4 py-[15px] text-right font-semibold text-red-600">{stock.damaged}</td>
+                          <td className="px-4 py-[15px] text-right font-semibold text-amber-600">{stock.maintenance}</td>
+                          <td className="px-4 py-[15px] text-right font-bold text-slate-900">{stock.usable}</td>
+                          <td className="px-4 py-[15px] text-right">
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${item.equipment_type === 'Decoration' ? 'bg-[#f6edfe] text-purple-700' : 'bg-blue-50 text-blue-700'}`}>
                               {item.equipment_type === 'Decoration' ? 'Decoration' : 'Countable'}
                             </span>
                           </td>
-                          <td className="p-4 text-center font-semibold text-slate-900">
+                          <td className="px-4 py-[15px] text-right font-semibold text-slate-900">
                             {item.pax_per_unit ? `${item.pax_per_unit} pax` : '—'}
                           </td>
-                          <td className="p-4 text-center">
+                          <td className="px-4 py-[15px] text-right">
                             <button
                               onClick={() => handleViewUsage(item)}
                               className="text-blue-500 hover:text-blue-700 transition-colors text-xs font-medium flex items-center gap-1 mx-auto"
@@ -2420,7 +2481,7 @@ export default function Equipment() {
                                 : 'View history'}
                             </button>
                           </td>
-                          <td className="p-4 text-right">
+                          <td className="px-4 py-[15px] text-right">
                             <div className="flex items-center justify-end gap-2">
                               <button
                                 onClick={() => handleFlagIssueClick(item)}
@@ -2537,20 +2598,20 @@ export default function Equipment() {
         </div>
 
         {/* Internal scroll so a long list of bookings doesn't stretch the whole page */}
-        <div className="max-h-[32rem] overflow-y-auto divide-y divide-slate-200">
+        <div className="max-h-[32rem] overflow-y-auto divide-y divide-slate-100">
           {isLoading ? (
-            <p className="p-6 text-center text-slate-400 text-sm">Loading assignments...</p>
+            <p className="p-6 text-center text-slate-500 text-sm">Loading assignments...</p>
           ) : assignmentGroups.length === 0 ? (
-            <p className="p-6 text-center text-slate-400 italic text-sm">No active assignments.</p>
+            <p className="p-6 text-center text-slate-500 text-sm">No active assignments.</p>
           ) : filteredAssignmentGroups.length === 0 ? (
-            <p className="p-6 text-center text-slate-400 italic text-sm">No assignments match your search/filter.</p>
+            <p className="p-6 text-center text-slate-500 text-sm">No assignments match your search/filter.</p>
           ) : (
             sortedFilteredAssignmentGroups.map((group) => {
               const ref = group.booking ? getBookingRef(group.booking) : 'Unknown';
               const customerName = group.booking?.customer ? `${group.booking.customer.first_name} ${group.booking.customer.last_name}` : 'Unknown';
               return (
                 <details key={group.booking_id} open={group.isOverdue || group.isToday} className="group/details">
-                  <summary className={`p-4 cursor-pointer list-none flex items-center justify-between gap-3 flex-wrap hover:bg-slate-50 transition-colors ${group.isOverdue ? 'bg-red-50/40' : ''}`}>
+                  <summary className={`p-4 cursor-pointer list-none flex items-center justify-between gap-3 flex-wrap hover:bg-[#fbfcfd] transition-colors ${group.isOverdue ? 'bg-red-50/40' : ''}`}>
                     <div className="flex items-center gap-3 flex-wrap">
                       <span className="text-slate-400 group-open/details:rotate-90 transition-transform inline-block">▸</span>
                       {group.isOverdue && (() => {
@@ -2560,7 +2621,7 @@ export default function Equipment() {
                         const late = daysOverdue(group.dueAt);
                         return (
                           <span
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-300"
+                            className="inline-flex items-center gap-1 px-3 py-[5px] rounded-full text-[12.5px] font-semibold bg-red-50 text-red-700"
                             title={group.dueAt ? `Was due back ${group.dueAt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : undefined}
                           >
                             <AlertTriangle size={10} /> OVERDUE{late > 0 ? ` · ${late}d` : ''}
@@ -2568,7 +2629,7 @@ export default function Equipment() {
                         );
                       })()}
                       {!group.isOverdue && group.isToday && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">TODAY</span>
+                        <span className="inline-flex items-center px-2.5 py-[3px] rounded-full text-[11.5px] font-semibold bg-emerald-50 text-emerald-700">TODAY</span>
                       )}
                       <button
                         type="button"
@@ -2682,67 +2743,120 @@ export default function Equipment() {
                   onClear={() => { setHistoryDatePreset('All Time'); setHistoryDateCustomStart(''); setHistoryDateCustomEnd(''); }}
                 />
               </div>
-              <p className="text-xs text-slate-400">{filteredHistoryRows.length} of {assignments.length} record{assignments.length !== 1 ? 's' : ''} shown{historySort.field ? '' : ', most recent first'}</p>
+              <p className="text-[13px] text-slate-600 tabular-nums">
+                {historyGroups.length} booking{historyGroups.length !== 1 ? 's' : ''} &#183; {filteredHistoryRows.length} of {assignments.length} assignment record{assignments.length !== 1 ? 's' : ''}{historySort.field ? '' : ', most recent first'}
+              </p>
             </div>
             <div className="overflow-x-auto max-h-[32rem] overflow-y-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200 sticky top-0">
-                    <th className="p-4">{renderSortHeader(historySort, toggleHistorySort, 'equipment', 'Equipment')}</th>
-                    <th className="p-4 font-bold">Booking</th>
-                    <th className="p-4 font-bold text-center">Quantity</th>
-                    <th className="p-4">{renderSortHeader(historySort, toggleHistorySort, 'eventDate', 'Event date')}</th>
-                    <th className="p-4">{renderSortHeader(historySort, toggleHistorySort, 'assignedOn', 'Assigned on')}</th>
-                    <th className="p-4 font-bold">Status</th>
+                  <tr className="bg-[#fbfcfd] border-b border-slate-100 sticky top-0">
+                    <th className="px-5 py-3">{renderSortHeader(historySort, toggleHistorySort, 'customer', 'Booking')}</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Equipment</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Units</th>
+                    <th className="px-4 py-3">{renderSortHeader(historySort, toggleHistorySort, 'eventDate', 'Event date')}</th>
+                    <th className="px-4 py-3">{renderSortHeader(historySort, toggleHistorySort, 'assignedOn', 'Assigned on')}</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
+                <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                   {isLoading ? (
-                    <tr><td colSpan="6" className="p-6 text-center text-slate-400">Loading history...</td></tr>
-                  ) : filteredHistoryRows.length === 0 ? (
-                    <tr><td colSpan="6" className="p-6 text-center text-slate-400 italic">No assignment history matches your search/filter.</td></tr>
+                    <tr><td colSpan="6" className="p-6 text-center text-slate-500">Loading history...</td></tr>
+                  ) : historyGroups.length === 0 ? (
+                    <tr><td colSpan="6" className="p-6 text-center text-slate-500">No assignment history matches your search or filter.</td></tr>
                   ) : (
-                    sortedFilteredHistoryRows.map((a) => {
-                      const ref = a.booking ? getBookingRef(a.booking) : 'Unknown';
-                      const customerName = a.booking?.customer ? `${a.booking.customer.first_name} ${a.booking.customer.last_name}` : 'Unknown';
+                    historyGroups.map((g) => {
+                      const ref = g.booking ? getBookingRef(g.booking) : 'Unknown';
+                      const customerName = g.booking?.customer ? g.booking.customer.first_name + ' ' + g.booking.customer.last_name : 'Unknown';
+                      const isExpanded = expandedHistoryGroups.has(g.key);
+                      const multi = g.items.length > 1;
+                      const stagePill = g.stage.key === 'returned' ? 'bg-slate-100 text-slate-600'
+                        : g.stage.key === 'overdue' ? 'bg-red-50 text-red-700'
+                        : g.stage.key === 'in_use' ? 'bg-emerald-50 text-emerald-700'
+                        : 'bg-blue-50 text-blue-700';
                       return (
-                        <tr key={a.assignment_id} className="hover:bg-slate-50 transition-colors">
-                          <td className="p-4 font-semibold text-slate-900">{a.equipment?.eqm_name || 'Unknown'}</td>
-                          <td className="p-4">
-                            <p className="font-medium text-slate-800">{customerName}</p>
-                            <p className="text-xs text-slate-500 flex items-center gap-2">
-                              {a.booking ? (
-                                <button
-                                  onClick={() => goToBookingDetails(a.booking.booking_id, a.booking.booking_type)}
-                                  className="font-mono font-bold text-[#008A45] hover:underline inline-flex items-center gap-0.5 cursor-pointer"
-                                  title="View full booking details"
-                                >
-                                  {ref} <ExternalLink size={10} />
-                                </button>
-                              ) : (
-                                <span className="font-mono font-bold">{ref}</span>
-                              )}
-                              {a.booking?.venue && <span className="flex items-center gap-1"><MapPin size={10} /> {a.booking.venue}</span>}
-                            </p>
-                          </td>
-                          <td className="p-4 text-center font-bold text-[#008A45]">{a.quantity}</td>
-                          <td className="p-4 text-slate-600">{a.booking?.event_datetime ? new Date(a.booking.event_datetime).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}</td>
-                          <td className="p-4 text-slate-500">{a.assigned_at ? new Date(a.assigned_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}</td>
-                          <td className="p-4">
-                            {a.returned ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600">
-                                <CheckCircle2 size={12} /> Returned {a.returned_at ? new Date(a.returned_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
+                        <Fragment key={g.key}>
+                          <tr
+                            className={'transition-colors hover:bg-[#fbfcfd] ' + (multi ? 'cursor-pointer' : '')}
+                            onClick={() => { if (multi) toggleHistoryGroup(g.key); }}
+                          >
+                            <td className="px-5 py-[15px] align-top">
+                              <div className="flex items-start gap-2">
+                                {/* Only a group hiding something gets a chevron;
+                                    a single-item booking has nothing to reveal. */}
+                                {multi ? (
+                                  <ChevronRight size={15} className={'mt-[3px] shrink-0 text-slate-400 transition-transform ' + (isExpanded ? 'rotate-90' : '')} />
+                                ) : (
+                                  <span className="w-[15px] shrink-0" />
+                                )}
+                                <div className="min-w-0">
+                                  <p className="text-[14.5px] font-semibold text-slate-900">{customerName}</p>
+                                  <p className="text-[13px] text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+                                    {g.booking ? (
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); goToBookingDetails(g.booking.booking_id, g.booking.booking_type); }}
+                                        className="font-semibold text-[#007038] tabular-nums hover:underline inline-flex items-center gap-0.5 cursor-pointer"
+                                        title="View full booking details"
+                                      >
+                                        {ref} <ExternalLink size={11} />
+                                      </button>
+                                    ) : (
+                                      <span className="font-semibold tabular-nums">{ref}</span>
+                                    )}
+                                    {g.booking?.venue && <span className="flex items-center gap-1"><MapPin size={11} /> {g.booking.venue}</span>}
+                                  </p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-[15px] align-top text-sm text-slate-800">
+                              {multi ? g.items.length + ' equipment types' : (g.items[0].equipment?.eqm_name || 'Unknown')}
+                            </td>
+                            <td className="px-4 py-[15px] align-top text-right text-sm text-slate-800 tabular-nums">{g.totalUnits}</td>
+                            <td className="px-4 py-[15px] align-top text-sm text-slate-600 tabular-nums">
+                              {g.booking?.event_datetime ? new Date(g.booking.event_datetime).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                            </td>
+                            <td className="px-4 py-[15px] align-top text-sm text-slate-600 tabular-nums">
+                              {g.latestAssignedAt ? g.latestAssignedAt.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}
+                            </td>
+                            <td className="px-4 py-[15px] align-top">
+                              <span className={'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ' + stagePill}>
+                                {g.stage.key === 'returned' && <CheckCircle2 size={12} />}
+                                {g.stage.label}
                               </span>
-                            ) : (() => {
-                              const status = getAssignmentStatus(a.returned, a.booking?.event_datetime);
-                              return (
-                                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${status.key === 'in_use' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
-                                  {status.label}
-                                </span>
-                              );
-                            })()}
-                          </td>
-                        </tr>
+                              {/* A part-returned booking reads as still open, so
+                                  say how much of it is actually back. */}
+                              {multi && !g.allReturned && g.returnedCount > 0 && (
+                                <p className="text-[12.5px] text-slate-600 mt-1 tabular-nums">{g.returnedCount} of {g.items.length} returned</p>
+                              )}
+                            </td>
+                          </tr>
+
+                          {multi && isExpanded && g.items.map((a) => {
+                            const itemStatus = getAssignmentStatus(a.returned, a.booking?.event_datetime);
+                            return (
+                              <tr key={a.assignment_id} className="bg-[#fbfcfd]">
+                                <td className="px-5 py-2.5" />
+                                <td className="px-4 py-2.5 text-[13.5px] font-medium text-slate-800">{a.equipment?.eqm_name || 'Unknown'}</td>
+                                <td className="px-4 py-2.5 text-right text-[13.5px] text-slate-700 tabular-nums">{a.quantity}</td>
+                                <td className="px-4 py-2.5" />
+                                <td className="px-4 py-2.5 text-[13.5px] text-slate-600 tabular-nums">
+                                  {a.assigned_at ? new Date(a.assigned_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}
+                                </td>
+                                <td className="px-4 py-2.5">
+                                  {a.returned ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[12.5px] font-semibold bg-slate-100 text-slate-600 whitespace-nowrap">
+                                      <CheckCircle2 size={11} /> Returned {a.returned_at ? new Date(a.returned_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
+                                    </span>
+                                  ) : (
+                                    <span className={'inline-flex items-center px-2.5 py-0.5 rounded-full text-[12.5px] font-semibold whitespace-nowrap ' + (itemStatus.key === 'in_use' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700')}>
+                                      {itemStatus.label}
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </Fragment>
                       );
                     })
                   )}
@@ -2772,7 +2886,7 @@ export default function Equipment() {
             </div>
             <div className="p-4 overflow-y-auto flex-1 space-y-3">
               {snapshot.eventsOnDate.length === 0 ? (
-                <p className="text-sm text-slate-500 italic text-center py-8">No events on this date.</p>
+                <p className="text-sm text-slate-500 text-center py-8">No events on this date.</p>
               ) : (
                 snapshot.eventsOnDate.map(ev => {
                   const eventEquipment = eventEquipmentMap[ev.booking_id] || [];
@@ -2786,7 +2900,7 @@ export default function Equipment() {
                         <div className="text-right text-xs">
                           <button
                             onClick={() => goToBookingDetails(ev.booking_id, ev.booking_type)}
-                            className="font-mono font-bold text-[#008A45] hover:underline flex items-center gap-1 cursor-pointer"
+                            className="text-[13.5px] font-semibold text-[#007038] tabular-nums hover:underline flex items-center gap-1 cursor-pointer"
                             title="View full booking details"
                           >
                             {ev.ref} <ExternalLink size={11} />
@@ -2797,7 +2911,7 @@ export default function Equipment() {
                       <div className="p-3">
                         <p className="text-xs font-bold text-slate-600 mb-1.5">Equipment for this event</p>
                         {eventEquipment.length === 0 ? (
-                          <p className="text-xs text-slate-400 italic">No equipment assigned to this booking yet.</p>
+                          <p className="text-xs text-slate-500">No equipment assigned to this booking yet.</p>
                         ) : (
                           <div className="space-y-1">
                             {eventEquipment.map(eqi => {
@@ -2831,13 +2945,13 @@ export default function Equipment() {
             <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">{availabilityDetailItem.eqm_name}</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Free on {selectedDateLabel}: <span className={`font-bold ${availabilityDetailItem.free < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{availabilityDetailItem.free}</span> of {availabilityDetailItem.quantity_available} total</p>
+                <p className="text-[13px] text-slate-600 mt-0.5">Available on {selectedDateLabel}: <span className={`font-bold ${availabilityDetailItem.free < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{availabilityDetailItem.free}</span> of {availabilityDetailItem.quantity_available} total</p>
               </div>
               <button onClick={() => setIsAvailabilityDetailOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"><X size={18} /></button>
             </div>
             <div className="p-4 overflow-y-auto flex-1 space-y-2">
               {availabilityDetailItem.events.length === 0 ? (
-                <p className="text-sm text-slate-500 italic text-center py-8">No events using this item on this date.</p>
+                <p className="text-sm text-slate-500 text-center py-8">No events using this item on this date.</p>
               ) : (
                 availabilityDetailItem.events.map((ev, idx) => {
                   const { canReturn: evCanReturn, opensAt: evReturnOpensAt } = getReturnAvailability(ev.event_datetime);
@@ -2856,7 +2970,7 @@ export default function Equipment() {
                         </button>
                       </p>
                       {ev.source === 'estimated' && (
-                        <p className="text-[10px] text-amber-600 font-semibold mt-0.5">Estimated from package (not yet manually assigned)</p>
+                        <p className="text-[12.5px] text-amber-700 font-semibold mt-0.5">Estimated from package (not yet manually assigned)</p>
                       )}
                     </div>
                     <div className="text-right shrink-0 flex items-center gap-3">
@@ -2872,7 +2986,7 @@ export default function Equipment() {
                           {evCanReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return
                         </button>
                       ) : (
-                        <span className="text-[10px] text-slate-400">No return action</span>
+                        <span className="text-[13px] text-slate-500">No return action</span>
                       )}
                     </div>
                   </div>
@@ -3255,7 +3369,7 @@ export default function Equipment() {
                             >
                               <div className="flex items-center gap-2">
                                 <span className="font-mono text-xs font-bold text-slate-800">{ref}</span>
-                                <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-700 border border-blue-200 rounded-full">
+                                <span className="text-[11.5px] font-semibold px-2.5 py-[3px] bg-blue-50 text-blue-700 rounded-full">
                                   Package
                                 </span>
                               </div>
@@ -3309,7 +3423,7 @@ export default function Equipment() {
                     <div className="flex items-center gap-2 col-span-2">
                       <span className="text-slate-600 font-medium">Reference:</span>
                       <span className="font-mono text-xs font-bold text-slate-800">{getBookingRef(selectedBooking)}</span>
-                      <span className="ml-2 text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-700 border border-blue-200 rounded-full">
+                      <span className="ml-2 text-[11.5px] font-semibold px-2.5 py-[3px] bg-blue-50 text-blue-700 rounded-full">
                         Package
                       </span>
                     </div>
@@ -3357,7 +3471,7 @@ export default function Equipment() {
                         {assignDateSnapshot.items
                           .filter(i => i.committed > 0 || i.free < i.quantity_available)
                           .map(i => (
-                            <div key={i.equipment_id} className={`text-[11px] px-2 py-1 rounded border ${i.free < 0 ? 'bg-red-50 border-red-200 text-red-700' : i.free === 0 ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                            <div key={i.equipment_id} className={`text-[12.5px] px-2 py-1 rounded-[7px] border ${i.free < 0 ? 'bg-red-50 border-red-200 text-red-700' : i.free === 0 ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
                               <span className="font-semibold">{i.eqm_name}:</span> {i.free} free
                             </div>
                           ))}
@@ -3373,7 +3487,7 @@ export default function Equipment() {
               {/* Add Equipment to Queue */}
               <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Add Equipment to Assignment List</label>
-                <p className="text-[11px] text-slate-500 mb-2">
+                <p className="text-[13px] text-slate-600 mb-2">
                   {assignDateSnapshotLoading
                     ? 'Checking what is free on this event’s date…'
                     : !selectedBooking
@@ -3552,16 +3666,16 @@ export default function Equipment() {
                     </button>
                   ))}
                 </div>
-                <p className="text-[11px] text-slate-500 mt-2">
+                <p className="text-[13px] text-slate-600 mt-2">
                   Still-out records first (longest outstanding at the top), then upcoming reservations, then returned — most recent first.
                 </p>
               </div>
             )}
             <div className="p-4 overflow-y-auto flex-1">
               {usageRecords.length === 0 ? (
-                <p className="text-sm text-slate-500 italic text-center py-8">No usage records found.</p>
+                <p className="text-sm text-slate-500 text-center py-8">No usage records found.</p>
               ) : visibleUsageRecords.length === 0 ? (
-                <p className="text-sm text-slate-500 italic text-center py-8">No {ASSIGNMENT_STAGES[usageStatusFilter]?.toLowerCase() || ''} records for this item.</p>
+                <p className="text-sm text-slate-500 text-center py-8">No {ASSIGNMENT_STAGES[usageStatusFilter]?.toLowerCase() || ''} records for this item.</p>
               ) : (
                 <div className="space-y-3">
                   {visibleUsageRecords.map(record => {
