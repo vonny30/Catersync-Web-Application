@@ -246,7 +246,27 @@ export default function SettingsPage() {
       await logOutAfterSecurityChange();
 
     } catch (error) {
-      handleError(error, 'Failed to update password.');
+      // Every failure here used to collapse into "Failed to update password",
+      // which gives a manager nothing to act on. These are the ones that
+      // actually happen, and each has a different next step.
+      const code = error?.code || '';
+      const raw = (error?.message || '').toLowerCase();
+
+      if (code === 'over_request_rate_limit' || error?.status === 429 || raw.includes('rate limit')) {
+        // Reached easily, because verifying the current password performs a
+        // real sign-in on every submit.
+        handleError(error, 'Too many attempts in a short time. Wait a minute, then try again — your password has not been changed.');
+      } else if (raw.includes('different from the old password') || raw.includes('should be different')) {
+        handleError(error, 'That is already your current password. Choose a different one.');
+      } else if (code === 'weak_password' || raw.includes('weak')) {
+        handleError(error, 'That password was rejected as too weak. Try a longer one with more variety.');
+      } else if (raw.includes('session') || raw.includes('not authenticated') || raw.includes('jwt')) {
+        handleError(error, 'Your session expired before the change was saved. Sign in again and retry.');
+      } else if (raw.includes('network') || raw.includes('fetch')) {
+        handleError(error, 'Could not reach the server. Check your connection — your password has not been changed.');
+      } else {
+        handleError(error, 'Failed to update password. Your password has not been changed.');
+      }
     } finally {
       setIsSaving(false);
     }
@@ -450,11 +470,11 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     onClick={() => setShowPassword({...showPassword, current: !showPassword.current})}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center w-9 h-9 rounded-[10px] text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
                     aria-label={showPassword.current ? 'Hide password' : 'Show password'}
                     title={showPassword.current ? 'Hide password' : 'Show password'}
                   >
-                    {showPassword.current ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {showPassword.current ? <Eye size={19} /> : <EyeOff size={19} />}
                   </button>
                 </div>
               </div>
@@ -472,11 +492,11 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     onClick={() => setShowPassword({...showPassword, next: !showPassword.next})}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center w-9 h-9 rounded-[10px] text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
                     aria-label={showPassword.next ? 'Hide password' : 'Show password'}
                     title={showPassword.next ? 'Hide password' : 'Show password'}
                   >
-                    {showPassword.next ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {showPassword.next ? <Eye size={19} /> : <EyeOff size={19} />}
                   </button>
                 </div>
                 {passwordForm.newPassword && <PasswordChecklist password={passwordForm.newPassword} />}
@@ -495,11 +515,11 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     onClick={() => setShowPassword({...showPassword, confirm: !showPassword.confirm})}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center w-9 h-9 rounded-[10px] text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
                     aria-label={showPassword.confirm ? 'Hide password' : 'Show password'}
                     title={showPassword.confirm ? 'Hide password' : 'Show password'}
                   >
-                    {showPassword.confirm ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {showPassword.confirm ? <Eye size={19} /> : <EyeOff size={19} />}
                   </button>
                 </div>
                 {passwordForm.confirmPassword && passwordForm.confirmPassword !== passwordForm.newPassword && (

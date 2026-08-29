@@ -44,9 +44,25 @@ export async function verifyPassword(email, password) {
   const client = getVerifyClient();
   const { error } = await client.auth.signInWithPassword({ email, password });
   if (error) {
-    // Wrong password (or any credential-related rejection) — not a bug,
-    // just an incorrect answer to relay back to the caller.
-    return false;
+    // Only a genuine credential rejection means "wrong password". This used
+    // to return false for EVERY error, so a rate limit, a network blip or a
+    // 500 all surfaced to the manager as "Current password is incorrect" —
+    // telling someone their correct password was wrong, which sends them off
+    // to reset a password that was never the problem. Supabase's own auth
+    // rate limit is easy to reach here, because this function performs a real
+    // sign-in every time the form is submitted.
+    const code = error.code || '';
+    const message = (error.message || '').toLowerCase();
+    const isCredentialRejection =
+      code === 'invalid_credentials' ||
+      message.includes('invalid login credentials') ||
+      message.includes('invalid email or password');
+
+    if (isCredentialRejection) return false;
+
+    // Anything else is a failure to CHECK, not a failed check. Throw so the
+    // caller can say what actually went wrong, as the docblock always claimed.
+    throw error;
   }
   // Immediately drop whatever session this throwaway client just created —
   // it's not persisted and isn't the app's real session, but there's no
