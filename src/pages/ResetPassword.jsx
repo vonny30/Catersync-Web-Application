@@ -3,12 +3,14 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { supabase } from '../supabase';
+import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { getPasswordPolicyError } from '../utils/passwordPolicy';
 import PasswordChecklist from '../components/PasswordChecklist';
 
 export default function ResetPassword() {
   const navigate = useNavigate();
+  const { logout } = useAuth();
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -73,7 +75,19 @@ export default function ResetPassword() {
       if (error) throw error;
 
       toast.success('Password updated. Sign in with your new password.');
-      await supabase.auth.signOut();
+      // AuthContext's logout(silent) rather than a raw supabase.auth.signOut().
+      // The raw call skipped three things this flow needs:
+      //   - the silent flag, so SIGNED_OUT followed the success message with
+      //     "You were logged out. Please log in again.", which reads like a
+      //     failure right after a success
+      //   - releaseManagerSessionClaim, so the single-session lock stayed
+      //     pointing at a browser session that no longer exists (recovery
+      //     CLAIMS the lock -- the console shows "verifyOrReclaim: reclaimed"
+      //     -- and nothing gave it back until the next sign-in reclaimed it)
+      //   - teardownSessionLock and the stored-token cleanup
+      // Its own comment names this exact case: "right after a password/email
+      // change".
+      await logout(false, { silent: true });
       navigate('/login');
     } catch (error) {
       console.error('Reset error:', error);
