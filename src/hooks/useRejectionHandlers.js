@@ -43,9 +43,14 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
     });
     if (!confirmed) return;
 
-    // Calculate refund eligibility
+    // Calculate refund eligibility.
+    //
+    // Same rule as useCancellationHandlers, including the no-date case: the
+    // 3-day deadline needs an event date to measure against, and defaulting to
+    // "not refundable" forfeited a downpayment under a deadline that was never
+    // evaluated. An unmeasurable deadline forfeits nothing.
     const eventDate = booking.event_datetime ? new Date(booking.event_datetime) : null;
-    let isRefundable = false;
+    let isRefundable = !booking.event_datetime;
     if (eventDate) {
       const now = new Date();
       const diffTime = eventDate.getTime() - now.getTime();
@@ -53,12 +58,9 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
       isRefundable = daysUntilEvent >= 3;
     }
 
-    let maxRefundable = 0;
-    if (isRefundable) {
-      maxRefundable = positivePayments;
-    } else {
-      maxRefundable = Math.max(0, positivePayments - downpaymentPaid);
-    }
+    const maxRefundable = isRefundable
+      ? positivePayments
+      : Math.max(0, positivePayments - downpaymentPaid);
 
     setRejectionBookingId(id);
     setRejectionMaxRefundable(maxRefundable);
@@ -164,7 +166,19 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
             customer_id: booking.customer_id,
             remarks: rejectionRefundRemarks || 'Refund processed during rejection',
           }]);
-        if (refundError) throw refundError;
+        // The booking is already Rejected here, with its equipment and
+        // vehicles released. Rethrowing reported "Failed to reject" for a
+        // rejection that had gone through, hiding the fact that the REFUND was
+        // what failed — and inviting a retry that cannot repeat.
+        if (refundError) {
+          console.error('Refund insert failed after rejection:', refundError);
+          if (fetchData) fetchData();
+          toast.error(
+            `The ${noun} was rejected, but the ₱${enteredAmount.toLocaleString()} refund could not be recorded. Record it from the Payments page — do not reject again.`,
+            { duration: 10000 }
+          );
+          return;
+        }
 
         const refundNote = `[REFUND] Amount: ₱${enteredAmount.toFixed(2)}. ${rejectionRefundRemarks || ''}`;
         updatedNotes = updatedNotes + `\n${refundNote}`;

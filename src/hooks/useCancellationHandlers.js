@@ -33,8 +33,15 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
     try {
       const eventDate = booking.event_datetime ? new Date(booking.event_datetime) : null;
       const now = new Date();
-      let isRefundable = false;
-      let daysUntilEvent = 999;
+      // The 3-day rule needs an event date to measure against. With no date it
+      // cannot be evaluated at all, and the old code defaulted to NOT
+      // refundable — forfeiting the customer's downpayment under a deadline
+      // nobody had checked, while the note claimed the cancellation happened
+      // "within 999 days (< 3 days)" from an unused sentinel. Of the two ways
+      // to be wrong, keeping money we cannot justify keeping is the worse one,
+      // so an unmeasurable deadline does not forfeit anything.
+      let isRefundable = !booking.event_datetime;
+      let daysUntilEvent = null;
 
       const positivePayments = sumVerifiedPositivePayments(payments);
       const downpaymentPayments = payments.filter(p => p.pay_status === 'Downpayment' && p.amount_paid > 0);
@@ -76,6 +83,21 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
           return;
         }
 
+        // Same checks the rejection refund already performs. This path had
+        // none, so any file of any size went up as "proof of refund".
+        const MAX_PROOF_BYTES = 5 * 1024 * 1024;
+        const ALLOWED_PROOF_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+        if (!ALLOWED_PROOF_TYPES.includes(refundFile.type)) {
+          toast.error('Invalid file type. Please upload a JPEG, PNG, WebP, or GIF image.');
+          setIsCancelling(false);
+          return;
+        }
+        if (refundFile.size > MAX_PROOF_BYTES) {
+          toast.error(`File is too large. Maximum size is 5 MB. Your file is ${(refundFile.size / 1024 / 1024).toFixed(2)} MB.`);
+          setIsCancelling(false);
+          return;
+        }
+
         // Upload proof
         const fileExt = refundFile.name.split('.').pop();
         const fileName = `refunds/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
@@ -101,8 +123,8 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
           refundNote = `Refund of excess (₱${refundAmountValue.toFixed(2)}) processed. Downpayment of ₱${totalDownpayment.toFixed(2)} forfeited (less than 3 days). ${refundRemarks || ''}`;
         }
       } else {
-        if (positivePayments > 0 && !isRefundable) {
-          refundNote = `Client cancelled within ${daysUntilEvent} days (< 3 days). Downpayment of ₱${totalDownpayment.toLocaleString()} is non-refundable per policy.`;
+        if (positivePayments > 0 && !isRefundable && daysUntilEvent !== null) {
+          refundNote = `Client cancelled ${daysUntilEvent} day${daysUntilEvent === 1 ? '' : 's'} before the event (less than 3 days). Downpayment of ₱${totalDownpayment.toLocaleString()} is non-refundable per policy.`;
         } else {
           refundNote = 'Client cancelled – no refund processed.';
         }
@@ -136,7 +158,21 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
             customer_id: booking.customer_id,
             remarks: refundRemarks || 'Refund processed',
           }]);
-        if (refundError) throw refundError;
+        // The booking is ALREADY cancelled by this point, and its equipment and
+        // vehicles are already released. Rethrowing sent the manager a "Failed
+        // to cancel" message for a cancellation that had in fact gone through,
+        // so they would retry something they could not repeat and never learn
+        // that the refund was the part that failed.
+        if (refundError) {
+          console.error('Refund insert failed after cancellation:', refundError);
+          setIsCancelModalOpen(false);
+          fetchData();
+          toast.error(
+            `The ${noun} was cancelled, but the ₱${refundAmountValue.toLocaleString()} refund could not be recorded. Record it from the Payments page — do not cancel again.`,
+            { duration: 10000 }
+          );
+          return;
+        }
       }
 
       setIsCancelModalOpen(false);
