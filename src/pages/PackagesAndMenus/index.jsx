@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import Select from '../../components/Select';
 import { Search } from 'lucide-react';
 import { supabase } from '../../supabase';
+import { fetchAllRows } from '../../utils/fetchAllRows';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../../contexts/PasswordConfirmContext';
@@ -62,22 +63,22 @@ export default function PackagesAndMenus() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [packagesRes, menuRes, categoriesRes, equipmentRes] = await Promise.all([
-        supabase.from('package').select('*').order('pkg_name'),
-        supabase.from('menu_item').select('*, category_id').order('menu_name'),
-        supabase.from('category').select('*').order('category_name'),
-        supabase.from('equipment').select('*').order('eqm_name'),
+      // Paged. These are catalogue tables rather than transaction tables, so
+      // the 1000-row cap is not close today — but PostgREST truncates without
+      // an error, and the failure here is items quietly missing from the page
+      // rather than anything visibly breaking. Each ordering ends on the
+      // table's primary key, because paging an ordering that is not total can
+      // repeat or skip rows between pages.
+      const [packagesData, menuData, categoriesData, equipmentData] = await Promise.all([
+        fetchAllRows(() => supabase.from('package').select('*')
+          .order('pkg_name').order('package_id', { ascending: true }), 'packages'),
+        fetchAllRows(() => supabase.from('menu_item').select('*, category_id')
+          .order('menu_name').order('menu_item_id', { ascending: true }), 'menu items'),
+        fetchAllRows(() => supabase.from('category').select('*')
+          .order('category_name').order('category_id', { ascending: true }), 'categories'),
+        fetchAllRows(() => supabase.from('equipment').select('*')
+          .order('eqm_name').order('equipment_id', { ascending: true }), 'equipment'),
       ]);
-
-      if (packagesRes.error) throw packagesRes.error;
-      if (menuRes.error) throw menuRes.error;
-      if (categoriesRes.error) throw categoriesRes.error;
-      if (equipmentRes.error) throw equipmentRes.error;
-
-      const packagesData = packagesRes.data || [];
-      const menuData = menuRes.data || [];
-      const categoriesData = categoriesRes.data || [];
-      const equipmentData = equipmentRes.data || [];
 
       setPackages(packagesData);
       setMenuItems(menuData);
@@ -729,12 +730,20 @@ export default function PackagesAndMenus() {
   // that booking silently pointing at nothing. Scan for it client-side —
   // simplest reliable way to check both JSON shapes without a DB function.
   const checkMenuItemUsedInBookings = async (menuItemId) => {
-    const { data, error } = await supabase
-      .from('booking')
-      .select('booking_id, menu_selections')
-      .not('menu_selections', 'is', null);
-    if (error) throw error;
-    return (data || []).filter(b => JSON.stringify(b.menu_selections).includes(menuItemId)).length;
+    // Paged, not a single request. PostgREST caps a response at 1000 rows and
+    // returns the truncated set WITHOUT an error, so once the booking table
+    // passed that this quietly answered "0 bookings use this item" and the
+    // delete guard let a referenced item through — the failure getting worse
+    // as the business grows, which is the worst shape for a data-loss guard.
+    const rows = await fetchAllRows(
+      () => supabase
+        .from('booking')
+        .select('booking_id, menu_selections')
+        .not('menu_selections', 'is', null)
+        .order('booking_id', { ascending: true }),
+      'menu item usage check'
+    );
+    return rows.filter(b => JSON.stringify(b.menu_selections).includes(menuItemId)).length;
   };
 
   // --- DELETE (with foreign key checks) ---
@@ -823,39 +832,91 @@ export default function PackagesAndMenus() {
 
   // --- TOGGLE ARCHIVE ---
   const toggleArchive = async (id, type) => {
+    const isPackage = type === 'package';
+    // Direction FIRST. The dialog used to be built before anything knew which
+    // way this was going, so unarchiving asked "Archive Package?" and warned
+    // that the item would be hidden from customers — the opposite of what the
+    // button was about to do.
+    const target = isPackage
+      ? packages.find(p => p.package_id === id)
+      : menuItems.find(m => m.menu_item_id === id);
+
+    if (!target) {
+      // The row went away underneath us (deleted in another tab, or the list
+      // is stale). Without this, `undefined?.x === 'Archived'` is false and the
+      // old code cheerfully archived whatever id it was handed.
+      toast.error('That item is no longer in the list. Refresh and try again.');
+      await fetchData();
+      return;
+    }
+
+    const currentlyArchived = isPackage
+      ? target.pkg_availability === 'Archived'
+      : target.menu_availability === 'Archived';
+    const newStatus = currentlyArchived ? 'Available' : 'Archived';
+    const noun = isPackage ? 'package' : 'menu item';
+    const name = isPackage ? target.pkg_name : target.menu_name;
+
+    // Archiving the last available item in a category is the same end state
+    // deletion refuses outright: a package that includes that category has
+    // nothing left to offer from it. Archive is reversible, so this warns with
+    // the specifics rather than blocking — but it must not stay silent when
+    // delete would have stopped you.
+    let consequence = '';
+    if (!isPackage && !currentlyArchived && target.category_id) {
+      const stillAvailable = menuItems.filter(m =>
+        m.category_id === target.category_id
+        && m.menu_item_id !== id
+        && m.menu_availability !== 'Archived'
+      ).length;
+      if (stillAvailable === 0) {
+        try {
+          const { count, error: categoryError } = await supabase
+            .from('package_category')
+            .select('*', { count: 'exact', head: true })
+            .eq('category_id', target.category_id);
+          if (categoryError) throw categoryError;
+          if (count > 0) {
+            consequence = `\n\nThis is the last available item in its category, and ${count} package${count === 1 ? '' : 's'} include${count === 1 ? 's' : ''} that category. Archiving it leaves ${count === 1 ? 'that package' : 'those packages'} offering a category with nothing to choose from.`;
+          }
+        } catch (error) {
+          // A failed check must not silently become "no problem found".
+          console.error('Category impact check failed:', error);
+          consequence = '\n\nCould not check whether any package depends on this item, so archive it only if you are sure.';
+        }
+      }
+    }
+
     const confirmed = await showConfirm({
-      title: type === 'package' ? 'Archive Package?' : 'Archive Menu Item?',
-      message: type === 'package'
-        ? 'Are you sure you want to archive this package? It will be hidden from customers.'
-        : 'Are you sure you want to archive this menu item? It will be hidden from customers.',
-      confirmLabel: 'Archive',
-      confirmVariant: 'warning',
+      title: currentlyArchived
+        ? (isPackage ? 'Restore Package?' : 'Restore Menu Item?')
+        : (isPackage ? 'Archive Package?' : 'Archive Menu Item?'),
+      message: currentlyArchived
+        ? `"${name}" will be available to customers again.`
+        : `"${name}" will be hidden from customers. Existing bookings that already use it are not affected, and you can restore it at any time.${consequence}`,
+      confirmLabel: currentlyArchived ? 'Restore' : 'Archive',
+      // Restoring is not a warning — it puts something back. 'success' is
+      // the brand-green variant; ConfirmModal falls back to DANGER for any
+      // value it does not know, so an invented one would have painted the
+      // restore dialog red.
+      confirmVariant: currentlyArchived ? 'success' : 'warning',
     });
     if (!confirmed) return;
 
     try {
-      if (type === 'package') {
-        const target = packages.find(p => p.package_id === id);
-        const newStatus = target?.pkg_availability === 'Archived' ? 'Available' : 'Archived';
-        const { error } = await supabase
-          .from('package')
-          .update({ pkg_availability: newStatus })
-          .eq('package_id', id);
-        if (error) throw error;
-        toast.success(`Package ${newStatus === 'Archived' ? 'archived' : 'unarchived'}.`);
-      } else {
-        const target = menuItems.find(m => m.menu_item_id === id);
-        const newStatus = target?.menu_availability === 'Archived' ? 'Available' : 'Archived';
-        const { error } = await supabase
-          .from('menu_item')
-          .update({ menu_availability: newStatus })
-          .eq('menu_item_id', id);
-        if (error) throw error;
-        toast.success(`Menu item ${newStatus === 'Archived' ? 'archived' : 'unarchived'}.`);
-      }
+      const { error } = isPackage
+        ? await supabase.from('package').update({ pkg_availability: newStatus }).eq('package_id', id)
+        : await supabase.from('menu_item').update({ menu_availability: newStatus }).eq('menu_item_id', id);
+      if (error) throw error;
+
+      toast.success(
+        currentlyArchived
+          ? `${isPackage ? 'Package' : 'Menu item'} restored.`
+          : `${isPackage ? 'Package' : 'Menu item'} archived.`
+      );
       await fetchData();
     } catch (error) {
-      handleError(error, 'Failed to update status.');
+      handleError(error, `Failed to ${currentlyArchived ? 'restore' : 'archive'} this ${noun}.`);
     }
   };
 
