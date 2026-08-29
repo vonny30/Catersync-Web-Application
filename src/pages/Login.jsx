@@ -242,14 +242,9 @@ export default function Login() {
             </div>
 
             <div>
-              <div className="flex items-baseline justify-between gap-3 mb-2">
-                <label htmlFor="password" className="text-[14px] font-semibold text-slate-700">
-                  Password
-                </label>
-                <Link to="/forgot-password" className="text-[14px] font-semibold text-[#007038] hover:text-[#00532a]">
-                  Forgot password?
-                </Link>
-              </div>
+              <label htmlFor="password" className="block text-[14px] font-semibold text-slate-700 mb-2">
+                Password
+              </label>
               <div className="relative">
                 <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
@@ -276,17 +271,22 @@ export default function Login() {
               </div>
             </div>
 
-            <label className="flex items-center gap-2.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                name="rememberMe"
-                checked={formData.rememberMe}
-                onChange={handleInputChange}
-                className="w-[18px] h-[18px] rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
-                disabled={isLoading}
-              />
-              <span className="text-[15px] text-slate-700">Remember me</span>
-            </label>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  name="rememberMe"
+                  checked={formData.rememberMe}
+                  onChange={handleInputChange}
+                  className="w-[18px] h-[18px] rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
+                  disabled={isLoading}
+                />
+                <span className="text-[15px] text-slate-700">Remember me</span>
+              </label>
+              <Link to="/forgot-password" className="text-[14.5px] font-semibold text-[#007038] hover:text-[#00532a]">
+                Forgot password?
+              </Link>
+            </div>
 
             <button
               type="submit"
