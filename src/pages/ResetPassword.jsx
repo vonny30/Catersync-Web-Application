@@ -17,24 +17,41 @@ export default function ResetPassword() {
   const [isValidToken, setIsValidToken] = useState(false);
 
   useEffect(() => {
-    // Check for recovery token in URL hash (Supabase default)
-    const hashParams = new URLSearchParams(window.location.hash.substring(1));
-    const accessToken = hashParams.get('access_token');
-    const type = hashParams.get('type');
+    // Three ways in, because the recovery email can arrive in two shapes and
+    // this page previously only handled one of them.
+    //
+    //   1. Link, token in the URL hash  — Supabase's link template
+    //   2. Link, token in the query     — older/alternate template
+    //   3. An existing recovery session — set by verifyOtp() on the
+    //      ForgotPassword page when the email carried a 6-digit CODE
+    //
+    // This project's template sends a code, so (3) is the live path. Without
+    // it the page bounced every code-based reset straight back to
+    // /forgot-password, and the flow had no ending.
+    let cancelled = false;
 
-    if (accessToken && type === 'recovery') {
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    if (hashParams.get('access_token') && hashParams.get('type') === 'recovery') {
       setIsValidToken(true);
-    } else {
-      // Also check query params as fallback
-      const queryParams = new URLSearchParams(window.location.search);
-      const token = queryParams.get('token');
-      if (token) {
+      return undefined;
+    }
+    if (new URLSearchParams(window.location.search).get('token')) {
+      setIsValidToken(true);
+      return undefined;
+    }
+
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (data?.session) {
         setIsValidToken(true);
       } else {
-        toast.error('Invalid or missing reset link. Please request a new one.');
+        toast.error('That reset link or code is no longer valid. Request a new one.');
         navigate('/forgot-password');
       }
-    }
+    })();
+
+    return () => { cancelled = true; };
   }, [navigate]);
 
   const handleSubmit = async (e) => {
