@@ -6,6 +6,7 @@ import { getBookingRef, getRangeBounds, isWithinRange } from './helpers';
 import { isUnverifiedPayment } from '../../utils/payments';
 import { getPaymentsReceived } from '../../utils/reportMetrics';
 import { fetchAllRows } from '../../utils/fetchAllRows';
+import { getDispatchWindow } from '../../utils/vehicle';
 import { ACTIVE_BOOKING_STATUSES } from '../../utils/bookingStatus';
 import { getStockBreakdown } from '../../utils/equipment.jsx';
 import DateRangeFilter from './DateRangeFilter';
@@ -100,7 +101,10 @@ export default function Reports() {
         fetchAll(() => supabase.from('equipment').select('equipment_id, eqm_name, quantity_available, damaged_quantity, maintenance_quantity').order('equipment_id', { ascending: true })),
         fetchAll(() => supabase.from('booking_equipment').select('equipment_id, quantity, returned, booking:booking_id (booking_status)').eq('returned', false).order('assignment_id', { ascending: true })),
         fetchAll(() => supabase.from('vehicle').select('vehicle_id, plate_number, vehicle_type, vehicle_status').order('vehicle_id', { ascending: true })),
-        fetchAll(() => supabase.from('vehicle_assign').select('vehicle_id, booking_id, assignment_status, booking:booking_id (booking_status)').order('assignment_id', { ascending: true })),
+        // dispatch_datetime plus the booking's event date and type are what
+        // getDispatchWindow needs; without them this page could only reason
+        // about whether an assignment exists, not when it actually runs.
+        fetchAll(() => supabase.from('vehicle_assign').select('vehicle_id, booking_id, assignment_status, dispatch_datetime, booking:booking_id (booking_status, event_datetime, booking_type)').order('assignment_id', { ascending: true })),
       ]);
 
       setRawData({
@@ -515,7 +519,66 @@ export default function Reports() {
       activeDispatches: activeAssignmentsByVehicle[v.vehicle_id] || 0,
     }));
     const totalVehicles = vehicles.length;
-    const dispatchedVehicles = vehicles.filter(v => (activeAssignmentsByVehicle[v.vehicle_id] || 0) > 0).length;
+
+    // D8. "Currently dispatched" used to count any vehicle holding a Scheduled
+    // assignment on an active booking — which includes a van booked for a
+    // wedding three weeks out. That is committed, not dispatched. A vehicle is
+    // ON THE ROAD only while a dispatch window actually contains this moment.
+    const nowInstant = new Date();
+    const liveAssignments = vehicleAssignments.filter(v =>
+      v.assignment_status === 'Scheduled'
+      && v.booking?.booking_status
+      && ACTIVE_BOOKING_STATUSES.includes(v.booking.booking_status)
+    );
+    const dispatchedVehicleIds = new Set(
+      liveAssignments
+        .filter(v => {
+          const w = getDispatchWindow(v, v.booking);
+          return w ? (w.start <= nowInstant && nowInstant <= w.end) : false;
+        })
+        .map(v => v.vehicle_id)
+    );
+    const dispatchedVehicles = dispatchedVehicleIds.size;
+    // Kept separately, because "booked" is a real and different question from
+    // "out right now" and the page shows both.
+    const committedVehicles = vehicles.filter(v => (activeAssignmentsByVehicle[v.vehicle_id] || 0) > 0).length;
+
+    // Fleet utilization as a share of a whole, per Blueprint 02 §4: the hours
+    // vehicles actually spent on the road inside the reporting range, over the
+    // hours the fleet had available across that range.
+    //
+    // Only vehicles in service count toward the denominator — a van sitting in
+    // the workshop was never available to dispatch, so including it would
+    // report the fleet as idle when it was simply smaller.
+    //
+    // Needs a bounded range. Over "All Time" there is no finite denominator,
+    // so the figure is reported as unavailable rather than invented.
+    const HOUR = 60 * 60 * 1000;
+    const serviceableVehicles = vehicles.filter(v => v.vehicle_status === 'Available').length;
+    let fleetUtilization = null;
+    if (rangeStart && rangeEnd && serviceableVehicles > 0) {
+      const rangeMs = rangeEnd.getTime() - rangeStart.getTime();
+      if (rangeMs > 0) {
+        // Every dispatch in the range, returned ones included: hours spent are
+        // hours spent whether or not the trip has since closed.
+        const dispatchedMs = vehicleAssignments
+          .filter(v => v.booking?.booking_status && !CANCELLED_STATUSES.includes(v.booking.booking_status))
+          .reduce((sum, v) => {
+            const w = getDispatchWindow(v, v.booking);
+            if (!w) return sum;
+            const from = Math.max(w.start.getTime(), rangeStart.getTime());
+            const to = Math.min(w.end.getTime(), rangeEnd.getTime());
+            return sum + Math.max(0, to - from);
+          }, 0);
+        const availableMs = serviceableVehicles * rangeMs;
+        fleetUtilization = {
+          percent: (dispatchedMs / availableMs) * 100,
+          dispatchedHours: dispatchedMs / HOUR,
+          availableHours: availableMs / HOUR,
+          serviceableVehicles,
+        };
+      }
+    }
 
     // --- CUSTOMER INSIGHTS ---
     const customerMap = {};
@@ -570,6 +633,7 @@ export default function Reports() {
     return {
       financialSummary, monthlyRevenueData, paymentMethodData, refunds, totalRefunded,
       totalSubmitted, cancellationRate,
+      committedVehicles, fleetUtilization,
       productLineMix, packageMix, menuItemMix, categoryDemandData,
       packageRevenue, shortOrderRevenue, combinedRevenue,
       menuItemRevenue, deliveryFeeTotal, traysSold, topSellingItem,

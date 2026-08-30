@@ -400,17 +400,17 @@ history can no longer be deleted at all. It used to wipe every
 read from. Retiring a vehicle is Flag issue → Unavailable; deletion is only for
 one that never went anywhere.
 
-**Phase 2 — lift the lock, allocate at approval.** Replace the `toDateString()`
+**Phase 2 — lift the lock, allocate at approval. DONE.** Replace the `toDateString()`
 check at `:611` *and* its twin at `:2136` with the overlap test. Add
 `suggestDispatchPlan` and `allocateVehiclesForBooking`. Wire the fleet check
 into `ApprovalAvailabilityCheck.jsx` (D5) and the allocation into
 `useApprovalHandlers.js` (D6). **Needs §9 answered first.**
 
-**Phase 3 — the screens.** The Availability timeline, trip type through
+**Phase 3 — the screens. DONE 30 Aug 2026**, except `Needs a vehicle`. The Availability timeline, trip type through
 Assignments and History, the card and column wording (D11, D12), the Dispatch
 section on both detail pages, `Needs a vehicle`.
 
-**Phase 4 — reports.** Fix D8: scope "Currently Dispatched" to windows
+**Phase 4 — reports. DONE 30 Aug 2026.** Fix D8: scope "Currently Dispatched" to windows
 containing now, and make utilization vehicle-hours dispatched over vehicle-hours
 available across the report range — a percentage of a whole, which is the rule
 Blueprint 02 §4 set.

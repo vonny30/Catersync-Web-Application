@@ -13,6 +13,9 @@ only — it writes nothing.
 - `refundsNettedAgainstReceived`, not `refundsIssued`, is the figure quoted beside collections: refunds on cancelled bookings never entered that total.
 - Every query pages through `fetchAllRows`. Reports silently under-reported past 1000 rows before this.
 
+- Vehicle figures answer two different questions and must not be merged: **on the road now** counts vehicles whose dispatch window contains this moment, while **booked** counts any live assignment. A van reserved for a wedding three weeks out is booked, not on the road.
+- **Fleet utilization** is vehicle-hours on the road over vehicle-hours available across the range — a share of a whole, per blueprint-02 §4. Only in-service vehicles count toward the denominator, and an unbounded range yields no figure at all rather than an invented one.
+
 ## Data it reads
 
 | Table | Queries | Whole-table with no row bound |

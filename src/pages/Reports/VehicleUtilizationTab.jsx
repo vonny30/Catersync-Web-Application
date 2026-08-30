@@ -2,12 +2,45 @@
 import { cardColorClasses, cardAccentClass } from './helpers';
 
 export default function VehicleUtilizationTab({ derived, onOpenDetail }) {
-  const { vehicleUtilizationData, totalVehicles, dispatchedVehicles } = derived;
-  const utilizationRate = totalVehicles > 0 ? Math.round((dispatchedVehicles / totalVehicles) * 100) : 0;
+  const { vehicleUtilizationData, totalVehicles, dispatchedVehicles, committedVehicles, fleetUtilization } = derived;
+  // "On the road" is a headcount of vehicles out RIGHT NOW, so the share it
+  // belongs with is of the fleet — not the time-based utilization below, which
+  // measures something different and would read as the same number twice.
+  const onRoadShare = totalVehicles > 0 ? Math.round((dispatchedVehicles / totalVehicles) * 100) : 0;
   const availableVehicles = totalVehicles - dispatchedVehicles;
 
   return (
     <div className="space-y-[18px]">
+      {/* Fleet utilization over the reporting range. A headcount answers "how
+          many are out?"; this answers "how hard is the fleet working?", which
+          is the question a percentage should be measuring. */}
+      <section className="bg-white border border-slate-200/70 rounded-2xl p-6">
+        <span className="block text-[13px] font-semibold text-slate-600 mb-2.5">Fleet utilization</span>
+        {fleetUtilization ? (
+          <>
+            <span className="block text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">
+              {fleetUtilization.percent.toFixed(1)}%
+            </span>
+            <div className="mt-[18px] mb-2.5 h-2 rounded-full bg-slate-100 overflow-hidden">
+              <div className="h-full rounded-full bg-[#008A45]" style={{ width: `${Math.min(100, Math.max(0, fleetUtilization.percent))}%` }} />
+            </div>
+            <span className="block text-[13px] text-slate-600 tabular-nums">
+              {Math.round(fleetUtilization.dispatchedHours).toLocaleString()} vehicle-hours on the road
+              &nbsp;÷&nbsp;
+              {Math.round(fleetUtilization.availableHours).toLocaleString()} available
+              &nbsp;·&nbsp;
+              {fleetUtilization.serviceableVehicles} vehicle{fleetUtilization.serviceableVehicles === 1 ? '' : 's'} in service across this period
+            </span>
+          </>
+        ) : (
+          <span className="block text-[13px] text-slate-600 [text-wrap:pretty]">
+            Needs a bounded date range. Over all time there is no fixed number of
+            available hours to measure against, so this is left blank rather than
+            filled with a figure that would not mean anything.
+          </span>
+        )}
+      </section>
+
       <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))]">
         <button
           onClick={() => onOpenDetail({
@@ -24,24 +57,25 @@ export default function VehicleUtilizationTab({ derived, onOpenDetail }) {
         </button>
         <button
           onClick={() => onOpenDetail({
-            title: 'Currently Dispatched',
-            description: 'From the vehicle_assign table: vehicles with an assignment currently marked "Scheduled".',
+            title: 'On the road now',
+            description: 'From vehicle_assign: vehicles whose dispatch window contains this moment. A vehicle booked for a future event is committed, not on the road — that count is shown separately.',
             fields: [
-              { label: 'Dispatched', value: dispatchedVehicles, emphasis: true },
-              { label: 'Utilization', value: `${utilizationRate}%` },
+              { label: 'On the road now', value: dispatchedVehicles, emphasis: true },
+              { label: 'Share of fleet', value: `${onRoadShare}%` },
+              { label: 'Booked (now or later)', value: committedVehicles },
             ],
           })}
           className={`border rounded-2xl p-5 text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 ${cardColorClasses()}`}
         >
           <span className={cardAccentClass('green')} />
-          <p className="text-[13px] font-semibold text-slate-600 mb-2">Currently Dispatched</p>
-          <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{dispatchedVehicles} <span className="text-[17px] text-slate-600 font-medium">({utilizationRate}%)</span></h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">On an active (Scheduled) assignment</p>
+          <p className="text-[13px] font-semibold text-slate-600 mb-2">On the road now</p>
+          <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{dispatchedVehicles} <span className="text-[17px] text-slate-600 font-medium">{onRoadShare}%</span></h3>
+          <p className="text-[13px] text-slate-600 mt-2.5">{committedVehicles} booked now or later</p>
         </button>
         <button
           onClick={() => onOpenDetail({
             title: 'Available Vehicles',
-            description: 'From the vehicle table: vehicles with no active (Scheduled) assignment right now.',
+            description: 'From the vehicle table: vehicles with no dispatch window containing this moment.',
             fields: [{ label: 'Available vehicles', value: availableVehicles, emphasis: true }],
           })}
           className={`border rounded-2xl p-5 text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 ${cardColorClasses()}`}
