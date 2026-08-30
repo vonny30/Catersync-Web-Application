@@ -1,6 +1,7 @@
 // src/pages/BookingDetails.jsx
 import { useState, useEffect } from 'react';
 import Select from '../components/Select';
+import AssignVehicleModal from '../components/AssignVehicleModal';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Image as ImageIcon, Search } from 'lucide-react';
 import { createPortal } from 'react-dom';
@@ -38,6 +39,7 @@ export default function BookingDetails() {
   const [menuSelections, setMenuSelections] = useState([]);
   const [equipment, setEquipment] = useState([]);
   const [dispatches, setDispatches] = useState([]);
+  const [isAssignVehicleOpen, setIsAssignVehicleOpen] = useState(false);
 
   // --- Edit Modal state (unique) ---
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -1443,6 +1445,30 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
         {/* RIGHT COLUMN */}
         <div className="lg:col-span-7 space-y-6">
           {/* Payment Tracking */}
+          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/50 rounded-xl p-6 shadow-xs">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-sm font-bold text-slate-900">Menu Selections</h3>
+              <span className="text-xs font-medium text-slate-500">{menuSelections.length} item{menuSelections.length !== 1 ? 's' : ''}</span>
+            </div>
+            {menuSelections.length === 0 ? (
+              <p className="text-sm text-slate-500 italic">No menu selections recorded.</p>
+            ) : (
+              <div className="space-y-2">
+                {menuSelections.map((item, idx) => (
+                  <div key={idx} className="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
+                    <span className="text-sm font-semibold text-slate-700">{item.category_name}</span>
+                    <span className="text-sm font-medium text-slate-900 bg-white px-3 py-1 rounded-full border border-slate-300">
+                      {item.menu_name}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Dispatch — blueprint-03 5.8. Until now a vehicle appeared on this
+              page only inside the delete warning, so the booking never knew
+              what was carrying it while the vehicle knew its booking. */}
           <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-xl p-6 shadow-xs">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-sm font-bold text-[#007038]">Payment Tracking</h3>
@@ -1633,28 +1659,58 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
           {/* Menu Selections */}
           <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/50 rounded-xl p-6 shadow-xs">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-slate-900">Menu Selections</h3>
-              <span className="text-xs font-medium text-slate-500">{menuSelections.length} item{menuSelections.length !== 1 ? 's' : ''}</span>
+              <h3 className="text-sm font-bold text-slate-900">Equipment Allocation</h3>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={openAssignEquipModal}
+                  className={isPaymentLedgerLocked(booking.booking_status)
+                    ? 'bg-slate-100 text-slate-400 font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors'
+                    : 'bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm'}
+                  title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be assigned once a booking is ${booking.booking_status}` : undefined}
+                >
+                  {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} Assign Equipment
+                </button>
+                <span className="text-xs font-medium text-slate-500">{equipment.length} item{equipment.length !== 1 ? 's' : ''}</span>
+              </div>
             </div>
-            {menuSelections.length === 0 ? (
-              <p className="text-sm text-slate-500 italic">No menu selections recorded.</p>
+            {equipment.length === 0 ? (
+              <p className="text-sm text-slate-500 italic">No equipment allocated.</p>
             ) : (
               <div className="space-y-2">
-                {menuSelections.map((item, idx) => (
+                {equipment.map((item, idx) => (
                   <div key={idx} className="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
-                    <span className="text-sm font-semibold text-slate-700">{item.category_name}</span>
-                    <span className="text-sm font-medium text-slate-900 bg-white px-3 py-1 rounded-full border border-slate-300">
-                      {item.menu_name}
-                    </span>
+                    <div>
+                      <span className="text-sm font-semibold text-slate-700">{item.eqm_name}</span>
+                      <span className="text-xs text-slate-500 ml-2">× {item.quantity}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${item.returned ? 'bg-green-100 border border-green-200 text-green-700' : 'bg-amber-100 border border-amber-200 text-amber-700'}`}>
+                        {item.returned ? '✅ Returned' : '📌 Assigned'}
+                      </span>
+                      {!item.returned && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => openEditEquipModal(item)}
+                            className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-blue-500 hover:text-blue-700'}
+                            title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be edited once a booking is ${booking.booking_status}` : 'Edit quantity'}
+                          >
+                            {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
+                          </button>
+                          <button
+                            onClick={() => handleRemoveEquipment(item.assignment_id)}
+                            className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-red-400 hover:text-red-600'}
+                            title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be removed once a booking is ${booking.booking_status}` : 'Remove'}
+                          >
+                            {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Trash2 size={14} />}
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
             )}
           </div>
-
-          {/* Dispatch — blueprint-03 5.8. Until now a vehicle appeared on this
-              page only inside the delete warning, so the booking never knew
-              what was carrying it while the vehicle knew its booking. */}
           <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/50 rounded-xl p-6 shadow-xs">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
@@ -1665,7 +1721,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
               </h3>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => navigate('/app/vehicles', { state: { assignBookingId: id } })}
+                  onClick={() => setIsAssignVehicleOpen(true)}
                   className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm"
                 >
                   <ClipboardList size={14} /> {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
@@ -1725,60 +1781,6 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
           </div>
 
           {/* Equipment Allocation */}
-          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/50 rounded-xl p-6 shadow-xs">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-slate-900">Equipment Allocation</h3>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={openAssignEquipModal}
-                  className={isPaymentLedgerLocked(booking.booking_status)
-                    ? 'bg-slate-100 text-slate-400 font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors'
-                    : 'bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm'}
-                  title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be assigned once a booking is ${booking.booking_status}` : undefined}
-                >
-                  {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} Assign Equipment
-                </button>
-                <span className="text-xs font-medium text-slate-500">{equipment.length} item{equipment.length !== 1 ? 's' : ''}</span>
-              </div>
-            </div>
-            {equipment.length === 0 ? (
-              <p className="text-sm text-slate-500 italic">No equipment allocated.</p>
-            ) : (
-              <div className="space-y-2">
-                {equipment.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
-                    <div>
-                      <span className="text-sm font-semibold text-slate-700">{item.eqm_name}</span>
-                      <span className="text-xs text-slate-500 ml-2">× {item.quantity}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${item.returned ? 'bg-green-100 border border-green-200 text-green-700' : 'bg-amber-100 border border-amber-200 text-amber-700'}`}>
-                        {item.returned ? '✅ Returned' : '📌 Assigned'}
-                      </span>
-                      {!item.returned && (
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => openEditEquipModal(item)}
-                            className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-blue-500 hover:text-blue-700'}
-                            title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be edited once a booking is ${booking.booking_status}` : 'Edit quantity'}
-                          >
-                            {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
-                          </button>
-                          <button
-                            onClick={() => handleRemoveEquipment(item.assignment_id)}
-                            className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-red-400 hover:text-red-600'}
-                            title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be removed once a booking is ${booking.booking_status}` : 'Remove'}
-                          >
-                            {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Trash2 size={14} />}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
@@ -2788,6 +2790,17 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
           </div>
         </div>,
         document.body
+      )}
+      {/* In place, next to the page's other modals — assigning a vehicle is
+          a decision about THIS booking, so it should not cost the manager
+          their place on the page. */}
+      {isAssignVehicleOpen && (
+        <AssignVehicleModal
+          booking={booking}
+          isOpen={isAssignVehicleOpen}
+          onClose={() => setIsAssignVehicleOpen(false)}
+          onAssigned={fetchBooking}
+        />
       )}
     </div>
   );

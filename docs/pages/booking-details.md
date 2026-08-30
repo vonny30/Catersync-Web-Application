@@ -14,7 +14,9 @@ app and the one that writes the most.
 - Deleting removes payments. The confirmation names the record count and verified total, because that money leaves every report.
 - Children are deleted before the parent for the foreign keys, so a late failure leaves the booking standing with payments already gone. The failure message says so.
 
-- A **Dispatch** section lists the vehicles carrying the event, their departure time and trip type, and links straight into the Vehicles assign modal with this booking preselected (blueprint-03 §5.8).
+- A **Dispatch** section lists the vehicles carrying the event, each run named by its leg (Setup run / Collection run for a package, Delivery for a short order) with its window, sorted so the setup run reads before the collection run.
+- **Assigning a vehicle happens here**, in `components/AssignVehicleModal`, not by navigating to the Vehicles page. Same booking, same page, same place on it. Conflict detection and the dispatch window come from `utils/vehicle` (`findConflictingAssignment`, `describeAssignment`) — the Vehicles page calls the same functions, so the two can never disagree about whether a van is free.
+- Card order is the lifecycle order: **what was ordered → the money → its exceptions → what has to be loaded → what carries it.**
 
 ## Data it reads
 

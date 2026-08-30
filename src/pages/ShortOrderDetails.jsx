@@ -1,6 +1,7 @@
 // src/pages/ShortOrderDetails.jsx
 import { useState, useEffect } from 'react';
 import Select from '../components/Select';
+import AssignVehicleModal from '../components/AssignVehicleModal';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Truck, AlertTriangle, Package as PackageIcon, Image as ImageIcon } from 'lucide-react';
 import { createPortal } from 'react-dom';
@@ -35,6 +36,7 @@ export default function ShortOrderDetails() {
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState([]);
   const [dispatches, setDispatches] = useState([]);
+  const [isAssignVehicleOpen, setIsAssignVehicleOpen] = useState(false);
   const [menuItems, setMenuItems] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [menuSelections, setMenuSelections] = useState([]); // array of {menu_name, quantity}
@@ -1070,83 +1072,25 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
               what was carrying it while the vehicle knew its booking. */}
           <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/50 rounded-xl p-6 shadow-xs">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                Dispatch
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 border border-sky-200">
-                  Short Order
-                </span>
-              </h3>
-              <div className="flex items-center gap-2">
-                {/* Hidden on a pickup: there is nothing to dispatch, and the
-                    button would walk a manager into assigning a van for an
-                    order the customer is collecting. */}
-                {!isCustomerPickup && (
-                  <button
-                    onClick={() => navigate('/app/vehicles', { state: { assignBookingId: id } })}
-                    className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm"
-                  >
-                    <ClipboardList size={14} /> {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
-                  </button>
-                )}
-                <span className="text-xs font-medium text-slate-500">
-                  {dispatches.length} vehicle{dispatches.length !== 1 ? 's' : ''}
-                </span>
-              </div>
+              <h3 className="text-sm font-bold text-slate-900">Menu Items (Trays)</h3>
+              <span className="text-xs font-medium text-slate-500">{menuSelections.length} item{menuSelections.length !== 1 ? 's' : ''}</span>
             </div>
-
-            {dispatches.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                {isCustomerPickup
-                  ? 'No vehicle needed — the customer is collecting this order from the main branch.'
-                  : 'No vehicle assigned yet. This delivery still needs transport arranged.'}
-              </p>
+            {menuSelections.length === 0 ? (
+              <p className="text-sm text-slate-500 italic">No menu items selected.</p>
             ) : (
               <div className="space-y-2">
-                {isCustomerPickup && (
-                  <p className="flex items-start gap-1.5 text-[13px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                    <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-                    <span>This is a customer pickup, but a vehicle is still assigned to it. Release it from the Vehicles page unless it is being delivered after all.</span>
-                  </p>
-                )}
-                {[...dispatches]
-                  .sort((x, y) => new Date(x.dispatch_datetime || 0) - new Date(y.dispatch_datetime || 0))
-                  .map(d => {
-                  const returned = d.assignment_status === 'Completed';
-                  const win = getDispatchWindow(d, order);
-                  const isCollection = win?.leg === TRIP_LEG.pickup;
-                  return (
-                    <div key={d.assignment_id} className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-900">
-                          {d.vehicle?.plate_number || 'Unknown vehicle'}
-                          <span className="ml-2 text-[12.5px] font-medium text-slate-500">{d.vehicle?.vehicle_type || ''}</span>
-                        </p>
-                        <p className="text-[13px] text-slate-600 mt-0.5">
-                          {win && !isCustomerPickup && (
-                            <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full mr-2 ${
-                              isCollection ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
-                            }`}>
-                              {win.legLabel}
-                            </span>
-                          )}
-                          {win
-                            ? `${isCollection ? 'Collects from' : 'Leaves'} ${win.start.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · back ${win.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                            : `Leaves ${d.dispatch_datetime ? new Date(d.dispatch_datetime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'time not set'}`}
-                        </p>
-                      </div>
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${
-                        returned ? 'bg-slate-100 text-slate-600' : 'bg-blue-50 text-blue-700'
-                      }`}>
-                        {returned ? 'Returned' : 'Scheduled'}
-                      </span>
+                {menuSelections.map((item, idx) => (
+                  <div key={idx} className="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
+                    <div>
+                      <span className="text-sm font-semibold text-slate-700">{item.menu_name}</span>
+                      <span className="text-xs text-slate-500 ml-2">× {item.quantity}</span>
                     </div>
-                  );
-                })}
+                    <span className="text-sm font-bold text-slate-900">₱{(item.menu_price * item.quantity).toLocaleString()}</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>
-
-          {/* Payment Tracking */}
           <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-xl p-6 shadow-xs">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-sm font-bold text-[#007038]">Payment Tracking</h3>
@@ -1336,25 +1280,83 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
           {/* Menu Items List */}
           <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/50 rounded-xl p-6 shadow-xs">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-slate-900">Menu Items (Trays)</h3>
-              <span className="text-xs font-medium text-slate-500">{menuSelections.length} item{menuSelections.length !== 1 ? 's' : ''}</span>
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                Dispatch
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 border border-sky-200">
+                  Short Order
+                </span>
+              </h3>
+              <div className="flex items-center gap-2">
+                {/* Hidden on a pickup: there is nothing to dispatch, and the
+                    button would walk a manager into assigning a van for an
+                    order the customer is collecting. */}
+                {!isCustomerPickup && (
+                  <button
+                    onClick={() => setIsAssignVehicleOpen(true)}
+                    className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm"
+                  >
+                    <ClipboardList size={14} /> {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
+                  </button>
+                )}
+                <span className="text-xs font-medium text-slate-500">
+                  {dispatches.length} vehicle{dispatches.length !== 1 ? 's' : ''}
+                </span>
+              </div>
             </div>
-            {menuSelections.length === 0 ? (
-              <p className="text-sm text-slate-500 italic">No menu items selected.</p>
+
+            {dispatches.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                {isCustomerPickup
+                  ? 'No vehicle needed — the customer is collecting this order from the main branch.'
+                  : 'No vehicle assigned yet. This delivery still needs transport arranged.'}
+              </p>
             ) : (
               <div className="space-y-2">
-                {menuSelections.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
-                    <div>
-                      <span className="text-sm font-semibold text-slate-700">{item.menu_name}</span>
-                      <span className="text-xs text-slate-500 ml-2">× {item.quantity}</span>
+                {isCustomerPickup && (
+                  <p className="flex items-start gap-1.5 text-[13px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                    <span>This is a customer pickup, but a vehicle is still assigned to it. Release it from the Vehicles page unless it is being delivered after all.</span>
+                  </p>
+                )}
+                {[...dispatches]
+                  .sort((x, y) => new Date(x.dispatch_datetime || 0) - new Date(y.dispatch_datetime || 0))
+                  .map(d => {
+                  const returned = d.assignment_status === 'Completed';
+                  const win = getDispatchWindow(d, order);
+                  const isCollection = win?.leg === TRIP_LEG.pickup;
+                  return (
+                    <div key={d.assignment_id} className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-900">
+                          {d.vehicle?.plate_number || 'Unknown vehicle'}
+                          <span className="ml-2 text-[12.5px] font-medium text-slate-500">{d.vehicle?.vehicle_type || ''}</span>
+                        </p>
+                        <p className="text-[13px] text-slate-600 mt-0.5">
+                          {win && !isCustomerPickup && (
+                            <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full mr-2 ${
+                              isCollection ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
+                            }`}>
+                              {win.legLabel}
+                            </span>
+                          )}
+                          {win
+                            ? `${isCollection ? 'Collects from' : 'Leaves'} ${win.start.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · back ${win.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                            : `Leaves ${d.dispatch_datetime ? new Date(d.dispatch_datetime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'time not set'}`}
+                        </p>
+                      </div>
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${
+                        returned ? 'bg-slate-100 text-slate-600' : 'bg-blue-50 text-blue-700'
+                      }`}>
+                        {returned ? 'Returned' : 'Scheduled'}
+                      </span>
                     </div>
-                    <span className="text-sm font-bold text-slate-900">₱{(item.menu_price * item.quantity).toLocaleString()}</span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
+
+          {/* Payment Tracking */}
         </div>
       </div>
 
@@ -2158,6 +2160,17 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
           </div>
         </div>,
         document.body
+      )}
+      {/* In place, next to the page's other modals — assigning a vehicle is
+          a decision about THIS booking, so it should not cost the manager
+          their place on the page. */}
+      {isAssignVehicleOpen && (
+        <AssignVehicleModal
+          booking={order}
+          isOpen={isAssignVehicleOpen}
+          onClose={() => setIsAssignVehicleOpen(false)}
+          onAssigned={fetchOrder}
+        />
       )}
     </div>
   );

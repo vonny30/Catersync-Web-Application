@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
 import Select from '../components/Select';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import {
   Plus, Edit, Trash2, X, ClipboardList, RefreshCw, Undo2,
@@ -17,8 +17,8 @@ import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { errorInputClass } from '../utils/formErrors';
 import {
-  getDailyVehicleSnapshot, getDispatchWindow, tripsConflict, defaultSetupDispatch,
-  PICKUP_GRACE_HOURS, needsTransport, TRIP_LEG,
+  getDailyVehicleSnapshot, getDispatchWindow, defaultSetupDispatch,
+  PICKUP_GRACE_HOURS, needsTransport, TRIP_LEG, findConflictingAssignment, describeAssignment,
 } from '../utils/vehicle';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { getAssignmentStatus, RESOURCE_STATE } from '../utils/statusLabels';
@@ -64,7 +64,6 @@ const formatReturnOpensAt = (opensAt) =>
 
 export default function Vehicles() {
   const navigate = useNavigate();
-  const location = useLocation();
   const { showConfirm } = useConfirm();
   const { requestPasswordConfirm } = usePasswordConfirm();
 
@@ -452,29 +451,10 @@ export default function Vehicles() {
   // events. This single helper answers "is this van free for that run", and
   // both the Assign submit guard and the picker's disabled state call it, so
   // the checkbox the manager sees can never disagree with what submit accepts.
-  const conflictingTripFor = (vehicleId, booking, dispatchValue) => {
-    if (!booking?.event_datetime) return null;
-    const proposed = getDispatchWindow(
-      { dispatch_datetime: dispatchValue || defaultSetupDispatch(booking)?.toISOString() },
-      booking
-    );
-    if (!proposed) return null;
-    return assignments.find(a => {
-      if (a.vehicle_id !== vehicleId) return false;
-      if (a.assignment_status === 'Completed') return false;
-      if (a.booking?.booking_status === 'Rejected' || a.booking?.booking_status === 'Cancelled') return false;
-      if (a.booking_id === booking.booking_id) return false; // its own other leg
-      return tripsConflict(getDispatchWindow(a, a.booking), proposed);
-    }) || null;
-  };
+  const conflictingTripFor = (vehicleId, booking, dispatchValue) =>
+    findConflictingAssignment(assignments, vehicleId, booking, dispatchValue);
 
-  const describeTrip = (a) => {
-    const ref = a.booking?.booking_number || 'another booking';
-    const w = getDispatchWindow(a, a.booking);
-    if (!w) return ref;
-    const at = (d) => d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    return `${ref} (${w.leg.toLowerCase()}, ${at(w.start)} to ${at(w.end)})`;
-  };
+  const describeTrip = describeAssignment;
 
   const activeAssignmentsFor = (vehicleId) => assignments.filter(a => {
     if (a.vehicle_id !== vehicleId) return false;
@@ -795,24 +775,6 @@ export default function Vehicles() {
       handleError(error, 'Failed to return vehicles.');
     }
   };
-
-  // A booking's detail page can now send the manager straight here to arrange
-  // transport (blueprint-03 5.8). Without this the button would land them on
-  // the fleet list with the booking still to be found by hand, which is the
-  // gap it exists to close.
-  useEffect(() => {
-    const bookingId = location.state?.assignBookingId;
-    if (!bookingId || bookings.length === 0) return;
-    const target = bookings.find(b => b.booking_id === bookingId);
-    if (!target) return;
-    handleBookingSelect(bookingId);
-    setSelectedVehicleIds([]);
-    setVehiclePickerSearch('');
-    setIsAssignModalOpen(true);
-    // Clear it so a refresh or a back-navigation does not reopen the modal.
-    navigate('.', { replace: true, state: {} });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.state, bookings]);
 
   // Events that are promised but have nothing carrying them.
   //

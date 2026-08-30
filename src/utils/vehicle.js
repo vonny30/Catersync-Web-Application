@@ -915,6 +915,44 @@ export const getVehicleAvailabilityPreview = async (booking) => {
  * approval being rolled back over a collection trip.
  */
 /**
+ * Is this vehicle already committed to an overlapping run?
+ *
+ * Lifted out of Vehicles.jsx so the detail pages' Assign Vehicle modal decides
+ * conflicts the same way the Vehicles page does. Two implementations of "is
+ * this van free" would drift, and the last time a rule was written down twice
+ * in this codebase (the return grace) the copies were eight hours apart before
+ * anyone noticed.
+ *
+ * Pure: takes the assignment list rather than reaching for component state.
+ *
+ * @returns the conflicting assignment, or null.
+ */
+export const findConflictingAssignment = (assignments, vehicleId, booking, dispatchValue) => {
+  if (!booking?.event_datetime) return null;
+  const proposed = getDispatchWindow(
+    { dispatch_datetime: dispatchValue || defaultSetupDispatch(booking)?.toISOString() },
+    booking
+  );
+  if (!proposed) return null;
+  return (assignments || []).find(a => {
+    if (a.vehicle_id !== vehicleId) return false;
+    if (a.assignment_status === 'Completed') return false;
+    if (a.booking?.booking_status === 'Rejected' || a.booking?.booking_status === 'Cancelled') return false;
+    if (a.booking_id === booking.booking_id) return false; // its own other leg
+    return tripsConflict(getDispatchWindow(a, a.booking), proposed);
+  }) || null;
+};
+
+/** One-line description of a trip, for conflict messages. */
+export const describeAssignment = (a) => {
+  const ref = a?.booking?.booking_number || 'another booking';
+  const w = getDispatchWindow(a, a?.booking);
+  if (!w) return ref;
+  const at = (d) => d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return `${ref} (${w.legLabel.toLowerCase()}, ${at(w.start)} to ${at(w.end)})`;
+};
+
+/**
  * Keep dispatch honest when a short order's service method is edited.
  *
  * `Approved` is NOT in PAYMENT_LOCKED_STATUSES, so an approved order can still
