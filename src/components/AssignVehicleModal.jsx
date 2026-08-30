@@ -19,6 +19,7 @@ import { fetchAllRows } from '../utils/fetchAllRows';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import {
   defaultSetupDispatch, findConflictingAssignment, describeAssignment, needsTransport,
+  recheckConflictsBeforeInsert,
 } from '../utils/vehicle';
 
 export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigned }) {
@@ -140,6 +141,19 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
 
     setIsSubmitting(true);
     try {
+      // The list above was loaded when the modal opened. Ask again, against
+      // fresh rows, before writing — nothing in the database enforces this.
+      const late = await recheckConflictsBeforeInsert(selectedVehicleIds, booking, dispatchValue);
+      if (late.length > 0) {
+        const names = late.map(({ vehicle_id, conflict }) => {
+          const v = vehicles.find(x => x.vehicle_id === vehicle_id);
+          return `${v?.plate_number || vehicle_id} - ${describeAssignment(conflict)}`;
+        });
+        toast.error(`Booked elsewhere while this was open: ${names.join('; ')}. Nothing was assigned — pick another vehicle or time.`, { duration: 9000 });
+        setIsSubmitting(false);
+        return;
+      }
+
       const inserts = selectedVehicleIds.map(vehicleId => ({
         vehicle_id: vehicleId,
         booking_id: booking.booking_id,

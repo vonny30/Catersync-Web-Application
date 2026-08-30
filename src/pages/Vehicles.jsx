@@ -19,6 +19,7 @@ import { errorInputClass } from '../utils/formErrors';
 import {
   getDailyVehicleSnapshot, getDispatchWindow, defaultSetupDispatch,
   PICKUP_GRACE_HOURS, needsTransport, TRIP_LEG, findConflictingAssignment, describeAssignment,
+  recheckConflictsBeforeInsert,
 } from '../utils/vehicle';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { getAssignmentStatus, RESOURCE_STATE } from '../utils/statusLabels';
@@ -688,6 +689,19 @@ export default function Vehicles() {
 
     setIsSubmitting(true);
     try {
+      // Same re-check as the detail pages' modal, for the same reason: the
+      // conflict list is only as fresh as the last fetch.
+      const late = await recheckConflictsBeforeInsert(selectedVehicleIds, selectedBooking, assignForm.dispatch_datetime);
+      if (late.length > 0) {
+        const names = late.map(({ vehicle_id, conflict }) => {
+          const v = vehicles.find(x => x.vehicle_id === vehicle_id);
+          return `${v?.plate_number || vehicle_id} - ${describeAssignment(conflict)}`;
+        });
+        toast.error(`Booked elsewhere while this was open: ${names.join('; ')}. Nothing was assigned — pick another vehicle or time.`, { duration: 9000 });
+        setIsSubmitting(false);
+        return;
+      }
+
       const inserts = selectedVehicleIds.map(vehicleId => ({
         vehicle_id: vehicleId,
         booking_id: assignForm.booking_id,

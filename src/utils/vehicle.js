@@ -953,6 +953,40 @@ export const describeAssignment = (a) => {
 };
 
 /**
+ * Re-check conflicts against FRESH data, immediately before inserting.
+ *
+ * `vehicle_assign` has no uniqueness constraint — only three foreign keys and
+ * a primary key on assignment_id (confirmed against the live schema) — so
+ * nothing in the database stops the same van being booked onto two overlapping
+ * runs. Conflict detection is entirely client-side, and the list it reasons
+ * over is whatever was loaded when the modal opened, which may have been
+ * minutes ago.
+ *
+ * This does not make the check atomic; only a constraint could, and that means
+ * a schema change on a database shared with the customer app. What it does is
+ * shrink the window from "however long the modal has been open" to the round
+ * trip of this one query, which is the difference between a realistic race and
+ * a theoretical one.
+ *
+ * @returns array of { vehicle_id, conflict } — empty when it is safe to insert.
+ */
+export const recheckConflictsBeforeInsert = async (vehicleIds, booking, dispatchValue) => {
+  const fresh = await fetchAllRows(
+    () => supabase
+      .from('vehicle_assign')
+      .select(`
+        assignment_id, vehicle_id, booking_id, assignment_status, dispatch_datetime,
+        booking:booking_id (booking_id, booking_number, booking_type, event_datetime, booking_status)
+      `)
+      .order('assignment_id'),
+    'assignments for pre-insert conflict re-check'
+  );
+  return (vehicleIds || [])
+    .map(vehicle_id => ({ vehicle_id, conflict: findConflictingAssignment(fresh, vehicle_id, booking, dispatchValue) }))
+    .filter(x => x.conflict);
+};
+
+/**
  * Keep dispatch honest when a short order's service method is edited.
  *
  * `Approved` is NOT in PAYMENT_LOCKED_STATUSES, so an approved order can still

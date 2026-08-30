@@ -141,9 +141,21 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
         .eq('booking_id', booking.booking_id);
       if (updateError) throw updateError;
 
-      // Cleanup
-      await supabase.from('booking_equipment').delete().eq('booking_id', booking.booking_id);
-      await supabase.from('vehicle_assign').delete().eq('booking_id', booking.booking_id);
+      // Cleanup — RELEASE what is still held, KEEP what already happened.
+      //
+      // These were unfiltered deletes, which took the returned equipment and
+      // the completed dispatches with them. A van that actually made the trip,
+      // or a tray that actually came back, is a fact about the past; the
+      // booking being cancelled afterwards does not un-happen it. The Vehicles
+      // history tab reads these rows unfiltered, so the record simply
+      // disappeared from it.
+      //
+      // Filtering by status is also what makes this safe to keep: conflict
+      // checks and `activeAssignmentsFor` both skip Completed assignments, and
+      // the stock queries in utils/equipment all filter `returned = false`, so
+      // retained rows hold neither a vehicle nor any stock.
+      await supabase.from('booking_equipment').delete().eq('booking_id', booking.booking_id).eq('returned', false);
+      await supabase.from('vehicle_assign').delete().eq('booking_id', booking.booking_id).neq('assignment_status', 'Completed');
 
       if (shouldRefund && refundAmountValue > 0) {
         const { error: refundError } = await supabase
