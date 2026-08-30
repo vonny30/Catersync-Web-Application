@@ -18,6 +18,7 @@ import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { errorInputClass } from '../utils/formErrors';
 import {
   getDailyVehicleSnapshot, getDispatchWindow, tripsConflict, defaultSetupDispatch,
+  PICKUP_GRACE_HOURS, getShortOrderFulfilment,
 } from '../utils/vehicle';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { getAssignmentStatus, RESOURCE_STATE } from '../utils/statusLabels';
@@ -51,7 +52,7 @@ const formatTripWindow = (window) => {
   return `${at(window.start)} - ${at(window.end)}`;
 };
 
-const RETURN_GRACE_MS = 3 * 60 * 60 * 1000;
+const RETURN_GRACE_MS = PICKUP_GRACE_HOURS * 60 * 60 * 1000;
 const getReturnAvailability = (eventDatetimeStr) => {
   if (!eventDatetimeStr) return { canReturn: true, opensAt: null };
   const opensAt = new Date(new Date(eventDatetimeStr).getTime() + RETURN_GRACE_MS);
@@ -469,7 +470,7 @@ export default function Vehicles() {
     const w = getDispatchWindow(a, a.booking);
     if (!w) return ref;
     const at = (d) => d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    return `${ref} (${w.leg.toLowerCase()} run, ${at(w.start)} to ${at(w.end)})`;
+    return `${ref} (${w.leg.toLowerCase()}, ${at(w.start)} to ${at(w.end)})`;
   };
 
   const activeAssignmentsFor = (vehicleId) => assignments.filter(a => {
@@ -734,7 +735,7 @@ export default function Vehicles() {
     const assignment = assignments.find(a => a.assignment_id === assignmentId);
     const { canReturn, opensAt } = getReturnAvailability(assignment?.booking?.event_datetime);
     if (!canReturn) {
-      toast.error(`Can't return this yet — available starting 3 hours after the event, at ${formatReturnOpensAt(opensAt)}.`);
+      toast.error(`Can't return this yet — available starting ${PICKUP_GRACE_HOURS} hours after the event, at ${formatReturnOpensAt(opensAt)}.`);
       return;
     }
 
@@ -765,7 +766,7 @@ export default function Vehicles() {
     const sampleAssignment = assignments.find(a => a.booking_id === bookingId);
     const { canReturn, opensAt } = getReturnAvailability(sampleAssignment?.booking?.event_datetime);
     if (!canReturn) {
-      toast.error(`Can't return these yet — available starting 3 hours after the event, at ${formatReturnOpensAt(opensAt)}.`);
+      toast.error(`Can't return these yet — available starting ${PICKUP_GRACE_HOURS} hours after the event, at ${formatReturnOpensAt(opensAt)}.`);
       return;
     }
 
@@ -830,6 +831,10 @@ export default function Vehicles() {
       .filter(b => {
         if (!b.event_datetime) return false;
         if (new Date(b.event_datetime) < startOfToday) return false;
+        // A short order the customer collects needs no van, so it is not a gap.
+        // Without this the queue nags forever about orders that were never
+        // going to be driven anywhere.
+        if (getShortOrderFulfilment(b) === 'Customer pickup') return false;
         return !assignments.some(a => a.booking_id === b.booking_id && a.assignment_status !== 'Completed');
       })
       .sort((a, b) => new Date(a.event_datetime) - new Date(b.event_datetime));
@@ -1853,7 +1858,7 @@ export default function Vehicles() {
                         className={group.canReturn
                           ? 'text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 border border-blue-200 rounded-lg px-2.5 py-1 hover:bg-blue-50 transition-colors'
                           : 'text-xs font-semibold text-slate-400 flex items-center gap-1 border border-slate-200 rounded-lg px-2.5 py-1 transition-colors'}
-                        title={group.canReturn ? undefined : `Locked — returns open 3 hours after the event, at ${formatReturnOpensAt(group.returnOpensAt)}`}
+                        title={group.canReturn ? undefined : `Locked — returns open ${PICKUP_GRACE_HOURS} hours after the event, at ${formatReturnOpensAt(group.returnOpensAt)}`}
                       >
                         {group.canReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return all
                       </button>
@@ -1873,7 +1878,7 @@ export default function Vehicles() {
                           className={group.canReturn
                             ? 'text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1 text-xs font-medium'
                             : 'text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-1 text-xs font-medium'}
-                          title={group.canReturn ? undefined : `Locked — returns open 3 hours after the event, at ${formatReturnOpensAt(group.returnOpensAt)}`}
+                          title={group.canReturn ? undefined : `Locked — returns open ${PICKUP_GRACE_HOURS} hours after the event, at ${formatReturnOpensAt(group.returnOpensAt)}`}
                         >
                           {group.canReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return
                         </button>
@@ -2314,7 +2319,7 @@ export default function Vehicles() {
                               className={detailCanReturn
                                 ? 'text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1 text-xs font-medium'
                                 : 'text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-1 text-xs font-medium'}
-                              title={detailCanReturn ? undefined : `Locked — returns open 3 hours after the event, at ${formatReturnOpensAt(detailOpensAt)}`}
+                              title={detailCanReturn ? undefined : `Locked — returns open ${PICKUP_GRACE_HOURS} hours after the event, at ${formatReturnOpensAt(detailOpensAt)}`}
                             >
                               {detailCanReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return
                             </button>

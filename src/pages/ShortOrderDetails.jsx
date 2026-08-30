@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import Select from '../components/Select';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Truck, Package as PackageIcon, Image as ImageIcon } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -17,6 +17,7 @@ import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
 import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind } from '../utils/payments';
+import { getShortOrderFulfilment } from '../utils/vehicle';
 import { bookingEditLockedMessage } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
@@ -955,6 +956,32 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
               <div className="grid grid-cols-3">
                 <span className="text-slate-700 font-bold">Total Trays</span>
                 <span className="col-span-2 font-semibold">{totalTrays}</span>
+              </div>
+              <div className="grid grid-cols-3">
+                <span className="text-slate-700 font-bold">Fulfilment</span>
+                <span className="col-span-2">
+                  {(() => {
+                    const mode = getShortOrderFulfilment(order);
+                    const delivered = mode === 'Delivery';
+                    return (
+                      <>
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12.5px] font-semibold ${
+                          delivered ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-800'
+                        }`}>
+                          {delivered ? <Truck size={13} /> : <PackageIcon size={13} />}
+                          {delivered ? 'For delivery' : 'Customer pickup'}
+                        </span>
+                        {/* Said out loud, because it is inferred rather than
+                            recorded — there is no fulfilment field, only a fee. */}
+                        <span className="block text-[12px] text-slate-500 mt-1">
+                          {delivered
+                            ? 'Based on a delivery fee being charged. A vehicle is dispatched for this order.'
+                            : 'Based on no delivery fee being charged. No vehicle is dispatched — add one when approving if it is actually delivered.'}
+                        </span>
+                      </>
+                    );
+                  })()}
+                </span>
               </div>
               <div className="grid grid-cols-3">
                 <span className="text-slate-700 font-bold">Delivery Fee</span>

@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Search, Check, Edit, Trash2, Lock, ChevronLeft, ChevronRight,
   Filter, X, RefreshCw, RotateCcw, UserPlus, Users,
-  LayoutGrid, CalendarClock, Plus, Eye
+  LayoutGrid, CalendarClock, Plus, Eye, Truck, Package as PackageIcon
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
@@ -14,6 +14,7 @@ import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { createWalkInCustomer } from '../utils/createWalkInCustomer';
+import { getShortOrderFulfilment } from '../utils/vehicle';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
@@ -1496,7 +1497,25 @@ export default function ShortOrders() {
                       <td className="px-3 py-[15px] text-sm font-medium text-slate-800 tabular-nums">
                         {order.event_datetime ? new Date(order.event_datetime).toLocaleDateString() : 'N/A'}
                       </td>
-                      <td className="px-3 py-[15px] text-sm text-slate-800 break-words" title={order.venue || 'N/A'}>{order.venue || 'N/A'}</td>
+                      <td className="px-3 py-[15px] text-sm text-slate-800 break-words" title={order.venue || 'N/A'}>
+                        {order.venue || 'N/A'}
+                        {(() => {
+                          const delivered = getShortOrderFulfilment(order) === 'Delivery';
+                          return (
+                            <span
+                              className={`mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11.5px] font-semibold ${
+                                delivered ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-800'
+                              }`}
+                              title={delivered
+                                ? 'A delivery fee is charged, so this is treated as a delivery and a vehicle is dispatched.'
+                                : 'No delivery fee is charged, so this is treated as a customer pickup and no vehicle is dispatched.'}
+                            >
+                              {delivered ? <Truck size={11} /> : <PackageIcon size={11} />}
+                              {delivered ? 'Delivery' : 'Pickup'}
+                            </span>
+                          );
+                        })()}
+                      </td>
                       <td className="px-3 py-[15px] text-sm text-slate-800 text-right tabular-nums">{totalTrays}</td>
                       <td className="px-3 py-[15px] text-[15px] font-semibold text-slate-900 text-right tabular-nums">₱{order.total_amount?.toLocaleString() || '0'}</td>
                       <td className="px-3 py-[15px]">

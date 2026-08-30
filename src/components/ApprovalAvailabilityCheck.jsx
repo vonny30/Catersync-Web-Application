@@ -19,7 +19,7 @@
 // at dispatch time. Approving now shows the plan and then commits it, the same
 // way equipment already worked.
 import { useState, useEffect, useRef } from 'react';
-import { Calendar, Clock, Users, PackageCheck, MapPin, Loader2, AlertTriangle, Check, Truck } from 'lucide-react';
+import { Calendar, Clock, Users, PackageCheck, MapPin, Loader2, AlertTriangle, Check, Truck, Package as PackageIcon } from 'lucide-react';
 import { getBookingsOnDate } from '../utils/availability';
 import { getEquipmentAvailabilityPreview } from '../utils/equipment';
 import { getVehicleAvailabilityPreview } from '../utils/vehicle';
@@ -358,13 +358,22 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
             <p className="text-slate-500 text-xs">No event date yet, so nothing can be scheduled around it.</p>
           ) : (
             <>
+              {/* A customer-pickup short order: nothing is wrong, nothing is
+                  missing, and the list below is an offer rather than a gap. */}
+              {fleet.noTransportNeeded ? (
+                <p className="text-[11px] text-slate-600 mb-2 flex items-start gap-1.5">
+                  <PackageIcon size={12} className="mt-0.5 shrink-0" />
+                  <span>{fleet.noTransportNeeded}</span>
+                </p>
+              ) : (
               <p className="text-[11px] text-slate-500 mb-2">
                 Suggested {fleet.vehiclesNeeded} vehicle{fleet.vehiclesNeeded !== 1 ? 's' : ''}.
                 {fleet.outOfService > 0 && ` ${fleet.outOfService} of ${fleet.fleetSize} out of service.`}
                 {' '}Tick or untick below — what is ticked when you approve is what gets dispatched.
               </p>
+              )}
 
-              {!fleet.sufficient && (
+              {!fleet.sufficient && fleet.shortfall && (
                 <p className="text-amber-800 text-xs font-bold flex items-center gap-1.5 mb-2">
                   <AlertTriangle size={12} /> {fleet.shortfall.reason} You can still approve, then reschedule or hire in.
                 </p>
@@ -415,7 +424,9 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
                   </ul>
                   <p className="text-[11px] text-slate-500 mt-2">
                     {(selectedVehicleIds || []).length === 0
-                      ? 'No vehicle selected — approving will leave this booking without transport.'
+                      ? (fleet.noTransportNeeded
+                          ? 'No vehicle selected, which is correct for a customer pickup.'
+                          : 'No vehicle selected — approving will leave this booking without transport.')
                       : `${(selectedVehicleIds || []).length} vehicle${(selectedVehicleIds || []).length === 1 ? '' : 's'} will be dispatched.`}
                   </p>
                 </>

@@ -28,6 +28,32 @@ export const TRIP_TYPE = {
   delivery: 'Delivery',
 };
 
+/**
+ * Is this short order being delivered, or collected by the customer?
+ *
+ * Nothing in the schema records it — the Short Orders page has always said
+ * "(pickup/delivery)" in its subtitle while storing only a `delivery_fee`, and
+ * the no-schema-change rule means that fee is the whole signal available.
+ *
+ * A fee above zero is a delivery, confidently: nobody charges for delivery on
+ * an order the customer comes to fetch. A fee of zero is *probably* a pickup,
+ * but it could also be a delivery with the fee waived — so this is stated as
+ * derived wherever it is shown, and dispatch treats it as a default rather
+ * than a verdict: a zero-fee order is not given a van automatically, and the
+ * approval panel still lists every vehicle so a manager can add one when the
+ * fee was simply waived.
+ *
+ * Returns 'Delivery' | 'Customer pickup' | null (not a short order).
+ */
+export const getShortOrderFulfilment = (booking) => {
+  if (booking?.booking_type !== 'Short Order') return null;
+  return Number(booking?.delivery_fee || 0) > 0 ? 'Delivery' : 'Customer pickup';
+};
+
+/** Does this booking need a vehicle at all? A customer collecting their own
+ *  trays does not. */
+export const needsTransport = (booking) => getShortOrderFulfilment(booking) !== 'Customer pickup';
+
 export const getTripType = (booking) =>
   booking?.booking_type === 'Short Order' ? TRIP_TYPE.delivery : TRIP_TYPE.eventSetup;
 
@@ -53,11 +79,32 @@ export const getTripType = (booking) =>
 //
 // These numbers ARE the model. They live in one place so they can be calibrated
 // with PG's rather than buried in a comparison somewhere.
+// Calibrated with PG's, 30 Aug 2026 (blueprint-03 §9.2). Vaughn:
+//
+//   "They do 2-3 hours setting it up and goes back to the warehouse to proceed
+//    if there is event then goes back after 4 or 7 hours after the event for
+//    retrieving of equipments."
+//
+// Three things follow, and they change the shape of a trip rather than just
+// its length:
+//
+//   setupHours is 3, the long end of 2-3. The blueprint's own instruction for
+//   a range was to take the conservative end, and here conservative means the
+//   van is assumed busy longer — the failure that matters is promising a van
+//   that is still at a venue, not leaving one idle on paper.
+//
+//   The van RETURNS TO BASE after setting up rather than waiting out the
+//   event, so the trip is travel out, set up, travel back. The window now
+//   includes that return leg: the vehicle is occupied until it is actually
+//   back, and free from the moment it is.
+//
+//   Collection is a SECOND trip, not the tail of the first — out, load, back —
+//   starting hours after the event rather than at its end.
 export const TRIP_PROFILE = {
   [TRIP_TYPE.eventSetup]: {
-    travelHours: 1,        // base -> venue
-    setupHours: 1.5,       // unload and set up on site
-    teardownHours: 1,      // load out again after the event
+    travelHours: 1,        // base -> venue, and venue -> base again
+    setupHours: 3,         // unload and set up on site (PG's: 2-3)
+    teardownHours: 1,      // load out again on the collection run
     hasPickup: true,
   },
   [TRIP_TYPE.delivery]: {
@@ -68,20 +115,39 @@ export const TRIP_PROFILE = {
   },
 };
 
-// Venue to venue, when one vehicle does two setups back to back. Shorter than
-// a return to base, because it does not go back to base.
-export const HOP_HOURS = 0.75;
+// The gap between one run ending and the next beginning, for a vehicle doing
+// two setups in a day.
+//
+// This used to mean venue-to-venue transit, on the assumption a van drove
+// straight from one site to the next. Both of Vaughn's answers say otherwise:
+// §9.2, *"goes back to the warehouse to proceed"*, and §9.4, *"the van goes
+// into the venue earlier to make haste to proceed with the next one so what
+// they do is give a more time allowance in transporting"*. The van returns to
+// base and reloads; the "haste" is a buffer they build in, not a shortcut.
+//
+// The driving home is now inside the trip window itself, so what is left here
+// is reload-and-allowance at base. 1.5h — raised from 0.75 to be the allowance
+// described rather than the bare minimum.
+export const HOP_HOURS = 1.5;
 
 // Base to base: unloading, refuelling, getting out again. Used when two trips
 // are unrelated rather than chained.
 export const TURNAROUND_HOURS = 1;
 
-// How long after an event starts before the vehicle can collect. Matches
-// RETURN_GRACE_MS in Vehicles.jsx - one rule, stated twice only because the
-// page needs it for its button state.
-export const PICKUP_GRACE_HOURS = 3;
+// How long after an event starts before the vehicle goes back to collect.
+//
+// PG's returns 4 to 7 hours after the event. Four, deliberately the EARLY end
+// — the opposite choice from setupHours, for the same reason. This is when the
+// van is committed to collecting, so assuming the earliest keeps it from being
+// promised elsewhere at a time it might already be on the road. Assuming seven
+// would free it on paper for hours it may not actually have.
+export const PICKUP_GRACE_HOURS = 4;
 
-export const TRIP_LEG = { setup: 'Setup', pickup: 'Pickup' };
+// "Pickup" collided with the short-order sense of the word — a customer
+// collecting their own trays — which is the opposite direction of travel. The
+// legs are named for what the van is doing: taking equipment out, and going
+// back for it.
+export const TRIP_LEG = { setup: 'Setup run', pickup: 'Collection run' };
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -121,16 +187,21 @@ export function getDispatchWindow(assignment, booking) {
   const isPickup = !!dispatch && dispatch >= event;
 
   if (isPickup) {
+    // Out, load out, back. The outbound leg used to be missing, which had the
+    // van collecting the instant it left base.
     const start = dispatch;
-    const end = new Date(start.getTime() + (profile.teardownHours + profile.travelHours) * HOUR_MS);
+    const end = new Date(start.getTime() + (profile.travelHours + profile.teardownHours + profile.travelHours) * HOUR_MS);
     return { start, end, type, leg: TRIP_LEG.pickup };
   }
 
+  // Out and set up — this much has to be finished by the time the event starts.
   const workHours = profile.travelHours + profile.setupHours;
   // No stored dispatch time (rows saved before dispatch times were captured):
   // fall back to the latest departure that still finishes on time.
   const start = dispatch || new Date(event.getTime() - workHours * HOUR_MS);
-  const end = new Date(start.getTime() + workHours * HOUR_MS);
+  // ...and then back to base, which is the part that decides when the vehicle
+  // is free again. PG's does not wait out the event.
+  const end = new Date(start.getTime() + (workHours + profile.travelHours) * HOUR_MS);
   return { start, end, type, leg: TRIP_LEG.setup };
 }
 
@@ -168,8 +239,8 @@ export function windowsOverlap(a, b, turnaroundHours = TURNAROUND_HOURS) {
 }
 
 /**
- * The gap two trips need between them. Venue to venue is a hop; anything
- * involving a return to base is the longer turnaround.
+ * The gap two trips need between them. Two setups back to back get the fuller
+ * reload allowance; anything else gets the standard turnaround.
  */
 export function requiredGapHours(a, b) {
   if (!a || !b) return 0;
@@ -385,9 +456,15 @@ export function planSetupChain(entries) {
     const workMs = (profile.travelHours + profile.setupHours) * HOUR_MS;
 
     const ownDeadline = event.getTime();
+    // The next run cannot leave until this one is back at base and reloaded.
+    // The return leg has to be counted here explicitly: this deadline is the
+    // moment setup FINISHES, while getDispatchWindow's window runs on to the
+    // moment the van is home. Leaving it out would let the chain propose
+    // departures that tripsConflict then refuses — the planner and the checker
+    // disagreeing about the same van.
     const chainDeadline = nextStart === null
       ? ownDeadline
-      : Math.min(ownDeadline, nextStart - HOP_HOURS * HOUR_MS);
+      : Math.min(ownDeadline, nextStart - (HOP_HOURS + profile.travelHours) * HOUR_MS);
 
     const start = new Date(chainDeadline - workMs);
     const end = new Date(chainDeadline);
@@ -456,6 +533,8 @@ export const FLEET_SIZING = {
 };
 
 export function vehiclesNeededFor(booking, allocatedUnits = 0, serviceableFleetSize = null) {
+  // The customer is collecting this one themselves — no van leaves the yard.
+  if (!needsTransport(booking)) return 0;
   if (getTripType(booking) === TRIP_TYPE.delivery) return FLEET_SIZING.delivery.vehicles;
 
   if (FLEET_SIZING.eventSetupMode === 'default') {
@@ -492,6 +571,9 @@ export function suggestDispatchPlan(booking, fleet, tripsByVehicle = {}, allocat
   // workshop is not part of the fleet that can go out today.
   const serviceable = (fleet || []).filter(v => v.vehicle_status === 'Available').length;
   const needed = vehiclesNeededFor(booking, allocatedUnits, serviceable);
+  const noTransportNeeded = needed === 0
+    ? 'No delivery fee on this order, so it is treated as a customer pickup and nothing is dispatched. Tick a vehicle below if it is actually being delivered.'
+    : null;
   const event = asDate(booking?.event_datetime);
   if (!event) {
     return { tripType, vehiclesNeeded: needed, picks: [], shortfall: { needed, found: 0, reason: 'This booking has no event date, so nothing can be scheduled around it.' } };
@@ -593,6 +675,7 @@ export function suggestDispatchPlan(booking, fleet, tripsByVehicle = {}, allocat
     options,
     tripType,
     vehiclesNeeded: needed,
+    noTransportNeeded,
     picks,
     shortfall: picks.length < needed
       ? { needed, found: picks.length, reason: `Only ${picks.length} of ${needed} vehicle(s) can make this event.` }

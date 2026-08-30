@@ -14,6 +14,7 @@ import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
+import { PICKUP_GRACE_HOURS } from '../utils/vehicle';
 import { isPaymentLedgerLocked } from '../utils/payments';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { errorInputClass } from '../utils/formErrors';
@@ -77,9 +78,9 @@ const describeEquipmentConflicts = (conflicts, proposedAvailable) => {
 // to act on something the system wouldn't let them act on. Anchoring
 // overdue to the 24h due time removes that contradiction by construction,
 // since DUE is always well after OPENS.
-const RETURN_OPENS_AFTER_MS = 3 * 60 * 60 * 1000;   // 3 hours
+const RETURN_OPENS_AFTER_MS = PICKUP_GRACE_HOURS * 60 * 60 * 1000;
 const RETURN_DUE_AFTER_MS = 24 * 60 * 60 * 1000;    // 24 hours
-export const RETURN_POLICY_TEXT = 'Equipment is due back within 24 hours of the event start. Returns can be recorded from 3 hours after the event starts, and anything still out past the 24-hour mark is flagged Overdue.';
+export const RETURN_POLICY_TEXT = `Equipment is due back within 24 hours of the event start. Returns can be recorded from ${PICKUP_GRACE_HOURS} hours after the event starts — when the collection run sets off — and anything still out past the 24-hour mark is flagged Overdue.`;
 
 const getReturnAvailability = (eventDatetimeStr) => {
   if (!eventDatetimeStr) return { canReturn: true, opensAt: null };
@@ -1102,7 +1103,7 @@ export default function Equipment() {
     const assignment = assignments.find(a => a.assignment_id === assignmentId);
     const { canReturn, opensAt } = getReturnAvailability(assignment?.booking?.event_datetime);
     if (!canReturn) {
-      toast.error(`Too early to return this. Returns open 3 hours after the event starts, at ${formatReturnOpensAt(opensAt)}.`);
+      toast.error(`Too early to return this. Returns open ${PICKUP_GRACE_HOURS} hours after the event starts, at ${formatReturnOpensAt(opensAt)}.`);
       return;
     }
 
@@ -1133,7 +1134,7 @@ export default function Equipment() {
     const sampleAssignment = assignments.find(a => a.booking_id === bookingId);
     const { canReturn, opensAt } = getReturnAvailability(sampleAssignment?.booking?.event_datetime);
     if (!canReturn) {
-      toast.error(`Too early to return these. Returns open 3 hours after the event starts, at ${formatReturnOpensAt(opensAt)}.`);
+      toast.error(`Too early to return these. Returns open ${PICKUP_GRACE_HOURS} hours after the event starts, at ${formatReturnOpensAt(opensAt)}.`);
       return;
     }
 
@@ -2706,7 +2707,7 @@ export default function Equipment() {
                         className={group.canReturn
                           ? 'text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 border border-blue-200 rounded-lg px-2.5 py-1 hover:bg-blue-50 transition-colors'
                           : 'text-xs font-semibold text-slate-400 flex items-center gap-1 border border-slate-200 rounded-lg px-2.5 py-1 transition-colors'}
-                        title={group.canReturn ? undefined : `Returns open 3 hours after the event starts, at ${formatReturnOpensAt(group.returnOpensAt)}`}
+                        title={group.canReturn ? undefined : `Returns open ${PICKUP_GRACE_HOURS} hours after the event starts, at ${formatReturnOpensAt(group.returnOpensAt)}`}
                       >
                         {group.canReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return all
                       </button>
@@ -2721,7 +2722,7 @@ export default function Equipment() {
                           className={group.canReturn
                             ? 'text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1 text-xs font-medium'
                             : 'text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-1 text-xs font-medium'}
-                          title={group.canReturn ? undefined : `Returns open 3 hours after the event starts, at ${formatReturnOpensAt(group.returnOpensAt)}`}
+                          title={group.canReturn ? undefined : `Returns open ${PICKUP_GRACE_HOURS} hours after the event starts, at ${formatReturnOpensAt(group.returnOpensAt)}`}
                         >
                           {group.canReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return
                         </button>
@@ -3030,7 +3031,7 @@ export default function Equipment() {
                           className={evCanReturn
                             ? 'text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1 text-xs font-medium'
                             : 'text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-1 text-xs font-medium'}
-                          title={evCanReturn ? undefined : `Locked — returns open 3 hours after the event, at ${formatReturnOpensAt(evReturnOpensAt)}`}
+                          title={evCanReturn ? undefined : `Locked — returns open ${PICKUP_GRACE_HOURS} hours after the event, at ${formatReturnOpensAt(evReturnOpensAt)}`}
                         >
                           {evCanReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return
                         </button>

@@ -187,10 +187,17 @@ But the app **must** derive the leg the same way, or "Today's Itinerary: 3
 Trips" will count three rows for what a driver knows is two journeys and a
 collection. Do not group by booking; group by trip and label the leg.
 
-The **Return Checklist belongs to the pickup run**, not to the event. It should
-open when the pickup trip starts, which is also when the web's Return button
-unlocks — 3 hours after the event begins. Both come from `PICKUP_GRACE_HOURS`,
-and they must stay equal.
+The **Return Checklist belongs to the collection run**, not to the event. It
+should open when the collection trip starts, which is also when the web's
+Return button unlocks — 4 hours after the event begins (PG's collects 4-7 hours
+afterwards; the model takes the early end). Both come from
+`PICKUP_GRACE_HOURS`, and they must stay equal: the web page now imports that
+constant rather than restating the number, because the two had already drifted
+apart once.
+
+Note the leg names changed: `TRIP_LEG` is now `Setup run` / `Collection run`.
+"Pickup" was ambiguous against a short-order *customer pickup*, which is the
+opposite direction of travel.
 
 ### 4.2 Reading resources correctly
 
