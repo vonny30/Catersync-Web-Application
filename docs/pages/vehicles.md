@@ -11,6 +11,9 @@ setup and an afternoon delivery.
 - A dispatch occupies a vehicle for a trip window, not a calendar day. Two trips conflict only when their windows overlap, with a gap between them.
 - The leg is derived, not stored: a dispatch at or after the event start is a pickup, anything earlier is a setup.
 - Trip profile constants live in `utils/vehicle.js` — they are the model, and changing them changes how many trips a day the system permits.
+- The Availability tab draws a **day timeline**: one row per vehicle, one block per dispatch, on a fixed 04:00–23:00 scale. A gap between blocks is time the vehicle is free. The scale is fixed rather than fitted to the day so blocks sit in the same place from date to date.
+- **Committed / In Use / Available** are the settled words (blueprint-02). The cards, the filter pills and the Fleet tab all use them. `blueprint-03` proposed "On the road" / "Free" for the cards; that was declined because it would be a third vocabulary on one screen.
+- The Fleet tab counts **trips booked**, and says "In use" only when a dispatch window contains now. A van booked three weeks out is committed, not in use.
 - History groups one row per booking, expandable to the individual vehicles. A part-returned dispatch reads as its least-finished stage, never as Returned.
 - Deleting a vehicle is refused twice over: once if it is dispatched to an active booking, again if it has ANY dispatch history, because the utilization reports read from it. Retire with Flag issue → Unavailable instead.
 - Return-all is scoped with `.neq('assignment_status', 'Completed')`, so re-returning a partly-returned dispatch cannot rewrite rows that were already closed.
@@ -45,5 +48,6 @@ Audited 30 Aug 2026 — the page's own logic reviewed, layout modernized, histor
 
 ## Known gaps
 
+- Blueprint-03 §5.8 is still open: `BookingDetails` and `ShortOrderDetails` mention a vehicle only in the delete warning, so a booking cannot show what is carrying it.
 - **Open question:** the code asserts `vehicle_assign` allows only one row per booking+vehicle. If true, the pickup leg never persists and the two-leg model's second half is decorative. Settle with: `select conname, pg_get_constraintdef(oid) from pg_constraint where conrelid = 'vehicle_assign'::regclass;`
 - `blueprint-03-dispatch.md` documents a superseded model (`leadHours`/`serviceHours`/`returnHours`); the code implements `travelHours`/`setupHours`/`teardownHours`/`hasPickup`.

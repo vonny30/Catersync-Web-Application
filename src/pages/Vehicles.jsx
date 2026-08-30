@@ -892,6 +892,66 @@ export default function Vehicles() {
     : filteredAvailabilityVehicles;
 
   // ============================================================
+  // --- DAY TIMELINE (Availability tab) ---
+  // ============================================================
+  // The table can express one trip per vehicle; the window model allows
+  // several. Positioning each dispatch as a block on a fixed day scale is what
+  // makes "busy twice, free in between" visible without arithmetic.
+  //
+  // The scale is a fixed working window rather than the widest trip of the
+  // day, so blocks sit in the same place from one date to the next — a bar
+  // that rescales itself cannot be compared against yesterday's.
+  const TIMELINE_START_HOUR = 4;
+  const TIMELINE_END_HOUR = 23;
+  const timelineTicks = (() => {
+    const ticks = [];
+    const span = TIMELINE_END_HOUR - TIMELINE_START_HOUR;
+    for (let h = TIMELINE_START_HOUR; h <= TIMELINE_END_HOUR; h += 3) {
+      ticks.push({ hour: h, label: String(h).padStart(2, '0'), pct: ((h - TIMELINE_START_HOUR) / span) * 100 });
+    }
+    return ticks;
+  })();
+
+  const timelineRows = sortedFilteredAvailabilityVehicles.map(v => {
+    const dayStart = new Date(`${selectedDate}T00:00:00`);
+    const scaleStart = new Date(dayStart.getTime() + TIMELINE_START_HOUR * 60 * 60 * 1000);
+    const scaleEnd = new Date(dayStart.getTime() + TIMELINE_END_HOUR * 60 * 60 * 1000);
+    const scaleMs = scaleEnd - scaleStart;
+    const statusKey = getVehicleAvailabilityStatus(v).key;
+
+    const blocks = (v.assignments || []).map(a => {
+      // A trip can start before the scale or end after it; clamp so the block
+      // stays inside its row rather than overflowing, while still showing that
+      // the vehicle is busy at the edge.
+      const from = Math.max(a.window.start.getTime(), scaleStart.getTime());
+      const to = Math.min(a.window.end.getTime(), scaleEnd.getTime());
+      if (to <= from) return null;
+      const fmt = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return {
+        assignment_id: a.assignment_id,
+        booking_id: a.booking_id,
+        booking_type: a.booking_type,
+        ref: a.ref,
+        tripType: a.tripType,
+        completed: a.completed,
+        label: `${fmt(a.window.start)}–${fmt(a.window.end)}`,
+        leftPct: ((from - scaleStart.getTime()) / scaleMs) * 100,
+        // A floor keeps a very short delivery from rendering as an invisible
+        // sliver that reads as "free".
+        widthPct: Math.max(4, ((to - from) / scaleMs) * 100),
+      };
+    }).filter(Boolean);
+
+    return {
+      vehicle_id: v.vehicle_id,
+      plate_number: v.plate_number,
+      vehicle_status: v.vehicle_status,
+      outOfService: ['maintenance', 'unavailable'].includes(statusKey),
+      blocks,
+    };
+  });
+
+  // ============================================================
   // --- INVENTORY TAB: search + type filter ---
   // ============================================================
   const filteredInventory = vehicles.filter(v => {
@@ -1104,7 +1164,7 @@ export default function Vehicles() {
             onClick={() => { setAddFieldErrors({}); setIsAddModalOpen(true); }}
             className="bg-white border border-slate-300 text-slate-700 px-4 py-2.5 rounded-[10px] font-semibold transition-colors flex items-center gap-2 text-sm whitespace-nowrap shadow-sm cursor-pointer hover:bg-[#f4f9f6] hover:border-[#c9dfd4] hover:text-[#007038] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
           >
-            <Plus size={16} /> Manage Fleet
+            <Plus size={16} /> Add vehicle
           </button>
           <button
             onClick={() => { setSelectedVehicleIds([]); setBookingSearchTerm(''); setShowBookingDropdown(false); setVehiclePickerSearch(''); setIsAssignModalOpen(true); }}
@@ -1176,18 +1236,18 @@ export default function Vehicles() {
             className="relative overflow-hidden rounded-[15px] border border-slate-200/70 bg-white px-5 py-[18px] text-left cursor-pointer transition-all hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
           >
             <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
-            <span className="block text-[13px] font-semibold text-slate-600 mb-2 whitespace-nowrap">Vehicles dispatched</span>
+            <span className="block text-[13px] font-semibold text-slate-600 mb-2 whitespace-nowrap">Vehicles committed</span>
             <span className="block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{deployedCount}</span>
-            <span className="block text-[13px] text-slate-600 mt-2.5">Out on a trip for this date</span>
+            <span className="block text-[13px] text-slate-600 mt-2.5">Promised to a booking on this date</span>
           </button>
           <button
             onClick={() => scrollToAvailability('free')}
             className="relative overflow-hidden rounded-[15px] border border-slate-200/70 bg-white px-5 py-[18px] text-left cursor-pointer transition-all hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
           >
             <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-teal-600" />
-            <span className="block text-[13px] font-semibold text-slate-600 mb-2 whitespace-nowrap">Vehicles free</span>
+            <span className="block text-[13px] font-semibold text-slate-600 mb-2 whitespace-nowrap">Vehicles available</span>
             <span className={`block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums ${freeCount === 0 ? 'text-amber-700' : 'text-slate-900'}`}>{freeCount}</span>
-            <span className="block text-[13px] text-slate-600 mt-2.5">of {totalFleet} in the fleet</span>
+            <span className="block text-[13px] text-slate-600 mt-2.5">Not committed · of {totalFleet} in the fleet</span>
           </button>
         </div>
       </div>
@@ -1238,7 +1298,7 @@ export default function Vehicles() {
             </button>
           </div>
           <p className="px-5 py-3.5 border-b border-slate-100 text-[13.5px] text-slate-600 [text-wrap:pretty]">
-            {activeTableTab === 'availability' && <>Every vehicle's free/deployed status for <span className="font-semibold text-slate-700">{selectedDateLabel}</span>.</>}
+            {activeTableTab === 'availability' && <>Every vehicle's committed/available status for <span className="font-semibold text-slate-700">{selectedDateLabel}</span>.</>}
             {activeTableTab === 'inventory' && <>The full fleet list — edit details, add new vehicles, or flag maintenance/unavailable.</>}
             {activeTableTab === 'assignments' && <>Everything currently dispatched to any event, regardless of the date selected above.</>}
             {activeTableTab === 'history' && <>The full log of every assignment ever made — scheduled and completed — across the whole fleet.</>}
@@ -1302,6 +1362,106 @@ export default function Vehicles() {
                 </button>
               )}
             </div>
+            {/* ---- DAY TIMELINE ----
+                 The table below can only ever express ONE trip per vehicle,
+                 which is the shape the window model breaks: a van that runs a
+                 06:00 wedding setup is free again by early afternoon and can
+                 take a 14:00 delivery. Drawn as blocks on a day, that reads at
+                 a glance — busy twice, free in between — instead of leaving
+                 the manager to do the arithmetic. */}
+            {snapshotLoading ? (
+              <div className="px-5 py-8 text-center text-slate-500 text-sm border-b border-slate-100">Working out the day…</div>
+            ) : timelineRows.length === 0 ? (
+              <div className="px-5 py-8 text-center text-slate-500 text-sm border-b border-slate-100">No vehicles match this filter.</div>
+            ) : (
+              <div className="px-5 py-4 border-b border-slate-100">
+                <div className="flex items-baseline justify-between gap-3 mb-3">
+                  <p className="text-[13px] font-bold text-slate-600 tracking-[0.04em]">Day timeline</p>
+                  <p className="text-[12.5px] text-slate-600">{TIMELINE_START_HOUR}:00 – {TIMELINE_END_HOUR}:00</p>
+                </div>
+
+                {/* hour ruler */}
+                <div className="flex items-center gap-3 mb-1.5">
+                  <span className="w-[104px] shrink-0" />
+                  <div className="relative flex-1 h-4">
+                    {timelineTicks.map(t => (
+                      <span
+                        key={t.hour}
+                        className="absolute top-0 -translate-x-1/2 text-[11.5px] text-slate-400 tabular-nums"
+                        style={{ left: `${t.pct}%` }}
+                      >
+                        {t.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  {timelineRows.map(row => (
+                    <div key={row.vehicle_id} className="flex items-center gap-3">
+                      <div className="w-[104px] shrink-0 min-w-0">
+                        <p className="text-[13.5px] font-semibold text-slate-900 truncate">{row.plate_number}</p>
+                        {row.outOfService && (
+                          <p className="text-[11.5px] text-amber-700 truncate">{row.vehicle_status}</p>
+                        )}
+                      </div>
+                      <div className={`relative flex-1 h-8 rounded-[7px] border ${
+                        row.outOfService
+                          ? 'bg-slate-100 border-slate-200'
+                          : row.blocks.length === 0
+                            ? 'bg-[#f4f9f6] border-[#dcece3]'
+                            : 'bg-slate-50 border-slate-200'
+                      }`}>
+                        {/* faint hour gridlines, so a block's position is readable */}
+                        {timelineTicks.map(t => (
+                          <span key={t.hour} className="absolute top-0 bottom-0 w-px bg-slate-200/70" style={{ left: `${t.pct}%` }} />
+                        ))}
+                        {row.outOfService ? (
+                          <span className="absolute inset-0 flex items-center justify-center text-[12px] font-semibold text-slate-500">
+                            Out of service
+                          </span>
+                        ) : row.blocks.length === 0 ? (
+                          <span className="absolute inset-0 flex items-center justify-center text-[12px] font-semibold text-[#00703a]">
+                            Available all day
+                          </span>
+                        ) : row.blocks.map(b => (
+                          <button
+                            key={b.assignment_id}
+                            type="button"
+                            onClick={() => goToBookingDetails(b.booking_id, b.booking_type)}
+                            title={`${b.ref} · ${b.tripType} · ${b.label}${b.completed ? ' · returned' : ''}`}
+                            className={`absolute top-1 bottom-1 rounded-[5px] px-1.5 flex items-center overflow-hidden text-[11.5px] font-semibold whitespace-nowrap cursor-pointer transition-colors ${
+                              b.completed
+                                ? 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                                : b.tripType === 'Delivery'
+                                  ? 'bg-[#e7d8fb] text-purple-800 hover:bg-[#dcc7f8]'
+                                  : 'bg-[#bfe3cf] text-[#00532a] hover:bg-[#a9d9bd]'
+                            }`}
+                            style={{ left: `${b.leftPct}%`, width: `${b.widthPct}%` }}
+                          >
+                            {b.ref}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-4 mt-3.5 pt-3 border-t border-slate-100">
+                  <span className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-600">
+                    <span className="w-3 h-3 rounded-[3px] bg-[#bfe3cf]" /> Event setup
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-600">
+                    <span className="w-3 h-3 rounded-[3px] bg-[#e7d8fb]" /> Delivery
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-600">
+                    <span className="w-3 h-3 rounded-[3px] bg-slate-200" /> Returned
+                  </span>
+                  <span className="text-[12.5px] text-slate-500">A gap between blocks is time the vehicle is free.</span>
+                </div>
+              </div>
+            )}
+
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
@@ -1414,7 +1574,7 @@ export default function Vehicles() {
                     <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">{renderSortHeader(inventorySort, toggleInventorySort, 'plate', 'Vehicle')}</th>
                     <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Type</th>
                     <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Base status</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-center">Usage</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-center">Trips booked</th>
                     <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Actions</th>
                   </tr>
                 </thead>
@@ -1425,7 +1585,17 @@ export default function Vehicles() {
                     <tr><td colSpan="5" className="p-6 text-center text-slate-500">No vehicles found.</td></tr>
                   ) : (
                     sortedFilteredInventory.map((v) => {
-                      const usageCount = assignments.filter(a => a.vehicle_id === v.vehicle_id && a.assignment_status !== 'Completed').length;
+                      // "Usage" counted every open assignment and called it
+                      // "in use", so a van booked for a wedding three weeks out
+                      // read as being out on the road right now. Committed and
+                      // in use are different states — blueprint-02 settles both
+                      // words — so they are counted and labelled separately.
+                      const openTrips = assignments.filter(a => a.vehicle_id === v.vehicle_id && a.assignment_status !== 'Completed');
+                      const usageCount = openTrips.length;
+                      const onTheRoadNow = openTrips.some(a => {
+                        const w = getDispatchWindow(a, a.booking);
+                        return w ? (w.start <= now && now <= w.end) : false;
+                      });
                       return (
                         <tr key={v.vehicle_id} className="hover:bg-[#fbfcfd] transition-colors">
                           <td className="px-4 py-[15px]">
@@ -1451,7 +1621,11 @@ export default function Vehicles() {
                               className="text-blue-500 hover:text-blue-700 transition-colors text-xs font-medium flex items-center gap-1 mx-auto"
                             >
                               <ClipboardList size={14} />
-                              {usageCount > 0 ? `${usageCount} in use` : 'No usage'}
+                              {usageCount === 0
+                                ? 'None booked'
+                                : onTheRoadNow
+                                  ? `In use · ${usageCount} booked`
+                                  : `${usageCount} booked`}
                             </button>
                           </td>
                           <td className="px-4 py-[15px] text-right">
