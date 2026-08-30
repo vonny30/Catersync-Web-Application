@@ -125,6 +125,7 @@ export default function Vehicles() {
 
   // --- Events-on-date modal ---
   const [isEventsModalOpen, setIsEventsModalOpen] = useState(false);
+  const [isNeedsVehicleModalOpen, setIsNeedsVehicleModalOpen] = useState(false);
 
   // --- Availability row detail modal ---
   const [isAvailabilityDetailOpen, setIsAvailabilityDetailOpen] = useState(false);
@@ -809,6 +810,39 @@ export default function Vehicles() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state, bookings]);
 
+  // Events that are promised but have nothing carrying them.
+  //
+  // This is the thread missing between approving a booking and dispatching for
+  // it: approval and dispatch are one decision the system splits in two, and
+  // nothing anywhere said "this event still has no van". Auto-allocation at
+  // approval normally keeps this at zero — the day it is not zero is the day
+  // it earns its place, which is why it only appears when there is something
+  // in it.
+  //
+  // Past events are excluded on purpose: an event that has already happened
+  // without a recorded vehicle is history, not a task. A Completed assignment
+  // does not count as cover for a future event either — nothing is scheduled
+  // to carry it.
+  const needsVehicleBookings = (() => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    return bookings
+      .filter(b => {
+        if (!b.event_datetime) return false;
+        if (new Date(b.event_datetime) < startOfToday) return false;
+        return !assignments.some(a => a.booking_id === b.booking_id && a.assignment_status !== 'Completed');
+      })
+      .sort((a, b) => new Date(a.event_datetime) - new Date(b.event_datetime));
+  })();
+
+  const planDispatchFor = (bookingId) => {
+    setIsNeedsVehicleModalOpen(false);
+    handleBookingSelect(bookingId);
+    setSelectedVehicleIds([]);
+    setVehiclePickerSearch('');
+    setIsAssignModalOpen(true);
+  };
+
   const scrollToAssignments = () => {
     setActiveTableTab('assignments');
   };
@@ -1179,6 +1213,14 @@ export default function Vehicles() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {needsVehicleBookings.length > 0 && (
+            <button
+              onClick={() => setIsNeedsVehicleModalOpen(true)}
+              className="bg-[#fef4f4] border border-[#f3c9c9] text-red-700 px-4 py-2.5 rounded-[10px] font-semibold transition-colors flex items-center gap-2 text-sm whitespace-nowrap cursor-pointer hover:bg-[#fdeaea] focus:outline-none focus:ring-2 focus:ring-red-400/40"
+            >
+              <AlertTriangle size={16} /> Needs a vehicle ({needsVehicleBookings.length})
+            </button>
+          )}
           <button
             onClick={() => { setAddFieldErrors({}); setIsAddModalOpen(true); }}
             className="bg-white border border-slate-300 text-slate-700 px-4 py-2.5 rounded-[10px] font-semibold transition-colors flex items-center gap-2 text-sm whitespace-nowrap shadow-sm cursor-pointer hover:bg-[#f4f9f6] hover:border-[#c9dfd4] hover:text-[#007038] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
@@ -1189,7 +1231,7 @@ export default function Vehicles() {
             onClick={() => { setSelectedVehicleIds([]); setBookingSearchTerm(''); setShowBookingDropdown(false); setVehiclePickerSearch(''); setIsAssignModalOpen(true); }}
             className="bg-[#008A45] hover:bg-[#007038] text-white px-[17px] py-2.5 rounded-[10px] font-bold transition-all flex items-center gap-2 text-sm whitespace-nowrap shadow-sm hover:shadow-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 focus:ring-offset-1"
           >
-            <ClipboardList size={16} /> Assign Vehicle
+            <ClipboardList size={16} /> Assign vehicles
           </button>
           <button
             onClick={fetchData}
@@ -2117,6 +2159,55 @@ export default function Vehicles() {
       {/* ========================================================= */}
 
       {/* EVENTS ON DATE MODAL */}
+      {/* NEEDS A VEHICLE — the work queue behind the header counter. Date
+          order, because the nearest event is the one that runs out of time
+          first, and one click from each row into the assign modal. */}
+      {isNeedsVehicleModalOpen && createPortal(
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Needs a vehicle</h2>
+                <p className="text-[13px] text-slate-600 mt-0.5">
+                  {needsVehicleBookings.length} upcoming event{needsVehicleBookings.length === 1 ? '' : 's'} with nothing dispatched to carry {needsVehicleBookings.length === 1 ? 'it' : 'them'}
+                </p>
+              </div>
+              <button onClick={() => setIsNeedsVehicleModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors cursor-pointer"><X size={18} /></button>
+            </div>
+            <div className="p-4 overflow-y-auto flex-1 space-y-2.5">
+              {needsVehicleBookings.map(b => {
+                const when = new Date(b.event_datetime);
+                const days = Math.ceil((when - new Date()) / (24 * 60 * 60 * 1000));
+                return (
+                  <div key={b.booking_id} className="flex flex-wrap items-center justify-between gap-3 border border-slate-200 rounded-lg px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-900">
+                        {b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown'}
+                        <span className="ml-2 text-[12.5px] font-semibold text-[#007038] tabular-nums">{getBookingRef(b)}</span>
+                      </p>
+                      <p className="text-[13px] text-slate-600 mt-0.5 flex flex-wrap items-center gap-x-2">
+                        <span className="tabular-nums">{when.toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                        <span className={days <= 2 ? 'font-semibold text-red-700' : ''}>
+                          {days <= 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`}
+                        </span>
+                        {b.venue && <span className="flex items-center gap-1"><MapPin size={11} /> {b.venue}</span>}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => planDispatchFor(b.booking_id)}
+                      className="shrink-0 bg-[#008A45] hover:bg-[#007038] text-white text-[13px] font-semibold px-3.5 py-2 rounded-[9px] transition-colors cursor-pointer"
+                    >
+                      Plan dispatch
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
       {isEventsModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col overflow-hidden">

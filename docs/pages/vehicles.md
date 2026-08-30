@@ -20,6 +20,8 @@ setup and an afternoon delivery.
 
 - The Availability tab accepts `assignBookingId` in router state, so a booking's detail page can open the assign modal for that booking directly.
 
+- A **Needs a vehicle** counter appears in the header only when there are upcoming events with nothing dispatched to carry them. Auto-allocation at approval normally keeps it at zero; the day it is not zero is the day it earns its place.
+
 ## Data it reads
 
 | Table | Queries | Whole-table with no row bound |

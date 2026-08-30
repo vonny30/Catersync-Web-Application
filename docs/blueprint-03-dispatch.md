@@ -4,9 +4,10 @@ The Vehicles page: what it is for, how a vehicle gets attached to a booking,
 and what has to change so the two agree. Written 28 Aug 2026 against the tree
 as it stood that day.
 
-**Phase 1 is implemented and committed (28 Aug 2026)** — the model, the snapshot
-rebuild, the row cap and the delete guard. Phases 2-4 are still plan. §9 lists
-the four decisions that need Vaughn's answer before Phase 2 can start.
+**All four phases are implemented (Phase 1, 28 Aug 2026; Phases 2-4, 30 Aug
+2026).** §9.0 records the constraint question, since settled. §9.2 remains
+open and is worth a conversation with PG's: the trip profile numbers decide
+how many trips a day the system permits, and they are still estimates.
 
 Read with `blueprint-01-reporting.md` (money) and `blueprint-02-language.md`
 (vocabulary). Same hard constraint as both: **no schema changes.** Everything
@@ -406,7 +407,7 @@ check at `:611` *and* its twin at `:2136` with the overlap test. Add
 into `ApprovalAvailabilityCheck.jsx` (D5) and the allocation into
 `useApprovalHandlers.js` (D6). **Needs §9 answered first.**
 
-**Phase 3 — the screens. DONE 30 Aug 2026**, except `Needs a vehicle`. The Availability timeline, trip type through
+**Phase 3 — the screens. DONE 30 Aug 2026.** The Availability timeline, trip type through
 Assignments and History, the card and column wording (D11, D12), the Dispatch
 section on both detail pages, `Needs a vehicle`.
 
