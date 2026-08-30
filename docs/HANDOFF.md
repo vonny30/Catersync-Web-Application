@@ -163,6 +163,30 @@ The distinction in the last row is the one worth keeping: a fee adjustment is
 recorded against the booking and carries why it changed. An edited payment
 would silently become the new truth of what was received, losing the reason.
 
+**Editing a booking is locked when recomputing its total would lower it.**
+The fee adjustment in that last row created a trap: approval folds
+`extraQuantity`, `extraDeliveryFee` and `additionalFee` into `total_amount`,
+but `Approved` is not a locked status, and both edit forms recompute the total
+from package/menu plus delivery fee — which cannot see those additions. Opening
+the modal and saving wrote the lower number back and the adjustment was gone.
+
+Detected from the money, because there is nothing else: no column records the
+adjustment, and approval writes an `[APPROVAL]` note for short orders but
+**none** for packages. `totalLossOnRecompute` in `utils/payments.js` compares
+the stored total against what the form would recalculate, with a one-peso
+tolerance for rounding; a stored total that is higher means value is present
+that recomputation cannot reproduce, and Edit locks with the amount named.
+
+Two deliberate properties:
+
+- **It catches more than approval fees.** A menu price that has *dropped* since
+  the booking was taken has the same shape, and locking is right there too. The
+  message states what was detected rather than asserting a cause.
+- **It fails toward staying out of the way.** A price that *rose* loses nothing
+  on recompute, so the record stays editable — as does one whose package or
+  menu items have not loaded yet, since an incomplete read must not lock a
+  record.
+
 ## Equipment page — audited 21 Aug 2026
 
 The stock identity (`total = usable + out of service`, `available = usable −
