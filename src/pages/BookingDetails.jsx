@@ -20,7 +20,7 @@ import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
 import { allocateEquipmentForBooking } from '../utils/equipment';
 import { getDispatchWindow, TRIP_LEG } from '../utils/vehicle';
 import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind } from '../utils/payments';
-import { bookingEditLockedMessage } from '../utils/bookingStatus';
+import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
@@ -1151,6 +1151,12 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
 
   const downpaymentPaid = sumVerifiedDownpayments(payments);
 
+  // Vehicles are dispatched for a booking that is going ahead. Approval is
+  // what allocates them, so assigning before that point would be duplicated by
+  // the auto-allocation approval runs; and a Cancelled, Rejected or Completed
+  // booking is not going anywhere.
+  const canDispatch = ACTIVE_BOOKING_STATUSES.includes(booking?.booking_status);
+
   const eventDate = booking.event_datetime ? new Date(booking.event_datetime) : null;
   const now = new Date();
   let daysUntilEvent = null;
@@ -1720,12 +1726,14 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                 </span>
               </h3>
               <div className="flex items-center gap-2">
+                {canDispatch && (
                 <button
                   onClick={() => setIsAssignVehicleOpen(true)}
                   className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm"
                 >
                   <ClipboardList size={14} /> {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
                 </button>
+                )}
                 <span className="text-xs font-medium text-slate-500">
                   {dispatches.length} vehicle{dispatches.length !== 1 ? 's' : ''}
                 </span>
@@ -1734,7 +1742,11 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
 
             {dispatches.length === 0 ? (
               <p className="text-sm text-slate-500">
-                No vehicle assigned yet. This event still needs transport arranged.
+                {canDispatch
+                  ? 'No vehicle assigned yet. This event still needs transport arranged.'
+                  : booking?.booking_status === 'Pending'
+                    ? 'Vehicles are assigned when this booking is approved.'
+                    : `No vehicles — this booking is ${booking?.booking_status?.toLowerCase() || 'not active'}.`}
               </p>
             ) : (
               <div className="space-y-2">

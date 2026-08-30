@@ -19,7 +19,7 @@ import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
 import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind } from '../utils/payments';
 import { getServiceMethod, reconcileServiceMethodChange, PICKUP_VENUE_MARKER, getDispatchWindow, TRIP_LEG } from '../utils/vehicle';
-import { bookingEditLockedMessage } from '../utils/bookingStatus';
+import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
@@ -712,6 +712,12 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
     }
   };
 
+  // Vehicles are dispatched for a booking that is going ahead. Approval is
+  // what allocates them, so assigning before that point would be duplicated by
+  // the auto-allocation approval runs; and a Cancelled, Rejected or Completed
+  // booking is not going anywhere.
+  const canDispatch = ACTIVE_BOOKING_STATUSES.includes(order?.booking_status);
+
   // Service method drives the whole Dispatch section: a collection has no trip,
   // no vehicle and no button to assign one.
   const isCustomerPickup = getServiceMethod(order)?.mode === 'Pickup';
@@ -1290,7 +1296,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                 {/* Hidden on a pickup: there is nothing to dispatch, and the
                     button would walk a manager into assigning a van for an
                     order the customer is collecting. */}
-                {!isCustomerPickup && (
+                {!isCustomerPickup && canDispatch && (
                   <button
                     onClick={() => setIsAssignVehicleOpen(true)}
                     className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm"
@@ -1308,7 +1314,11 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
               <p className="text-sm text-slate-500">
                 {isCustomerPickup
                   ? 'No vehicle needed — the customer is collecting this order from the main branch.'
-                  : 'No vehicle assigned yet. This delivery still needs transport arranged.'}
+                  : canDispatch
+                    ? 'No vehicle assigned yet. This delivery still needs transport arranged.'
+                    : order?.booking_status === 'Pending'
+                      ? 'Vehicles are assigned when this order is approved.'
+                      : `No vehicles — this order is ${order?.booking_status?.toLowerCase() || 'not active'}.`}
               </p>
             ) : (
               <div className="space-y-2">

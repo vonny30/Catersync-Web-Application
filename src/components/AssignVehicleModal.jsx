@@ -16,6 +16,7 @@ import { Truck, X, Search, Clock, AlertTriangle, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../supabase';
 import { fetchAllRows } from '../utils/fetchAllRows';
+import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import {
   defaultSetupDispatch, findConflictingAssignment, describeAssignment, needsTransport,
 } from '../utils/vehicle';
@@ -110,6 +111,13 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
   };
 
   const handleAssign = async () => {
+    // The button that opens this is gated, but state can change under a page
+    // that is already open — approval auto-allocates, so an assignment made
+    // just before it would be duplicated rather than honoured.
+    if (!ACTIVE_BOOKING_STATUSES.includes(booking?.booking_status)) {
+      toast.error(`This booking is ${booking?.booking_status || 'not active'}, so it cannot be dispatched. Vehicles are assigned once a booking is approved.`);
+      return;
+    }
     if (selectedVehicleIds.length === 0) { toast.error('Please select at least one vehicle.'); return; }
     if (!dispatchValue) { toast.error('Please set a dispatch date/time.'); return; }
     if (!eventAt) { toast.error('This booking has no event date.'); return; }
