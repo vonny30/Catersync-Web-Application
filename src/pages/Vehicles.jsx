@@ -1,5 +1,5 @@
 // src/pages/Vehicles.jsx
-import { useState, useEffect, useRef, Fragment } from 'react';
+import { useState, useEffect, useRef, Fragment, useMemo} from 'react';
 import Select from '../components/Select';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { useNavigate } from 'react-router-dom';
@@ -155,7 +155,6 @@ export default function Vehicles() {
 
   // --- Booking Search State for Assign Modal ---
   const [bookingSearchTerm, setBookingSearchTerm] = useState('');
-  const [filteredBookings, setFilteredBookings] = useState([]);
   const [showBookingDropdown, setShowBookingDropdown] = useState(false);
 
   // --- Helper: generate structured booking reference ---
@@ -226,7 +225,6 @@ export default function Vehicles() {
         'active bookings'
       );
       setBookings(bookingData);
-      setFilteredBookings(bookingData);
 
       const assignData = await fetchAllRows(
         () => supabase
@@ -288,8 +286,10 @@ export default function Vehicles() {
   // they are not candidates for a vehicle. `hiddenPickupCount` keeps the
   // omission visible instead of leaving a manager hunting for an order the
   // list has quietly swallowed.
-  const [hiddenPickupCount, setHiddenPickupCount] = useState(0);
-  useEffect(() => {
+  // Both derived in one pass — the hidden count is the difference between what
+  // the search matched and what is dispatchable, so computing them apart would
+  // let them disagree.
+  const { filteredBookings, hiddenPickupCount } = useMemo(() => {
     const term = bookingSearchTerm.trim().toLowerCase();
     const matching = !term ? bookings : bookings.filter(b => {
       const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}`.toLowerCase() : '';
@@ -297,8 +297,7 @@ export default function Vehicles() {
       return customerName.includes(term) || ref.includes(term);
     });
     const assignable = matching.filter(b => needsTransport(b));
-    setFilteredBookings(assignable);
-    setHiddenPickupCount(matching.length - assignable.length);
+    return { filteredBookings: assignable, hiddenPickupCount: matching.length - assignable.length };
   }, [bookingSearchTerm, bookings]);
 
   const selectedBooking = bookings.find(b => b.booking_id === assignForm.booking_id);

@@ -10,23 +10,27 @@ export default function Login() {
   const navigate = useNavigate();
   const { isManager, loading: authLoading, sessionConflictMessage, clearSessionConflictMessage, markFreshLoginAttempt } = useAuth();
 
-  const [formData, setFormData] = useState({
-    email: '',
-    password: '',
-    rememberMe: false,
+  // Read at first render, not in an effect. localStorage is available
+  // synchronously, so mirroring it into state afterwards only bought an extra
+  // render — and a visible flash of an empty email box on a page whose whole
+  // point is that it remembered you.
+  const [formData, setFormData] = useState(() => {
+    let email = '', rememberMe = false;
+    try {
+      const saved = localStorage.getItem('rememberedEmail');
+      if (saved && localStorage.getItem('rememberMe') === 'true') {
+        email = saved;
+        rememberMe = true;
+      }
+    } catch {
+      // Private mode or blocked site data — start blank rather than crash.
+    }
+    return { email, password: '', rememberMe };
   });
 
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-
-  useEffect(() => {
-    const savedEmail = localStorage.getItem('rememberedEmail');
-    const rememberMe = localStorage.getItem('rememberMe') === 'true';
-    if (savedEmail && rememberMe) {
-      setFormData(prev => ({ ...prev, email: savedEmail, rememberMe: true }));
-    }
-  }, []);
 
   // Once AuthContext confirms this is a fully-authenticated manager
   // (password verified, session lock claimed), move into the app. Uses

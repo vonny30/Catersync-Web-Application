@@ -16,7 +16,18 @@ export default function ResetPassword() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isValidToken, setIsValidToken] = useState(false);
+  // A recovery token in the URL is readable synchronously, so this starts
+  // resolved rather than flashing the "checking" state and re-rendering. Only
+  // the session-based path below is genuinely asynchronous.
+  const [isValidToken, setIsValidToken] = useState(() => {
+    try {
+      const hash = new URLSearchParams(window.location.hash.substring(1));
+      if (hash.get('access_token') && hash.get('type') === 'recovery') return true;
+      return !!new URLSearchParams(window.location.search).get('token');
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     // Three ways in, because the recovery email can arrive in two shapes and
@@ -32,15 +43,8 @@ export default function ResetPassword() {
     // /forgot-password, and the flow had no ending.
     let cancelled = false;
 
-    const hashParams = new URLSearchParams(window.location.hash.substring(1));
-    if (hashParams.get('access_token') && hashParams.get('type') === 'recovery') {
-      setIsValidToken(true);
-      return undefined;
-    }
-    if (new URLSearchParams(window.location.search).get('token')) {
-      setIsValidToken(true);
-      return undefined;
-    }
+    // Both URL-carried forms were already resolved by the initialiser above.
+    if (isValidToken) return undefined;
 
     (async () => {
       const { data } = await supabase.auth.getSession();

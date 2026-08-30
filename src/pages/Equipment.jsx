@@ -1,5 +1,5 @@
 // src/pages/Equipment.jsx
-import { useState, useEffect, useRef, Fragment } from 'react';
+import { useState, useEffect, useRef, Fragment, useMemo} from 'react';
 import Select from '../components/Select';
 import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
@@ -223,7 +223,6 @@ export default function Equipment() {
 
   // --- Booking Search State for Assign Modal ---
   const [bookingSearchTerm, setBookingSearchTerm] = useState('');
-  const [filteredBookings, setFilteredBookings] = useState([]);
   const [showBookingDropdown, setShowBookingDropdown] = useState(false);
 
   // --- Live per-item availability for the selected booking's date, inside
@@ -352,7 +351,6 @@ export default function Equipment() {
         .order('event_datetime', { ascending: true });
       if (bookingError) throw bookingError;
       setBookings(bookingData || []);
-      setFilteredBookings(bookingData || []);
 
       // The whole package→equipment template table. It is small (one row
       // per equipment line per package) and fetching it once here lets the
@@ -438,19 +436,16 @@ export default function Equipment() {
   //
   // Confirmed is blocked because the booking is locked from that point on;
   // BookingDetails.jsx already refuses the same action there.
-  useEffect(() => {
+  // Derived during render rather than mirrored into state by an effect.
+  const filteredBookings = useMemo(() => {
     const assignable = bookings.filter(b => canAssignEquipmentTo(b.booking_status));
-    if (!bookingSearchTerm.trim()) {
-      setFilteredBookings(assignable);
-      return;
-    }
-    const term = bookingSearchTerm.toLowerCase();
-    const filtered = assignable.filter(b => {
+    const term = bookingSearchTerm.trim().toLowerCase();
+    if (!term) return assignable;
+    return assignable.filter(b => {
       const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}`.toLowerCase() : '';
       const ref = getBookingRef(b).toLowerCase();
       return customerName.includes(term) || ref.includes(term);
     });
-    setFilteredBookings(filtered);
   }, [bookingSearchTerm, bookings]);
 
   const selectedBooking = bookings.find(b => b.booking_id === assignFormData.booking_id);

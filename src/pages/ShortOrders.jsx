@@ -1,5 +1,5 @@
 // src/pages/ShortOrders.jsx
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo} from 'react';
 import Select from '../components/Select';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -109,7 +109,6 @@ export default function ShortOrders() {
   });
 
   const [customerSearch, setCustomerSearch] = useState('');
-  const [filteredCustomers, setFilteredCustomers] = useState([]);
   const [showCustomerList, setShowCustomerList] = useState(false);
 
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
@@ -354,19 +353,17 @@ export default function ShortOrders() {
     fetchData,
   });
 
-  // 3. Customer search filter for modal dropdown
-  useEffect(() => {
-    if (customerSearch.trim() === '') {
-      setFilteredCustomers(customers.slice(0, 10));
-      return;
-    }
+  // 3. Customer search for the modal dropdown — derived during render rather
+  // than mirrored into state by an effect, so the input and the list can never
+  // show different generations of the same search.
+  const filteredCustomers = useMemo(() => {
+    if (customerSearch.trim() === '') return customers.slice(0, 10);
     const search = customerSearch.toLowerCase();
-    const filtered = customers.filter(c =>
+    return customers.filter(c =>
       `${c.first_name} ${c.last_name}`.toLowerCase().includes(search) ||
       c.contact_no?.includes(search) ||
       c.email_address?.toLowerCase().includes(search)
-    );
-    setFilteredCustomers(filtered.slice(0, 15));
+    ).slice(0, 15);
   }, [customerSearch, customers]);
 
   // 4. Fetch data when dependencies change

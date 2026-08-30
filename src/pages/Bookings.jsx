@@ -1,5 +1,5 @@
 // src/pages/Bookings.jsx
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo} from 'react';
 import Select from '../components/Select';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -101,7 +101,6 @@ export default function Bookings() {
   const [fieldErrors, setFieldErrors] = useState({});
 
   const [customerSearch, setCustomerSearch] = useState('');
-  const [filteredCustomers, setFilteredCustomers] = useState([]);
   const [showCustomerList, setShowCustomerList] = useState(false);
 
   const [packageCategories, setPackageCategories] = useState([]);
@@ -437,18 +436,18 @@ export default function Bookings() {
   });
 
   // Filter customers based on search
-  useEffect(() => {
-    if (customerSearch.trim() === '') {
-      setFilteredCustomers(customers.slice(0, 10));
-      return;
-    }
+  // Derived, not stored. This was state kept in sync by an effect, which
+  // meant every keystroke rendered twice — once with the stale list, once with
+  // the new one — and left a window where the input and the dropdown
+  // disagreed. Computing it during render removes both.
+  const filteredCustomers = useMemo(() => {
+    if (customerSearch.trim() === '') return customers.slice(0, 10);
     const search = customerSearch.toLowerCase();
-    const filtered = customers.filter(c =>
+    return customers.filter(c =>
       `${c.first_name} ${c.last_name}`.toLowerCase().includes(search) ||
       c.contact_no?.includes(search) ||
       c.email_address?.toLowerCase().includes(search)
-    );
-    setFilteredCustomers(filtered.slice(0, 15));
+    ).slice(0, 15);
   }, [customerSearch, customers]);
 
   useEffect(() => {
