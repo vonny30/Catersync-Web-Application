@@ -2003,7 +2003,9 @@ export default function Payments() {
       )}
 
       {/* ========================================================= */}
-      {/* RECORD / EDIT PAYMENT MODAL (unchanged, with Downpayment/Fully Paid only) */}
+      {/* RECORD PAYMENT MODAL. Record only — payments cannot be edited
+          (see the note by the verify handlers); the old "/ EDIT" in this
+          label outlived the feature. */}
       {/* ========================================================= */}
       {isModalOpen && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">

@@ -52,9 +52,9 @@ figure comes from `utils/reportMetrics.js`, every stock figure from
 | PR-16 | Bookings | Rivera | Bookings with a downpayment can still be deleted | **DECIDE** |
 | PR-17 | Payments | Rivera | "Pending Balance" unclear | DONE |
 | PR-18 | Payments | Rivera | "Net Collected" unclear | DONE |
-| PR-19 | Payments | Rivera | "Fully Paid" count doesn't match the records | **OPEN** |
-| PR-20 | Recording Payments | Rivera | Clarify the payment workflow | **OPEN** (docs) |
-| PR-21 | Recording Payments | Rivera | Clarify the purpose of editing payments | **OPEN** (docs) |
+| PR-19 | Payments | Rivera | "Fully Paid" count doesn't match the records | DONE |
+| PR-20 | Recording Payments | Rivera | Clarify the payment workflow | DONE |
+| PR-21 | Recording Payments | Rivera | Clarify the purpose of editing payments | DONE (editing was removed — that is the answer) |
 | PR-22 | Recording Payments | Rivera | Why some payments are editable and others not | DONE |
 | PR-23 | Recording Payments | Rivera | **Refunds must not be classified as payments** | DONE |
 | PR-24 | Equipment | Rivera | "Free to Use" → "Available" | DONE |
@@ -184,6 +184,18 @@ same bookings the count counts, so the two agree by construction.
 **Acceptance:** with more than 1000 payment rows the figures are unchanged from
 a full fetch; clicking "Paid in Full" opens a list whose row count equals the
 card.
+
+**DONE — verified 30 Aug 2026.** Both halves are in place:
+
+- (a) `Payments.jsx` pages both fetches through `fetchAllRows`, each ending its
+  ordering on `booking_id` / the primary key, so neither can be silently
+  truncated at the 1000-row cap.
+- (b) The count and its drill-down are built from the same two arrays with the
+  same predicate — `paid >= total_amount && paid > 0`, excluding
+  `UNVERIFIED_PAY_STATUSES` — and the booking fetch is already restricted to
+  `Approved`/`Confirmed`/`Completed`, so a cancelled booking cannot appear in
+  one and not the other. Re-checked for that specific divergence; it does not
+  occur.
 
 ### PR-22 · Why some payment records can be edited and others cannot
 
@@ -323,6 +335,19 @@ adjustment is for.
 **Files:** add both statements to `docs/HANDOFF.md` under a "Payment workflow"
 heading, and surface the second as helper text in the Edit Payment modal.
 
+**DONE — 30 Aug 2026.** `docs/HANDOFF.md` now carries a **Payment workflow**
+section with the sequence above and the Approved-not-Confirmed point.
+
+The second half resolved differently from how it was written here, because the
+prescription predates the decision it depends on: **payment editing was removed
+entirely.** There is no Edit Payment modal to add helper text to. The answer to
+"what is the purpose of editing payments" is that there isn't one — a payment
+row exists only because a manager recorded it or verified a proof, so the
+ledger is append-only: corrections are new entries, money going back is a
+refund (PR-23), and a change to what is owed is the approval-time fee
+adjustment. HANDOFF states that with the table of what to do instead. The
+modal's label still read "RECORD / EDIT PAYMENT" and has been corrected.
+
 ### PR-33 · Equipment return policy
 
 > "What is the policy for equipment return? Right after use? Within 12 hrs?
@@ -332,7 +357,8 @@ This item was in the 1st-increment minutes but had never been logged in this
 tracker, so it went unanswered while the other Equipment items were closed.
 
 **DONE.** The system had *half* a policy, implemented but never stated: a
-3-hour lock after the event start before Return could be recorded. Nothing
+lock after the event start before Return could be recorded (3 hours then, 4
+now). Nothing
 defined when equipment was actually **due back**, so "Overdue" just meant the
 event date had passed.
 
@@ -340,18 +366,18 @@ The stated policy, now written at the top of `src/pages/Equipment.jsx` and
 shown to the manager on the Active Assignments tab:
 
 > Equipment is due back **within 24 hours of the event start**. Returns can be
-> recorded from **3 hours** after the event starts, and anything still out past
+> recorded from **4 hours** after the event starts, and anything still out past
 > the 24-hour mark is flagged **Overdue**.
 
 Two distinct moments, which the code previously conflated:
 
 | Moment | When | Meaning |
 |---|---|---|
-| Opens | event start + 3h | Earliest a return can be recorded (an event may run long; equipment can't come back before it has realistically happened) |
+| Opens | event start + 4h | Earliest a return can be recorded — the moment the collection run sets off. Was 3h; moved when the dispatch model was calibrated with PG's on 30 Aug 2026 (they collect 4-7 hours after an event, and the early end is taken). Now imported from `PICKUP_GRACE_HOURS` rather than restated, because the two copies had already drifted apart. |
 | Due | event start + 24h | The deadline — still out past this and it is Overdue |
 
 **Defect this exposed:** overdue was computed as `event_datetime < now` while
-Return only unlocked at `event + 3h`. That left a **3-hour window where an
+Return only unlocked at the grace time. That left a **window where an
 assignment was flagged Overdue in red, and listed in the Overdue Returns
 panel, while its own Return button was still locked** — the manager was told
 to act on something the system would not let them act on. Anchoring overdue to
@@ -637,17 +663,20 @@ list. This is the single most likely way the mobile app breaks the web UI.
 
 ## 6. Suggested order
 
-1. **PR-19** — the row cap. Silent, worsens on its own, and it is the likely
-   cause of the count the panel could not reconcile.
-2. **PR-27** — reproduce BK-067, then fix.
-3. **PR-20/21** — write the payment workflow down (PR-22 done in `58eda4e`).
-4. §3 decisions, once answered.
+Updated 30 Aug 2026. PR-19 and PR-20/21 are now closed, which leaves:
 
-PR-15 (the 7-day label), PR-23 (refunds out of the method lists), PR-01
-(password before sensitive payment actions — moot now that payments can't be
-edited or deleted at all), and PR-03 (the partial-payment distinction) are
-closed; PR-19 is the one left that is silently wrong rather than merely
-unclear.
+1. **PR-27** — still the only OPEN item, and it is **blocked, not pending**.
+   It did not reproduce against live data on 22 Aug: BKG-067 has zero
+   `booking_equipment` rows and its package has zero template rows, so there is
+   nothing on that booking that could display a status, and the whole
+   `booking_equipment` table has no row with `returned = true`. Fixing it blind
+   would mean changing code to satisfy a symptom nobody can currently observe.
+   **Ask the panel for the screenshot before touching it.**
+2. **§3 decisions** (PR-14 password-visibility icon, PR-16 deleting bookings
+   that carry a downpayment) — these need Vaughn's answer, not code.
+
+Everything else in the summary table is DONE. Nothing currently known is
+silently wrong; PR-27 is unverifiable rather than unfixed.
 
 ### Payments restructure (2026-08-23, not from the tracked panel review)
 

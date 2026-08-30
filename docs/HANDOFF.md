@@ -127,6 +127,42 @@ built (Blueprint 01 defect 5). Fix the maths first, then the label.
 report queries hitting the PostgREST 1000-row cap) is the most urgent single
 item in either document; it fails silently and gets worse on its own.
 
+## Payment workflow
+
+Closes PR-20 and PR-21. The panel assumed a booking is confirmed before a
+payment is recorded. It is the other way round.
+
+```
+Customer submits booking request
+  -> Manager reviews and approves     (booking_status: Pending -> Approved)
+  -> Customer submits proof of payment
+  -> Manager verifies the proof       (pay_status: Pending Verification -> Downpayment | Fully Paid)
+  -> Booking is confirmed             (booking_status: Approved -> Confirmed, ledger locks)
+```
+
+**Payments become possible at Approved, not at Confirmed.**
+`BookingDetails.jsx` already gates the payment panel on it — "Approve this
+booking to enable payments". Confirmation is the *consequence* of a verified
+payment covering at least 50%, not a precondition for recording one.
+
+**Editing a payment is not possible, and that IS the answer to PR-21.** The
+panel asked what editing is for; the resolution was to remove it. A payment row
+only exists because a manager recorded it by hand or verified a customer's
+proof, so there is no state in which silently rewriting one is the right move.
+`Payments.jsx` states the rule where the handlers used to be.
+
+What replaces it:
+
+| Situation | What to do instead |
+|---|---|
+| Wrong amount or method recorded | Record a correcting entry; the ledger is append-only |
+| Money going back to the customer | A **refund**, which is its own entry — never a negative payment (PR-23) |
+| The customer owes a different amount | The approval-time fee adjustment (`extraQuantity`, `extraDeliveryFee`, `additionalFee`), which changes the booking total with a reason attached |
+
+The distinction in the last row is the one worth keeping: a fee adjustment is
+recorded against the booking and carries why it changed. An edited payment
+would silently become the new truth of what was received, losing the reason.
+
 ## Equipment page — audited 21 Aug 2026
 
 The stock identity (`total = usable + out of service`, `available = usable −
