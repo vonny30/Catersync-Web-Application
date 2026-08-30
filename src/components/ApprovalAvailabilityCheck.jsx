@@ -185,12 +185,18 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
     warning: { wrap: 'border-amber-200 bg-gradient-to-br from-amber-50 to-white', bar: 'bg-amber-500', icon: 'text-amber-600', pill: 'bg-amber-500 text-white' },
   }[eqStatus];
 
-  const fleetStatus = loadingFleet ? 'loading' : !fleet ? 'empty' : fleet.sufficient ? 'clear' : 'warning';
+  const isPickupOrder = !!fleet?.noTransportNeeded;
+  const fleetStatus = loadingFleet ? 'loading'
+    : !fleet ? 'empty'
+    : isPickupOrder ? 'pickup'
+    : fleet.sufficient ? 'clear'
+    : 'warning';
   const fleetTheme = {
     loading: { wrap: 'border-slate-200 bg-slate-50', bar: 'bg-slate-300', icon: 'text-slate-400', pill: 'bg-slate-200 text-slate-600' },
     empty: { wrap: 'border-slate-200 bg-slate-50', bar: 'bg-slate-300', icon: 'text-slate-400', pill: 'bg-slate-200 text-slate-600' },
     clear: { wrap: 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-white', bar: 'bg-emerald-500', icon: 'text-emerald-600', pill: 'bg-emerald-600 text-white' },
     warning: { wrap: 'border-amber-200 bg-gradient-to-br from-amber-50 to-white', bar: 'bg-amber-500', icon: 'text-amber-600', pill: 'bg-amber-500 text-white' },
+    pickup: { wrap: 'border-slate-200 bg-gradient-to-br from-slate-50 to-white', bar: 'bg-slate-400', icon: 'text-slate-500', pill: 'bg-slate-600 text-white' },
   }[fleetStatus];
 
   const atTime = (d) => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -335,19 +341,25 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
         <div className="pl-4 pr-3 py-3">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <Truck size={16} className={fleetTheme.icon} />
-              <span className="font-bold text-slate-900 text-sm">Fleet Availability</span>
+              {isPickupOrder
+                ? <PackageIcon size={16} className={fleetTheme.icon} />
+                : <Truck size={16} className={fleetTheme.icon} />}
+              <span className="font-bold text-slate-900 text-sm">
+                {isPickupOrder ? 'Fulfilment' : 'Fleet Availability'}
+              </span>
               {fleet && (
                 <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                  {fleet.tripType}
+                  {isPickupOrder ? 'Customer pickup' : fleet.tripType}
                 </span>
               )}
             </div>
             {!loadingFleet && fleet && (
               <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${fleetTheme.pill}`}>
-                {fleet.sufficient
-                  ? `${fleet.picks.length} of ${fleet.fleetSize} ready`
-                  : `Short by ${fleet.shortfall.needed - fleet.picks.length}`}
+                {isPickupOrder
+                  ? 'No vehicle needed'
+                  : fleet.sufficient
+                    ? `${fleet.picks.length} of ${fleet.fleetSize} ready`
+                    : `Short by ${fleet.shortfall.needed - fleet.picks.length}`}
               </span>
             )}
           </div>
@@ -357,21 +369,32 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
           ) : !fleet ? (
             <p className="text-slate-500 text-xs">No event date yet, so nothing can be scheduled around it.</p>
           ) : (
-            <>
-              {/* A customer-pickup short order: nothing is wrong, nothing is
-                  missing, and the list below is an offer rather than a gap. */}
-              {fleet.noTransportNeeded ? (
-                <p className="text-[11px] text-slate-600 mb-2 flex items-start gap-1.5">
-                  <PackageIcon size={12} className="mt-0.5 shrink-0" />
-                  <span>{fleet.noTransportNeeded}</span>
+            isPickupOrder ? (
+            /* Customer pickup: no vans listed at all. There is nothing to
+               choose between, and a list of "available" vehicles next to an
+               order nobody is driving anywhere is an invitation to assign one
+               by mistake. If the customer changes their mind, the Vehicles
+               page assigns one directly — that is a deliberate detour, which
+               is the right weight for an exception. */
+            <div className="flex items-start gap-2">
+              <PackageIcon size={14} className="mt-0.5 shrink-0 text-slate-500" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-slate-800">The customer is collecting this order.</p>
+                <p className="text-[11px] text-slate-600 mt-0.5">
+                  No vehicle is scheduled and none will be assigned on approval.
                 </p>
-              ) : (
+                <p className="text-[11px] text-slate-500 mt-1">
+                  If this changes, assign a vehicle from the Vehicles page.
+                </p>
+              </div>
+            </div>
+            ) : (
+            <>
               <p className="text-[11px] text-slate-500 mb-2">
                 Suggested {fleet.vehiclesNeeded} vehicle{fleet.vehiclesNeeded !== 1 ? 's' : ''}.
                 {fleet.outOfService > 0 && ` ${fleet.outOfService} of ${fleet.fleetSize} out of service.`}
                 {' '}Tick or untick below — what is ticked when you approve is what gets dispatched.
               </p>
-              )}
 
               {!fleet.sufficient && fleet.shortfall && (
                 <p className="text-amber-800 text-xs font-bold flex items-center gap-1.5 mb-2">
@@ -424,15 +447,13 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
                   </ul>
                   <p className="text-[11px] text-slate-500 mt-2">
                     {(selectedVehicleIds || []).length === 0
-                      ? (fleet.noTransportNeeded
-                          ? 'No vehicle selected, which is correct for a customer pickup.'
-                          : 'No vehicle selected — approving will leave this booking without transport.')
+                      ? 'No vehicle selected — approving will leave this booking without transport.'
                       : `${(selectedVehicleIds || []).length} vehicle${(selectedVehicleIds || []).length === 1 ? '' : 's'} will be dispatched.`}
                   </p>
                 </>
               )}
             </>
-          )}
+          ))}
         </div>
       </div>
     </div>

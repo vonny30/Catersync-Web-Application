@@ -17,7 +17,7 @@ import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
 import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind } from '../utils/payments';
-import { getShortOrderFulfilment } from '../utils/vehicle';
+import { getShortOrderFulfilment, reconcileDispatchWithFulfilment } from '../utils/vehicle';
 import { bookingEditLockedMessage } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
@@ -661,13 +661,34 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
         booking_type: 'Short Order',
       };
 
+      // Read before the write: reconciliation needs the direction of the
+      // change, not just the new value.
+      const previousVenue = order?.venue ?? null;
+
       const { error } = await supabase
         .from('booking')
         .update(payload)
         .eq('booking_id', id);
       if (error) throw error;
       setIsEditModalOpen(false);
-      toast.success('Short order saved.');
+
+      // Same hazard as the Short Orders list edit: an approved delivery
+      // switched to a pickup would keep its van scheduled for a trip that
+      // never happens.
+      try {
+        const sync = await reconcileDispatchWithFulfilment({ ...payload, booking_id: id }, previousVenue);
+        if (sync.cleared > 0) {
+          toast(`Saved. ${sync.cleared} vehicle assignment${sync.cleared === 1 ? '' : 's'} released — the customer is collecting this order.`, { icon: 'ℹ️', duration: 7000 });
+        } else if (sync.nowNeedsVehicle) {
+          toast('Saved. This is now a delivery and has no vehicle — assign one from the Vehicles page.', { icon: '⚠️', duration: 8000 });
+        } else {
+          toast.success('Short order saved.');
+        }
+      } catch (syncError) {
+        console.warn('Dispatch reconciliation failed:', syncError);
+        toast('Order saved, but its vehicle assignments could not be updated: ' + syncError.message, { icon: '⚠️', duration: 8000 });
+      }
+
       fetchOrder();
     } catch (error) {
       console.error(error);
@@ -676,6 +697,10 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
       setIsSubmitting(false);
     }
   };
+
+  // Fulfilment drives the whole Dispatch section: a collection has no trip,
+  // no vehicle and no button to assign one.
+  const isCustomerPickup = getShortOrderFulfilment(order)?.mode === 'Customer pickup';
 
   // --- Render helpers ---
   const renderProof = (proofUrl) => {
@@ -1035,12 +1060,17 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-sm font-bold text-slate-900">Dispatch</h3>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => navigate('/app/vehicles', { state: { assignBookingId: id } })}
-                  className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm"
-                >
-                  <ClipboardList size={14} /> {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
-                </button>
+                {/* Hidden on a pickup: there is nothing to dispatch, and the
+                    button would walk a manager into assigning a van for an
+                    order the customer is collecting. */}
+                {!isCustomerPickup && (
+                  <button
+                    onClick={() => navigate('/app/vehicles', { state: { assignBookingId: id } })}
+                    className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm"
+                  >
+                    <ClipboardList size={14} /> {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
+                  </button>
+                )}
                 <span className="text-xs font-medium text-slate-500">
                   {dispatches.length} vehicle{dispatches.length !== 1 ? 's' : ''}
                 </span>
@@ -1049,10 +1079,18 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
 
             {dispatches.length === 0 ? (
               <p className="text-sm text-slate-500">
-                No vehicle assigned yet. {'Delivery'} still needs transport arranged.
+                {isCustomerPickup
+                  ? 'No vehicle needed — the customer is collecting this order from the main branch.'
+                  : 'No vehicle assigned yet. This delivery still needs transport arranged.'}
               </p>
             ) : (
               <div className="space-y-2">
+                {isCustomerPickup && (
+                  <p className="flex items-start gap-1.5 text-[13px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                    <span>This is a customer pickup, but a vehicle is still assigned to it. Release it from the Vehicles page unless it is being delivered after all.</span>
+                  </p>
+                )}
                 {dispatches.map(d => {
                   const returned = d.assignment_status === 'Completed';
                   return (
@@ -1063,7 +1101,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                           <span className="ml-2 text-[12.5px] font-medium text-slate-500">{d.vehicle?.vehicle_type || ''}</span>
                         </p>
                         <p className="text-[13px] text-slate-600 mt-0.5">
-                          {'Delivery'} · leaves {d.dispatch_datetime
+                          {isCustomerPickup ? 'Not needed' : 'Delivery'} · leaves {d.dispatch_datetime
                             ? new Date(d.dispatch_datetime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                             : 'time not set'}
                         </p>

@@ -2535,6 +2535,7 @@ export default function Vehicles() {
                           const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
                           const eventDate = b.event_datetime ? new Date(b.event_datetime).toLocaleDateString() : 'No date';
                           const isShortOrder = b.booking_type === 'Short Order';
+                          const isPickupOrder = !needsTransport(b);
                           return (
                             <button
                               key={b.booking_id}
@@ -2547,6 +2548,11 @@ export default function Vehicles() {
                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isShortOrder ? 'bg-sky-100 text-sky-700 border border-sky-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
                                   {isShortOrder ? 'Short Order' : 'Package'}
                                 </span>
+                                {isPickupOrder && (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                                    Pickup — no vehicle needed
+                                  </span>
+                                )}
                               </div>
                               <div className="text-sm font-medium text-slate-900">{customerName}</div>
                               <div className="text-xs text-slate-500">{eventDate} · {b.venue || 'No venue'}</div>
@@ -2563,6 +2569,15 @@ export default function Vehicles() {
               {/* Booking Details Preview */}
               {selectedBooking && (
                 <div className="bg-[#F8F9FA] border border-slate-200 rounded-lg p-4 space-y-3">
+                  {!needsTransport(selectedBooking) && (
+                    <p className="flex items-start gap-1.5 text-[13px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                      <span>
+                        This is a <strong>customer pickup</strong> — the customer collects it from the main branch, so it needs no vehicle.
+                        Assign one only if it is being delivered after all.
+                      </span>
+                    </p>
+                  )}
                   <div className="flex justify-between items-start">
                     <h4 className="font-bold text-slate-900 text-sm">Booking Details</h4>
                     <div className="flex items-center gap-2">

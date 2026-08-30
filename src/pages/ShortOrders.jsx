@@ -14,7 +14,7 @@ import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { createWalkInCustomer } from '../utils/createWalkInCustomer';
-import { getShortOrderFulfilment, PICKUP_VENUE_MARKER } from '../utils/vehicle';
+import { getShortOrderFulfilment, PICKUP_VENUE_MARKER, reconcileDispatchWithFulfilment } from '../utils/vehicle';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
@@ -850,12 +850,34 @@ export default function ShortOrders() {
       };
 
       if (editingId) {
+        // Captured before the write, because the reconciliation below needs to
+        // know which way the fulfilment moved, not just where it landed.
+        const previousVenue = orders.find(o => o.booking_id === editingId)?.venue ?? null;
         const { error } = await supabase
           .from('booking')
           .update(payload)
           .eq('booking_id', editingId);
         if (error) throw error;
-        toast.success('Short order saved.');
+
+        // Switching an approved delivery to a pickup would otherwise leave its
+        // van scheduled for a trip that will never happen.
+        try {
+          const sync = await reconcileDispatchWithFulfilment(
+            { ...payload, booking_id: editingId }, previousVenue
+          );
+          if (sync.cleared > 0) {
+            toast(`Saved. ${sync.cleared} vehicle assignment${sync.cleared === 1 ? '' : 's'} released — the customer is collecting this order.`, { icon: 'ℹ️', duration: 7000 });
+          } else if (sync.nowNeedsVehicle) {
+            toast('Saved. This is now a delivery and has no vehicle — assign one from the Vehicles page.', { icon: '⚠️', duration: 8000 });
+          } else {
+            toast.success('Short order saved.');
+          }
+        } catch (syncError) {
+          // The order itself saved; say so rather than implying it did not.
+          console.warn('Dispatch reconciliation failed:', syncError);
+          toast('Order saved, but its vehicle assignments could not be updated: ' + syncError.message, { icon: '⚠️', duration: 8000 });
+        }
+
         closeModal();
         fetchData();
         setIsSubmitting(false);

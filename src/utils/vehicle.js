@@ -901,6 +901,48 @@ export const getVehicleAvailabilityPreview = async (booking) => {
  * catered, is already safely in. The caller is told, rather than the whole
  * approval being rolled back over a collection trip.
  */
+/**
+ * Keep dispatch honest when a short order's fulfilment is edited.
+ *
+ * `Approved` is NOT in PAYMENT_LOCKED_STATUSES, so an approved order can still
+ * be edited — and approval is exactly when its vehicle was assigned. Switching
+ * an approved delivery to a customer pickup therefore left the van scheduled
+ * for an order nobody drives anywhere: it stayed on the timeline, kept
+ * blocking other bookings from that vehicle, and still showed under Dispatch.
+ * Nothing cleaned it up, because the edit path only ever wrote `booking`.
+ *
+ * Only SCHEDULED rows are removed. A Completed assignment means a van actually
+ * ran, and that is history — the same rule the equipment re-allocation guard
+ * follows, for the same reason.
+ *
+ * The reverse direction is not fixed here on purpose. A pickup switched to a
+ * delivery needs a vehicle, but auto-allocation belongs to approval and
+ * silently assigning one during an edit would hide the change. The caller is
+ * told instead, and the "Needs a vehicle" queue on the Vehicles page catches
+ * it either way.
+ *
+ * @returns {{cleared: number, nowNeedsVehicle: boolean}}
+ */
+export const reconcileDispatchWithFulfilment = async (booking, previousVenue) => {
+  const before = needsTransport({ ...booking, venue: previousVenue });
+  const after = needsTransport(booking);
+  if (before === after) return { cleared: 0, nowNeedsVehicle: false };
+
+  if (!after) {
+    // Became a customer pickup — release whatever was scheduled to carry it.
+    const { data, error } = await supabase
+      .from('vehicle_assign')
+      .delete()
+      .eq('booking_id', booking.booking_id)
+      .neq('assignment_status', 'Completed')
+      .select('assignment_id');
+    if (error) throw error;
+    return { cleared: (data || []).length, nowNeedsVehicle: false };
+  }
+
+  return { cleared: 0, nowNeedsVehicle: true };
+};
+
 export const allocateVehiclesForBooking = async (booking, chosenVehicleIds = null) => {
   const event = asDate(booking?.event_datetime);
   if (!event) return { picks: [], shortfall: null, pickupsSkipped: false };
@@ -941,7 +983,13 @@ export const allocateVehiclesForBooking = async (booking, chosenVehicleIds = nul
     plan.picks = [...kept, ...extras];
     // Their choice is the plan now, so a shortfall against the old suggested
     // count is no longer a shortfall.
-    plan.shortfall = plan.picks.length === 0
+    //
+    // Except on a customer pickup, where an empty selection is the CORRECT
+    // answer rather than an omission. The approval panel sends [] for a pickup
+    // (there is no list to pick from), and without this guard that read as
+    // "the manager chose no vehicle" and warned them to go and assign one for
+    // an order nobody is driving anywhere.
+    plan.shortfall = (plan.picks.length === 0 && needsTransport(booking))
       ? { needed: 1, found: 0, reason: 'No vehicle was selected for this booking.' }
       : null;
   }
