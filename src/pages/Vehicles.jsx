@@ -8,7 +8,7 @@ import {
   Plus, Edit, Trash2, X, ClipboardList, RefreshCw, Undo2,
   Calendar, MapPin, Users, Search, CalendarClock, LayoutGrid, AlertTriangle,
   ChevronRight, Wrench, CheckCircle2, History, ExternalLink, Lock,
-  ArrowUpDown, ArrowUp, ArrowDown, Car, Truck, Clock,
+  ArrowUpDown, ArrowUp, ArrowDown, Car, Truck, Clock, Package as PackageIcon,
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -284,18 +284,21 @@ export default function Vehicles() {
   }, [selectedDate, vehicles, assignments]);
 
   // --- Filter bookings when search term changes ---
+  // Customer pickups are excluded outright: nothing is driven anywhere, so
+  // they are not candidates for a vehicle. `hiddenPickupCount` keeps the
+  // omission visible instead of leaving a manager hunting for an order the
+  // list has quietly swallowed.
+  const [hiddenPickupCount, setHiddenPickupCount] = useState(0);
   useEffect(() => {
-    if (!bookingSearchTerm.trim()) {
-      setFilteredBookings(bookings);
-      return;
-    }
-    const term = bookingSearchTerm.toLowerCase();
-    const filtered = bookings.filter(b => {
+    const term = bookingSearchTerm.trim().toLowerCase();
+    const matching = !term ? bookings : bookings.filter(b => {
       const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}`.toLowerCase() : '';
       const ref = getBookingRef(b).toLowerCase();
       return customerName.includes(term) || ref.includes(term);
     });
-    setFilteredBookings(filtered);
+    const assignable = matching.filter(b => needsTransport(b));
+    setFilteredBookings(assignable);
+    setHiddenPickupCount(matching.length - assignable.length);
   }, [bookingSearchTerm, bookings]);
 
   const selectedBooking = bookings.find(b => b.booking_id === assignForm.booking_id);
@@ -2555,15 +2558,25 @@ export default function Vehicles() {
                   </div>
                   {showBookingDropdown && (
                     <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                      {hiddenPickupCount > 0 && (
+                        <div className="px-4 py-2 text-[12px] text-amber-800 bg-amber-50 border-b border-amber-200 flex items-start gap-1.5">
+                          <PackageIcon size={12} className="mt-0.5 shrink-0" />
+                          <span>
+                            {hiddenPickupCount} customer pickup{hiddenPickupCount === 1 ? '' : 's'} hidden — nothing is driven anywhere for those.
+                            Change the order&apos;s Service Method to Delivery if one needs a vehicle.
+                          </span>
+                        </div>
+                      )}
                       {filteredBookings.length === 0 ? (
-                        <div className="p-3 text-sm text-slate-500 text-center">No bookings found.</div>
+                        <div className="p-3 text-sm text-slate-500 text-center">
+                          {hiddenPickupCount > 0 ? 'No bookings here need a vehicle.' : 'No bookings found.'}
+                        </div>
                       ) : (
                         filteredBookings.map((b) => {
                           const ref = getBookingRef(b);
                           const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
                           const eventDate = b.event_datetime ? new Date(b.event_datetime).toLocaleDateString() : 'No date';
                           const isShortOrder = b.booking_type === 'Short Order';
-                          const isPickupOrder = !needsTransport(b);
                           return (
                             <button
                               key={b.booking_id}
@@ -2576,11 +2589,6 @@ export default function Vehicles() {
                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isShortOrder ? 'bg-sky-100 text-sky-700 border border-sky-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
                                   {isShortOrder ? 'Short Order' : 'Package'}
                                 </span>
-                                {isPickupOrder && (
-                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-                                    Pickup — no vehicle needed
-                                  </span>
-                                )}
                               </div>
                               <div className="text-sm font-medium text-slate-900">{customerName}</div>
                               <div className="text-xs text-slate-500">{eventDate} · {b.venue || 'No venue'}</div>
@@ -2597,15 +2605,6 @@ export default function Vehicles() {
               {/* Booking Details Preview */}
               {selectedBooking && (
                 <div className="bg-[#F8F9FA] border border-slate-200 rounded-lg p-4 space-y-3">
-                  {!needsTransport(selectedBooking) && (
-                    <p className="flex items-start gap-1.5 text-[13px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                      <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-                      <span>
-                        This is a <strong>customer pickup</strong> — the customer collects it from the main branch, so it needs no vehicle.
-                        Assign one only if it is being delivered after all.
-                      </span>
-                    </p>
-                  )}
                   <div className="flex justify-between items-start">
                     <h4 className="font-bold text-slate-900 text-sm">Booking Details</h4>
                     <div className="flex items-center gap-2">
@@ -2722,15 +2721,40 @@ export default function Vehicles() {
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm font-medium text-slate-800 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
                   required
                 />
-                {selectedBooking && selectedBooking.event_datetime && (
-                  <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
-                    <Clock size={12} className="text-slate-400" />
-                    <span>Event starts at: <span className="font-semibold text-slate-700">{new Date(selectedBooking.event_datetime).toLocaleString()}</span></span>
-                    <span className="mx-1">•</span>
-                    <span className="text-[#008A45] font-medium">Auto-suggested: 2 hours before event</span>
-                  </div>
-                )}
-                <p className="text-xs text-slate-400 mt-1">All selected vehicles will have the same dispatch time.</p>
+                {selectedBooking && selectedBooking.event_datetime && (() => {
+                  const eventAt = new Date(selectedBooking.event_datetime);
+                  const chosen = assignForm.dispatch_datetime ? new Date(assignForm.dispatch_datetime) : null;
+                  const suggested = defaultSetupDispatch(selectedBooking);
+                  // Same minute as the suggestion (the field is minute-precision).
+                  const isSuggested = !!(chosen && suggested)
+                    && Math.abs(chosen.getTime() - suggested.getTime()) < 60 * 1000;
+                  const describeGap = (from, to) => {
+                    const mins = Math.round(Math.abs(to - from) / 60000);
+                    const h = Math.floor(mins / 60), m = mins % 60;
+                    const parts = [h ? `${h} hour${h === 1 ? '' : 's'}` : null, m ? `${m} min` : null].filter(Boolean);
+                    return parts.length ? parts.join(' ') : 'less than a minute';
+                  };
+                  return (
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-xs text-slate-500">
+                      <Clock size={12} className="text-slate-400 shrink-0" />
+                      <span>Event starts at: <span className="font-semibold text-slate-700">{eventAt.toLocaleString()}</span></span>
+                      {chosen && !isNaN(chosen) && (
+                        <>
+                          <span>•</span>
+                          <span className={isSuggested ? 'text-[#008A45] font-medium' : 'text-slate-600 font-medium'}>
+                            {chosen <= eventAt
+                              ? `Leaves ${describeGap(chosen, eventAt)} before the event`
+                              : `Leaves ${describeGap(eventAt, chosen)} after the event starts`}
+                            {isSuggested && ' (suggested)'}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+                <p className="text-xs text-slate-400 mt-1">
+                  All selected vehicles will have the same dispatch time. The suggestion allows travel plus setup, so setup finishes as the event starts.
+                </p>
               </div>
 
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
