@@ -49,5 +49,5 @@ Audited 30 Aug 2026 — the page's own logic reviewed, layout modernized, histor
 ## Known gaps
 
 - Blueprint-03 §5.8 is still open: `BookingDetails` and `ShortOrderDetails` mention a vehicle only in the delete warning, so a booking cannot show what is carrying it.
-- **Open question:** the code asserts `vehicle_assign` allows only one row per booking+vehicle. If true, the pickup leg never persists and the two-leg model's second half is decorative. Settle with: `select conname, pg_get_constraintdef(oid) from pg_constraint where conrelid = 'vehicle_assign'::regclass;`
+- ~~Open question: whether `vehicle_assign` allows one row per booking+vehicle.~~ **Settled 30 Aug 2026: it does not.** The table carries three foreign keys and a primary key on `assignment_id`, and nothing else — a booking can hold a setup row and a pickup row for the same vehicle, so the two-leg model persists as designed. The code's contrary comment has been corrected.
 - `blueprint-03-dispatch.md` documents a superseded model (`leadHours`/`serviceHours`/`returnHours`); the code implements `travelHours`/`setupHours`/`teardownHours`/`hasPickup`.

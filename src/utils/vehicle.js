@@ -680,8 +680,18 @@ export const allocateVehiclesForBooking = async (booking) => {
   if (pickupRows.length > 0) {
     const { error: pickupError } = await supabase.from('vehicle_assign').insert(pickupRows);
     if (pickupError) {
-      // 23505 = unique violation: the table only allows one row per
-      // booking+vehicle, so pickup runs cannot be stored this way.
+      // Kept as a genuine failure path, not the one this comment used to
+      // claim. It previously said the table allows only one row per
+      // booking+vehicle, so a pickup could never be stored — that was never
+      // checked and is not true. vehicle_assign carries three foreign keys and
+      // a primary key on assignment_id, and nothing else: a booking can hold a
+      // setup row and a pickup row for the same vehicle, which is what the
+      // two-leg model depends on.
+      //
+      // A failure here is therefore a real problem (network, RLS, a bad
+      // dispatch time) rather than an expected limitation, and the setup rows
+      // are already saved by this point — so the caller warns rather than
+      // rolling back a dispatch that did work.
       console.warn('Pickup run not recorded:', pickupError);
       pickupsSkipped = true;
     }

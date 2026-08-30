@@ -441,6 +441,15 @@ constant in the file.
 **9.3 · Fleet sizing bands.** Is a 120-guest event two vans at PG's, or one van
 twice? Both are expressible; §4.3 has to say which.
 
+**9.0 · SETTLED, 30 Aug 2026 — `vehicle_assign` has no unique constraint on
+booking+vehicle.** The table carries `fk_va_booking`, `fk_va_manager`,
+`fk_va_vehicle` and `vehicle_assign_pkey` on `assignment_id`, and nothing else.
+A booking can therefore hold both a setup row and a pickup row for the same
+vehicle, and §4.2's derived-leg model persists as designed. The code had
+asserted the opposite in a comment and carried a defensive `pickupsSkipped`
+path for it; the comment is corrected and that path now reads as what it is —
+a genuine failure branch, not an expected limitation.
+
 **9.4 · Can one vehicle serve two events on one run?** Dropping equipment at two
 venues in a single trip is a real thing caterers do. It is impossible today (one
 `vehicle_assign` row per booking) and would stay impossible under this plan. If

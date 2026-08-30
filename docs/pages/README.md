@@ -22,7 +22,7 @@ blueprints (settled decisions on money, language and dispatch).
 | [Short Order Details](short-order-details.md) | `/app/orders/:id` | 1954 | — | Reviewed alongside Booking Details. |
 | [Payments](payments.md) | `/app/payments` | 2407 | — | Modernized and audited; the verification-first rule was added 30 Aug 2026. |
 | [Equipment](equipment.md) | `/app/equipment` | 3852 | **2** | Heavily reviewed. History grouping and the assign-modal allocation plan added 29-30 Aug 2026. |
-| [Vehicles](vehicles.md) | `/app/vehicles` | 2346 | — | The dispatch model was reviewed and its pure functions tested (14/14). The page's own UI logic has **not** been audited. |
+| [Vehicles](vehicles.md) | `/app/vehicles` | 2648 | — | Audited 30 Aug 2026 — the page's own logic reviewed, layout modernized, history grouped by booking. The dispatch model's pure functions were tested separately (14/14). |
 | [Reports](reports.md) | `/app/reports` | 674 | — | Audited; three calculation errors in the source brief were corrected rather than reproduced. |
 | [Packages & Menu](packages-and-menu.md) | `/app/packages` | 1415 | **3** | Audited 30 Aug 2026 — the unarchive wording plus three robustness gaps. |
 | [Settings](settings.md) | `/app/settings` | 546 | — | Audited 30 Aug 2026 after a reported error; the global-signOut bug was found here. |
@@ -32,8 +32,9 @@ blueprints (settled decisions on money, language and dispatch).
 
 ## What is lacking
 
-Every gap recorded across the pages, so the list can be worked through
-rather than rediscovered.
+Every open gap across the pages, so the list can be worked through rather
+than rediscovered. Settled items are struck through in the page files and
+drop off this table.
 
 | Page | Gap |
 |---|---|
@@ -48,7 +49,7 @@ rather than rediscovered.
 | [Payments](payments.md) | Verification computes `finalStatus` before the password prompt, so a payment arriving during the prompt could mislabel Downpayment vs Fully Paid. Display-only, recomputed by `describePaymentKind`. |
 | [Equipment](equipment.md) | Two unbounded whole-table reads (`equipment`, `package_equipment`). |
 | [Equipment](equipment.md) | RLS hides `equipment`, `booking_equipment` and `package_equipment` from an unauthenticated client, so these paths are code-reviewed rather than exercised. |
-| [Vehicles](vehicles.md) | **Open question:** the code asserts `vehicle_assign` allows only one row per booking+vehicle. If true, the pickup leg never persists and the two-leg model's second half is decorative. Settle with: `select conname, pg_get_constraintdef(oid) from pg_constraint where conrelid = 'vehicle_assign'::regclass;` |
+| [Vehicles](vehicles.md) | Blueprint-03 §5.8 is still open: `BookingDetails` and `ShortOrderDetails` mention a vehicle only in the delete warning, so a booking cannot show what is carrying it. |
 | [Vehicles](vehicles.md) | `blueprint-03-dispatch.md` documents a superseded model (`leadHours`/`serviceHours`/`returnHours`); the code implements `travelHours`/`setupHours`/`teardownHours`/`hasPickup`. |
 | [Reports](reports.md) | Terminology conflict: the glossary says 'Payments Received', the live screens say 'Total Collections'. The screens won; the glossary row is stale. |
 | [Packages & Menu](packages-and-menu.md) | Three unbounded whole-table reads remain in the form/dropdown fetches (`package`, `menu_item`, `category`). |
@@ -57,25 +58,22 @@ rather than rediscovered.
 | [Forgot Password](forgot-password.md) | Entering a genuine code end-to-end needs a real inbox; not yet done. |
 | [Reset Password](reset-password.md) | The full flow with a genuine code has not been run end-to-end. |
 
-## The one that blocks work
+## Recently settled
 
-The `vehicle_assign` constraint question on [Vehicles](vehicles.md). If the
-table really does allow only one row per booking+vehicle, the dispatch
-model's pickup leg never persists and half that feature is decorative. It is
-one query, and it is shared with the mobile app so it cannot be changed
-unilaterally:
-
-```sql
-select conname, pg_get_constraintdef(oid)
-from pg_constraint where conrelid = 'vehicle_assign'::regclass;
-```
+- **`vehicle_assign` has no unique constraint on booking+vehicle** (30 Aug
+  2026). The table carries three foreign keys and a primary key on
+  `assignment_id`, and nothing else, so the dispatch model's pickup leg
+  persists as designed. The code had asserted the opposite in a comment.
+- **`payment.pay_datetime` is `timestamp with time zone`** (30 Aug 2026),
+  which is why the Dashboard's naive local date strings shifted every window
+  eight hours. Boundaries are now sent as instants.
 
 ## Keeping this honest
 
 The mechanical sections regenerate from the source. When a page changes
 shape — a new table, a new write, a read that loses its bound — regenerate
 rather than editing those tables by hand. When a rule or a gap changes,
-edit the page file, and add the gap to the table above so it is visible
-without opening fourteen files.
+edit the page file; this index is rebuilt from those files, so a gap struck
+through there disappears from the table above on the next rebuild.
 
-_Generated 30 Aug 2026 from the tree at that date._
+_Last regenerated 30 Aug 2026._
