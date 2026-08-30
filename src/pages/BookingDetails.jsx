@@ -25,6 +25,7 @@ import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplet
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
+import { fetchAllRows } from '../utils/fetchAllRows';
 
 export default function BookingDetails() {
   const { id } = useParams();
@@ -875,11 +876,11 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
     }
     const fetchEquipmentList = async () => {
       try {
-        const { data, error } = await supabase
+        const data = await fetchAllRows(() => supabase
           .from('equipment')
           .select('equipment_id, eqm_name, quantity_available, equipment_type')
-          .order('eqm_name');
-        if (error) throw error;
+          .order('eqm_name')
+          .order('equipment_id', { ascending: true }), 'equipment list');
         setEquipmentList(data || []);
       } catch (error) {
         console.error('Error fetching equipment list:', error);

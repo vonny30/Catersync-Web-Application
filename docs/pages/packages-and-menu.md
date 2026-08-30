@@ -57,5 +57,5 @@ Audited 30 Aug 2026 — the unarchive wording plus three robustness gaps.
 
 ## Known gaps
 
-- Three unbounded whole-table reads remain in the form/dropdown fetches (`package`, `menu_item`, `category`).
+- ~~Three unbounded whole-table reads in the form/dropdown fetches (`package`, `menu_item`, `category`).~~ **Already fixed** — verified 30 Aug 2026; all three page through `fetchAllRows` with total orderings. This gap line was stale.
 - `package_menu` is written by nothing in this app; the delete guard checks it defensively in case another client populates it.

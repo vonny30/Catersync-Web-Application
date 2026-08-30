@@ -1,6 +1,7 @@
 // src/utils/equipment.js
 import { supabase } from '../supabase';
 import { ACTIVE_BOOKING_STATUSES } from './bookingStatus';
+import { fetchAllRows } from './fetchAllRows';
 
 /**
  * The demand rule itself, as a pure function: given a package's equipment
@@ -536,11 +537,13 @@ export const getDailyEquipmentSnapshot = async (dateStr) => {
   const endOfDay = new Date(dateStr);
   endOfDay.setHours(23, 59, 59, 999);
 
-  const { data: inventory, error: invError } = await supabase
+  // The daily snapshot's inventory side. Truncated, it would drop items from
+  // the availability view entirely rather than showing them as short.
+  const inventory = await fetchAllRows(() => supabase
     .from('equipment')
     .select('equipment_id, eqm_name, eqm_description, equipment_type, quantity_available, damaged_quantity, maintenance_quantity, pax_per_unit')
-    .order('eqm_name');
-  if (invError) throw invError;
+    .order('eqm_name')
+    .order('equipment_id', { ascending: true }), 'equipment inventory');
 
   const { data: bookings, error: bookingError } = await supabase
     .from('booking')

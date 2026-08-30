@@ -42,5 +42,5 @@ Heavily reviewed. History grouping and the assign-modal allocation plan added 29
 
 ## Known gaps
 
-- Two unbounded whole-table reads (`equipment`, `package_equipment`).
+- ~~Two unbounded whole-table reads (`equipment`, `package_equipment`).~~ **Fixed 30 Aug 2026** — and a third the audit had missed: the `booking_equipment` assignment list, which this page's availability maths counts. Truncated, it would have reported stock as free that was actually out.
 - RLS hides `equipment`, `booking_equipment` and `package_equipment` from an unauthenticated client, so these paths are code-reviewed rather than exercised.

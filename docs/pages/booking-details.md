@@ -56,5 +56,5 @@ Audited 30 Aug 2026 — the destructive re-allocation and the delete messaging w
 
 ## Known gaps
 
-- One unbounded whole-table read (`equipment`).
+- ~~One unbounded whole-table read (`equipment`).~~ **Fixed 30 Aug 2026.**
 - The equipment quantity edit's stock check reads `booking_equipment` for one equipment id unbounded — bounded in practice, not in principle.

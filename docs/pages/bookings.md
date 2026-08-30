@@ -48,5 +48,5 @@ Sorting, paging and the responsive table reviewed. Business logic mostly delegat
 
 ## Known gaps
 
-- Two whole-table reads with no row bound (`booking`, `customer`) — PostgREST truncates at 1000 without an error.
+- ~~Two whole-table reads with no row bound (`booking`, `customer`).~~ **Fixed 30 Aug 2026.** Both page through `fetchAllRows`, plus the customer name-search `.or()` read. Each ordering ends on `customer_id` / `booking_id`, because `first_name` and `event_datetime` are not unique and paging on a non-total order repeats and skips rows.
 - The page's own money display was not audited independently of the hooks.

@@ -26,6 +26,7 @@ import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplet
 import { getBookingsOnDate } from '../utils/availability';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds } from './Reports/helpers';
+import { fetchAllRows } from '../utils/fetchAllRows';
 
 export default function ShortOrders() {
   const navigate = useNavigate();
@@ -136,10 +137,11 @@ export default function ShortOrders() {
           conditions.push(`last_name.ilike.%${part}%`);
         });
         try {
-          const { data: matchingCustomers } = await supabase
+          const matchingCustomers = await fetchAllRows(() => supabase
             .from('customer')
             .select('customer_id')
-            .or(conditions.join(','));
+            .or(conditions.join(','))
+            .order('customer_id', { ascending: true }), 'customer name search');
           searchCustomerIds = (matchingCustomers || []).map(c => c.customer_id);
         } catch (e) {
           console.warn('Customer search failed:', e);
@@ -272,12 +274,13 @@ export default function ShortOrders() {
         setOrders(ordersData || []);
       }
 
-      const { data: customersData, error: customersError } = await supabase
+      // Paged; first_name is not unique, so customer_id completes the ordering.
+      const customersData = await fetchAllRows(() => supabase
         .from('customer')
         .select('customer_id, first_name, last_name, contact_no, email_address')
         .eq('account_status', 'Active')
-        .order('first_name');
-      if (customersError) throw customersError;
+        .order('first_name')
+        .order('customer_id', { ascending: true }), 'active customers');
       setCustomers(customersData || []);
 
       const { data: menuData, error: menuError } = await supabase
@@ -291,10 +294,9 @@ export default function ShortOrders() {
       // Lightweight status-count pass — same filters as above minus status
       // and pagination, fetching only the columns the cards/quick-filters
       // need, so it stays cheap even as the table grows.
-      const { data: countRows, error: countRowsError } = await applyCommonFilters(
+      const countRows = await fetchAllRows(() => applyCommonFilters(
         supabase.from('booking').select('booking_id, booking_status, event_datetime')
-      );
-      if (countRowsError) throw countRowsError;
+      ).order('booking_id', { ascending: true }), 'short order status counts');
       setStatusCountRows(countRows || []);
 
     } catch (error) {

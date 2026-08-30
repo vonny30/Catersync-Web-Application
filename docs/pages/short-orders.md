@@ -44,4 +44,4 @@ Reviewed alongside Bookings; same treatment, same conclusions.
 
 ## Known gaps
 
-- Same two unbounded whole-table reads as Bookings.
+- ~~Same two unbounded whole-table reads as Bookings.~~ **Fixed 30 Aug 2026**, the same way and at the same time.

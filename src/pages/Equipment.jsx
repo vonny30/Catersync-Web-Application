@@ -22,6 +22,7 @@ import { getDailyEquipmentSnapshot, checkEquipmentAvailabilityImpact, getStockBr
 import { getAssignmentStatus, ASSIGNMENT_STAGES } from '../utils/statusLabels';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange } from './Reports/helpers';
+import { fetchAllRows } from '../utils/fetchAllRows';
 
 const toDateInputValue = (d) => {
   const yr = d.getFullYear();
@@ -328,11 +329,12 @@ export default function Equipment() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const { data: equipData, error: equipError } = await supabase
+      // eqm_name is not unique, so equipment_id finishes the ordering.
+      const equipData = await fetchAllRows(() => supabase
         .from('equipment')
         .select('*')
-        .order('eqm_name');
-      if (equipError) throw equipError;
+        .order('eqm_name')
+        .order('equipment_id', { ascending: true }), 'equipment');
       setEquipmentList(equipData || []);
 
       // package_id + package name come along for the Upcoming Prep tab,
@@ -356,13 +358,19 @@ export default function Equipment() {
       // per equipment line per package) and fetching it once here lets the
       // prep view compute required-vs-assigned for every upcoming event
       // client-side, instead of one round trip per booking.
-      const { data: pkgEquipData, error: pkgEquipError } = await supabase
+      // Feeds the prep view's required-vs-assigned maths for every upcoming
+      // event, so a truncated read here understates demand silently.
+      const pkgEquipData = await fetchAllRows(() => supabase
         .from('package_equipment')
-        .select('package_id, equipment_id, included_quantity, per_pax');
-      if (pkgEquipError) throw pkgEquipError;
+        .select('package_id, equipment_id, included_quantity, per_pax')
+        .order('package_id', { ascending: true })
+        .order('equipment_id', { ascending: true }), 'package equipment templates');
       setPackageEquipment(pkgEquipData || []);
 
-      const { data: assignData, error: assignError } = await supabase
+      // Every assignment ever, and the availability maths on this page counts
+      // them — truncated at 1000 it would report stock as free that is out.
+      // assigned_at is not unique, so assignment_id completes the ordering.
+      const assignData = await fetchAllRows(() => supabase
         .from('booking_equipment')
         .select(`
           *,
@@ -372,8 +380,8 @@ export default function Equipment() {
           ),
           equipment:equipment_id (eqm_name)
         `)
-        .order('assigned_at', { ascending: false });
-      if (assignError) throw assignError;
+        .order('assigned_at', { ascending: false })
+        .order('assignment_id', { ascending: true }), 'equipment assignments');
       setAssignments(assignData || []);
     } catch (error) {
       handleError(error, 'Unable to load equipment data. Please refresh the page.');
