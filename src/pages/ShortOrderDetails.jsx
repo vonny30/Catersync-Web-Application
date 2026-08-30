@@ -1070,7 +1070,12 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
               what was carrying it while the vehicle knew its booking. */}
           <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/50 rounded-xl p-6 shadow-xs">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-slate-900">Dispatch</h3>
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                Dispatch
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 border border-sky-200">
+                  Short Order
+                </span>
+              </h3>
               <div className="flex items-center gap-2">
                 {/* Hidden on a pickup: there is nothing to dispatch, and the
                     button would walk a manager into assigning a van for an
@@ -1121,7 +1126,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                             <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full mr-2 ${
                               isCollection ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
                             }`}>
-                              {win.leg}
+                              {win.legLabel}
                             </span>
                           )}
                           {win

@@ -711,7 +711,7 @@ export default function Vehicles() {
       const inserts = selectedVehicleIds.map(vehicleId => ({
         vehicle_id: vehicleId,
         booking_id: assignForm.booking_id,
-        dispatch_datetime: assignForm.dispatch_datetime,
+        dispatch_datetime: new Date(assignForm.dispatch_datetime).toISOString(),
         assignment_status: 'Scheduled',
       }));
 
@@ -1845,6 +1845,13 @@ export default function Vehicles() {
                         {ref} <ExternalLink size={10} />
                       </button>
                       <span className="font-bold text-slate-900 text-sm">{customerName}</span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        group.booking?.booking_type === 'Short Order'
+                          ? 'bg-sky-100 text-sky-700 border border-sky-200'
+                          : 'bg-blue-100 text-blue-700 border border-blue-200'
+                      }`}>
+                        {group.booking?.booking_type === 'Short Order' ? 'Short Order' : 'Package'}
+                      </span>
                       <span className="text-xs text-slate-500 flex items-center gap-1">
                         <Calendar size={11} /> {group.eventDate ? group.eventDate.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
                       </span>
@@ -1894,7 +1901,7 @@ export default function Vehicles() {
                               <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
                                 isCollection ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
                               }`}>
-                                {isCollection ? <Undo2 size={10} /> : <Truck size={10} />} {win.leg}
+                                {isCollection ? <Undo2 size={10} /> : <Truck size={10} />} {win.legLabel}
                               </span>
                             )}
                             <span className="text-xs text-slate-500">
@@ -2811,7 +2818,7 @@ export default function Vehicles() {
                           <p className="text-xs text-slate-500">{booking?.venue || 'No venue'} · {booking?.event_datetime ? new Date(booking.event_datetime).toLocaleDateString() : 'N/A'}</p>
                           <p className="text-xs text-slate-500">
                             Booking: {bookingRef}
-                            {win && <> · <span className="font-semibold text-slate-600">{win.leg}</span></>}
+                            {win && <> · <span className="font-semibold text-slate-600">{win.legLabel}</span></>}
                             {' · '}{record.dispatch_datetime ? new Date(record.dispatch_datetime).toLocaleString() : 'N/A'}
                           </p>
                         </div>

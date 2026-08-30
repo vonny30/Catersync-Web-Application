@@ -246,6 +246,19 @@ export const PICKUP_GRACE_HOURS = 4;
 // back for it.
 export const TRIP_LEG = { setup: 'Setup run', pickup: 'Collection run' };
 
+// What to call each leg on screen, per trip type. An event setup goes out,
+// comes back, and returns later for the equipment — two named runs. A short
+// order is delivered and that is the end of it, so its single leg is just the
+// delivery.
+export const TRIP_LEG_LABELS = {
+  [TRIP_TYPE.eventSetup]: { [TRIP_LEG.setup]: 'Setup run', [TRIP_LEG.pickup]: 'Collection run' },
+  [TRIP_TYPE.delivery]:   { [TRIP_LEG.setup]: 'Delivery',  [TRIP_LEG.pickup]: 'Collection run' },
+};
+
+/** The on-screen name for a leg of a given trip type. */
+export const legLabelFor = (type, leg) =>
+  (TRIP_LEG_LABELS[type] || TRIP_LEG_LABELS[TRIP_TYPE.eventSetup])[leg] || leg;
+
 const HOUR_MS = 60 * 60 * 1000;
 
 // Every date in this module arrives as either a Date or a Postgres timestamp
@@ -288,7 +301,7 @@ export function getDispatchWindow(assignment, booking) {
     // van collecting the instant it left base.
     const start = dispatch;
     const end = new Date(start.getTime() + (profile.travelHours + profile.teardownHours + profile.travelHours) * HOUR_MS);
-    return { start, end, type, leg: TRIP_LEG.pickup };
+    return { start, end, type, leg: TRIP_LEG.pickup, legLabel: legLabelFor(type, TRIP_LEG.pickup) };
   }
 
   // Out and set up — this much has to be finished by the time the event starts.
@@ -299,7 +312,7 @@ export function getDispatchWindow(assignment, booking) {
   // ...and then back to base, which is the part that decides when the vehicle
   // is free again. PG's does not wait out the event.
   const end = new Date(start.getTime() + (workHours + profile.travelHours) * HOUR_MS);
-  return { start, end, type, leg: TRIP_LEG.setup };
+  return { start, end, type, leg: TRIP_LEG.setup, legLabel: legLabelFor(type, TRIP_LEG.setup) };
 }
 
 /**
