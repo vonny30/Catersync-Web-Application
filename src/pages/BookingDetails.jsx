@@ -1,5 +1,5 @@
 // src/pages/BookingDetails.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo} from 'react';
 import Select from '../components/Select';
 import AssignVehicleModal from '../components/AssignVehicleModal';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -635,40 +635,33 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
   };
 
   // --- Recalculate total based on selected package info and pax ---
-  const recalcTotal = () => {
+  // Derived, not stored. The input showing this is disabled, so it was never
+  // something a manager typed — it was a computed number an effect wrote back
+  // into editFormData, re-rendering the modal on every pax keystroke.
+  //
+  // The no-package fallback is preserved deliberately: recalcTotal returned
+  // early without touching the total when no package was selected, so the
+  // loaded value stood. editFormData.total_amount stays as that loaded
+  // baseline; nothing writes to it any more.
+  const editComputedTotal = useMemo(() => {
     const pkg = selectedPackageInfo;
+    if (!pkg) return editFormData.total_amount;
+
     const pax = parseInt(editFormData.pax_count) || 0;
     const deliveryFee = parseFloat(editFormData.delivery_fee) || 0;
-
-    if (!pkg) {
-      // No package selected, keep existing total
-      return;
-    }
 
     let total = 0;
     if (pkg.pricing_type === 'per_pax') {
       total = (pkg.pkg_price || 0) * pax;
     } else {
-      // fixed pricing
       total = pkg.pkg_price || 0;
       if (pkg.max_pax && pax > pkg.max_pax) {
         total += (pax - pkg.max_pax) * (pkg.extra_pax_price || 0);
       }
     }
     total += deliveryFee;
-
-    setEditFormData(prev => ({
-      ...prev,
-      total_amount: total.toFixed(2),
-    }));
-  };
-
-  // Effect to recalc total when package info, pax, or delivery fee changes
-  useEffect(() => {
-    if (isEditModalOpen) {
-      recalcTotal();
-    }
-  }, [selectedPackageInfo, editFormData.pax_count, editFormData.delivery_fee, isEditModalOpen]);
+    return total.toFixed(2);
+  }, [selectedPackageInfo, editFormData.pax_count, editFormData.delivery_fee, editFormData.total_amount]);
 
   const handleEditInputChange = (e) => {
     const { name, value } = e.target;
@@ -719,7 +712,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
       setIsSubmitting(false);
       return;
     }
-    if (!editFormData.total_amount || parseFloat(editFormData.total_amount) <= 0) {
+    if (!editComputedTotal || parseFloat(editComputedTotal) <= 0) {
       toast.error('Total amount must be greater than zero.');
       setEditFieldErrors({ total_amount: 'Must be greater than zero.' });
       setIsSubmitting(false);
@@ -782,7 +775,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
         pax_count: parseInt(editFormData.pax_count) || 0,
         motif_color: editFormData.motif_color || null,
         notes: editFormData.notes || null,
-        total_amount: parseFloat(editFormData.total_amount) || 0,
+        total_amount: parseFloat(editComputedTotal) || 0,
         delivery_fee: parseFloat(editFormData.delivery_fee) || 0,
         menu_selections: editFormData.menu_selections,
       };
@@ -1929,7 +1922,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                   <input
                     type="number"
                     name="total_amount"
-                    value={editFormData.total_amount}
+                    value={editComputedTotal}
                     placeholder="Auto-calculated"
                     disabled
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none bg-slate-50 text-slate-600"

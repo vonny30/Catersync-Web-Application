@@ -95,7 +95,6 @@ export default function ShortOrders() {
     event_datetime: '',
     venue: '',
     notes: '',
-    total_amount: '0',
     delivery_fee: '0',
     menu_selections: [],
   });
@@ -433,13 +432,17 @@ export default function ShortOrders() {
   const goToPrevPage = () => { if (currentPage > 1) setCurrentPage(currentPage - 1); };
   const goToNextPage = () => { if (currentPage < totalPages) setCurrentPage(currentPage + 1); };
 
-  // --- AUTO-CALCULATE TOTAL ---
-  useEffect(() => {
+  // --- TOTAL ---
+  // Derived, not stored. The input that shows it is disabled, so this was
+  // never form state a manager could touch — it was a computed number kept in
+  // formData by an effect, which re-rendered the whole modal on every quantity
+  // tick. Same formula, same inputs, one render instead of two.
+  const computedTotal = useMemo(() => {
     const total = formData.menu_selections.reduce((sum, sel) => {
       const item = menuItems.find(m => m.menu_item_id === sel.menu_item_id);
       return sum + (item ? item.menu_price * sel.quantity : 0);
     }, 0) + parseFloat(formData.delivery_fee || 0);
-    setFormData(prev => ({ ...prev, total_amount: total.toFixed(2) }));
+    return total.toFixed(2);
   }, [formData.menu_selections, formData.delivery_fee, menuItems]);
 
   // --- HANDLERS for create/edit modal ---
@@ -523,8 +526,7 @@ export default function ShortOrders() {
       event_datetime: '',
       venue: '',
       notes: '',
-      total_amount: '0',
-      delivery_fee: '0',
+        delivery_fee: '0',
       menu_selections: [],
     });
     setWalkInData({ first_name: '', last_name: '', contact_no: '', email_address: '', cus_address: '' });
@@ -555,7 +557,6 @@ export default function ShortOrders() {
       event_datetime: order.event_datetime ? new Date(order.event_datetime).toISOString().slice(0, 16) : '',
       venue: order.venue || '',
       notes: order.notes || '',
-      total_amount: order.total_amount?.toString() || '0',
       delivery_fee: order.delivery_fee?.toString() || '0',
       menu_selections: selections,
     });
@@ -577,8 +578,7 @@ export default function ShortOrders() {
       event_datetime: '',
       venue: '',
       notes: '',
-      total_amount: '0',
-      delivery_fee: '0',
+        delivery_fee: '0',
       menu_selections: [],
     });
     setWalkInData({ first_name: '', last_name: '', contact_no: '', email_address: '', cus_address: '' });
@@ -711,7 +711,7 @@ export default function ShortOrders() {
       setIsSubmitting(false);
       return;
     }
-    if (!formData.total_amount || parseFloat(formData.total_amount) <= 0) {
+    if (!computedTotal || parseFloat(computedTotal) <= 0) {
       toast.error('Total amount must be greater than zero.');
       setFieldErrors({ total_amount: 'Must be greater than zero.' });
       setIsSubmitting(false);
@@ -836,7 +836,7 @@ export default function ShortOrders() {
         venue: formData.venue || null,
         pax_count: 0,
         notes: formData.notes || null,
-        total_amount: parseFloat(formData.total_amount) || 0,
+        total_amount: parseFloat(computedTotal) || 0,
         delivery_fee: parseFloat(formData.delivery_fee) || 0,
         booking_status: editingId ? undefined : 'Pending',
         menu_selections: formData.menu_selections,
@@ -2055,7 +2055,7 @@ export default function ShortOrders() {
                 <input
                   type="number"
                   name="total_amount"
-                  value={formData.total_amount}
+                  value={computedTotal}
                   placeholder="Auto-calculated"
                   step="0.01"
                   disabled
