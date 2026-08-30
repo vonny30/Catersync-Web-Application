@@ -414,18 +414,52 @@ export function planSetupChain(entries) {
  * equipment already allocated at approval as a check on top. Calibrate with
  * PG's; the bands are the knob.
  */
+// How many vehicles a trip takes.
+//
+// Blueprint-03 §9.3 asked whether a 120-guest event is two vans or one van
+// twice. Vaughn answered it from how PG's actually works, 30 Aug 2026:
+//
+//   "what they do is 3 vehicles for booking for dispatch ... make the setup or
+//    dispatch more earlier to one booking and proceeds to the next place of
+//    the other booking"
+//
+// So an event setup is not sized per event at all. The whole fleet goes out
+// together, unloads, and moves on to the next venue — which is why the setup
+// for an earlier booking is pushed earlier still, to leave time for the hop.
+// planSetupChain already models that movement; this is the count it moves.
+//
+// Expressed as "the fleet" rather than the literal 3, so buying a fourth
+// vehicle does not quietly leave one behind. If PG's ever grows enough to
+// split the fleet across simultaneous events, `eventSetupByPax` below is the
+// rule to switch back to — it is kept for that, not used today.
 export const FLEET_SIZING = {
+  // 'whole-fleet' — every serviceable vehicle goes on an event setup.
+  // 'by-pax'      — size per event from the bands below.
+  eventSetupMode: 'whole-fleet',
   eventSetupByPax: [
     { maxPax: 50, vehicles: 1 },
     { maxPax: 150, vehicles: 2 },
     { maxPax: Infinity, vehicles: 3 },
   ],
   unitsPerExtraVehicle: 250,
+  // A tray delivery is one vehicle's work, and a motorcycle's if there is one.
+  // Sending the fleet to drop off trays would strand every event that day.
   delivery: { vehicles: 1, preferType: 'Motorcycle' },
 };
 
-export function vehiclesNeededFor(booking, allocatedUnits = 0) {
+export function vehiclesNeededFor(booking, allocatedUnits = 0, serviceableFleetSize = null) {
   if (getTripType(booking) === TRIP_TYPE.delivery) return FLEET_SIZING.delivery.vehicles;
+
+  if (FLEET_SIZING.eventSetupMode === 'whole-fleet') {
+    // Never more than exists, and never zero — a plan for no vehicles is not a
+    // plan. With no fleet size to hand, fall back to the widest band rather
+    // than silently asking for one.
+    if (!serviceableFleetSize || serviceableFleetSize < 1) {
+      return FLEET_SIZING.eventSetupByPax[FLEET_SIZING.eventSetupByPax.length - 1].vehicles;
+    }
+    return serviceableFleetSize;
+  }
+
   const pax = booking?.pax_count || 0;
   const band = FLEET_SIZING.eventSetupByPax.find(b => pax <= b.maxPax)
     || FLEET_SIZING.eventSetupByPax[FLEET_SIZING.eventSetupByPax.length - 1];
@@ -449,7 +483,10 @@ export function vehiclesNeededFor(booking, allocatedUnits = 0) {
  */
 export function suggestDispatchPlan(booking, fleet, tripsByVehicle = {}, allocatedUnits = 0) {
   const tripType = getTripType(booking);
-  const needed = vehiclesNeededFor(booking, allocatedUnits);
+  // Sized against vehicles that are actually in service — a van in the
+  // workshop is not part of the fleet that can go out today.
+  const serviceable = (fleet || []).filter(v => v.vehicle_status === 'Available').length;
+  const needed = vehiclesNeededFor(booking, allocatedUnits, serviceable);
   const event = asDate(booking?.event_datetime);
   if (!event) {
     return { tripType, vehiclesNeeded: needed, picks: [], shortfall: { needed, found: 0, reason: 'This booking has no event date, so nothing can be scheduled around it.' } };

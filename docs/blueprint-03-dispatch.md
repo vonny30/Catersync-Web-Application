@@ -439,7 +439,20 @@ back by arithmetic instead of by `toDateString()`; too low and the system will
 promise a van that is still at a venue. It is the single most consequential
 constant in the file.
 
-**9.3 · Fleet sizing bands.** Is a 120-guest event two vans at PG's, or one van
+**9.3 · SETTLED, 30 Aug 2026 — an event setup takes the whole fleet.** From
+Vaughn: *"what they do is 3 vehicles for booking for dispatch ... make the
+setup or dispatch more earlier to one booking and proceeds to the next place of
+the other booking."* PG's does not size per event. All three vehicles go out
+together, unload, and move on to the next venue, which is why an earlier
+booking's setup is pushed earlier still to leave time for the hop —
+`planSetupChain` already modelled that movement, and the count is now right to
+go with it. Implemented as `FLEET_SIZING.eventSetupMode = 'whole-fleet'`,
+expressed as "the fleet" rather than a literal 3 so a fourth vehicle is not
+left behind. Deliveries stay at one; sending the fleet to drop off trays would
+strand every event that day. The pax bands are kept unused, for the day the
+fleet is big enough to split across simultaneous events.
+
+**9.3 (original) · Fleet sizing bands.** Is a 120-guest event two vans at PG's, or one van
 twice? Both are expressible; §4.3 has to say which.
 
 **9.0 · SETTLED, 30 Aug 2026 — `vehicle_assign` has no unique constraint on
