@@ -17,6 +17,7 @@ import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
 import { allocateEquipmentForBooking } from '../utils/equipment';
+import { getDispatchWindow, TRIP_LEG } from '../utils/vehicle';
 import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind } from '../utils/payments';
 import { bookingEditLockedMessage } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
@@ -1672,12 +1673,18 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
 
             {dispatches.length === 0 ? (
               <p className="text-sm text-slate-500">
-                No vehicle assigned yet. {'Event setup'} still needs transport arranged.
+                No vehicle assigned yet. This event still needs transport arranged.
               </p>
             ) : (
               <div className="space-y-2">
-                {dispatches.map(d => {
+                {/* Chronological: the setup run has to happen before the
+                    collection run, so it reads first. */}
+                {[...dispatches]
+                  .sort((x, y) => new Date(x.dispatch_datetime || 0) - new Date(y.dispatch_datetime || 0))
+                  .map(d => {
                   const returned = d.assignment_status === 'Completed';
+                  const win = getDispatchWindow(d, booking);
+                  const isCollection = win?.leg === TRIP_LEG.pickup;
                   return (
                     <div key={d.assignment_id} className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
                       <div className="min-w-0">
@@ -1685,10 +1692,19 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                           {d.vehicle?.plate_number || 'Unknown vehicle'}
                           <span className="ml-2 text-[12.5px] font-medium text-slate-500">{d.vehicle?.vehicle_type || ''}</span>
                         </p>
-                        <p className="text-[13px] text-slate-600 mt-0.5">
-                          {'Event setup'} · leaves {d.dispatch_datetime
-                            ? new Date(d.dispatch_datetime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-                            : 'time not set'}
+                        <p className="text-[13px] text-slate-600 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                          {win && (
+                            <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                              isCollection ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
+                            }`}>
+                              {win.leg}
+                            </span>
+                          )}
+                          <span>
+                            {win
+                              ? `${isCollection ? 'Collects from' : 'Leaves'} ${win.start.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · back ${win.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                              : `Leaves ${d.dispatch_datetime ? new Date(d.dispatch_datetime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'time not set'}`}
+                          </span>
                         </p>
                       </div>
                       <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${

@@ -18,7 +18,7 @@ import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { errorInputClass } from '../utils/formErrors';
 import {
   getDailyVehicleSnapshot, getDispatchWindow, tripsConflict, defaultSetupDispatch,
-  PICKUP_GRACE_HOURS, needsTransport,
+  PICKUP_GRACE_HOURS, needsTransport, TRIP_LEG,
 } from '../utils/vehicle';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { getAssignmentStatus, RESOURCE_STATE } from '../utils/statusLabels';
@@ -1866,12 +1866,39 @@ export default function Vehicles() {
                     </div>
                   </summary>
                   <div className="px-4 pb-4 pl-11 space-y-1.5">
-                    {group.items.map((a) => (
-                      <div key={a.assignment_id} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
-                        <span className="font-medium text-slate-700">
-                          {a.vehicle?.plate_number || 'Unknown'}
-                          <span className="text-xs text-slate-500 ml-2">
-                            Dispatch: {a.dispatch_datetime ? new Date(a.dispatch_datetime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                    {/* Two runs on one booking used to read as two identical
+                        "Dispatch:" lines for the same plate — the same van
+                        listed twice with nothing to say why. They are the two
+                        halves of the job: out with the equipment, back for it
+                        afterwards. getDispatchWindow already knows which is
+                        which, so name it.
+
+                        Sorted ascending here on purpose. The query orders
+                        dispatch_datetime DESCENDING (newest first, right for
+                        the History tab), which listed the collection run above
+                        the setup run that has to happen first. */}
+                    {[...group.items]
+                      .sort((x, y) => new Date(x.dispatch_datetime || 0) - new Date(y.dispatch_datetime || 0))
+                      .map((a) => {
+                      const win = getDispatchWindow(a, group.booking);
+                      const isCollection = win?.leg === TRIP_LEG.pickup;
+                      return (
+                      <div key={a.assignment_id} className="flex items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
+                        <span className="font-medium text-slate-700 min-w-0">
+                          <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span>{a.vehicle?.plate_number || 'Unknown'}</span>
+                            {win && (
+                              <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                                isCollection ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
+                              }`}>
+                                {isCollection ? <Undo2 size={10} /> : <Truck size={10} />} {win.leg}
+                              </span>
+                            )}
+                            <span className="text-xs text-slate-500">
+                              {win
+                                ? `${isCollection ? 'Collects from' : 'Leaves'} ${win.start.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · back ${win.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                                : `Leaves ${a.dispatch_datetime ? new Date(a.dispatch_datetime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}`}
+                            </span>
                           </span>
                         </span>
                         <button
@@ -1884,7 +1911,8 @@ export default function Vehicles() {
                           {group.canReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return
                         </button>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </details>
               );
@@ -2751,12 +2779,17 @@ export default function Vehicles() {
                       (booking?.booking_id ? (booking.booking_type === 'Short Order' ? 'SO' : 'BKG') + '-' + booking.booking_id.slice(0, 8) : 'N/A');
                     const isCompleted = record.assignment_status === 'Completed';
                     const status = getAssignmentStatus(isCompleted, booking?.event_datetime);
+                    const win = getDispatchWindow(record, booking);
                     return (
                       <div key={record.assignment_id} className={`border rounded-lg p-3 flex justify-between items-center ${isCompleted ? 'bg-slate-50 border-slate-200' : status.key === 'in_use' ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
                         <div>
                           <p className="font-bold text-slate-900 text-sm">{customerName}</p>
                           <p className="text-xs text-slate-500">{booking?.venue || 'No venue'} · {booking?.event_datetime ? new Date(booking.event_datetime).toLocaleDateString() : 'N/A'}</p>
-                          <p className="text-xs text-slate-500">Booking: {bookingRef} · Dispatch: {record.dispatch_datetime ? new Date(record.dispatch_datetime).toLocaleString() : 'N/A'}</p>
+                          <p className="text-xs text-slate-500">
+                            Booking: {bookingRef}
+                            {win && <> · <span className="font-semibold text-slate-600">{win.leg}</span></>}
+                            {' · '}{record.dispatch_datetime ? new Date(record.dispatch_datetime).toLocaleString() : 'N/A'}
+                          </p>
                         </div>
                         <div className="text-right">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${isCompleted ? 'bg-green-100 text-green-700' : status.key === 'in_use' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>

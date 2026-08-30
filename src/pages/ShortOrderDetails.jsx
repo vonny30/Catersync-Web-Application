@@ -17,7 +17,7 @@ import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
 import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind } from '../utils/payments';
-import { getServiceMethod, reconcileServiceMethodChange, PICKUP_VENUE_MARKER } from '../utils/vehicle';
+import { getServiceMethod, reconcileServiceMethodChange, PICKUP_VENUE_MARKER, getDispatchWindow, TRIP_LEG } from '../utils/vehicle';
 import { bookingEditLockedMessage } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
@@ -1103,8 +1103,12 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                     <span>This is a customer pickup, but a vehicle is still assigned to it. Release it from the Vehicles page unless it is being delivered after all.</span>
                   </p>
                 )}
-                {dispatches.map(d => {
+                {[...dispatches]
+                  .sort((x, y) => new Date(x.dispatch_datetime || 0) - new Date(y.dispatch_datetime || 0))
+                  .map(d => {
                   const returned = d.assignment_status === 'Completed';
+                  const win = getDispatchWindow(d, order);
+                  const isCollection = win?.leg === TRIP_LEG.pickup;
                   return (
                     <div key={d.assignment_id} className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
                       <div className="min-w-0">
@@ -1113,9 +1117,16 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                           <span className="ml-2 text-[12.5px] font-medium text-slate-500">{d.vehicle?.vehicle_type || ''}</span>
                         </p>
                         <p className="text-[13px] text-slate-600 mt-0.5">
-                          {isCustomerPickup ? 'Not needed' : 'Delivery'} · leaves {d.dispatch_datetime
-                            ? new Date(d.dispatch_datetime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-                            : 'time not set'}
+                          {win && !isCustomerPickup && (
+                            <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full mr-2 ${
+                              isCollection ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
+                            }`}>
+                              {win.leg}
+                            </span>
+                          )}
+                          {win
+                            ? `${isCollection ? 'Collects from' : 'Leaves'} ${win.start.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · back ${win.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                            : `Leaves ${d.dispatch_datetime ? new Date(d.dispatch_datetime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'time not set'}`}
                         </p>
                       </div>
                       <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${
