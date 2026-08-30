@@ -428,14 +428,22 @@ export function planSetupChain(entries) {
 // for an earlier booking is pushed earlier still, to leave time for the hop.
 // planSetupChain already models that movement; this is the count it moves.
 //
-// Expressed as "the fleet" rather than the literal 3, so buying a fourth
-// vehicle does not quietly leave one behind. If PG's ever grows enough to
-// split the fleet across simultaneous events, `eventSetupByPax` below is the
-// rule to switch back to — it is kept for that, not used today.
+// Three, because that is the load a typical package takes — not "the fleet".
+// An earlier version read this as the whole fleet, which happened to be right
+// while PG's owned exactly three vehicles and became wrong the moment a fourth
+// arrived: approving one 50-pax booking then sent every van they had, and with
+// ten it would have sent ten.
+//
+// This is a DEFAULT, not a decision. The approval panel lists the suggested
+// vehicles and lets the manager add or remove before approving, because the
+// number of vans a job really takes depends on the load, and only the person
+// looking at the booking knows that.
+export const EVENT_SETUP_DEFAULT_VEHICLES = 3;
+
 export const FLEET_SIZING = {
-  // 'whole-fleet' — every serviceable vehicle goes on an event setup.
-  // 'by-pax'      — size per event from the bands below.
-  eventSetupMode: 'whole-fleet',
+  // 'default' — EVENT_SETUP_DEFAULT_VEHICLES, capped by what is in service.
+  // 'by-pax'  — size per event from the bands below.
+  eventSetupMode: 'default',
   eventSetupByPax: [
     { maxPax: 50, vehicles: 1 },
     { maxPax: 150, vehicles: 2 },
@@ -450,14 +458,11 @@ export const FLEET_SIZING = {
 export function vehiclesNeededFor(booking, allocatedUnits = 0, serviceableFleetSize = null) {
   if (getTripType(booking) === TRIP_TYPE.delivery) return FLEET_SIZING.delivery.vehicles;
 
-  if (FLEET_SIZING.eventSetupMode === 'whole-fleet') {
-    // Never more than exists, and never zero — a plan for no vehicles is not a
-    // plan. With no fleet size to hand, fall back to the widest band rather
-    // than silently asking for one.
-    if (!serviceableFleetSize || serviceableFleetSize < 1) {
-      return FLEET_SIZING.eventSetupByPax[FLEET_SIZING.eventSetupByPax.length - 1].vehicles;
-    }
-    return serviceableFleetSize;
+  if (FLEET_SIZING.eventSetupMode === 'default') {
+    // Never more than exist, and never zero — a plan for no vehicles is not a
+    // plan. A fleet of ten does not mean ten go out.
+    if (!serviceableFleetSize || serviceableFleetSize < 1) return EVENT_SETUP_DEFAULT_VEHICLES;
+    return Math.max(1, Math.min(EVENT_SETUP_DEFAULT_VEHICLES, serviceableFleetSize));
   }
 
   const pax = booking?.pax_count || 0;
@@ -519,10 +524,17 @@ export function suggestDispatchPlan(booking, fleet, tripsByVehicle = {}, allocat
       const recentTrips = existing.filter(t => t.window.start >= weekAgo && t.window.start <= event).length;
 
       return { vehicle: v, proposed, chain, clash, recentTrips, chainLength: sameDaySetups.length };
-    })
-    .filter(c => c.proposed && !c.clash && c.chain.feasible);
+    });
 
-  candidates.sort((a, b) => {
+  // Every serviceable vehicle stays visible, because the approval panel lets
+  // the manager add one the planner did not pick — usually because it wanted
+  // fewer vehicles, not because that van was unfit. Ones that genuinely cannot
+  // go are offered with the reason rather than hidden, so a manager looking
+  // for a fourth van learns why there isn't one.
+  const usable = candidates.filter(c => c.proposed && !c.clash && c.chain.feasible);
+  const blocked = candidates.filter(c => !(c.proposed && !c.clash && c.chain.feasible));
+
+  usable.sort((a, b) => {
     const prefer = FLEET_SIZING.delivery.preferType;
     if (tripType === TRIP_TYPE.delivery) {
       const ap = a.vehicle.vehicle_type === prefer ? 0 : 1;
@@ -536,7 +548,7 @@ export function suggestDispatchPlan(booking, fleet, tripsByVehicle = {}, allocat
     return a.vehicle.plate_number.localeCompare(b.vehicle.plate_number);
   });
 
-  const picks = candidates.slice(0, needed).map(c => ({
+  const picks = usable.slice(0, needed).map(c => ({
     vehicle_id: c.vehicle.vehicle_id,
     plate_number: c.vehicle.plate_number,
     vehicle_type: c.vehicle.vehicle_type,
@@ -548,7 +560,37 @@ export function suggestDispatchPlan(booking, fleet, tripsByVehicle = {}, allocat
       : `Set up after ${c.chainLength} earlier booking${c.chainLength === 1 ? '' : 's'} on this vehicle`,
   }));
 
+  const options = [
+    ...usable.map(c => ({
+      vehicle_id: c.vehicle.vehicle_id,
+      plate_number: c.vehicle.plate_number,
+      vehicle_type: c.vehicle.vehicle_type,
+      selectable: true,
+      setupDispatch: c.proposed.start,
+      setupEnds: c.proposed.end,
+      pickupDispatch: profile.hasPickup ? defaultPickupDispatch(booking) : null,
+      reason: c.chainLength === 0
+        ? 'Free all day'
+        : `Set up after ${c.chainLength} earlier booking${c.chainLength === 1 ? '' : 's'} on this vehicle`,
+    })),
+    ...blocked.map(c => ({
+      vehicle_id: c.vehicle.vehicle_id,
+      plate_number: c.vehicle.plate_number,
+      vehicle_type: c.vehicle.vehicle_type,
+      selectable: false,
+      setupDispatch: null,
+      setupEnds: null,
+      pickupDispatch: null,
+      reason: c.clash
+        ? 'Already out on another booking at that time'
+        : !c.chain.feasible
+          ? 'Would have to leave too early to chain with its other trips'
+          : 'Cannot make this event as scheduled',
+    })),
+  ];
+
   return {
+    options,
     tripType,
     vehiclesNeeded: needed,
     picks,
@@ -676,7 +718,7 @@ export const getVehicleAvailabilityPreview = async (booking) => {
  * catered, is already safely in. The caller is told, rather than the whole
  * approval being rolled back over a collection trip.
  */
-export const allocateVehiclesForBooking = async (booking) => {
+export const allocateVehiclesForBooking = async (booking, chosenVehicleIds = null) => {
   const event = asDate(booking?.event_datetime);
   if (!event) return { picks: [], shortfall: null, pickupsSkipped: false };
 
@@ -692,6 +734,35 @@ export const allocateVehiclesForBooking = async (booking) => {
   const units = await getAllocatedUnits(booking.booking_id);
 
   const plan = suggestDispatchPlan(booking, fleet, committed, units);
+
+  // A manager who adjusted the list in the approval panel has overruled the
+  // suggestion, and the suggestion must not quietly reinstate itself. Their
+  // set is filtered against the plan so a vehicle they added still gets a
+  // dispatch time worked out for it, and one they removed simply does not go.
+  if (Array.isArray(chosenVehicleIds)) {
+    const chosen = new Set(chosenVehicleIds);
+    const kept = plan.picks.filter(p => chosen.has(p.vehicle_id));
+    // Anything they added that the planner had not picked — usually because it
+    // wanted fewer vehicles, not because that van was unfit.
+    const extraIds = chosenVehicleIds.filter(id => !plan.picks.some(p => p.vehicle_id === id));
+    const extras = extraIds
+      .map(id => fleet.find(v => v.vehicle_id === id))
+      .filter(Boolean)
+      .map(v => ({
+        vehicle_id: v.vehicle_id,
+        plate_number: v.plate_number,
+        setupDispatch: plan.picks[0]?.setupDispatch || defaultSetupDispatch(booking),
+        pickupDispatch: plan.picks[0]?.pickupDispatch || defaultPickupDispatch(booking),
+        reason: 'Added by the manager',
+      }));
+    plan.picks = [...kept, ...extras];
+    // Their choice is the plan now, so a shortfall against the old suggested
+    // count is no longer a shortfall.
+    plan.shortfall = plan.picks.length === 0
+      ? { needed: 1, found: 0, reason: 'No vehicle was selected for this booking.' }
+      : null;
+  }
+
   if (plan.picks.length === 0) {
     return { picks: [], shortfall: plan.shortfall, pickupsSkipped: false };
   }

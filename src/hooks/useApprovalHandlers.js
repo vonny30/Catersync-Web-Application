@@ -12,6 +12,10 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
   const { showConfirm } = useConfirm();
   const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
   const [approvalBooking, setApprovalBooking] = useState(null);
+  // Which vehicles the manager settled on in the approval panel. null means
+  // they did not touch it, so the suggestion stands; an array — including an
+  // empty one — is a decision and is honoured as given.
+  const [approvalVehicleIds, setApprovalVehicleIds] = useState(null);
   const [approvalData, setApprovalData] = useState({
     extraPax: 0,
     additionalFee: 0,
@@ -77,6 +81,9 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
   };
 
   const openApprovalModal = async (booking, type = 'package') => {
+    // Each approval starts from the suggestion again — a set chosen for the
+    // last booking must not carry over to the next one.
+    setApprovalVehicleIds(null);
     setApprovalType(type);
     const baseTotal = await computeBaseTotal(booking);
 
@@ -261,7 +268,7 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
         const dispatch = await allocateVehiclesForBooking({
           ...approvalBooking,
           pax_count: approvalBooking.pax_count + (approvalData.extraPax || 0),
-        });
+        }, approvalVehicleIds);
         if (dispatch.shortfall) {
           toast(
             `Approved, but only ${dispatch.picks.length} of ${dispatch.shortfall.needed} vehicle(s) could be scheduled. Assign the rest from the Vehicles page.`,
@@ -321,5 +328,7 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
     openApprovalModal,
     handleApprovalInputChange,
     handleFinalizeApproval,
+    approvalVehicleIds,
+    setApprovalVehicleIds,
   };
 }

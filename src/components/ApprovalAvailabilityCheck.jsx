@@ -25,13 +25,43 @@ import { getEquipmentAvailabilityPreview } from '../utils/equipment';
 import { getVehicleAvailabilityPreview } from '../utils/vehicle';
 import { MAX_SHORT_ORDERS_PER_DAY } from '../utils/bookingStatus';
 
-export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, onEquipmentStatusChange }) {
+export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, onEquipmentStatusChange, onVehicleSelectionChange }) {
   const [dayBookings, setDayBookings] = useState([]);
   const [loadingDay, setLoadingDay] = useState(false);
   const [equipmentAvailability, setEquipmentAvailability] = useState([]);
   const [loadingEquipment, setLoadingEquipment] = useState(false);
   const [fleet, setFleet] = useState(null);
   const [loadingFleet, setLoadingFleet] = useState(false);
+  // Which vehicles will actually go. Seeded from the suggestion, then the
+  // manager's to change — the default is three because that is what a typical
+  // package takes, not because three is all there is.
+  const [selectedVehicleIds, setSelectedVehicleIds] = useState(null);
+
+  const onVehicleSelectionChangeRef = useRef(onVehicleSelectionChange);
+  useEffect(() => { onVehicleSelectionChangeRef.current = onVehicleSelectionChange; });
+
+  // Reseed whenever a fresh plan arrives (a pax change re-runs the preview),
+  // but never clobber a choice the manager has already made for this booking.
+  const seededForRef = useRef(null);
+  useEffect(() => {
+    if (!fleet) return;
+    const key = `${booking?.booking_id || 'none'}`;
+    if (seededForRef.current === key) return;
+    seededForRef.current = key;
+    setSelectedVehicleIds(fleet.picks.map(pk => pk.vehicle_id));
+  }, [fleet, booking?.booking_id]);
+
+  useEffect(() => {
+    if (selectedVehicleIds === null) return;
+    onVehicleSelectionChangeRef.current?.(selectedVehicleIds);
+  }, [selectedVehicleIds]);
+
+  const toggleVehicle = (vehicleId) => {
+    setSelectedVehicleIds(prev => {
+      const cur = prev || [];
+      return cur.includes(vehicleId) ? cur.filter(x => x !== vehicleId) : [...cur, vehicleId];
+    });
+  };
 
   // Keep the latest callback in a ref so the notify-effect below doesn't
   // need it as a dependency — parents often pass an inline function that's
@@ -328,10 +358,10 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
             <p className="text-slate-500 text-xs">No event date yet, so nothing can be scheduled around it.</p>
           ) : (
             <>
-              <p className="text-[10px] text-slate-400 mb-2">
-                This booking needs {fleet.vehiclesNeeded} vehicle{fleet.vehiclesNeeded !== 1 ? 's' : ''}.
+              <p className="text-[11px] text-slate-500 mb-2">
+                Suggested {fleet.vehiclesNeeded} vehicle{fleet.vehiclesNeeded !== 1 ? 's' : ''}.
                 {fleet.outOfService > 0 && ` ${fleet.outOfService} of ${fleet.fleetSize} out of service.`}
-                {' '}Approving assigns these automatically — you can change them on the Vehicles page.
+                {' '}Tick or untick below — what is ticked when you approve is what gets dispatched.
               </p>
 
               {!fleet.sufficient && (
@@ -340,23 +370,55 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
                 </p>
               )}
 
-              {fleet.picks.length === 0 ? (
+              {(fleet.options || []).length === 0 ? (
                 <p className="text-slate-500 text-xs">No vehicle can make this event as scheduled.</p>
               ) : (
-                <ul className="space-y-1.5">
-                  {fleet.picks.map(p => (
-                    <li key={p.vehicle_id} className="rounded-lg border border-slate-200 bg-white/70 px-2.5 py-1.5 text-xs">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold text-slate-800">{p.plate_number}</span>
-                        <span className="text-slate-500">{p.reason}</span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        Leaves {atTime(p.setupDispatch)}, set up by {atTime(p.setupEnds)}
-                        {p.pickupDispatch && ` · collects from ${atTime(p.pickupDispatch)}`}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  <ul className="space-y-1.5">
+                    {fleet.options.map(o => {
+                      const checked = (selectedVehicleIds || []).includes(o.vehicle_id);
+                      return (
+                        <li
+                          key={o.vehicle_id}
+                          className={`rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
+                            !o.selectable
+                              ? 'border-slate-200 bg-slate-50 opacity-70'
+                              : checked
+                                ? 'border-[#008A45]/40 bg-[#EAF3F2]'
+                                : 'border-slate-200 bg-white/70'
+                          }`}
+                        >
+                          <label className={`flex items-start gap-2 ${o.selectable ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={!o.selectable}
+                              onChange={() => toggleVehicle(o.vehicle_id)}
+                              className="mt-0.5 w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center justify-between gap-2">
+                                <span className="font-semibold text-slate-800">{o.plate_number}</span>
+                                <span className="text-slate-500">{o.reason}</span>
+                              </span>
+                              {o.selectable && (
+                                <span className="block text-[11px] text-slate-500 mt-0.5">
+                                  Leaves {atTime(o.setupDispatch)}, set up by {atTime(o.setupEnds)}
+                                  {o.pickupDispatch && ` · collects from ${atTime(o.pickupDispatch)}`}
+                                </span>
+                              )}
+                            </span>
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <p className="text-[11px] text-slate-500 mt-2">
+                    {(selectedVehicleIds || []).length === 0
+                      ? 'No vehicle selected — approving will leave this booking without transport.'
+                      : `${(selectedVehicleIds || []).length} vehicle${(selectedVehicleIds || []).length === 1 ? '' : 's'} will be dispatched.`}
+                  </p>
+                </>
               )}
             </>
           )}

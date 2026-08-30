@@ -249,6 +249,7 @@ export default function ShortOrderDetails() {
     openApprovalModal,
     handleApprovalInputChange,
     handleFinalizeApproval,
+    setApprovalVehicleIds,
   } = useApprovalHandlers({
     booking: order,
     payments,
@@ -923,6 +924,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
       {/* Day Availability — same shared layout as the Approve modal */}
       {order.booking_status === 'Pending' && order.event_datetime && (
         <ApprovalAvailabilityCheck
+                onVehicleSelectionChange={setApprovalVehicleIds}
           booking={order}
           effectivePaxCount={0}
         />
@@ -1809,6 +1811,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
               </div>
 
               <ApprovalAvailabilityCheck
+                onVehicleSelectionChange={setApprovalVehicleIds}
                 booking={approvalOrder}
                 effectivePaxCount={0}
               />

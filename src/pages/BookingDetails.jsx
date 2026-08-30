@@ -288,6 +288,7 @@ export default function BookingDetails() {
     openApprovalModal,
     handleApprovalInputChange,
     handleFinalizeApproval,
+    setApprovalVehicleIds,
   } = useApprovalHandlers({
     booking,
     payments,
@@ -1337,6 +1338,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
       {/* Day / Equipment Availability — any Pending booking, same shared layout as the Approve modal */}
       {booking.booking_status === 'Pending' && booking.event_datetime && (
         <ApprovalAvailabilityCheck
+                onVehicleSelectionChange={setApprovalVehicleIds}
           booking={booking}
           effectivePaxCount={booking.pax_count || 0}
         />
@@ -2530,6 +2532,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
               </div>
 
               <ApprovalAvailabilityCheck
+                onVehicleSelectionChange={setApprovalVehicleIds}
                 booking={approvalBooking}
                 effectivePaxCount={(approvalBooking.pax_count || 0) + (approvalData.extraPax || 0)}
                 onEquipmentStatusChange={setApprovalEquipmentStatus}

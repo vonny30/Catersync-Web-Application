@@ -392,6 +392,7 @@ export default function Bookings() {
     openApprovalModal,
     handleApprovalInputChange,
     handleFinalizeApproval,
+    setApprovalVehicleIds,
   } = useApprovalHandlers({
     booking: null,
     payments: [],
@@ -2192,6 +2193,7 @@ const handleMarkCompleted = async (id) => {
               </div>
 
               <ApprovalAvailabilityCheck
+                onVehicleSelectionChange={setApprovalVehicleIds}
                 booking={approvalBooking}
                 effectivePaxCount={(approvalBooking.pax_count || 0) + (approvalData.extraPax || 0)}
                 onEquipmentStatusChange={setApprovalEquipmentStatus}

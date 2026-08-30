@@ -22,7 +22,7 @@ setup and an afternoon delivery.
 
 - A **Needs a vehicle** counter appears in the header only when there are upcoming events with nothing dispatched to carry them. Auto-allocation at approval normally keeps it at zero; the day it is not zero is the day it earns its place.
 
-- **An event setup takes the whole serviceable fleet**, not a per-event size. PG's sends every vehicle, unloads, and moves on to the next venue; `planSetupChain` pushes the earlier booking's departure back to leave time for that hop. Deliveries take one. Set by `FLEET_SIZING.eventSetupMode`.
+- **An event setup defaults to three vehicles** (`EVENT_SETUP_DEFAULT_VEHICLES`), capped by what is in service — the load a typical package takes, not the size of the fleet. Deliveries take one. The approval panel lists every serviceable vehicle and the manager ticks what actually goes, so the default never decides on its own.
 
 ## Data it reads
 

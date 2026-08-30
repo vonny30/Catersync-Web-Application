@@ -316,6 +316,7 @@ export default function ShortOrders() {
     openApprovalModal,
     handleApprovalInputChange,
     handleFinalizeApproval,
+    setApprovalVehicleIds,
   } = useApprovalHandlers({
     booking: null,
     payments: [],
@@ -1998,6 +1999,7 @@ export default function ShortOrders() {
               </div>
 
               <ApprovalAvailabilityCheck
+                onVehicleSelectionChange={setApprovalVehicleIds}
                 booking={approvalOrder}
                 effectivePaxCount={0}
               />

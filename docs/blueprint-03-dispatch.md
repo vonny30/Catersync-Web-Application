@@ -420,7 +420,14 @@ Blueprint 02 §4 set.
 
 ## 9. Decisions needed before Phase 2
 
-**9.1 · Does approval assign vehicles automatically, or propose them?**
+**9.1 · SETTLED, 30 Aug 2026 — it proposes, and the manager commits.** The
+approval panel now lists every serviceable vehicle with the suggested set
+ticked, and what is ticked when Approve is pressed is what gets dispatched.
+Vehicles that genuinely cannot go are shown with the reason rather than hidden,
+so a manager looking for a fourth van learns why there is not one. This is the
+option §9.1 recommended.
+
+**9.1 (original) · Does approval assign vehicles automatically, or propose them?**
 Recommended: propose in the approval panel, commit when the manager presses
 Approve. The alternative — silent insertion, exactly matching equipment — is
 more consistent, but it commits a scarce physical thing without anyone looking
@@ -439,7 +446,7 @@ back by arithmetic instead of by `toDateString()`; too low and the system will
 promise a van that is still at a venue. It is the single most consequential
 constant in the file.
 
-**9.3 · SETTLED, 30 Aug 2026 — an event setup takes the whole fleet.** From
+**9.3 · SETTLED, 30 Aug 2026 — an event setup defaults to three vehicles.** From
 Vaughn: *"what they do is 3 vehicles for booking for dispatch ... make the
 setup or dispatch more earlier to one booking and proceeds to the next place of
 the other booking."* PG's does not size per event. All three vehicles go out
