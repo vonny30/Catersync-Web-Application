@@ -49,6 +49,49 @@ export function sumVerifiedDownpayments(payments) {
 // status (a recorded payment already went through manual entry or mobile
 // proof verification); this flag instead gates whether the BOOKING record
 // and its equipment assignments can still be edited.
+// ---------------------------------------------------------------------------
+// EDITING WOULD LOSE MONEY
+// ---------------------------------------------------------------------------
+//
+// Approval can add money a later edit cannot put back. It folds extraQuantity,
+// extraDeliveryFee and additionalFee into `total_amount`, and `Approved` is not
+// in PAYMENT_LOCKED_STATUSES, so the record stays editable. Both edit forms
+// recompute the total from package/menu plus delivery fee — which cannot see
+// those additions — so opening the modal and saving wrote the lower number
+// back and the adjustment was gone.
+//
+// There is no column recording the adjustment, and no schema change to add
+// one, so it is detected from the money itself: recompute the total the way the
+// edit form would, and compare. A stored total HIGHER than the recomputation
+// means value is present that recomputation cannot reproduce.
+//
+// This deliberately catches more than approval fees. A menu price that has
+// dropped since the booking was taken produces the same shape — recomputing
+// would lower the total — and locking is the right answer there too. The
+// message therefore states what was actually detected (saving would reduce the
+// total) rather than asserting a cause.
+//
+// Tolerance is a peso: totals are rounded to two decimals, so anything smaller
+// is float noise rather than money.
+export const ADJUSTMENT_TOLERANCE = 1;
+
+/**
+ * How much value would be lost by saving a recomputed total.
+ * @returns the shortfall in pesos, or 0 when saving is safe.
+ */
+export function totalLossOnRecompute(storedTotal, recomputedTotal) {
+  const stored = Number(storedTotal) || 0;
+  const recomputed = Number(recomputedTotal) || 0;
+  const diff = stored - recomputed;
+  return diff > ADJUSTMENT_TOLERANCE ? diff : 0;
+}
+
+const peso = (n) => `₱${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+export function totalLossLockedMessage(storedTotal, recomputedTotal, { noun = 'booking' } = {}) {
+  return `This ${noun} can't be edited — its total (${peso(storedTotal)}) is higher than the package and menu it is built from (${peso(recomputedTotal)}), usually because a fee was added at approval. Saving would recalculate it down to ${peso(recomputedTotal)} and lose the difference. Record a refund or a new payment instead.`;
+}
+
 export const PAYMENT_LOCKED_STATUSES = ['Confirmed', 'Completed', 'Cancelled', 'Rejected'];
 
 export function isPaymentLedgerLocked(bookingStatus) {

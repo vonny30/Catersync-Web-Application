@@ -19,7 +19,7 @@ import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
 import { allocateEquipmentForBooking } from '../utils/equipment';
 import { getDispatchWindow, TRIP_LEG } from '../utils/vehicle';
-import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind } from '../utils/payments';
+import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
@@ -558,10 +558,43 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
   };
 
   // --- EDIT MODAL (unique) ---
+  // What the edit form would recalculate this booking's total to, from the
+  // stored record. `booking.package` carries the pricing fields, so this needs
+  // nothing the modal has to load first.
+  //
+  // Packages are the harder half: unlike short orders, approval writes NO
+  // note when it adjusts a package total, so the money itself is the only
+  // evidence that an adjustment happened.
+  const recomputedBookingTotal = () => {
+    const pkg = booking?.package;
+    if (!pkg) return null;
+    const pax = parseInt(booking.pax_count) || 0;
+    let total = 0;
+    if (pkg.pricing_type === 'per_pax') {
+      total = (pkg.pkg_price || 0) * pax;
+    } else {
+      total = pkg.pkg_price || 0;
+      if (pkg.max_pax && pax > pkg.max_pax) {
+        total += (pax - pkg.max_pax) * (pkg.extra_pax_price || 0);
+      }
+    }
+    return total + (parseFloat(booking.delivery_fee) || 0);
+  };
+
+  const editWouldLoseTotal = () => {
+    const recomputed = recomputedBookingTotal();
+    if (recomputed === null) return 0;
+    return totalLossOnRecompute(booking?.total_amount, recomputed);
+  };
+
   const openEditModal = () => {
     if (!booking) return;
     if (isPaymentLedgerLocked(booking.booking_status)) {
       toast.error(bookingEditLockedMessage(booking.booking_status));
+      return;
+    }
+    if (editWouldLoseTotal() > 0) {
+      toast.error(totalLossLockedMessage(booking.total_amount, recomputedBookingTotal()), { duration: 10000 });
       return;
     }
     setEditFormData({
@@ -1257,10 +1290,14 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
           )}
           <button
             onClick={openEditModal}
-            className={isPaymentLedgerLocked(booking.booking_status) ? 'bg-white border border-slate-300 text-slate-400 font-bold text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 hover:bg-slate-50 transition-colors' : 'bg-white border border-slate-300 text-slate-700 font-bold text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 hover:bg-slate-50 transition-colors'}
-            title={isPaymentLedgerLocked(booking.booking_status) ? bookingEditLockedMessage(booking.booking_status) : undefined}
+            className={(isPaymentLedgerLocked(booking.booking_status) || editWouldLoseTotal() > 0) ? 'bg-white border border-slate-300 text-slate-400 font-bold text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 hover:bg-slate-50 transition-colors' : 'bg-white border border-slate-300 text-slate-700 font-bold text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 hover:bg-slate-50 transition-colors'}
+            title={isPaymentLedgerLocked(booking.booking_status)
+              ? bookingEditLockedMessage(booking.booking_status)
+              : editWouldLoseTotal() > 0
+                ? totalLossLockedMessage(booking.total_amount, recomputedBookingTotal())
+                : undefined}
           >
-            {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={16} /> : <Edit size={16} />} Edit
+            {(isPaymentLedgerLocked(booking.booking_status) || editWouldLoseTotal() > 0) ? <Lock size={16} /> : <Edit size={16} />} Edit
           </button>
           <button
             onClick={handleDelete}

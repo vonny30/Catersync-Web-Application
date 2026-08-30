@@ -17,7 +17,7 @@ import { useCancellationHandlers } from '../hooks/useCancellationHandlers';
 import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
-import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind } from '../utils/payments';
+import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind } from '../utils/payments';
 import { getServiceMethod, reconcileServiceMethodChange, PICKUP_VENUE_MARKER, getDispatchWindow, TRIP_LEG } from '../utils/vehicle';
 import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
@@ -517,6 +517,25 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
     if (isPaymentLedgerLocked(order.booking_status)) {
       toast.error(bookingEditLockedMessage(order.booking_status, { noun: 'order' }));
       return;
+    }
+    // Saving recalculates the total from menu plus delivery fee, so refuse
+    // when that would come out lower than what is stored — an approval fee
+    // lives in the difference and nothing here can put it back.
+    if (menuItems.length) {
+      let stored = [];
+      try {
+        const raw = order.menu_selections;
+        if (typeof raw === 'string') stored = JSON.parse(raw);
+        else if (Array.isArray(raw)) stored = raw;
+      } catch { stored = []; }
+      const recomputed = stored.reduce((sum, sel) => {
+        const item = menuItems.find(m => m.menu_item_id === sel.menu_item_id);
+        return sum + (item ? item.menu_price * sel.quantity : 0);
+      }, 0) + (parseFloat(order.delivery_fee) || 0);
+      if (totalLossOnRecompute(order.total_amount, recomputed) > 0) {
+        toast.error(totalLossLockedMessage(order.total_amount, recomputed, { noun: 'order' }), { duration: 10000 });
+        return;
+      }
     }
     let selections = [];
     try {

@@ -20,7 +20,7 @@ import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
-import { isPaymentLedgerLocked } from '../utils/payments';
+import { isPaymentLedgerLocked, totalLossOnRecompute, totalLossLockedMessage } from '../utils/payments';
 import { bookingEditLockedMessage, MAX_SHORT_ORDERS_PER_DAY, STATUS_ORDER, findStatusOrderDrift } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import { getBookingsOnDate } from '../utils/availability';
@@ -535,9 +535,34 @@ export default function ShortOrders() {
     setIsModalOpen(true);
   };
 
+  // What the edit form would recalculate this order's total to, computed from
+  // the stored record. Menu items are needed for the prices, so a not-yet-
+  // loaded menu returns null and the lock stays out of the way rather than
+  // firing on incomplete data.
+  const recomputedTotalFor = (order) => {
+    if (!menuItems.length) return null;
+    let selections = [];
+    try {
+      const raw = order?.menu_selections;
+      if (typeof raw === 'string') selections = JSON.parse(raw);
+      else if (Array.isArray(raw)) selections = raw;
+    } catch { return null; }
+    const menuTotal = selections.reduce((sum, sel) => {
+      const item = menuItems.find(m => m.menu_item_id === sel.menu_item_id);
+      return sum + (item ? item.menu_price * sel.quantity : 0);
+    }, 0);
+    return menuTotal + (parseFloat(order?.delivery_fee) || 0);
+  };
+
   const openEditModal = (order) => {
     if (isPaymentLedgerLocked(order.booking_status)) {
       toast.error(bookingEditLockedMessage(order.booking_status, { noun: 'order' }));
+      return;
+    }
+    // Editing recalculates the total, so refuse when that would lose money.
+    const recomputed = recomputedTotalFor(order);
+    if (recomputed !== null && totalLossOnRecompute(order.total_amount, recomputed) > 0) {
+      toast.error(totalLossLockedMessage(order.total_amount, recomputed, { noun: 'order' }), { duration: 10000 });
       return;
     }
     setEditingId(order.booking_id);
