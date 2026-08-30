@@ -11,6 +11,9 @@ setup and an afternoon delivery.
 - A dispatch occupies a vehicle for a trip window, not a calendar day. Two trips conflict only when their windows overlap, with a gap between them.
 - The leg is derived, not stored: a dispatch at or after the event start is a pickup, anything earlier is a setup.
 - Trip profile constants live in `utils/vehicle.js` — they are the model, and changing them changes how many trips a day the system permits.
+- History groups one row per booking, expandable to the individual vehicles. A part-returned dispatch reads as its least-finished stage, never as Returned.
+- Deleting a vehicle is refused twice over: once if it is dispatched to an active booking, again if it has ANY dispatch history, because the utilization reports read from it. Retire with Flag issue → Unavailable instead.
+- Return-all is scoped with `.neq('assignment_status', 'Completed')`, so re-returning a partly-returned dispatch cannot rewrite rows that were already closed.
 
 ## Data it reads
 
@@ -38,7 +41,7 @@ setup and an afternoon delivery.
 
 ## Review status
 
-The dispatch model was reviewed and its pure functions tested (14/14). The page's own UI logic has **not** been audited.
+Audited 30 Aug 2026 — the page's own logic reviewed, layout modernized, history grouped by booking. The dispatch model's pure functions were tested separately (14/14).
 
 ## Known gaps
 

@@ -1,11 +1,11 @@
 // src/pages/Vehicles.jsx
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import Select from '../components/Select';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import {
-  Edit, Trash2, X, Settings, ClipboardList, RefreshCw, Undo2,
+  Plus, Edit, Trash2, X, ClipboardList, RefreshCw, Undo2,
   Calendar, MapPin, Users, Search, CalendarClock, LayoutGrid, AlertTriangle,
   ChevronRight, Wrench, CheckCircle2, History, ExternalLink, Lock,
   ArrowUpDown, ArrowUp, ArrowDown, Car, Truck, Clock,
@@ -110,6 +110,8 @@ export default function Vehicles() {
   const [historyDateCustomStart, setHistoryDateCustomStart] = useState('');
   const [historyDateCustomEnd, setHistoryDateCustomEnd] = useState('');
   const [historySort, setHistorySort] = useState({ field: null, direction: 'desc' });
+  // Which grouped history rows are expanded. A Set of booking ids.
+  const [expandedHistoryGroups, setExpandedHistoryGroups] = useState(() => new Set());
 
   const makeToggleSort = (setter, defaultDirection = 'asc') => (field) => {
     setter(prev => prev.field === field
@@ -1019,32 +1021,94 @@ export default function Vehicles() {
   const sortedFilteredHistoryRows = historySort.field
     ? [...filteredHistoryRows].sort((a, b) => {
         let result = 0;
-        if (historySort.field === 'vehicle') result = (a.vehicle?.plate_number || '').localeCompare(b.vehicle?.plate_number || '');
+        if (historySort.field === 'customer') {
+          const nameOf = (x) => (x.booking?.customer ? `${x.booking.customer.first_name} ${x.booking.customer.last_name}` : '');
+          result = nameOf(a).localeCompare(nameOf(b));
+        }
         else if (historySort.field === 'eventDate') result = new Date(a.booking?.event_datetime || 0) - new Date(b.booking?.event_datetime || 0);
         else if (historySort.field === 'dispatchedOn') result = new Date(a.dispatch_datetime || 0) - new Date(b.dispatch_datetime || 0);
         return historySort.direction === 'asc' ? result : -result;
       })
     : filteredHistoryRows;
 
+  // ============================================================
+  // --- HISTORY: one row per booking, not per vehicle ---
+  // ============================================================
+  // vehicle_assign stores a row per vehicle, so a booking that took two
+  // vehicles produced two history rows carrying the same reference, customer
+  // and event date. Grouped by booking the way the Active Assignments tab
+  // already groups, and expandable to the individual vehicles — the same shape
+  // the Equipment page's history uses.
+  //
+  // Grouping happens AFTER filtering, so a group summarises what matched: a
+  // search for one plate shows that booking with the one vehicle that matched,
+  // not the whole dispatch. Group order follows the row order above, so
+  // whichever sort is active still drives the list.
+  const historyGroups = (() => {
+    const map = new Map();
+    sortedFilteredHistoryRows.forEach(a => {
+      const key = a.booking_id || `orphan-${a.assignment_id}`;
+      if (!map.has(key)) {
+        map.set(key, { key, booking_id: a.booking_id, booking: a.booking, items: [] });
+      }
+      map.get(key).items.push(a);
+    });
+
+    return Array.from(map.values()).map(g => {
+      const returnedCount = g.items.filter(i => i.assignment_status === 'Completed').length;
+      const allReturned = returnedCount === g.items.length;
+      const open = g.items.filter(i => i.assignment_status !== 'Completed');
+      // The group takes the least-finished stage among its vehicles, from the
+      // same getAssignmentStatus the other tabs use, so a group can never
+      // report a stage its own rows disagree with.
+      const anyInUse = open.some(i => getAssignmentStatus(false, i.booking?.event_datetime).key === 'in_use');
+      const stage = allReturned
+        ? { key: 'returned', label: 'Returned' }
+        : anyInUse
+          ? { key: 'in_use', label: 'In Use' }
+          : { key: 'assigned', label: 'Assigned' };
+      const dispatchTimes = g.items.map(i => new Date(i.dispatch_datetime || 0).getTime()).filter(Boolean);
+      return {
+        ...g,
+        returnedCount,
+        allReturned,
+        stage,
+        // Earliest departure in the group — the moment the event's transport
+        // actually started.
+        firstDispatchAt: dispatchTimes.length ? new Date(Math.min(...dispatchTimes)) : null,
+      };
+    });
+  })();
+
+  const toggleHistoryGroup = (key) => {
+    setExpandedHistoryGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
   // --- RENDER ---
   return (
-    <div className="space-y-6 relative pb-12">
+    <div className="space-y-[18px] relative pb-12">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Vehicles</h1>
-          <p className="text-sm text-slate-500">See what's actually free on a given date, manage the fleet, and track assignments</p>
+          <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Vehicles</h1>
+          <p className="text-[14.5px] text-slate-600 mt-1.5 max-w-[540px] [text-wrap:pretty]">
+            See what's actually free on a given date, manage the fleet, and track dispatches.
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <button
             onClick={() => { setAddFieldErrors({}); setIsAddModalOpen(true); }}
-            className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-xs cursor-pointer"
+            className="bg-white border border-slate-300 text-slate-700 px-4 py-2.5 rounded-[10px] font-semibold transition-colors flex items-center gap-2 text-sm whitespace-nowrap shadow-sm cursor-pointer hover:bg-[#f4f9f6] hover:border-[#c9dfd4] hover:text-[#007038] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
           >
-            <Settings size={16} /> Manage Fleet
+            <Plus size={16} /> Manage Fleet
           </button>
           <button
             onClick={() => { setSelectedVehicleIds([]); setBookingSearchTerm(''); setShowBookingDropdown(false); setVehiclePickerSearch(''); setIsAssignModalOpen(true); }}
-            className="bg-[#008A45] hover:bg-[#007038] text-white px-4 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-sm cursor-pointer"
+            className="bg-[#008A45] hover:bg-[#007038] text-white px-[17px] py-2.5 rounded-[10px] font-bold transition-all flex items-center gap-2 text-sm whitespace-nowrap shadow-sm hover:shadow-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 focus:ring-offset-1"
           >
             <ClipboardList size={16} /> Assign Vehicle
           </button>
@@ -1091,33 +1155,41 @@ export default function Vehicles() {
       {/* --- STAT CARDS — date-scoped only. "Needs attention" and "Overdue
       returns" are live/always-current, so they live in the sidebar. --- */}
       <div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* The date these three describe is the one thing a reader can get
+            wrong here, so it is stated once above them rather than as a
+            centred 11px caption underneath. */}
+        <p className="text-[13px] font-semibold text-slate-600 mb-2.5">
+          For <span className="text-slate-900">{selectedDateLabel}</span> — follows the date selected above
+        </p>
+        <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))]">
           <button
             onClick={() => setIsEventsModalOpen(true)}
-            className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
+            className="relative overflow-hidden rounded-[15px] border border-slate-200/70 bg-white px-5 py-[18px] text-left cursor-pointer transition-all hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
           >
-            <p className="text-xs font-semibold text-slate-600 mb-1">Events on this date</p>
-            <h3 className="text-3xl font-extrabold text-slate-900">{eventsOnDateCount}</h3>
-            <p className="text-[10px] text-slate-400 group-hover:text-[#008A45] transition-colors mt-1">Click to view</p>
+            <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-slate-400" />
+            <span className="block text-[13px] font-semibold text-slate-600 mb-2 whitespace-nowrap">Events on this date</span>
+            <span className="block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{eventsOnDateCount}</span>
+            <span className="block text-[13px] text-slate-600 mt-2.5">Bookings needing transport</span>
           </button>
           <button
             onClick={() => scrollToAvailability('deployed')}
-            className="bg-white border border-slate-200 border-l-4 border-l-blue-500 rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
+            className="relative overflow-hidden rounded-[15px] border border-slate-200/70 bg-white px-5 py-[18px] text-left cursor-pointer transition-all hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
           >
-            <p className="text-xs font-semibold text-slate-600 mb-1">Vehicles deployed</p>
-            <h3 className="text-3xl font-extrabold text-blue-700">{deployedCount}</h3>
-            <p className="text-[10px] text-slate-400 group-hover:text-blue-600 transition-colors mt-1">on this date → Availability tab</p>
+            <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
+            <span className="block text-[13px] font-semibold text-slate-600 mb-2 whitespace-nowrap">Vehicles dispatched</span>
+            <span className="block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{deployedCount}</span>
+            <span className="block text-[13px] text-slate-600 mt-2.5">Out on a trip for this date</span>
           </button>
           <button
             onClick={() => scrollToAvailability('free')}
-            className="bg-white border border-slate-200 border-l-4 border-l-emerald-500 rounded-2xl p-5 text-center shadow-sm hover:shadow-md transition-all cursor-pointer group"
+            className="relative overflow-hidden rounded-[15px] border border-slate-200/70 bg-white px-5 py-[18px] text-left cursor-pointer transition-all hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
           >
-            <p className="text-xs font-semibold text-slate-600 mb-1">Vehicles free</p>
-            <h3 className="text-3xl font-extrabold text-emerald-700">{freeCount}</h3>
-            <p className="text-[10px] text-slate-400 group-hover:text-emerald-600 transition-colors mt-1">of {totalFleet} total → Availability tab</p>
+            <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-teal-600" />
+            <span className="block text-[13px] font-semibold text-slate-600 mb-2 whitespace-nowrap">Vehicles free</span>
+            <span className={`block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums ${freeCount === 0 ? 'text-amber-700' : 'text-slate-900'}`}>{freeCount}</span>
+            <span className="block text-[13px] text-slate-600 mt-2.5">of {totalFleet} in the fleet</span>
           </button>
         </div>
-        <p className="text-center text-[11px] font-semibold text-blue-500 mt-2">Date-scoped — follows the date selected above</p>
       </div>
 
       {/* --- MAIN WORKSPACE: tabbed panel on the left, live operational
@@ -1125,40 +1197,47 @@ export default function Vehicles() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
 
       {/* --- TAB CONTROL --- */}
-      <div ref={availabilityPanelRef} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-2 bg-slate-50 border-b border-slate-200">
-          <div className="flex items-center gap-1">
+      <div ref={availabilityPanelRef} className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden">
+        <div>
+          {/* Underline tabs, matching every other page. White pills on a grey
+              bar were this page's own invention. */}
+          <div className="flex items-center gap-0.5 px-2 border-b border-slate-100 overflow-x-auto">
             <button
               onClick={() => setActiveTableTab('availability')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${activeTableTab === 'availability' ? 'bg-white shadow-sm text-[#008A45] border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`shrink-0 flex items-center gap-[7px] whitespace-nowrap px-[15px] py-[13px] -mb-px border-b-2 text-[14.5px] transition-colors cursor-pointer ${activeTableTab === 'availability' ? 'border-[#008A45] text-[#007038] font-bold' : 'border-transparent text-slate-600 font-semibold hover:text-slate-900'}`}
             >
               <CalendarClock size={14} /> Availability
             </button>
             <button
               onClick={() => setActiveTableTab('inventory')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${activeTableTab === 'inventory' ? 'bg-white shadow-sm text-[#008A45] border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`shrink-0 flex items-center gap-[7px] whitespace-nowrap px-[15px] py-[13px] -mb-px border-b-2 text-[14.5px] transition-colors cursor-pointer ${activeTableTab === 'inventory' ? 'border-[#008A45] text-[#007038] font-bold' : 'border-transparent text-slate-600 font-semibold hover:text-slate-900'}`}
             >
               <LayoutGrid size={14} /> Fleet
+              <span className={`inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full text-[12.5px] font-bold tabular-nums ${activeTableTab === 'inventory' ? 'bg-[#EAF3F2] text-[#00703a]' : 'bg-slate-100 text-slate-600'}`}>{totalFleet}</span>
             </button>
             <button
               onClick={() => setActiveTableTab('assignments')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${activeTableTab === 'assignments' ? 'bg-white shadow-sm text-[#008A45] border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`shrink-0 flex items-center gap-[7px] whitespace-nowrap px-[15px] py-[13px] -mb-px border-b-2 text-[14.5px] transition-colors cursor-pointer ${activeTableTab === 'assignments' ? 'border-[#008A45] text-[#007038] font-bold' : 'border-transparent text-slate-600 font-semibold hover:text-slate-900'}`}
             >
               <ClipboardList size={14} /> Active Assignments
               {activeAssignmentRows.length > 0 && (
-                <span className={`ml-0.5 inline-flex items-center justify-center min-w-[1.1rem] h-[1.1rem] px-1 rounded-full text-[10px] font-bold ${overdueAssignments.length > 0 ? 'bg-red-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                <span className={`inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full text-[12.5px] font-bold tabular-nums ${
+                  overdueAssignments.length > 0
+                    ? 'bg-red-50 text-red-700'
+                    : activeTableTab === 'assignments' ? 'bg-[#EAF3F2] text-[#00703a]' : 'bg-slate-100 text-slate-600'
+                }`}>
                   {assignmentGroups.length}
                 </span>
               )}
             </button>
             <button
               onClick={() => setActiveTableTab('history')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${activeTableTab === 'history' ? 'bg-white shadow-sm text-[#008A45] border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`shrink-0 flex items-center gap-[7px] whitespace-nowrap px-[15px] py-[13px] -mb-px border-b-2 text-[14.5px] transition-colors cursor-pointer ${activeTableTab === 'history' ? 'border-[#008A45] text-[#007038] font-bold' : 'border-transparent text-slate-600 font-semibold hover:text-slate-900'}`}
             >
               <History size={14} /> History
             </button>
           </div>
-          <p className="text-xs text-slate-500 px-1 pt-2">
+          <p className="px-5 py-3.5 border-b border-slate-100 text-[13.5px] text-slate-600 [text-wrap:pretty]">
             {activeTableTab === 'availability' && <>Every vehicle's free/deployed status for <span className="font-semibold text-slate-700">{selectedDateLabel}</span>.</>}
             {activeTableTab === 'inventory' && <>The full fleet list — edit details, add new vehicles, or flag maintenance/unavailable.</>}
             {activeTableTab === 'assignments' && <>Everything currently dispatched to any event, regardless of the date selected above.</>}
@@ -1226,19 +1305,19 @@ export default function Vehicles() {
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
-                    <th className="p-4">{renderSortHeader(availabilitySort, toggleAvailabilitySort, 'plate', 'Vehicle')}</th>
-                    <th className="p-4 font-bold">Type</th>
-                    <th className="p-4 font-bold">Status</th>
-                    <th className="p-4 font-bold">Assigned to</th>
-                    <th className="p-4 font-bold w-8"></th>
+                  <tr className="bg-[#fbfcfd] border-b border-slate-100">
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">{renderSortHeader(availabilitySort, toggleAvailabilitySort, 'plate', 'Vehicle')}</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Type</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Status</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Assigned to</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap w-8"></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
+                <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                   {isLoading || snapshotLoading ? (
-                    <tr><td colSpan="5" className="p-6 text-center text-slate-400">Calculating availability…</td></tr>
+                    <tr><td colSpan="5" className="p-6 text-center text-slate-500">Calculating availability…</td></tr>
                   ) : sortedFilteredAvailabilityVehicles.length === 0 ? (
-                    <tr><td colSpan="5" className="p-6 text-center text-slate-400 italic">No vehicles match your search/filter.</td></tr>
+                    <tr><td colSpan="5" className="p-6 text-center text-slate-500">No vehicles match your search/filter.</td></tr>
                   ) : (
                     sortedFilteredAvailabilityVehicles.map((v) => {
                       const status = getVehicleAvailabilityStatus(v);
@@ -1247,21 +1326,21 @@ export default function Vehicles() {
                           key={v.vehicle_id}
                           onClick={() => { setAvailabilityDetailVehicle(v); setIsAvailabilityDetailOpen(true); }}
                           title="Click for details"
-                          className={`hover:bg-slate-50 transition-colors cursor-pointer group ${status.key === 'maintenance' || status.key === 'unavailable' ? 'bg-orange-50/40' : ''}`}
+                          className={`hover:bg-[#fbfcfd] transition-colors cursor-pointer group ${status.key === 'maintenance' || status.key === 'unavailable' ? 'bg-orange-50/40' : ''}`}
                         >
-                          <td className="p-4">
+                          <td className="px-4 py-[15px]">
                             <p className="font-bold text-slate-900">{v.plate_number}</p>
                           </td>
-                          <td className="p-4">
+                          <td className="px-4 py-[15px]">
                             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#CBDEDD]/60 border border-[#a3c7c4] text-slate-800">
                               {v.vehicle_type === 'Car' ? <Car size={14} /> : <Truck size={14} />}
                               {v.vehicle_type}
                             </span>
                           </td>
-                          <td className="p-4">
+                          <td className="px-4 py-[15px]">
                             <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${status.pillClass}`}>{status.label}</span>
                           </td>
-                          <td className="p-4">
+                          <td className="px-4 py-[15px]">
                             {v.assignments.length > 0 ? (
                               <div className="space-y-1.5">
                                 {v.assignments.map((trip) => (
@@ -1278,7 +1357,7 @@ export default function Vehicles() {
                               <span className="text-slate-400 text-xs">—</span>
                             )}
                           </td>
-                          <td className="p-4 text-right">
+                          <td className="px-4 py-[15px] text-right">
                             <ChevronRight size={16} className="text-slate-300 group-hover:text-[#008A45] transition-colors" />
                           </td>
                         </tr>
@@ -1331,25 +1410,25 @@ export default function Vehicles() {
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200">
-                    <th className="p-4">{renderSortHeader(inventorySort, toggleInventorySort, 'plate', 'Vehicle')}</th>
-                    <th className="p-4 font-bold">Type</th>
-                    <th className="p-4 font-bold">Base status</th>
-                    <th className="p-4 font-bold text-center">Usage</th>
-                    <th className="p-4 font-bold text-right">Actions</th>
+                  <tr className="bg-[#fbfcfd] border-b border-slate-100">
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">{renderSortHeader(inventorySort, toggleInventorySort, 'plate', 'Vehicle')}</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Type</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Base status</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-center">Usage</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
+                <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                   {isLoading ? (
-                    <tr><td colSpan="5" className="p-6 text-center text-slate-400">Loading fleet...</td></tr>
+                    <tr><td colSpan="5" className="p-6 text-center text-slate-500">Loading fleet...</td></tr>
                   ) : sortedFilteredInventory.length === 0 ? (
-                    <tr><td colSpan="5" className="p-6 text-center text-slate-400 italic">No vehicles found.</td></tr>
+                    <tr><td colSpan="5" className="p-6 text-center text-slate-500">No vehicles found.</td></tr>
                   ) : (
                     sortedFilteredInventory.map((v) => {
                       const usageCount = assignments.filter(a => a.vehicle_id === v.vehicle_id && a.assignment_status !== 'Completed').length;
                       return (
-                        <tr key={v.vehicle_id} className="hover:bg-slate-50 transition-colors">
-                          <td className="p-4">
+                        <tr key={v.vehicle_id} className="hover:bg-[#fbfcfd] transition-colors">
+                          <td className="px-4 py-[15px]">
                             <div className="flex items-center gap-2">
                               <p className="font-bold text-slate-900">{v.plate_number}</p>
                               {v.vehicle_status !== 'Available' && (
@@ -1359,14 +1438,14 @@ export default function Vehicles() {
                               )}
                             </div>
                           </td>
-                          <td className="p-4">
+                          <td className="px-4 py-[15px]">
                             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#CBDEDD]/60 border border-[#a3c7c4] text-slate-800">
                               {v.vehicle_type === 'Car' ? <Car size={14} /> : <Truck size={14} />}
                               {v.vehicle_type}
                             </span>
                           </td>
-                          <td className="p-4 text-slate-700 font-semibold">{v.vehicle_status}</td>
-                          <td className="p-4 text-center">
+                          <td className="px-4 py-[15px] text-slate-700 font-semibold">{v.vehicle_status}</td>
+                          <td className="px-4 py-[15px] text-center">
                             <button
                               onClick={() => handleViewUsage(v)}
                               className="text-blue-500 hover:text-blue-700 transition-colors text-xs font-medium flex items-center gap-1 mx-auto"
@@ -1375,7 +1454,7 @@ export default function Vehicles() {
                               {usageCount > 0 ? `${usageCount} in use` : 'No usage'}
                             </button>
                           </td>
-                          <td className="p-4 text-right">
+                          <td className="px-4 py-[15px] text-right">
                             <div className="flex items-center justify-end gap-2">
                               <button
                                 onClick={() => handleFlagIssueClick(v)}
@@ -1489,20 +1568,20 @@ export default function Vehicles() {
           </div>
         </div>
 
-        <div className="max-h-[32rem] overflow-y-auto divide-y divide-slate-200">
+        <div className="max-h-[32rem] overflow-y-auto divide-y divide-slate-100">
           {isLoading ? (
-            <p className="p-6 text-center text-slate-400 text-sm">Loading assignments...</p>
+            <p className="p-6 text-center text-slate-500 text-sm">Loading assignments...</p>
           ) : assignmentGroups.length === 0 ? (
-            <p className="p-6 text-center text-slate-400 italic text-sm">No active assignments.</p>
+            <p className="p-6 text-center text-slate-500 text-sm">No active assignments.</p>
           ) : sortedFilteredAssignmentGroups.length === 0 ? (
-            <p className="p-6 text-center text-slate-400 italic text-sm">No assignments match your search/filter.</p>
+            <p className="p-6 text-center text-slate-500 text-sm">No assignments match your search/filter.</p>
           ) : (
             sortedFilteredAssignmentGroups.map((group) => {
               const ref = group.booking ? getBookingRef(group.booking) : 'Unknown';
               const customerName = group.booking?.customer ? `${group.booking.customer.first_name} ${group.booking.customer.last_name}` : 'Unknown';
               return (
                 <details key={group.booking_id} open={group.isOverdue || group.isToday} className="group/details">
-                  <summary className={`p-4 cursor-pointer list-none flex items-center justify-between gap-3 flex-wrap hover:bg-slate-50 transition-colors ${group.isOverdue ? 'bg-red-50/40' : ''}`}>
+                  <summary className={`p-4 cursor-pointer list-none flex items-center justify-between gap-3 flex-wrap hover:bg-[#fbfcfd] transition-colors ${group.isOverdue ? 'bg-red-50/40' : ''}`}>
                     <div className="flex items-center gap-3 flex-wrap">
                       <span className="text-slate-400 group-open/details:rotate-90 transition-transform inline-block">▸</span>
                       {group.isOverdue && (
@@ -1630,65 +1709,114 @@ export default function Vehicles() {
                   onClear={() => { setHistoryDatePreset('All Time'); setHistoryDateCustomStart(''); setHistoryDateCustomEnd(''); }}
                 />
               </div>
-              <p className="text-xs text-slate-400">{filteredHistoryRows.length} of {assignments.length} record{assignments.length !== 1 ? 's' : ''} shown{historySort.field ? '' : ', most recently dispatched first'}</p>
+              <p className="text-[13px] text-slate-600 tabular-nums">
+                {historyGroups.length} booking{historyGroups.length !== 1 ? 's' : ''} &#183; {filteredHistoryRows.length} of {assignments.length} dispatch record{assignments.length !== 1 ? 's' : ''}{historySort.field ? '' : ', most recently dispatched first'}
+              </p>
             </div>
             <div className="overflow-x-auto max-h-[32rem] overflow-y-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-[#EAF3F2] text-slate-800 text-sm border-b border-slate-200 sticky top-0">
-                    <th className="p-4">{renderSortHeader(historySort, toggleHistorySort, 'vehicle', 'Vehicle')}</th>
-                    <th className="p-4 font-bold">Booking</th>
-                    <th className="p-4">{renderSortHeader(historySort, toggleHistorySort, 'eventDate', 'Event date')}</th>
-                    <th className="p-4">{renderSortHeader(historySort, toggleHistorySort, 'dispatchedOn', 'Dispatch')}</th>
-                    <th className="p-4 font-bold">Status</th>
+                  <tr className="bg-[#fbfcfd] border-b border-slate-100 sticky top-0">
+                    <th className="px-5 py-3">{renderSortHeader(historySort, toggleHistorySort, 'customer', 'Booking')}</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Vehicles</th>
+                    <th className="px-4 py-3">{renderSortHeader(historySort, toggleHistorySort, 'eventDate', 'Event date')}</th>
+                    <th className="px-4 py-3">{renderSortHeader(historySort, toggleHistorySort, 'dispatchedOn', 'Dispatch')}</th>
+                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 text-sm text-slate-700">
+                <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                   {isLoading ? (
-                    <tr><td colSpan="5" className="p-6 text-center text-slate-400">Loading history...</td></tr>
-                  ) : sortedFilteredHistoryRows.length === 0 ? (
-                    <tr><td colSpan="5" className="p-6 text-center text-slate-400 italic">No assignment history matches your search/filter.</td></tr>
+                    <tr><td colSpan="5" className="p-6 text-center text-slate-500">Loading history...</td></tr>
+                  ) : historyGroups.length === 0 ? (
+                    <tr><td colSpan="5" className="p-6 text-center text-slate-500">No dispatch history matches your search or filter.</td></tr>
                   ) : (
-                    sortedFilteredHistoryRows.map((a) => {
-                      const ref = a.booking ? getBookingRef(a.booking) : 'Unknown';
-                      const customerName = a.booking?.customer ? `${a.booking.customer.first_name} ${a.booking.customer.last_name}` : 'Unknown';
+                    historyGroups.map((g) => {
+                      const ref = g.booking ? getBookingRef(g.booking) : 'Unknown';
+                      const customerName = g.booking?.customer ? g.booking.customer.first_name + ' ' + g.booking.customer.last_name : 'Unknown';
+                      const isExpanded = expandedHistoryGroups.has(g.key);
+                      const multi = g.items.length > 1;
+                      const stagePill = g.stage.key === 'returned' ? 'bg-slate-100 text-slate-600'
+                        : g.stage.key === 'in_use' ? 'bg-emerald-50 text-emerald-700'
+                        : 'bg-blue-50 text-blue-700';
                       return (
-                        <tr key={a.assignment_id} className="hover:bg-slate-50 transition-colors">
-                          <td className="p-4 font-semibold text-slate-900">{a.vehicle?.plate_number || 'Unknown'}</td>
-                          <td className="p-4">
-                            <p className="font-medium text-slate-800">{customerName}</p>
-                            <p className="text-xs text-slate-500 flex items-center gap-2">
-                              {a.booking ? (
-                                <button
-                                  onClick={() => goToBookingDetails(a.booking.booking_id, a.booking.booking_type)}
-                                  className="font-mono font-bold text-[#008A45] hover:underline inline-flex items-center gap-0.5 cursor-pointer"
-                                  title="View full booking details"
-                                >
-                                  {ref} <ExternalLink size={10} />
-                                </button>
-                              ) : (
-                                <span className="font-mono font-bold">{ref}</span>
-                              )}
-                              {a.booking?.venue && <span className="flex items-center gap-1"><MapPin size={10} /> {a.booking.venue}</span>}
-                            </p>
-                          </td>
-                          <td className="p-4 text-slate-600">{a.booking?.event_datetime ? new Date(a.booking.event_datetime).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}</td>
-                          <td className="p-4 text-slate-500">{a.dispatch_datetime ? new Date(a.dispatch_datetime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}</td>
-                          <td className="p-4">
-                            {a.assignment_status === 'Completed' ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600">
-                                <CheckCircle2 size={12} /> Returned
+                        <Fragment key={g.key}>
+                          <tr
+                            className={'transition-colors hover:bg-[#fbfcfd] ' + (multi ? 'cursor-pointer' : '')}
+                            onClick={() => { if (multi) toggleHistoryGroup(g.key); }}
+                          >
+                            <td className="px-5 py-[15px] align-top">
+                              <div className="flex items-start gap-2">
+                                {multi ? (
+                                  <ChevronRight size={15} className={'mt-[3px] shrink-0 text-slate-400 transition-transform ' + (isExpanded ? 'rotate-90' : '')} />
+                                ) : (
+                                  <span className="w-[15px] shrink-0" />
+                                )}
+                                <div className="min-w-0">
+                                  <p className="text-[14.5px] font-semibold text-slate-900">{customerName}</p>
+                                  <p className="text-[13px] text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+                                    {g.booking ? (
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); goToBookingDetails(g.booking.booking_id, g.booking.booking_type); }}
+                                        className="font-semibold text-[#007038] tabular-nums hover:underline inline-flex items-center gap-0.5 cursor-pointer"
+                                        title="View full booking details"
+                                      >
+                                        {ref} <ExternalLink size={11} />
+                                      </button>
+                                    ) : (
+                                      <span className="font-semibold tabular-nums">{ref}</span>
+                                    )}
+                                    {g.booking?.venue && <span className="flex items-center gap-1"><MapPin size={11} /> {g.booking.venue}</span>}
+                                  </p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-[15px] align-top text-sm text-slate-800">
+                              {multi ? g.items.length + ' vehicles' : (g.items[0].vehicle?.plate_number || 'Unknown')}
+                            </td>
+                            <td className="px-4 py-[15px] align-top text-sm text-slate-600 tabular-nums">
+                              {g.booking?.event_datetime ? new Date(g.booking.event_datetime).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                            </td>
+                            <td className="px-4 py-[15px] align-top text-sm text-slate-600 tabular-nums">
+                              {g.firstDispatchAt ? g.firstDispatchAt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                            </td>
+                            <td className="px-4 py-[15px] align-top">
+                              <span className={'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ' + stagePill}>
+                                {g.stage.key === 'returned' && <CheckCircle2 size={12} />}
+                                {g.stage.label}
                               </span>
-                            ) : (() => {
-                              const status = getAssignmentStatus(false, a.booking?.event_datetime);
-                              return (
-                                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${status.key === 'in_use' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
-                                  {status.label}
-                                </span>
-                              );
-                            })()}
-                          </td>
-                        </tr>
+                              {/* A part-returned dispatch reads as still out, so
+                                  say how much of it is actually back. */}
+                              {multi && !g.allReturned && g.returnedCount > 0 && (
+                                <p className="text-[12.5px] text-slate-600 mt-1 tabular-nums">{g.returnedCount} of {g.items.length} returned</p>
+                              )}
+                            </td>
+                          </tr>
+
+                          {multi && isExpanded && g.items.map((a) => {
+                            const itemStatus = getAssignmentStatus(false, a.booking?.event_datetime);
+                            return (
+                              <tr key={a.assignment_id} className="bg-[#fbfcfd]">
+                                <td className="px-5 py-2.5" />
+                                <td className="px-4 py-2.5 text-[13.5px] font-medium text-slate-800">{a.vehicle?.plate_number || 'Unknown'}</td>
+                                <td className="px-4 py-2.5" />
+                                <td className="px-4 py-2.5 text-[13.5px] text-slate-600 tabular-nums">
+                                  {a.dispatch_datetime ? new Date(a.dispatch_datetime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                                </td>
+                                <td className="px-4 py-2.5">
+                                  {a.assignment_status === 'Completed' ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[12.5px] font-semibold bg-slate-100 text-slate-600 whitespace-nowrap">
+                                      <CheckCircle2 size={11} /> Returned
+                                    </span>
+                                  ) : (
+                                    <span className={'inline-flex items-center px-2.5 py-0.5 rounded-full text-[12.5px] font-semibold whitespace-nowrap ' + (itemStatus.key === 'in_use' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700')}>
+                                      {itemStatus.label}
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </Fragment>
                       );
                     })
                   )}
@@ -1701,7 +1829,7 @@ export default function Vehicles() {
 
       {/* --- SIDEBAR: live operational alerts, always-current --- */}
       <div className="space-y-4">
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
             <span className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
               <AlertTriangle size={14} className="text-red-500" /> Needs Attention ({needsAttentionVehicles.length})
@@ -1715,7 +1843,7 @@ export default function Vehicles() {
           </div>
           <div className="divide-y divide-slate-100">
             {needsAttentionVehicles.length === 0 ? (
-              <p className="p-4 text-xs text-slate-400 italic">Nothing needs attention right now.</p>
+              <p className="p-4 text-[13px] text-slate-500">Nothing needs attention right now.</p>
             ) : (
               needsAttentionVehicles.slice(0, 4).map(v => (
                 <button
@@ -1723,7 +1851,7 @@ export default function Vehicles() {
                   type="button"
                   onClick={() => handleFlagIssueClick(v)}
                   title="Click to update this vehicle's status"
-                  className="w-full flex items-center justify-between px-4 py-2.5 gap-2 text-left hover:bg-slate-50 transition-colors cursor-pointer"
+                  className="w-full flex items-center justify-between px-4 py-2.5 gap-2 text-left hover:bg-[#fbfcfd] transition-colors cursor-pointer"
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-800 truncate">{v.plate_number}</p>
@@ -1736,7 +1864,7 @@ export default function Vehicles() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
             <span className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
               <AlertTriangle size={14} className="text-red-500" /> Overdue Returns ({overdueGroups.length})
@@ -1750,7 +1878,7 @@ export default function Vehicles() {
           </div>
           <div className="divide-y divide-slate-100">
             {overdueGroups.length === 0 ? (
-              <p className="p-4 text-xs text-slate-400 italic">No overdue returns.</p>
+              <p className="p-4 text-[13px] text-slate-500">No overdue returns.</p>
             ) : (
               overdueGroups.slice(0, 4).map(group => {
                 const customerName = group.booking?.customer ? `${group.booking.customer.first_name} ${group.booking.customer.last_name}` : 'Unknown';
@@ -1765,7 +1893,7 @@ export default function Vehicles() {
                       setActiveTableTab('assignments');
                     }}
                     title="Click to jump to this event in Active Assignments"
-                    className="w-full flex items-center justify-between px-4 py-2.5 gap-2 text-left hover:bg-slate-50 transition-colors cursor-pointer"
+                    className="w-full flex items-center justify-between px-4 py-2.5 gap-2 text-left hover:bg-[#fbfcfd] transition-colors cursor-pointer"
                   >
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-red-700 truncate">{customerName}</p>
@@ -1833,7 +1961,7 @@ export default function Vehicles() {
                       <div className="p-3">
                         <p className="text-xs font-bold text-slate-600 mb-1.5">Vehicles for this event</p>
                         {eventVehicles.length === 0 ? (
-                          <p className="text-xs text-slate-400 italic">No vehicles assigned to this booking yet.</p>
+                          <p className="text-[13px] text-slate-500">No vehicles assigned to this booking yet.</p>
                         ) : (
                           <div className="space-y-1">
                             {eventVehicles.map(vi => {
