@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import Select from '../components/Select';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Truck, Package as PackageIcon, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Truck, HelpCircle, AlertTriangle, Image as ImageIcon } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -961,23 +961,25 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                 <span className="text-slate-700 font-bold">Fulfilment</span>
                 <span className="col-span-2">
                   {(() => {
-                    const mode = getShortOrderFulfilment(order);
-                    const delivered = mode === 'Delivery';
+                    const f = getShortOrderFulfilment(order);
+                    if (!f) return <span className="text-slate-500">N/A</span>;
                     return (
                       <>
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12.5px] font-semibold ${
-                          delivered ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-800'
+                          f.certain ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-700'
                         }`}>
-                          {delivered ? <Truck size={13} /> : <PackageIcon size={13} />}
-                          {delivered ? 'For delivery' : 'Customer pickup'}
+                          {f.certain ? <Truck size={13} /> : <HelpCircle size={13} />}
+                          {f.certain ? 'For delivery' : 'Not recorded'}
                         </span>
-                        {/* Said out loud, because it is inferred rather than
-                            recorded — there is no fulfilment field, only a fee. */}
-                        <span className="block text-[12px] text-slate-500 mt-1">
-                          {delivered
-                            ? 'Based on a delivery fee being charged. A vehicle is dispatched for this order.'
-                            : 'Based on no delivery fee being charged. No vehicle is dispatched — add one when approving if it is actually delivered.'}
-                        </span>
+                        {/* The basis, always — this is inferred from the fee and
+                            the service area, never read from a field. */}
+                        <span className="block text-[12px] text-slate-500 mt-1">{f.basis}</span>
+                        {f.feeLooksWrong && (
+                          <span className="mt-1.5 flex items-start gap-1.5 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">
+                            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                            <span>{f.feeLooksWrong}</span>
+                          </span>
+                        )}
                       </>
                     );
                   })()}

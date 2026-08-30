@@ -28,31 +28,94 @@ export const TRIP_TYPE = {
   delivery: 'Delivery',
 };
 
+// ============================================================================
+// SHORT ORDER FULFILMENT — PICKUP OR DELIVERY
+// ============================================================================
+//
+// PG's charges a delivery fee only OUTSIDE Bayawan, Santa Catalina and Basay
+// (Vaughn, 30 Aug 2026). Inside those three municipalities delivery is free.
+//
+// That one fact kills the obvious shortcut. A zero fee does NOT mean the
+// customer is collecting — it means either a pickup OR a perfectly ordinary
+// delivery inside the service area, and nothing in `booking` distinguishes
+// them. The customer app asks the question; as far as the admin schema goes
+// the answer is not written down anywhere this app can read.
+//
+// So this deliberately reports UNCERTAINTY rather than inventing a verdict.
+// Guessing "pickup" here would strand real local deliveries with no vehicle,
+// which is the expensive direction to be wrong in.
+
+/** Municipalities PG's delivers to free of charge. */
+export const FREE_DELIVERY_AREAS = ['Bayawan', 'Santa Catalina', 'Basay'];
+
+// "Sta." and "Sta" are how Santa Catalina is usually written on an address
+// line, so both have to match or every local order looks out-of-area.
+const AREA_PATTERNS = [
+  /\bbayawan\b/,
+  /\bbasay\b/,
+  /\bs(?:ta|anta)\.?\s*catalina\b/,
+];
+
 /**
- * Is this short order being delivered, or collected by the customer?
+ * Does this venue sit inside the free-delivery service area?
+ * Returns true | false | null (nothing to judge — no venue recorded).
+ */
+export const isWithinFreeDeliveryArea = (venue) => {
+  const v = String(venue || '').trim().toLowerCase();
+  if (!v) return null;
+  return AREA_PATTERNS.some(re => re.test(v));
+};
+
+/**
+ * What can actually be said about how this short order is fulfilled.
  *
- * Nothing in the schema records it — the Short Orders page has always said
- * "(pickup/delivery)" in its subtitle while storing only a `delivery_fee`, and
- * the no-schema-change rule means that fee is the whole signal available.
- *
- * A fee above zero is a delivery, confidently: nobody charges for delivery on
- * an order the customer comes to fetch. A fee of zero is *probably* a pickup,
- * but it could also be a delivery with the fee waived — so this is stated as
- * derived wherever it is shown, and dispatch treats it as a default rather
- * than a verdict: a zero-fee order is not given a van automatically, and the
- * approval panel still lists every vehicle so a manager can add one when the
- * fee was simply waived.
- *
- * Returns 'Delivery' | 'Customer pickup' | null (not a short order).
+ * Returns null for anything that is not a short order, otherwise:
+ *   mode    'Delivery' when it is certain, else null — never a guessed pickup
+ *   certain whether `mode` is known rather than inferred
+ *   basis   the sentence to show a manager, in their words not the schema's
+ *   feeLooksWrong  a fee that contradicts the service-area rule, or null
  */
 export const getShortOrderFulfilment = (booking) => {
   if (booking?.booking_type !== 'Short Order') return null;
-  return Number(booking?.delivery_fee || 0) > 0 ? 'Delivery' : 'Customer pickup';
+
+  const fee = Number(booking?.delivery_fee || 0);
+  const inArea = isWithinFreeDeliveryArea(booking?.venue);
+
+  // A fee is only ever charged for a delivery, so this direction is safe.
+  if (fee > 0) {
+    return {
+      mode: 'Delivery', certain: true,
+      basis: "A delivery fee is charged, and PG's only charges one for delivery outside Bayawan, Santa Catalina and Basay.",
+      // Charged a fee for somewhere inside the free area: worth a second look,
+      // in the customer's favour.
+      feeLooksWrong: inArea === true
+        ? 'This venue looks like it is inside the free-delivery area, but a delivery fee was charged.'
+        : null,
+    };
+  }
+
+  return {
+    mode: null, certain: false,
+    basis: inArea === true
+      ? 'No delivery fee — but this venue is inside the free-delivery area, so this may be a free local delivery or a customer pickup. The system cannot tell which.'
+      : 'No delivery fee recorded, so this may be a customer pickup or a delivery with the fee still to be added.',
+    // Outside the free area with nothing charged is either a pickup or a
+    // missed charge. Only flagged when there is a venue to judge.
+    feeLooksWrong: inArea === false
+      ? 'This venue looks like it is outside the free-delivery area, but no delivery fee was charged. Check whether this is a pickup or a missing fee.'
+      : null,
+  };
 };
 
-/** Does this booking need a vehicle at all? A customer collecting their own
- *  trays does not. */
-export const needsTransport = (booking) => getShortOrderFulfilment(booking) !== 'Customer pickup';
+/**
+ * Does this booking need a vehicle?
+ *
+ * Always yes, until the fulfilment choice is actually readable. The previous
+ * version answered "no" for a zero fee, which the service-area rule now shows
+ * would have left every free local delivery without transport. A van the
+ * manager unticks costs a click; a delivery with no van costs a customer.
+ */
+export const needsTransport = () => true;
 
 export const getTripType = (booking) =>
   booking?.booking_type === 'Short Order' ? TRIP_TYPE.delivery : TRIP_TYPE.eventSetup;
@@ -571,8 +634,13 @@ export function suggestDispatchPlan(booking, fleet, tripsByVehicle = {}, allocat
   // workshop is not part of the fleet that can go out today.
   const serviceable = (fleet || []).filter(v => v.vehicle_status === 'Available').length;
   const needed = vehiclesNeededFor(booking, allocatedUnits, serviceable);
+  // UNREACHABLE TODAY, and deliberately kept. needsTransport() returns true
+  // for everything while the pickup/delivery choice made in the customer app
+  // is unreadable from this schema. The seam stays so that the day the flag
+  // becomes readable, a customer pickup stops being given a van by changing
+  // one function rather than re-threading this path.
   const noTransportNeeded = needed === 0
-    ? 'No delivery fee on this order, so it is treated as a customer pickup and nothing is dispatched. Tick a vehicle below if it is actually being delivered.'
+    ? 'This order is marked as a customer pickup, so nothing is dispatched. Tick a vehicle below if it is actually being delivered.'
     : null;
   const event = asDate(booking?.event_datetime);
   if (!event) {

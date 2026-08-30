@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Search, Check, Edit, Trash2, Lock, ChevronLeft, ChevronRight,
   Filter, X, RefreshCw, RotateCcw, UserPlus, Users,
-  LayoutGrid, CalendarClock, Plus, Eye, Truck, Package as PackageIcon
+  LayoutGrid, CalendarClock, Plus, Eye, Truck, HelpCircle, AlertTriangle
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
@@ -1500,18 +1500,29 @@ export default function ShortOrders() {
                       <td className="px-3 py-[15px] text-sm text-slate-800 break-words" title={order.venue || 'N/A'}>
                         {order.venue || 'N/A'}
                         {(() => {
-                          const delivered = getShortOrderFulfilment(order) === 'Delivery';
+                          const f = getShortOrderFulfilment(order);
+                          if (!f) return null;
+                          // Only "Delivery" is ever asserted. Everything else
+                          // says so rather than picking a side.
                           return (
-                            <span
-                              className={`mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11.5px] font-semibold ${
-                                delivered ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-800'
-                              }`}
-                              title={delivered
-                                ? 'A delivery fee is charged, so this is treated as a delivery and a vehicle is dispatched.'
-                                : 'No delivery fee is charged, so this is treated as a customer pickup and no vehicle is dispatched.'}
-                            >
-                              {delivered ? <Truck size={11} /> : <PackageIcon size={11} />}
-                              {delivered ? 'Delivery' : 'Pickup'}
+                            <span className="mt-1 flex flex-wrap items-center gap-1">
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11.5px] font-semibold ${
+                                  f.certain ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+                                }`}
+                                title={f.basis}
+                              >
+                                {f.certain ? <Truck size={11} /> : <HelpCircle size={11} />}
+                                {f.certain ? 'Delivery' : 'Pickup or delivery?'}
+                              </span>
+                              {f.feeLooksWrong && (
+                                <span
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11.5px] font-semibold bg-amber-50 text-amber-800"
+                                  title={f.feeLooksWrong}
+                                >
+                                  <AlertTriangle size={11} /> Check fee
+                                </span>
+                              )}
                             </span>
                           );
                         })()}

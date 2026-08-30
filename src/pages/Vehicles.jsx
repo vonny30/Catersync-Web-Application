@@ -18,7 +18,7 @@ import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { errorInputClass } from '../utils/formErrors';
 import {
   getDailyVehicleSnapshot, getDispatchWindow, tripsConflict, defaultSetupDispatch,
-  PICKUP_GRACE_HOURS, getShortOrderFulfilment,
+  PICKUP_GRACE_HOURS,
 } from '../utils/vehicle';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { getAssignmentStatus, RESOURCE_STATE } from '../utils/statusLabels';
@@ -831,10 +831,11 @@ export default function Vehicles() {
       .filter(b => {
         if (!b.event_datetime) return false;
         if (new Date(b.event_datetime) < startOfToday) return false;
-        // A short order the customer collects needs no van, so it is not a gap.
-        // Without this the queue nags forever about orders that were never
-        // going to be driven anywhere.
-        if (getShortOrderFulfilment(b) === 'Customer pickup') return false;
+        // Short orders are NOT filtered out here. A zero delivery fee looked
+        // like a customer pickup until the service-area rule turned up: PG's
+        // delivers free inside Bayawan, Santa Catalina and Basay, so most local
+        // deliveries carry no fee at all. Skipping them would have hidden
+        // exactly the deliveries most likely to need a van.
         return !assignments.some(a => a.booking_id === b.booking_id && a.assignment_status !== 'Completed');
       })
       .sort((a, b) => new Date(a.event_datetime) - new Date(b.event_datetime));
