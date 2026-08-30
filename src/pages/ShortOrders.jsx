@@ -707,8 +707,8 @@ export default function ShortOrders() {
       return;
     }
     if (!formData.venue || formData.venue.trim() === '') {
-      toast.error('Please enter a venue or delivery location.');
-      setFieldErrors({ venue: 'Please enter a venue or delivery location.' });
+      toast.error('Please enter the delivery address.');
+      setFieldErrors({ venue: 'Please enter the delivery address.' });
       setIsSubmitting(false);
       return;
     }

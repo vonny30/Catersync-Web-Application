@@ -17,7 +17,7 @@ import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
 import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind } from '../utils/payments';
-import { getShortOrderFulfilment, reconcileDispatchWithFulfilment } from '../utils/vehicle';
+import { getShortOrderFulfilment, reconcileDispatchWithFulfilment, PICKUP_VENUE_MARKER } from '../utils/vehicle';
 import { bookingEditLockedMessage } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
@@ -546,6 +546,18 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
     setEditFieldErrors(prev => (prev[name] ? { ...prev, [name]: undefined } : prev));
   };
 
+  // Pickup writes the exact marker and zeroes the fee; delivery clears the
+  // marker rather than leaving it to be edited into something that no longer
+  // matches. Typing the marker by hand is what this exists to avoid.
+  const setEditFulfilment = (mode) => {
+    setEditFormData(prev => ({
+      ...prev,
+      venue: mode === 'pickup' ? PICKUP_VENUE_MARKER : (prev.venue === PICKUP_VENUE_MARKER ? '' : prev.venue),
+      delivery_fee: mode === 'pickup' ? '0' : prev.delivery_fee,
+    }));
+    setEditFieldErrors(prev => ({ ...prev, venue: undefined }));
+  };
+
   const handleEditTempItemChange = (e) => {
     const { name, value } = e.target;
     setEditTempItem(prev => ({ ...prev, [name]: name === 'quantity' ? parseInt(value) || 0 : value }));
@@ -602,8 +614,8 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
     }
 
     if (!editFormData.venue || editFormData.venue.trim() === '') {
-      toast.error('Please enter a venue.');
-      setEditFieldErrors({ venue: 'Please enter a venue.' });
+      toast.error('Please enter the delivery address.');
+      setEditFieldErrors({ venue: 'Please enter the delivery address.' });
       setIsSubmitting(false);
       return;
     }
@@ -1372,30 +1384,77 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Venue / Location *</label>
-                <input
-                  type="text"
-                  name="venue"
-                  value={editFormData.venue}
-                  onChange={handleEditInputChange}
-                  placeholder="Delivery address or pick-up location"
-                  className={errorInputClass(!!editFieldErrors.venue, 'w-full border rounded-lg p-2.5 text-sm outline-none')}
-                  required
-                />
-                {editFieldErrors.venue && <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.venue}</p>}
+                <label className="block text-xs font-bold text-slate-700 mb-1">Fulfilment *</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { key: 'pickup', label: 'Customer pickup', icon: PackageIcon, hint: 'Collected at the main branch' },
+                    { key: 'delivery', label: 'Delivery', icon: Truck, hint: 'Delivered to an address' },
+                  ].map(opt => {
+                    const active = (editFormData.venue === PICKUP_VENUE_MARKER) === (opt.key === 'pickup');
+                    const Icon = opt.icon;
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => setEditFulfilment(opt.key)}
+                        className={`flex flex-col items-start gap-0.5 border rounded-lg p-2.5 text-left transition-colors cursor-pointer ${
+                          active
+                            ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20'
+                            : 'border-slate-300 bg-white hover:bg-slate-50'
+                        }`}
+                      >
+                        <span className={`flex items-center gap-1.5 text-sm font-semibold ${active ? 'text-[#007038]' : 'text-slate-700'}`}>
+                          <Icon size={14} /> {opt.label}
+                        </span>
+                        <span className="text-[11px] text-slate-500">{opt.hint}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* Switching to pickup here releases the vehicle on save, so
+                    say so before the manager commits rather than after. */}
+                {editFormData.venue === PICKUP_VENUE_MARKER && dispatches.some(d => d.assignment_status !== 'Completed') && (
+                  <p className="flex items-start gap-1.5 text-[11.5px] text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 mt-1.5">
+                    <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                    <span>Saving will release the vehicle currently assigned to this order.</span>
+                  </p>
+                )}
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Delivery Fee</label>
-                <input
-                  type="number"
-                  name="delivery_fee"
-                  value={editFormData.delivery_fee}
-                  onChange={handleEditInputChange}
-                  placeholder="0.00"
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
-                />
-              </div>
+              {editFormData.venue !== PICKUP_VENUE_MARKER && (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Delivery address *</label>
+                    <input
+                      type="text"
+                      name="venue"
+                      value={editFormData.venue}
+                      onChange={handleEditInputChange}
+                      placeholder="e.g. Banga, Bayawan City"
+                      className={errorInputClass(!!editFieldErrors.venue, 'w-full border rounded-lg p-2.5 text-sm outline-none')}
+                      required
+                    />
+                    {editFieldErrors.venue && <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.venue}</p>}
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      PG&apos;s delivers free within Bayawan, Santa Catalina and Basay. A delivery fee applies outside those.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Delivery Fee</label>
+                    <input
+                      type="number"
+                      name="delivery_fee"
+                      min="0"
+                      step="0.01"
+                      value={editFormData.delivery_fee}
+                      onChange={handleEditInputChange}
+                      placeholder="0.00"
+                      className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                    />
+                  </div>
+                </>
+              )}
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Select Menu Items (trays) *</label>
