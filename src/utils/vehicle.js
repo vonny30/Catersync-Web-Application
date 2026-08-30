@@ -41,9 +41,11 @@ export const TRIP_TYPE = {
 // them. The customer app asks the question; as far as the admin schema goes
 // the answer is not written down anywhere this app can read.
 //
-// So this deliberately reports UNCERTAINTY rather than inventing a verdict.
-// Guessing "pickup" here would strand real local deliveries with no vehicle,
-// which is the expensive direction to be wrong in.
+// The fee alone therefore cannot answer it. What can: the customer app writes
+// "Pickup - Main Branch" into `venue` when the customer chooses pickup, and a
+// real address when they choose delivery. So `venue` carries the answer and
+// the fee is left to do the job it is actually evidence for — whether the
+// right amount was charged for where it is going.
 
 /** Municipalities PG's delivers to free of charge. */
 export const FREE_DELIVERY_AREAS = ['Bayawan', 'Santa Catalina', 'Basay'];
@@ -67,55 +69,87 @@ export const isWithinFreeDeliveryArea = (venue) => {
 };
 
 /**
- * What can actually be said about how this short order is fulfilled.
+ * How the customer app records a pickup.
+ *
+ * Choosing "pickup" in the mobile app writes the collection point into `venue`
+ * — "Pickup - Main Branch" — rather than an address (confirmed by Vaughn,
+ * 30 Aug 2026, by making the selection in the app). So the choice IS readable
+ * after all; it is just stored as a venue string instead of a column.
+ *
+ * Matched as THAT MARKER ONLY, on Vaughn's instruction, rather than anything
+ * beginning with "pickup". A venue is free text a manager can type, and a
+ * loose rule would read "Pickup point near the plaza, Bayawan" — a genuine
+ * delivery address — as a collection and quietly withhold the van. Requiring
+ * the whole marker means the only way to get a pickup is to actually be one.
+ *
+ * Tolerant of casing, inner spacing and the Pick-up / Pick up spellings, since
+ * the admin's own form lets a manager type this by hand. Not tolerant of
+ * anything else.
+ *
+ * This is a CONVENTION, not a constraint, and it is now a narrow one: if the
+ * customer app changes the wording or adds a second branch, those orders read
+ * as deliveries and get a van assigned. That is the safe direction to break in
+ * — an unneeded van is one untick, a missing one is a stranded customer — but
+ * it is still wrong, so it is worth re-checking if PG's opens another branch.
+ */
+export const PICKUP_VENUE_MARKER = 'Pickup - Main Branch';
+const PICKUP_VENUE_RE = /^pick\s*-?\s*up\s*-\s*main\s+branch$/i;
+
+export const isPickupVenue = (venue) =>
+  PICKUP_VENUE_RE.test(String(venue || '').trim().replace(/\s+/g, ' '));
+
+/**
+ * How this short order is fulfilled.
+ *
+ * Strictly binary, on Vaughn's instruction: the venue is the pickup marker, or
+ * it is a delivery. There is no third "unknown" state — an order with no venue
+ * at all is not the marker, so it is a delivery and gets a vehicle, which is
+ * the safe way for a missing venue to be wrong.
  *
  * Returns null for anything that is not a short order, otherwise:
- *   mode    'Delivery' when it is certain, else null — never a guessed pickup
- *   certain whether `mode` is known rather than inferred
- *   basis   the sentence to show a manager, in their words not the schema's
- *   feeLooksWrong  a fee that contradicts the service-area rule, or null
+ *   mode   'Customer pickup' | 'Delivery'
+ *   basis  the sentence to show a manager, in their words not the schema's
+ *   feeLooksWrong  a fee that contradicts the record, or null
  */
 export const getShortOrderFulfilment = (booking) => {
   if (booking?.booking_type !== 'Short Order') return null;
 
   const fee = Number(booking?.delivery_fee || 0);
-  const inArea = isWithinFreeDeliveryArea(booking?.venue);
+  const venue = String(booking?.venue || '').trim();
 
-  // A fee is only ever charged for a delivery, so this direction is safe.
-  if (fee > 0) {
+  if (isPickupVenue(venue)) {
     return {
-      mode: 'Delivery', certain: true,
-      basis: "A delivery fee is charged, and PG's only charges one for delivery outside Bayawan, Santa Catalina and Basay.",
-      // Charged a fee for somewhere inside the free area: worth a second look,
-      // in the customer's favour.
-      feeLooksWrong: inArea === true
-        ? 'This venue looks like it is inside the free-delivery area, but a delivery fee was charged.'
+      mode: 'Customer pickup',
+      basis: `The customer chose pickup, which the app records as the venue ("${venue}").`,
+      feeLooksWrong: fee > 0
+        ? 'This is a customer pickup, but a delivery fee was charged. Nothing is being delivered.'
         : null,
     };
   }
 
+  // Not the marker, so the trays are going somewhere.
+  const inArea = isWithinFreeDeliveryArea(venue);
   return {
-    mode: null, certain: false,
-    basis: inArea === true
-      ? 'No delivery fee — but this venue is inside the free-delivery area, so this may be a free local delivery or a customer pickup. The system cannot tell which.'
-      : 'No delivery fee recorded, so this may be a customer pickup or a delivery with the fee still to be added.',
-    // Outside the free area with nothing charged is either a pickup or a
-    // missed charge. Only flagged when there is a venue to judge.
-    feeLooksWrong: inArea === false
-      ? 'This venue looks like it is outside the free-delivery area, but no delivery fee was charged. Check whether this is a pickup or a missing fee.'
-      : null,
+    mode: 'Delivery',
+    basis: venue
+      ? (inArea
+          ? 'An address is recorded rather than the pickup point, and it is inside the free-delivery area (Bayawan, Santa Catalina, Basay).'
+          : 'An address is recorded rather than the pickup point.')
+      : 'No pickup point recorded, so this is treated as a delivery.',
+    // PG's charges only outside Bayawan, Santa Catalina and Basay, so a fee
+    // either side of that line is worth a second look — once in the customer's
+    // favour, once in PG's. Only raised when there is a venue to judge.
+    feeLooksWrong: inArea === true && fee > 0
+      ? 'This venue looks like it is inside the free-delivery area, but a delivery fee was charged.'
+      : inArea === false && fee === 0
+        ? 'This venue looks like it is outside the free-delivery area, where PG\'s charges for delivery, but no fee was recorded.'
+        : null,
   };
 };
 
-/**
- * Does this booking need a vehicle?
- *
- * Always yes, until the fulfilment choice is actually readable. The previous
- * version answered "no" for a zero fee, which the service-area rule now shows
- * would have left every free local delivery without transport. A van the
- * manager unticks costs a click; a delivery with no van costs a customer.
- */
-export const needsTransport = () => true;
+/** A customer collecting their own trays needs no vehicle. */
+export const needsTransport = (booking) =>
+  getShortOrderFulfilment(booking)?.mode !== 'Customer pickup';
 
 export const getTripType = (booking) =>
   booking?.booking_type === 'Short Order' ? TRIP_TYPE.delivery : TRIP_TYPE.eventSetup;
@@ -634,11 +668,9 @@ export function suggestDispatchPlan(booking, fleet, tripsByVehicle = {}, allocat
   // workshop is not part of the fleet that can go out today.
   const serviceable = (fleet || []).filter(v => v.vehicle_status === 'Available').length;
   const needed = vehiclesNeededFor(booking, allocatedUnits, serviceable);
-  // UNREACHABLE TODAY, and deliberately kept. needsTransport() returns true
-  // for everything while the pickup/delivery choice made in the customer app
-  // is unreadable from this schema. The seam stays so that the day the flag
-  // becomes readable, a customer pickup stops being given a van by changing
-  // one function rather than re-threading this path.
+  // Live: the customer chose pickup in the app, so no van leaves the yard.
+  // The list below is still rendered in full, because a customer who changes
+  // their mind is a phone call, not a new booking.
   const noTransportNeeded = needed === 0
     ? 'This order is marked as a customer pickup, so nothing is dispatched. Tick a vehicle below if it is actually being delivered.'
     : null;

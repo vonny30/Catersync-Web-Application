@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Search, Check, Edit, Trash2, Lock, ChevronLeft, ChevronRight,
   Filter, X, RefreshCw, RotateCcw, UserPlus, Users,
-  LayoutGrid, CalendarClock, Plus, Eye, Truck, HelpCircle, AlertTriangle
+  LayoutGrid, CalendarClock, Plus, Eye, Truck, AlertTriangle, Package as PackageIcon
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
@@ -14,7 +14,7 @@ import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { createWalkInCustomer } from '../utils/createWalkInCustomer';
-import { getShortOrderFulfilment } from '../utils/vehicle';
+import { getShortOrderFulfilment, PICKUP_VENUE_MARKER } from '../utils/vehicle';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
@@ -444,6 +444,18 @@ export default function ShortOrders() {
   }, [formData.menu_selections, formData.delivery_fee, menuItems]);
 
   // --- HANDLERS for create/edit modal ---
+  // Switching to pickup writes the marker and clears the fee, because a
+  // collection is never charged for delivery. Switching back clears the marker
+  // rather than leaving it as a half-edited address.
+  const setFulfilment = (mode) => {
+    setFormData(prev => ({
+      ...prev,
+      venue: mode === 'pickup' ? PICKUP_VENUE_MARKER : (prev.venue === PICKUP_VENUE_MARKER ? '' : prev.venue),
+      delivery_fee: mode === 'pickup' ? '0' : prev.delivery_fee,
+    }));
+    setFieldErrors(prev => ({ ...prev, venue: undefined }));
+  };
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -1502,22 +1514,21 @@ export default function ShortOrders() {
                         {(() => {
                           const f = getShortOrderFulfilment(order);
                           if (!f) return null;
-                          // Only "Delivery" is ever asserted. Everything else
-                          // says so rather than picking a side.
+                          const pickup = f.mode === 'Customer pickup';
                           return (
                             <span className="mt-1 flex flex-wrap items-center gap-1">
                               <span
                                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11.5px] font-semibold ${
-                                  f.certain ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+                                  pickup ? 'bg-amber-50 text-amber-800' : 'bg-blue-50 text-blue-700'
                                 }`}
                                 title={f.basis}
                               >
-                                {f.certain ? <Truck size={11} /> : <HelpCircle size={11} />}
-                                {f.certain ? 'Delivery' : 'Pickup or delivery?'}
+                                {pickup ? <PackageIcon size={11} /> : <Truck size={11} />}
+                                {pickup ? 'Pickup' : 'Delivery'}
                               </span>
                               {f.feeLooksWrong && (
                                 <span
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11.5px] font-semibold bg-amber-50 text-amber-800"
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11.5px] font-semibold bg-amber-50 text-amber-800 ring-1 ring-amber-300"
                                   title={f.feeLooksWrong}
                                 >
                                   <AlertTriangle size={11} /> Check fee
@@ -1885,18 +1896,65 @@ export default function ShortOrders() {
                 </p>
               </div>
 
-              {/* Venue */}
+              {/* Fulfilment — writes the SAME venue marker the customer app
+                  writes, so an order taken over the counter is readable the
+                  same way as one placed in the app. Typed freehand it would
+                  not be: the marker has to match exactly to count as a pickup,
+                  and a manager who writes "Main Branch" would have the system
+                  send a van to fetch nothing. */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Venue / Location *</label>
-                <input type="text" name="venue" value={formData.venue} onChange={handleInputChange} placeholder="e.g. Pick-up or Delivery address" className={errorInputClass(!!fieldErrors.venue, 'w-full border rounded-lg p-2.5 text-sm outline-none')} required />
-                {fieldErrors.venue && <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.venue}</p>}
+                <label className="block text-xs font-bold text-slate-700 mb-1">Fulfilment *</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { key: 'pickup', label: 'Customer pickup', icon: PackageIcon, hint: 'Collected at the main branch' },
+                    { key: 'delivery', label: 'Delivery', icon: Truck, hint: 'Delivered to an address' },
+                  ].map(opt => {
+                    const active = (formData.venue === PICKUP_VENUE_MARKER) === (opt.key === 'pickup');
+                    const Icon = opt.icon;
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => setFulfilment(opt.key)}
+                        className={`flex flex-col items-start gap-0.5 border rounded-lg p-2.5 text-left transition-colors cursor-pointer ${
+                          active
+                            ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20'
+                            : 'border-slate-300 bg-white hover:bg-slate-50'
+                        }`}
+                      >
+                        <span className={`flex items-center gap-1.5 text-sm font-semibold ${active ? 'text-[#007038]' : 'text-slate-700'}`}>
+                          <Icon size={14} /> {opt.label}
+                        </span>
+                        <span className="text-[11px] text-slate-500">{opt.hint}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
-              {/* Delivery Fee */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Delivery Fee</label>
-                <input type="number" name="delivery_fee" value={formData.delivery_fee} onChange={handleInputChange} placeholder="0.00" className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]" />
-              </div>
+              {/* Venue — hidden for a pickup, because the marker IS the venue
+                  and letting it be edited would break the match. */}
+              {formData.venue !== PICKUP_VENUE_MARKER && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Delivery address *</label>
+                  <input type="text" name="venue" value={formData.venue} onChange={handleInputChange} placeholder="e.g. Banga, Bayawan City" className={errorInputClass(!!fieldErrors.venue, 'w-full border rounded-lg p-2.5 text-sm outline-none')} required />
+                  {fieldErrors.venue && <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.venue}</p>}
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    PG&apos;s delivers free within Bayawan, Santa Catalina and Basay. A delivery fee applies outside those.
+                  </p>
+                </div>
+              )}
+
+              {/* Delivery Fee — not offered on a pickup at all. Nothing is
+                  being delivered, so a fee here is a charge for a service that
+                  does not happen; better to remove the option than to flag the
+                  mistake afterwards. */}
+              {formData.venue !== PICKUP_VENUE_MARKER && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Delivery Fee</label>
+                  <input type="number" name="delivery_fee" min="0" step="0.01" value={formData.delivery_fee} onChange={handleInputChange} placeholder="0.00" className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]" />
+                </div>
+              )}
 
               {/* Menu Items Selection */}
               <div>
@@ -2039,10 +2097,15 @@ export default function ShortOrders() {
                   <label className="block text-xs font-bold text-slate-700 mb-1">Extra Quantity Fee (additional trays / items)</label>
                   <input type="number" name="extraQuantity" min="0" step="0.01" value={approvalData.extraQuantity} onChange={handleApprovalInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" placeholder="e.g. 1000" />
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Additional Delivery Fee</label>
-                  <input type="number" name="extraDeliveryFee" min="0" step="0.01" value={approvalData.extraDeliveryFee} onChange={handleApprovalInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" placeholder="e.g. 500" />
-                </div>
+                {/* The other route to charging delivery on a collection.
+                    Same reasoning as the create form: withhold the field
+                    rather than flag the mistake later. */}
+                {getShortOrderFulfilment(approvalOrder)?.mode !== 'Customer pickup' && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Additional Delivery Fee</label>
+                    <input type="number" name="extraDeliveryFee" min="0" step="0.01" value={approvalData.extraDeliveryFee} onChange={handleApprovalInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" placeholder="e.g. 500" />
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons)</label>
                   <input type="number" name="additionalFee" min="0" step="0.01" value={approvalData.additionalFee} onChange={handleApprovalInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" placeholder="e.g. 2000" />

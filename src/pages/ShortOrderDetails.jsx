@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import Select from '../components/Select';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Truck, HelpCircle, AlertTriangle, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Truck, AlertTriangle, Package as PackageIcon, Image as ImageIcon } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -966,13 +966,14 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                     return (
                       <>
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12.5px] font-semibold ${
-                          f.certain ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-700'
+                          f.mode === 'Customer pickup' ? 'bg-amber-50 text-amber-800' : 'bg-blue-50 text-blue-700'
                         }`}>
-                          {f.certain ? <Truck size={13} /> : <HelpCircle size={13} />}
-                          {f.certain ? 'For delivery' : 'Not recorded'}
+                          {f.mode === 'Customer pickup' ? <PackageIcon size={13} /> : <Truck size={13} />}
+                          {f.mode === 'Customer pickup' ? 'Customer pickup' : 'For delivery'}
                         </span>
-                        {/* The basis, always — this is inferred from the fee and
-                            the service area, never read from a field. */}
+                        {/* The basis, always. Pickup and delivery are read from
+                            the venue the customer app writes; the fee only ever
+                            cross-checks the amount, never the mode. */}
                         <span className="block text-[12px] text-slate-500 mt-1">{f.basis}</span>
                         {f.feeLooksWrong && (
                           <span className="mt-1.5 flex items-start gap-1.5 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">
