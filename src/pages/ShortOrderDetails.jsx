@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import Select from '../components/Select';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Image as ImageIcon } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -33,6 +33,7 @@ export default function ShortOrderDetails() {
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState([]);
+  const [dispatches, setDispatches] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [menuSelections, setMenuSelections] = useState([]); // array of {menu_name, quantity}
@@ -152,6 +153,17 @@ export default function ShortOrderDetails() {
       } else {
         setMenuSelections([]);
       }
+      // Dispatch — what is actually carrying this event. The page could
+      // previously only mention a vehicle in its delete warning, so a manager
+      // had to open Vehicles and search for the reference to answer "is there
+      // a van for this?".
+      const { data: dispatchData } = await supabase
+        .from('vehicle_assign')
+        .select('assignment_id, dispatch_datetime, assignment_status, vehicle:vehicle_id (plate_number, vehicle_type, vehicle_status)')
+        .eq('booking_id', id)
+        .order('dispatch_datetime', { ascending: true });
+      setDispatches(dispatchData || []);
+
     } catch (error) {
       console.error(error);
       toast.error('Unable to load short order details.');
@@ -984,6 +996,58 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
 
         {/* RIGHT COLUMN */}
         <div className="lg:col-span-7 space-y-6">
+          {/* Dispatch — blueprint-03 5.8. Until now a vehicle appeared on this
+              page only inside the delete warning, so the booking never knew
+              what was carrying it while the vehicle knew its booking. */}
+          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/50 rounded-xl p-6 shadow-xs">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-sm font-bold text-slate-900">Dispatch</h3>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => navigate('/app/vehicles', { state: { assignBookingId: id } })}
+                  className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm"
+                >
+                  <ClipboardList size={14} /> {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
+                </button>
+                <span className="text-xs font-medium text-slate-500">
+                  {dispatches.length} vehicle{dispatches.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+            </div>
+
+            {dispatches.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                No vehicle assigned yet. {'Delivery'} still needs transport arranged.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {dispatches.map(d => {
+                  const returned = d.assignment_status === 'Completed';
+                  return (
+                    <div key={d.assignment_id} className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-900">
+                          {d.vehicle?.plate_number || 'Unknown vehicle'}
+                          <span className="ml-2 text-[12.5px] font-medium text-slate-500">{d.vehicle?.vehicle_type || ''}</span>
+                        </p>
+                        <p className="text-[13px] text-slate-600 mt-0.5">
+                          {'Delivery'} · leaves {d.dispatch_datetime
+                            ? new Date(d.dispatch_datetime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                            : 'time not set'}
+                        </p>
+                      </div>
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${
+                        returned ? 'bg-slate-100 text-slate-600' : 'bg-blue-50 text-blue-700'
+                      }`}>
+                        {returned ? 'Returned' : 'Scheduled'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           {/* Payment Tracking */}
           <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-xl p-6 shadow-xs">
             <div className="flex justify-between items-center mb-4">

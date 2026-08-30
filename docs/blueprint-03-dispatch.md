@@ -278,7 +278,7 @@ Needs Attention (out-of-service vehicles) and Overdue Returns, both live rather
 than date-scoped, both drilling into the right tab pre-filtered. Correct as
 built; unchanged.
 
-### 5.8 Booking and Short Order detail pages
+### 5.8 Booking and Short Order detail pages — **BUILT 30 Aug 2026**
 
 `BookingDetails.jsx` and `ShortOrderDetails.jsx` mention a vehicle **only in
 the delete warning**. There is no way to look at a booking and see what is

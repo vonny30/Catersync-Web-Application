@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
 import Select from '../components/Select';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import {
   Plus, Edit, Trash2, X, ClipboardList, RefreshCw, Undo2,
@@ -63,6 +63,7 @@ const formatReturnOpensAt = (opensAt) =>
 
 export default function Vehicles() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { showConfirm } = useConfirm();
   const { requestPasswordConfirm } = usePasswordConfirm();
 
@@ -789,6 +790,24 @@ export default function Vehicles() {
       handleError(error, 'Failed to return vehicles.');
     }
   };
+
+  // A booking's detail page can now send the manager straight here to arrange
+  // transport (blueprint-03 5.8). Without this the button would land them on
+  // the fleet list with the booking still to be found by hand, which is the
+  // gap it exists to close.
+  useEffect(() => {
+    const bookingId = location.state?.assignBookingId;
+    if (!bookingId || bookings.length === 0) return;
+    const target = bookings.find(b => b.booking_id === bookingId);
+    if (!target) return;
+    handleBookingSelect(bookingId);
+    setSelectedVehicleIds([]);
+    setVehiclePickerSearch('');
+    setIsAssignModalOpen(true);
+    // Clear it so a refresh or a back-navigation does not reopen the modal.
+    navigate('.', { replace: true, state: {} });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state, bookings]);
 
   const scrollToAssignments = () => {
     setActiveTableTab('assignments');

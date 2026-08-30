@@ -14,6 +14,8 @@ app and the one that writes the most.
 - Deleting removes payments. The confirmation names the record count and verified total, because that money leaves every report.
 - Children are deleted before the parent for the foreign keys, so a late failure leaves the booking standing with payments already gone. The failure message says so.
 
+- A **Dispatch** section lists the vehicles carrying the event, their departure time and trip type, and links straight into the Vehicles assign modal with this booking preselected (blueprint-03 §5.8).
+
 ## Data it reads
 
 | Table | Queries | Whole-table with no row bound |

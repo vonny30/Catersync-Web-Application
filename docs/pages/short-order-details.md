@@ -10,6 +10,8 @@ none; otherwise the same lifecycle actions through the same hooks.
 - Same delete semantics and messaging as Booking Details.
 - A deleted record is a normal outcome, not an error: the fetch uses `.maybeSingle()` and renders 'not found' rather than raising a toast. `.single()` returns HTTP 406 for a missing row.
 
+- A **Dispatch** section, same as Booking Details. A short order's trip type is Delivery, matching `getTripType`.
+
 ## Data it reads
 
 | Table | Queries | Whole-table with no row bound |
