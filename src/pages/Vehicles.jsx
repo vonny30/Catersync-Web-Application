@@ -1224,7 +1224,7 @@ export default function Vehicles() {
               onClick={() => setIsNeedsVehicleModalOpen(true)}
               className="bg-[#fef4f4] border border-[#f3c9c9] text-red-700 px-4 py-2.5 rounded-[10px] font-semibold transition-colors flex items-center gap-2 text-sm whitespace-nowrap cursor-pointer hover:bg-[#fdeaea] focus:outline-none focus:ring-2 focus:ring-red-400/40"
             >
-              <AlertTriangle size={16} /> Needs a vehicle ({needsVehicleBookings.length})
+              <AlertTriangle size={16} /> Awaiting Vehicle ({needsVehicleBookings.length})
             </button>
           )}
           <button
@@ -2165,7 +2165,7 @@ export default function Vehicles() {
       {/* ========================================================= */}
 
       {/* EVENTS ON DATE MODAL */}
-      {/* NEEDS A VEHICLE — the work queue behind the header counter. Date
+      {/* AWAITING VEHICLE — the work queue behind the header counter. Date
           order, because the nearest event is the one that runs out of time
           first, and one click from each row into the assign modal. */}
       {isNeedsVehicleModalOpen && createPortal(
@@ -2173,7 +2173,7 @@ export default function Vehicles() {
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col overflow-hidden">
             <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
               <div>
-                <h2 className="text-lg font-bold text-slate-900">Needs a vehicle</h2>
+                <h2 className="text-lg font-bold text-slate-900">Awaiting Vehicle</h2>
                 <p className="text-[13px] text-slate-600 mt-0.5">
                   {needsVehicleBookings.length} upcoming event{needsVehicleBookings.length === 1 ? '' : 's'} with nothing dispatched to carry {needsVehicleBookings.length === 1 ? 'it' : 'them'}
                 </p>

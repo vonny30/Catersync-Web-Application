@@ -17,7 +17,7 @@ import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
 import { sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind } from '../utils/payments';
-import { getShortOrderFulfilment, reconcileDispatchWithFulfilment, PICKUP_VENUE_MARKER } from '../utils/vehicle';
+import { getServiceMethod, reconcileServiceMethodChange, PICKUP_VENUE_MARKER } from '../utils/vehicle';
 import { bookingEditLockedMessage } from '../utils/bookingStatus';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
@@ -549,7 +549,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
   // Pickup writes the exact marker and zeroes the fee; delivery clears the
   // marker rather than leaving it to be edited into something that no longer
   // matches. Typing the marker by hand is what this exists to avoid.
-  const setEditFulfilment = (mode) => {
+  const setEditServiceMethod = (mode) => {
     setEditFormData(prev => ({
       ...prev,
       venue: mode === 'pickup' ? PICKUP_VENUE_MARKER : (prev.venue === PICKUP_VENUE_MARKER ? '' : prev.venue),
@@ -688,7 +688,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
       // switched to a pickup would keep its van scheduled for a trip that
       // never happens.
       try {
-        const sync = await reconcileDispatchWithFulfilment({ ...payload, booking_id: id }, previousVenue);
+        const sync = await reconcileServiceMethodChange({ ...payload, booking_id: id }, previousVenue);
         if (sync.cleared > 0) {
           toast(`Saved. ${sync.cleared} vehicle assignment${sync.cleared === 1 ? '' : 's'} released — the customer is collecting this order.`, { icon: 'ℹ️', duration: 7000 });
         } else if (sync.nowNeedsVehicle) {
@@ -710,9 +710,9 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
     }
   };
 
-  // Fulfilment drives the whole Dispatch section: a collection has no trip,
+  // Service method drives the whole Dispatch section: a collection has no trip,
   // no vehicle and no button to assign one.
-  const isCustomerPickup = getShortOrderFulfilment(order)?.mode === 'Customer pickup';
+  const isCustomerPickup = getServiceMethod(order)?.mode === 'Pickup';
 
   // --- Render helpers ---
   const renderProof = (proofUrl) => {
@@ -995,18 +995,18 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                 <span className="col-span-2 font-semibold">{totalTrays}</span>
               </div>
               <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Fulfilment</span>
+                <span className="text-slate-700 font-bold">Service Method</span>
                 <span className="col-span-2">
                   {(() => {
-                    const f = getShortOrderFulfilment(order);
+                    const f = getServiceMethod(order);
                     if (!f) return <span className="text-slate-500">N/A</span>;
                     return (
                       <>
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12.5px] font-semibold ${
-                          f.mode === 'Customer pickup' ? 'bg-amber-50 text-amber-800' : 'bg-blue-50 text-blue-700'
+                          f.mode === 'Pickup' ? 'bg-amber-50 text-amber-800' : 'bg-blue-50 text-blue-700'
                         }`}>
-                          {f.mode === 'Customer pickup' ? <PackageIcon size={13} /> : <Truck size={13} />}
-                          {f.mode === 'Customer pickup' ? 'Customer pickup' : 'For delivery'}
+                          {f.mode === 'Pickup' ? <PackageIcon size={13} /> : <Truck size={13} />}
+                          {f.mode}
                         </span>
                         {/* The basis, always. Pickup and delivery are read from
                             the venue the customer app writes; the fee only ever
@@ -1384,10 +1384,10 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Fulfilment *</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Service Method *</label>
                 <div className="grid grid-cols-2 gap-2">
                   {[
-                    { key: 'pickup', label: 'Customer pickup', icon: PackageIcon, hint: 'Collected at the main branch' },
+                    { key: 'pickup', label: 'Pickup', icon: PackageIcon, hint: 'Collected at the main branch' },
                     { key: 'delivery', label: 'Delivery', icon: Truck, hint: 'Delivered to an address' },
                   ].map(opt => {
                     const active = (editFormData.venue === PICKUP_VENUE_MARKER) === (opt.key === 'pickup');
@@ -1396,7 +1396,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                       <button
                         key={opt.key}
                         type="button"
-                        onClick={() => setEditFulfilment(opt.key)}
+                        onClick={() => setEditServiceMethod(opt.key)}
                         className={`flex flex-col items-start gap-0.5 border rounded-lg p-2.5 text-left transition-colors cursor-pointer ${
                           active
                             ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20'

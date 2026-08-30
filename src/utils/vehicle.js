@@ -29,7 +29,7 @@ export const TRIP_TYPE = {
 };
 
 // ============================================================================
-// SHORT ORDER FULFILMENT — PICKUP OR DELIVERY
+// SHORT ORDER SERVICE METHOD — PICKUP OR DELIVERY
 // ============================================================================
 //
 // PG's charges a delivery fee only OUTSIDE Bayawan, Santa Catalina and Basay
@@ -99,7 +99,7 @@ export const isPickupVenue = (venue) =>
   PICKUP_VENUE_RE.test(String(venue || '').trim().replace(/\s+/g, ' '));
 
 /**
- * How this short order is fulfilled.
+ * How this short order reaches the customer.
  *
  * Strictly binary, on Vaughn's instruction: the venue is the pickup marker, or
  * it is a delivery. There is no third "unknown" state — an order with no venue
@@ -107,11 +107,11 @@ export const isPickupVenue = (venue) =>
  * the safe way for a missing venue to be wrong.
  *
  * Returns null for anything that is not a short order, otherwise:
- *   mode   'Customer pickup' | 'Delivery'
+ *   mode   'Pickup' | 'Delivery'
  *   basis  the sentence to show a manager, in their words not the schema's
  *   feeLooksWrong  a fee that contradicts the record, or null
  */
-export const getShortOrderFulfilment = (booking) => {
+export const getServiceMethod = (booking) => {
   if (booking?.booking_type !== 'Short Order') return null;
 
   const fee = Number(booking?.delivery_fee || 0);
@@ -119,7 +119,7 @@ export const getShortOrderFulfilment = (booking) => {
 
   if (isPickupVenue(venue)) {
     return {
-      mode: 'Customer pickup',
+      mode: 'Pickup',
       basis: `The customer chose pickup, which the app records as the venue ("${venue}").`,
       feeLooksWrong: fee > 0
         ? 'This is a customer pickup, but a delivery fee was charged. Nothing is being delivered.'
@@ -149,7 +149,7 @@ export const getShortOrderFulfilment = (booking) => {
 
 /** A customer collecting their own trays needs no vehicle. */
 export const needsTransport = (booking) =>
-  getShortOrderFulfilment(booking)?.mode !== 'Customer pickup';
+  getServiceMethod(booking)?.mode !== 'Pickup';
 
 export const getTripType = (booking) =>
   booking?.booking_type === 'Short Order' ? TRIP_TYPE.delivery : TRIP_TYPE.eventSetup;
@@ -902,7 +902,7 @@ export const getVehicleAvailabilityPreview = async (booking) => {
  * approval being rolled back over a collection trip.
  */
 /**
- * Keep dispatch honest when a short order's fulfilment is edited.
+ * Keep dispatch honest when a short order's service method is edited.
  *
  * `Approved` is NOT in PAYMENT_LOCKED_STATUSES, so an approved order can still
  * be edited — and approval is exactly when its vehicle was assigned. Switching
@@ -918,12 +918,12 @@ export const getVehicleAvailabilityPreview = async (booking) => {
  * The reverse direction is not fixed here on purpose. A pickup switched to a
  * delivery needs a vehicle, but auto-allocation belongs to approval and
  * silently assigning one during an edit would hide the change. The caller is
- * told instead, and the "Needs a vehicle" queue on the Vehicles page catches
+ * told instead, and the "Awaiting Vehicle" queue on the Vehicles page catches
  * it either way.
  *
  * @returns {{cleared: number, nowNeedsVehicle: boolean}}
  */
-export const reconcileDispatchWithFulfilment = async (booking, previousVenue) => {
+export const reconcileServiceMethodChange = async (booking, previousVenue) => {
   const before = needsTransport({ ...booking, venue: previousVenue });
   const after = needsTransport(booking);
   if (before === after) return { cleared: 0, nowNeedsVehicle: false };

@@ -345,11 +345,11 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
                 ? <PackageIcon size={16} className={fleetTheme.icon} />
                 : <Truck size={16} className={fleetTheme.icon} />}
               <span className="font-bold text-slate-900 text-sm">
-                {isPickupOrder ? 'Fulfilment' : 'Fleet Availability'}
+                {isPickupOrder ? 'Service Method' : 'Fleet Availability'}
               </span>
               {fleet && (
                 <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                  {isPickupOrder ? 'Customer pickup' : fleet.tripType}
+                  {isPickupOrder ? 'Pickup' : fleet.tripType}
                 </span>
               )}
             </div>

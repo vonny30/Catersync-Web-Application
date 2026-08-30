@@ -14,7 +14,7 @@ import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { createWalkInCustomer } from '../utils/createWalkInCustomer';
-import { getShortOrderFulfilment, PICKUP_VENUE_MARKER, reconcileDispatchWithFulfilment } from '../utils/vehicle';
+import { getServiceMethod, PICKUP_VENUE_MARKER, reconcileServiceMethodChange } from '../utils/vehicle';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
@@ -447,7 +447,7 @@ export default function ShortOrders() {
   // Switching to pickup writes the marker and clears the fee, because a
   // collection is never charged for delivery. Switching back clears the marker
   // rather than leaving it as a half-edited address.
-  const setFulfilment = (mode) => {
+  const setServiceMethod = (mode) => {
     setFormData(prev => ({
       ...prev,
       venue: mode === 'pickup' ? PICKUP_VENUE_MARKER : (prev.venue === PICKUP_VENUE_MARKER ? '' : prev.venue),
@@ -851,7 +851,7 @@ export default function ShortOrders() {
 
       if (editingId) {
         // Captured before the write, because the reconciliation below needs to
-        // know which way the fulfilment moved, not just where it landed.
+        // know which way the service method moved, not just where it landed.
         const previousVenue = orders.find(o => o.booking_id === editingId)?.venue ?? null;
         const { error } = await supabase
           .from('booking')
@@ -862,7 +862,7 @@ export default function ShortOrders() {
         // Switching an approved delivery to a pickup would otherwise leave its
         // van scheduled for a trip that will never happen.
         try {
-          const sync = await reconcileDispatchWithFulfilment(
+          const sync = await reconcileServiceMethodChange(
             { ...payload, booking_id: editingId }, previousVenue
           );
           if (sync.cleared > 0) {
@@ -1165,7 +1165,7 @@ export default function ShortOrders() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Short Orders</h1>
-          <p className="text-[14.5px] text-slate-600 mt-1.5">Manage food tray orders (pickup/delivery) – each tray serves 35‑50 pax</p>
+          <p className="text-[14.5px] text-slate-600 mt-1.5">Manage food tray orders for pickup or delivery — each tray serves 35–50 pax</p>
         </div>
         <button
           onClick={openNewModal}
@@ -1534,9 +1534,9 @@ export default function ShortOrders() {
                       <td className="px-3 py-[15px] text-sm text-slate-800 break-words" title={order.venue || 'N/A'}>
                         {order.venue || 'N/A'}
                         {(() => {
-                          const f = getShortOrderFulfilment(order);
+                          const f = getServiceMethod(order);
                           if (!f) return null;
-                          const pickup = f.mode === 'Customer pickup';
+                          const pickup = f.mode === 'Pickup';
                           return (
                             <span className="mt-1 flex flex-wrap items-center gap-1">
                               <span
@@ -1553,7 +1553,7 @@ export default function ShortOrders() {
                                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11.5px] font-semibold bg-amber-50 text-amber-800 ring-1 ring-amber-300"
                                   title={f.feeLooksWrong}
                                 >
-                                  <AlertTriangle size={11} /> Check fee
+                                  <AlertTriangle size={11} /> Fee mismatch
                                 </span>
                               )}
                             </span>
@@ -1918,17 +1918,17 @@ export default function ShortOrders() {
                 </p>
               </div>
 
-              {/* Fulfilment — writes the SAME venue marker the customer app
+              {/* Service method — writes the SAME venue marker the customer app
                   writes, so an order taken over the counter is readable the
                   same way as one placed in the app. Typed freehand it would
                   not be: the marker has to match exactly to count as a pickup,
                   and a manager who writes "Main Branch" would have the system
                   send a van to fetch nothing. */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Fulfilment *</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Service Method *</label>
                 <div className="grid grid-cols-2 gap-2">
                   {[
-                    { key: 'pickup', label: 'Customer pickup', icon: PackageIcon, hint: 'Collected at the main branch' },
+                    { key: 'pickup', label: 'Pickup', icon: PackageIcon, hint: 'Collected at the main branch' },
                     { key: 'delivery', label: 'Delivery', icon: Truck, hint: 'Delivered to an address' },
                   ].map(opt => {
                     const active = (formData.venue === PICKUP_VENUE_MARKER) === (opt.key === 'pickup');
@@ -1937,7 +1937,7 @@ export default function ShortOrders() {
                       <button
                         key={opt.key}
                         type="button"
-                        onClick={() => setFulfilment(opt.key)}
+                        onClick={() => setServiceMethod(opt.key)}
                         className={`flex flex-col items-start gap-0.5 border rounded-lg p-2.5 text-left transition-colors cursor-pointer ${
                           active
                             ? 'border-[#008A45] bg-[#EAF3F2] ring-1 ring-[#008A45]/20'
@@ -2122,7 +2122,7 @@ export default function ShortOrders() {
                 {/* The other route to charging delivery on a collection.
                     Same reasoning as the create form: withhold the field
                     rather than flag the mistake later. */}
-                {getShortOrderFulfilment(approvalOrder)?.mode !== 'Customer pickup' && (
+                {getServiceMethod(approvalOrder)?.mode !== 'Pickup' && (
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">Additional Delivery Fee</label>
                     <input type="number" name="extraDeliveryFee" min="0" step="0.01" value={approvalData.extraDeliveryFee} onChange={handleApprovalInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" placeholder="e.g. 500" />
