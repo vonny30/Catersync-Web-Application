@@ -19,7 +19,7 @@ import { fetchAllRows } from '../utils/fetchAllRows';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import {
   defaultSetupDispatch, findConflictingAssignment, describeAssignment, needsTransport,
-  recheckConflictsBeforeInsert,
+  recheckConflictsBeforeInsert, DUPLICATE_ASSIGNMENT_CODE, duplicateAssignmentMessage,
 } from '../utils/vehicle';
 
 export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigned }) {
@@ -163,6 +163,10 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
         assignment_status: 'Scheduled',
       }));
       const { error } = await supabase.from('vehicle_assign').insert(inserts);
+      if (error?.code === DUPLICATE_ASSIGNMENT_CODE) {
+        toast.error(duplicateAssignmentMessage, { duration: 8000 });
+        return;
+      }
       if (error) throw error;
       toast.success(`Assigned ${inserts.length} vehicle${inserts.length === 1 ? '' : 's'}.`);
       onClose?.();

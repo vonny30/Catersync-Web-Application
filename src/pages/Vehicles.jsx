@@ -19,7 +19,7 @@ import { errorInputClass } from '../utils/formErrors';
 import {
   getDailyVehicleSnapshot, getDispatchWindow, defaultSetupDispatch,
   PICKUP_GRACE_HOURS, needsTransport, TRIP_LEG, findConflictingAssignment, describeAssignment,
-  recheckConflictsBeforeInsert,
+  recheckConflictsBeforeInsert, DUPLICATE_ASSIGNMENT_CODE, duplicateAssignmentMessage,
 } from '../utils/vehicle';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { getAssignmentStatus, RESOURCE_STATE } from '../utils/statusLabels';
@@ -710,6 +710,10 @@ export default function Vehicles() {
       }));
 
       const { error } = await supabase.from('vehicle_assign').insert(inserts);
+      if (error?.code === DUPLICATE_ASSIGNMENT_CODE) {
+        toast.error(duplicateAssignmentMessage, { duration: 8000 });
+        return;
+      }
       if (error) throw error;
 
       setIsAssignModalOpen(false);

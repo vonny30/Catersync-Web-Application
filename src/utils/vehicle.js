@@ -914,6 +914,15 @@ export const getVehicleAvailabilityPreview = async (booking) => {
  * catered, is already safely in. The caller is told, rather than the whole
  * approval being rolled back over a collection trip.
  */
+// Postgres unique_violation. `vehicle_assign_no_exact_duplicate` on
+// (booking_id, vehicle_id, dispatch_datetime) was added 30 Aug 2026 as a
+// backstop against a double-submit or a retried request writing the same run
+// twice. The index is the whole point, so the app must explain it rather than
+// showing the manager a raw constraint name.
+export const DUPLICATE_ASSIGNMENT_CODE = '23505';
+export const duplicateAssignmentMessage =
+  'That vehicle is already assigned to this booking at that exact time, so nothing was added. If you meant a second run, change the dispatch time.';
+
 /**
  * Is this vehicle already committed to an overlapping run?
  *
@@ -1090,7 +1099,8 @@ export const allocateVehiclesForBooking = async (booking, chosenVehicleIds = nul
     assignment_status: 'Scheduled',
   }));
   const { error: setupError } = await supabase.from('vehicle_assign').insert(setupRows);
-  if (setupError) throw setupError;
+  // A duplicate means these rows already exist — the work is done, not failed.
+  if (setupError && setupError.code !== DUPLICATE_ASSIGNMENT_CODE) throw setupError;
 
   let pickupsSkipped = false;
   const pickupRows = plan.picks
@@ -1103,20 +1113,26 @@ export const allocateVehiclesForBooking = async (booking, chosenVehicleIds = nul
     }));
   if (pickupRows.length > 0) {
     const { error: pickupError } = await supabase.from('vehicle_assign').insert(pickupRows);
-    if (pickupError) {
+    // A duplicate is the row already being there, not a failure.
+    if (pickupError && pickupError.code !== DUPLICATE_ASSIGNMENT_CODE) {
       // Kept as a genuine failure path, not the one this comment used to
       // claim. It previously said the table allows only one row per
       // booking+vehicle, so a pickup could never be stored — that was never
-      // checked and is not true. vehicle_assign carries three foreign keys and
-      // a primary key on assignment_id, and nothing else: a booking can hold a
-      // setup row and a pickup row for the same vehicle, which is what the
-      // two-leg model depends on.
+      // checked and is not true.
+      //
+      // As of 30 Aug 2026 vehicle_assign carries three foreign keys, a primary
+      // key on assignment_id, and one unique index on
+      // (booking_id, vehicle_id, dispatch_datetime). That last one is
+      // deliberately keyed on the dispatch time: a booking can still hold a
+      // setup row AND a collection row for the same vehicle, because the two
+      // legs leave at different times, which is what the two-leg model depends
+      // on. It rejects only an exact repeat of a run that already exists.
       //
       // A failure here is therefore a real problem (network, RLS, a bad
       // dispatch time) rather than an expected limitation, and the setup rows
       // are already saved by this point — so the caller warns rather than
       // rolling back a dispatch that did work.
-      console.warn('Pickup run not recorded:', pickupError);
+      console.warn('Collection run not recorded:', pickupError);
       pickupsSkipped = true;
     }
   }
