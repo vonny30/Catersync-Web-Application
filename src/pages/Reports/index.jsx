@@ -554,6 +554,9 @@ export default function Reports() {
     // Needs a bounded range. Over "All Time" there is no finite denominator,
     // so the figure is reported as unavailable rather than invented.
     const HOUR = 60 * 60 * 1000;
+    // Vehicles actually fit to go out. Reported on its own because
+    // "available" previously meant total minus dispatched, which counted a van
+    // sitting in the workshop as free.
     const serviceableVehicles = vehicles.filter(v => v.vehicle_status === 'Available').length;
     let fleetUtilization = null;
     if (rangeStart && rangeEnd && serviceableVehicles > 0) {
@@ -633,7 +636,7 @@ export default function Reports() {
     return {
       financialSummary, monthlyRevenueData, paymentMethodData, refunds, totalRefunded,
       totalSubmitted, cancellationRate,
-      committedVehicles, fleetUtilization,
+      committedVehicles, fleetUtilization, serviceableVehicles,
       productLineMix, packageMix, menuItemMix, categoryDemandData,
       packageRevenue, shortOrderRevenue, combinedRevenue,
       menuItemRevenue, deliveryFeeTotal, traysSold, topSellingItem,

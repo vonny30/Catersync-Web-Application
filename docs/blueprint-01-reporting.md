@@ -87,7 +87,10 @@ Ordered by cost, not effort.
 | 18 | **"Available vehicles" counts broken ones.** `available = total − dispatched`, so a van flagged Maintenance and not dispatched reads as free. | `VehicleUtilizationTab.jsx:7,49` | Medium |
 
 Defects 12–17 are **fixed** — see `blueprint-02-language.md` §4 and the shipped
-code in `src/pages/Reports/`. Defects 1–11 and 18 remain open.
+code in `src/pages/Reports/`. Defect 1 (the 1000-row cap) is fixed: every report
+query pages through `fetchAllRows`. Defect 18 is fixed: "available" now means in
+service AND not out, so a van under maintenance no longer reads as free.
+Defects 2–11 remain open.
 
 **Defect 1 is the one to fix first.** It's the only one that gets worse on its
 own, and it fails silently. Either paginate the report queries or push

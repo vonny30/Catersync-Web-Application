@@ -2,12 +2,16 @@
 import { cardColorClasses, cardAccentClass } from './helpers';
 
 export default function VehicleUtilizationTab({ derived, onOpenDetail }) {
-  const { vehicleUtilizationData, totalVehicles, dispatchedVehicles, committedVehicles, fleetUtilization } = derived;
+  const { vehicleUtilizationData, totalVehicles, dispatchedVehicles, committedVehicles, fleetUtilization, serviceableVehicles } = derived;
   // "On the road" is a headcount of vehicles out RIGHT NOW, so the share it
   // belongs with is of the fleet — not the time-based utilization below, which
   // measures something different and would read as the same number twice.
   const onRoadShare = totalVehicles > 0 ? Math.round((dispatchedVehicles / totalVehicles) * 100) : 0;
-  const availableVehicles = totalVehicles - dispatchedVehicles;
+  // Blueprint-01 defect 18. This was total minus dispatched, so a van flagged
+  // Maintenance and therefore not dispatched was counted as available — the
+  // one state where it is definitely not. Free means in service AND not out.
+  const availableVehicles = Math.max(0, serviceableVehicles - dispatchedVehicles);
+  const outOfServiceVehicles = totalVehicles - serviceableVehicles;
 
   return (
     <div className="space-y-[18px]">
@@ -75,8 +79,8 @@ export default function VehicleUtilizationTab({ derived, onOpenDetail }) {
         <button
           onClick={() => onOpenDetail({
             title: 'Available Vehicles',
-            description: 'From the vehicle table: vehicles with no dispatch window containing this moment.',
-            fields: [{ label: 'Available vehicles', value: availableVehicles, emphasis: true }],
+            description: 'From the vehicle table: vehicles in service AND with no dispatch window containing this moment. A vehicle under maintenance or flagged unavailable is not counted as free.',
+            fields: [{ label: 'Available vehicles', value: availableVehicles, emphasis: true }, { label: 'In service', value: serviceableVehicles }, { label: 'Out of service', value: outOfServiceVehicles }],
           })}
           className={`border rounded-2xl p-5 text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 ${cardColorClasses()}`}
         >
