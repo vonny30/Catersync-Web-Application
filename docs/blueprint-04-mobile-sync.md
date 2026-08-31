@@ -229,6 +229,15 @@ before the ops app starts reporting shortfalls that are not real.
 
 ## 5. The gap nobody has mentioned yet: these two people cannot log in
 
+> **PARTLY SUPERSEDED, 30 Aug 2026.** The live database now has
+> `staff_account` (PK `user_id` → `auth.users`, with `role` and `active`) and
+> an `is_main_cook()` function already used in production RLS policies on
+> `booking` and `customer`. A staff member *can* now authenticate, and a
+> role-scoped pattern is running. The section below describes the state before
+> that existed; see
+> [`blueprint-05-equipment-sync.md`](blueprint-05-equipment-sync.md) §1 and §7
+> for what is actually there and how to extend it for the Operations Manager.
+
 The logical model has exactly two account tables — `CUSTOMER` and `MANAGER` —
 and `MANAGER` holds one row. There is **no staff table and no role column**, so
 there is currently no way for a Main Cook or an Operations Manager to
