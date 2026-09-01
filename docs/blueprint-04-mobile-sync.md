@@ -227,16 +227,25 @@ before the ops app starts reporting shortfalls that are not real.
 
 ---
 
-## 5. The gap nobody has mentioned yet: these two people cannot log in
+## 5. ~~The gap nobody has mentioned yet: these two people cannot log in~~ — RESOLVED
 
-> **PARTLY SUPERSEDED, 30 Aug 2026.** The live database now has
-> `staff_account` (PK `user_id` → `auth.users`, with `role` and `active`) and
-> an `is_main_cook()` function already used in production RLS policies on
-> `booking` and `customer`. A staff member *can* now authenticate, and a
-> role-scoped pattern is running. The section below describes the state before
-> that existed; see
-> [`blueprint-05-equipment-sync.md`](blueprint-05-equipment-sync.md) §1 and §7
-> for what is actually there and how to extend it for the Operations Manager.
+> **WRONG AS WRITTEN. Corrected 1 Sep 2026.** This section said staff cannot
+> log in, and §7's decision is framed around that. Verified against the live
+> database: `staff_account` exists (PK `user_id` → `auth.users`, with `role`
+> and `active`), `kitchen_task_status` exists, and **`is_main_cook()` is
+> already used in production RLS policies** on `booking` and `customer`. A
+> staff member can authenticate today and a role-scoped pattern is running.
+>
+> What is actually needed for the Operations Manager is an
+> `is_operations_manager()` mirroring it, plus policies — see
+> [`ops-manager-sync.md`](ops-manager-sync.md) §2.1. That is a database change
+> needing Vaughn and his groupmate, but it does not block either app.
+>
+> **This also changes §7.** Its recommended migration proposes creating
+> `staff_account` — a table that already exists. Read §7.1 as three items, not
+> four: `kitchen_task` (see the note there), `return_log`, and
+> `booking_equipment.returned_quantity`. The paragraphs below are kept as the
+> record of what was believed on 29 Aug, not as instructions.
 
 The logical model has exactly two account tables — `CUSTOMER` and `MANAGER` —
 and `MANAGER` holds one row. There is **no staff table and no role column**, so
@@ -297,13 +306,22 @@ change, because it would corrupt a column the web app depends on.
 **7.1 · Recommended: a small, additive change — three tables and one column.**
 
 ```
-staff_account      staff_id, role ('Main Cook' | 'Operations Manager'),
-                   first_name, last_name, email, contact_no, password, status
-kitchen_task       task_id, booking_id, menu_item_id, cook_status, updated_at
+staff_account      ALREADY EXISTS — do not create. Live as:
+                   user_id (PK, FK -> auth.users), display_name,
+                   role (default 'main_cook'), active, created_at, updated_at
+kitchen_task       PARTLY EXISTS as `kitchen_task_status`
+                   (booking_id PK, done, done_at, done_by). Per-BOOKING, not
+                   per-dish, so a per-dish status still needs somewhere to go.
+                   NOTE its booking_id is `text` where booking.booking_id is
+                   `uuid` — no real FK. Fix that before building on it.
 return_log         log_id, booking_id, equipment_id, returned_quantity,
                    missing_quantity, damaged_quantity, logged_by, logged_at
 booking_equipment  + returned_quantity   (keep `returned` as it is)
 ```
+
+> **Corrected 1 Sep 2026.** The first two entries were written as proposals.
+> Both are already in the database. Only `return_log` and the
+> `returned_quantity` column remain to be added.
 
 Additive only — nothing existing is renamed, retyped or dropped, so **not one
 line of the web app breaks**. `booking_equipment.returned` keeps working exactly

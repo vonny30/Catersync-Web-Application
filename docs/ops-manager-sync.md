@@ -46,6 +46,7 @@ date needs a change, not just a re-read.
 
 | Date | Change | Effect on the OM app |
 |---|---|---|
+| 1 Sep 2026 | `staff_account`, `kitchen_task_status` and `is_main_cook()` confirmed **live** in the database; §1.3, §5.3 and §8 corrected — **OM authentication is buildable**, following the main-cook pattern (§2.1) | **Breaking.** This file previously said the OM could not log in and that the app was blocked before any screen rendered. Both were wrong. Anyone who read it before this date holds the opposite belief |
 | 31 Aug 2026 | This document created; §1 role definition added | — |
 | 30 Aug 2026 | Short-order **service method** added — `PICKUP_VENUE_MARKER`, `getServiceMethod`, `FREE_DELIVERY_AREAS` | **Breaking.** A customer pickup gets no vehicle and must not appear on an itinerary. §3.5 |
 | 30 Aug 2026 | `PICKUP_GRACE_HOURS` 3 → **4**; `HOP_HOURS` 0.75 → **1.5**; event-setup `setupHours` 1.5 → **3** | **Breaking.** Both the collection-run departure and the return-checklist unlock moved by an hour. §3.2 |
@@ -119,9 +120,9 @@ against the schema as it exists today — see §5.3 for the three that are block
 | # | The OM should be able to… | Screen | Read/Write | Buildable now |
 |---|---|---|---|---|
 | **Account (WBS 4.1)** ||||
-| A1 | Log in as themselves | Login | — | **No** — no staff table (§5.3) |
-| A2 | See and edit their own contact number, change password | Profile | W | With A1 |
-| A3 | Log out | Profile | — | With A1 |
+| A1 | Log in as themselves | Login | — | **Yes** — `staff_account` + Supabase auth already exist (§2.1) |
+| A2 | See and edit their own contact number, change password | Profile | W | **Yes** — with A1 |
+| A3 | Log out | Profile | — | **Yes** — with A1 |
 | **Delivery assignments (WBS 4.2 · UFR-OM-01, 04, 05)** ||||
 | D1 | See the vehicles assigned to them for the day | Today's Operation Tasks | R | **Yes** — §4.1 |
 | D2 | See the delivery schedule — what leaves when, in order | Today's Operation Tasks | R | **Yes** — §3.3 |
@@ -139,20 +140,31 @@ against the schema as it exists today — see §5.3 for the three that are block
 | E6 | See a completed event's return summary | Completed Summary | R | **Yes** |
 | E7 | See the history of past dispatches, deliveries and checklists | History | R | **Yes** |
 
-**All nine reads are buildable against the schema as it stands.** The writes are
-where it stops: E2 works today, D7 works only as far as the two values
-`assignment_status` holds, and A2, E3, E4 and E5 are all blocked — three of them
-on the single decision in §5.3, and A2 on the account that decision also gates.
+**All nine reads are buildable against the schema as it stands**, and so is the
+whole account group. The writes are where it stops: A1–A3 and E2 work today, D7
+works only as far as the two values `assignment_status` holds, and E3, E4 and E5
+are blocked on the single decision in §5.3.
+
+> **Corrected 1 Sep 2026.** A1 was previously marked **No — no staff table**,
+> and this paragraph said A2 was blocked on an account that did not exist. Both
+> were false: `staff_account` is live and `is_main_cook()` already drives RLS
+> policies in production. See §2.1. If you read this file before 1 Sep, the
+> account screens you were told to defer are buildable now.
 
 So the app's whole read surface — the itinerary, the packing list, the food
-list, the history — can be built now, and it is already most of what §1.2 says
-the app is for.
+list, the history — plus login and profile, can be built now, and that is
+already most of what §1.2 says the app is for.
 
 ### 1.4 What the Operations Manager must NOT be able to do
 
-Worth stating, because the app shares a database with the web app and there is
-currently **no role column to enforce any of it** (see the audit, C2). Until
-there is, these are conventions the app must respect by not offering the buttons:
+Worth stating, because the app shares a database with the web app. These can be
+**enforced**, not merely agreed: `staff_account.role` exists and RLS is live on
+every table, so an `is_operations_manager()` policy set (§2.1) can refuse each
+of these at the database rather than trusting the app not to offer the button.
+
+Until those policies are written they are conventions — so build the app as if
+they were enforced, and write the policies as soon as the role predicate lands.
+Nothing below should ever be a button the OM can press.
 
 - **Not approve, reject, confirm or cancel a booking.** The Manager owns the
   lifecycle. The OM never writes `booking_status` — and therefore never has to
@@ -233,6 +245,48 @@ into a column, never compare against one:
 Only `Approved` and `Confirmed` bookings are live work. A `Rejected` or
 `Cancelled` booking's assignment is not a job and must never appear on an
 itinerary.
+
+### 2.1 Accounts and roles — the mechanism already exists
+
+Verified against the live database, 1 Sep 2026. **The OM does not need a new
+authentication mechanism inventing; it needs the running one extended.**
+
+```
+staff_account       user_id (PK, FK -> auth.users), display_name,
+                    role (default 'main_cook'), active, created_at, updated_at
+kitchen_task_status booking_id (PK), done, done_at, done_by (-> auth.users)
+```
+
+`is_main_cook()` is a Postgres function **already used in production RLS
+policies** on `booking` and `customer` — the Main Cook's read of approved
+bookings is enforced in the database, not in an app. So a staff member
+authenticates through Supabase auth like anyone else, and `staff_account.role`
+plus a role predicate decides what they can see.
+
+For the Operations Manager, mirror it:
+
+```sql
+create or replace function is_operations_manager() returns boolean as $$
+  select exists (
+    select 1 from staff_account
+    where user_id = auth.uid()
+      and role = 'operations_manager'
+      and active
+  );
+$$ language sql stable security definer;
+```
+
+Then policies scoped to what §1.3 says the role does — read the itinerary, the
+packing list and the food list, update `booking_equipment.returned` and
+`vehicle_assign.assignment_status` — and **nothing beyond it**. Specifically it
+must not delete `booking_equipment` rows, change `equipment` stock totals, or
+write `booking_status`; §1.4 is the list, and a policy is where it should be
+enforced rather than trusted to the app.
+
+This is a database change on a project three apps share. Additive policies for
+a new role are low-risk; anything that narrows an existing one is not. Do it
+with Vaughn and his groupmate present — and see landmine 9 before modelling
+anything on the policies that are already there.
 
 ---
 
@@ -451,19 +505,24 @@ early is harmless — availability is computed from windows, not from this colum
 
 ### 5.3 What the OM app CANNOT write yet
 
-Three of the documented features have nowhere to land. This is
+Two of the documented features have nowhere to land. This is
 `blueprint-04-mobile-sync.md` §7 and it is Vaughn's decision, not a coding one:
 
 | Feature | Blocked by |
 |---|---|
 | **Partial return counts** ("47 of 50 chairs") | `booking_equipment.returned` is a **boolean**. There is no quantity column |
 | **Missing / damaged per event** | `equipment.damaged_quantity` is a stock total with no event attached — nothing can be traced back |
-| **The OM logging in as themselves** | There is no staff table and no role column. `manager` holds one row |
 
-Until those are resolved the Return Checklist is all-or-nothing per item, and
-the app authenticates as... something not yet decided. **Do not work around
-this** by packing counts into `booking_equipment.notes` or by overloading
-`equipment.damaged_quantity` — both corrupt columns the web app depends on.
+Until those are resolved the Return Checklist is all-or-nothing per item. **Do
+not work around this** by packing counts into `booking_equipment.notes` or by
+overloading `equipment.damaged_quantity` — both corrupt columns the web app
+depends on.
+
+> **Corrected 1 Sep 2026.** A third row here read *"The OM logging in as
+> themselves — there is no staff table and no role column. `manager` holds one
+> row."* That was false. `staff_account` exists and `is_main_cook()` is live in
+> production RLS. Authentication is not blocked and never gated the other two.
+> See §2.1.
 
 ---
 
@@ -498,13 +557,48 @@ Ordered by how easy each is to hit.
 5. **Display labels vs stored values.** §2. Writing `'Returned'` into
    `assignment_status` would break every web query that filters on it.
 6. **Timezones.** Never feed `.toISOString()` into a local datetime control —
-   it shifts by the UTC offset. The web app has this bug in four places right
-   now (audit D3); do not copy it.
+   it shifts by the UTC offset, and the shift is cumulative: save twice and a
+   morning event crosses onto the previous day. The web app had this in four
+   edit forms; **fixed 1 Sep 2026** (audit D3) and the conversion now lives in
+   `utils/datetimeLocal.js`. Port that, do not re-derive it. The same class of
+   bug hit `vehicle_assign.dispatch_datetime`, which is `timestamptz` — a
+   zoneless string sent to it is read as UTC and lands eight hours out.
 7. **`booking_equipment`'s primary key is `assignment_id`** — the same column
    name `vehicle_assign` uses, on a different table. Easy to cross-wire.
 8. **A cancelled booking's rows are deleted outright**, not archived. If the app
    is holding a packing list when the manager cancels, it must refetch, not
-   assume.
+   assume. Completed rows now survive — cancelling releases what is still held
+   and keeps what already happened — so a returned item stays in history.
+
+9. **The `anon` RLS policies are wider than they look.** `booking`, `customer`
+   and `payment` each carry a policy granting `anon` access with
+   `USING (true)`, and one on `booking` is an **`UPDATE`** — so any booking's
+   `total_amount` is currently writable by anyone holding the public key. These
+   predate the OM app and Vaughn is addressing them with his groupmate. **Do
+   not model new policies on them**, and do not assume the database is
+   protecting you today. §2.1.
+
+10. **`kitchen_task_status.booking_id` is `text`, not `uuid`.** `booking.booking_id`
+    is a uuid, so there is **no real foreign key**: kitchen rows can point at
+    bookings that do not exist, and deleting a booking silently orphans them.
+    The table is near-empty, so this is cheap to fix now and a
+    migration-with-backfill later. If the OM app ever joins to it, do not
+    assume referential integrity.
+
+11. **A realtime subscription to an unpublished table succeeds and delivers
+    nothing.** Supabase reports `SUBSCRIBED` and then stays silent — no error,
+    no warning, forever. If `booking_equipment` is not in the
+    `supabase_realtime` publication, the OM will tick items off a return
+    checklist and the manager's screen will keep showing them as out until
+    someone reloads. Check before trusting §6:
+
+    ```sql
+    select tablename from pg_publication_tables
+    where pubname = 'supabase_realtime' order by tablename;
+    ```
+
+    Row-filtered subscriptions additionally need `REPLICA IDENTITY FULL`,
+    because DELETE events match the filter against the OLD row.
 
 ---
 
@@ -512,8 +606,12 @@ Ordered by how easy each is to hit.
 
 - **The three writes in §5.3** — Vaughn's decision on whether the no-schema-changes
   rule holds. Everything else in this document is buildable today.
-- **Authentication** for the OM account (§5.3). Blocks the app before any screen
-  renders.
+- **`is_operations_manager()` and its policies** — the *mechanism* exists
+  (§2.1); what is missing is the role predicate mirroring `is_main_cook()` and
+  the policies scoping it to §1.3. This is a database change on a shared
+  project, so it needs Vaughn and his groupmate, but it does **not** block the
+  app the way this bullet previously claimed: it read *"Blocks the app before
+  any screen renders"*, which was wrong.
 - **Dispatch status (UFR-OM-04 / SFR-OS-04)** — "update and log delivery and
   dispatch status". Beyond `assignment_status`'s two values there is nowhere to
   record en-route / arrived / departed. Either scope it to the two values that

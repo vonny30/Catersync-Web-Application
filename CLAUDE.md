@@ -16,12 +16,15 @@ React 19 + Vite + Tailwind 4 + Supabase. App code lives in `frontend/`.
   Check it before starting work and update it when an item closes.
 - `frontend/docs/blueprint-01-reporting.md` / `-02-language.md` — settled
   decisions on the money model and UI vocabulary.
-- `frontend/docs/blueprint-04-mobile-sync.md` / `-05-equipment-sync.md` — the
-  Main Cook and Operations Manager apps. **-05 is the one to read for
-  equipment**: what those roles may change, the admin rules they must not
-  bypass, why realtime silently does nothing on an unpublished table, and what
-  a second writer breaks. It also corrects -04 §5, which says staff cannot log
-  in — `staff_account` and `is_main_cook()` now exist.
+- `frontend/docs/ops-manager-sync.md` — **the contract with the Operations
+  Manager app, and the one to read for Equipment or Vehicles.** The role, the
+  exact tables and columns, the five derivations the app must copy, and §7
+  Landmines. **Maintained, not a snapshot**: changing Equipment or Vehicles
+  means updating it, and §0.2 is the changelog that says what broke.
+- `frontend/docs/blueprint-04-mobile-sync.md` — the earlier plan for both staff
+  apps. Its §5 and §7.1 are **corrected in place**, not deleted: they said
+  staff cannot log in and proposed creating `staff_account`, and both are
+  false — the table and `is_main_cook()` are live.
 
 Treat decisions in those files as settled unless Vaughn says otherwise.
 
