@@ -11,6 +11,15 @@ this codebase; treat their decisions as settled unless Vaughn says otherwise.
   eight moments where a vehicle attaches to a booking, the dispatch-window
   model, and a screen-by-screen concept. Phase 1 is built; §9 holds four
   decisions Vaughn has not answered yet.
+- `ops-manager-sync.md` — **the contract with the Operations Manager mobile
+  app.** The role, what it must and must not do, the exact reads and writes, and
+  the five derivations it has to copy from `utils/vehicle.js` and
+  `utils/equipment.jsx`. **This file is maintained, not a snapshot** — see the
+  rule under *Conventions worth preserving*.
+- `mobile-contract.md` — the rules every client sharing this database must
+  honour, whichever app it is.
+- `blueprint-04-mobile-sync.md` — the plan for the Main Cook and Operations
+  Manager apps, and the one schema decision that blocks half of it.
 - `panel-revisions-2026-05-29.md` — **every comment from the 1st Increment oral
   defense**, mapped to files and status. Read this before starting new work: it
   is the list the project is actually graded against. 13 of its 32 items are
@@ -251,6 +260,23 @@ usable figure.
   it, since it is filtered on its own primary key.
 
 ## Conventions worth preserving
+
+- **Changing Equipment or Vehicles means updating `ops-manager-sync.md`.** The
+  Operations Manager mobile app is built against that file, and it duplicates
+  rules that live in `utils/vehicle.js` and `utils/equipment.jsx` because the
+  two apps cannot share code. A change here that does not reach that document
+  becomes a phone and a laptop disagreeing about the same van on the same day,
+  which is worse than either being wrong alone.
+
+  It is not finished until §0.1 (the constants table) matches the code and §0.2
+  (the changelog) has a dated row saying what the mobile side has to do about
+  it. §0.3 lists exactly what triggers this. Treat it the way you would treat a
+  failing test: part of the change, not follow-up work.
+
+  The rules that most often drift: `TRIP_PROFILE`, `PICKUP_GRACE_HOURS` (which
+  is load-bearing twice — the collection run's departure AND the return
+  checklist's unlock), the setup/collection leg derivation, the stock identity,
+  and the short-order pickup marker.
 
 - **`utils/reportMetrics.js` owns every money definition.** Cash figures anchor
   on `pay_datetime`; event figures anchor on `event_datetime`. Never sum
