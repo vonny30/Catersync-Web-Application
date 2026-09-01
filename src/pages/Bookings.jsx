@@ -15,13 +15,14 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { checkEquipmentCapacityForDate, allocateEquipmentForBooking } from '../utils/equipment';
 import { createWalkInCustomer } from '../utils/createWalkInCustomer';
-import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
+import { useApprovalHandlers, extraPaxRate } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
 import { isPaymentLedgerLocked } from '../utils/payments';
 import { bookingEditLockedMessage, STATUS_ORDER, findStatusOrderDrift } from '../utils/bookingStatus';
+import { toDateTimeLocalValue } from '../utils/datetimeLocal';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds } from './Reports/helpers';
@@ -591,7 +592,7 @@ export default function Bookings() {
       customer_id: booking.customer_id,
       package_id: booking.package_id || '',
       booking_type: booking.booking_type,
-      event_datetime: booking.event_datetime ? new Date(booking.event_datetime).toISOString().slice(0, 16) : '',
+      event_datetime: toDateTimeLocalValue(booking.event_datetime),
       venue: booking.venue || '',
       pax_count: booking.pax_count?.toString() || '',
       motif_color: booking.motif_color || '',
@@ -1060,10 +1061,23 @@ const handleMarkCompleted = async (id) => {
 
     // 4. Update payments to Fully Paid
     if (totalPaid > 0) {
+      // Scoped to Downpayment rows only, matching useCompletionHandlers.
+      // Updating every payment row on the booking rewrote rows that had no
+      // business changing: a 'Pending Verification' proof nobody had reviewed
+      // and a 'Proof Rejected' one a manager had explicitly turned down both
+      // became 'Fully Paid'. Because sumVerifiedPositivePayments counts
+      // anything outside the unverified statuses, that silently promoted
+      // rejected and unreviewed money into real revenue.
+      //
+      // This rule now exists in three places — here, ShortOrders.jsx, and
+      // useCompletionHandlers.js — and has already drifted once. If you touch
+      // one, touch all three, or better, collapse them into the hook.
       const { error: updatePaymentsError } = await supabase
         .from('payment')
         .update({ pay_status: 'Fully Paid' })
-        .eq('booking_id', id);
+        .eq('booking_id', id)
+        .eq('pay_status', 'Downpayment')
+        .gt('amount_paid', 0);
       if (updatePaymentsError) throw updatePaymentsError;
     }
     toast.success('Booking completed. Remaining payments marked Fully Paid.');
@@ -2212,7 +2226,12 @@ const handleMarkCompleted = async (id) => {
                     onChange={handleApprovalInputChange}
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
                   />
-                  <p className="text-xs text-slate-400 mt-1">Each extra pax costs ₱{approvalBooking.package?.pkg_price || 0} (package price per pax).</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Each extra guest costs ₱{extraPaxRate(approvalBooking.package).toLocaleString()}
+                    {approvalBooking.package?.pricing_type === 'per_pax'
+                      ? ' (this package is priced per guest).'
+                      : ' (the extra-guest rate for this fixed-price package).'}
+                  </p>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons, extra services)</label>

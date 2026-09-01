@@ -8,6 +8,26 @@ import { allocateVehiclesForBooking } from '../utils/vehicle';
 import { sumVerifiedPositivePayments } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, MAX_SHORT_ORDERS_PER_DAY, STATUS_ORDER } from '../utils/bookingStatus';
 
+/**
+ * What one extra guest costs on a package.
+ *
+ * A per-pax package charges the headline price for every guest, so an extra
+ * guest costs exactly that. A FIXED-price package charges one price up to
+ * max_pax and `extra_pax_price` beyond it — charging the whole package price
+ * per head there is the difference between 400 and 25,000 a guest.
+ *
+ * `computeBaseTotal` below has always had this branch; the approval modal did
+ * not, so the two disagreed the moment a manager typed into Extra Pax. Both
+ * read this now, and so does the hint under the input — a hint that states a
+ * different rule from the one being applied is worse than no hint.
+ */
+export const extraPaxRate = (pkg) => {
+  if (!pkg) return 0;
+  return pkg.pricing_type === 'per_pax'
+    ? (pkg.pkg_price || 0)
+    : (pkg.extra_pax_price || 0);
+};
+
 export function useApprovalHandlers({ booking, payments, fetchData }) {
   const { showConfirm } = useConfirm();
   const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
@@ -113,8 +133,7 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
       const updated = { ...prev, [name]: numValue };
       let newTotal = updated.baseTotal;
       if (approvalType === 'package') {
-        const pkgPrice = approvalBooking?.package?.pkg_price || 0;
-        const extraPaxCost = (updated.extraPax || 0) * pkgPrice;
+        const extraPaxCost = (updated.extraPax || 0) * extraPaxRate(approvalBooking?.package);
         newTotal = updated.baseTotal + extraPaxCost + (updated.additionalFee || 0);
       } else {
         // ✅ Now extraQuantity and extraDeliveryFee are guaranteed to exist

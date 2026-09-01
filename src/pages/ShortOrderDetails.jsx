@@ -20,6 +20,7 @@ import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
 import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind } from '../utils/payments';
 import { getServiceMethod, reconcileServiceMethodChange, PICKUP_VENUE_MARKER, getDispatchWindow, TRIP_LEG } from '../utils/vehicle';
 import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
+import { toDateTimeLocalValue } from '../utils/datetimeLocal';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
@@ -549,7 +550,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
     } catch (e) { selections = []; }
     setEditFormData({
       customer_id: order.customer_id || '',
-      event_datetime: order.event_datetime ? new Date(order.event_datetime).toISOString().slice(0, 16) : '',
+      event_datetime: toDateTimeLocalValue(order.event_datetime),
       venue: order.venue || '',
       delivery_fee: order.delivery_fee?.toString() || '0',
       total_amount: order.total_amount?.toString() || '',

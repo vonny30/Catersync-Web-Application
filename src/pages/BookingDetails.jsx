@@ -11,7 +11,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { usePaymentHandlers } from '../hooks/usePaymentHandlers';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
-import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
+import { useApprovalHandlers, extraPaxRate } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { useCancellationHandlers } from '../hooks/useCancellationHandlers';
 import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
@@ -21,6 +21,7 @@ import { allocateEquipmentForBooking } from '../utils/equipment';
 import { getDispatchWindow, TRIP_LEG } from '../utils/vehicle';
 import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
+import { toDateTimeLocalValue } from '../utils/datetimeLocal';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
@@ -601,7 +602,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
       customer_id: booking.customer_id || '',
       package_id: booking.package_id || '',
       booking_type: booking.booking_type || 'Package',
-      event_datetime: booking.event_datetime ? new Date(booking.event_datetime).toISOString().slice(0, 16) : '',
+      event_datetime: toDateTimeLocalValue(booking.event_datetime),
       venue: booking.venue || '',
       pax_count: booking.pax_count?.toString() || '',
       motif_color: booking.motif_color || '',
@@ -2615,7 +2616,12 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                     onChange={handleApprovalInputChange}
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
                   />
-                  <p className="text-xs text-slate-400 mt-1">Each extra pax costs ₱{approvalBooking.package?.pkg_price || 0} (package price per pax).</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Each extra guest costs ₱{extraPaxRate(approvalBooking.package).toLocaleString()}
+                    {approvalBooking.package?.pricing_type === 'per_pax'
+                      ? ' (this package is priced per guest).'
+                      : ' (the extra-guest rate for this fixed-price package).'}
+                  </p>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons, extra services)</label>

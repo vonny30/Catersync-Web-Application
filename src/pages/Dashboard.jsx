@@ -8,7 +8,7 @@ import { Calendar as CalendarIcon, Clock, CheckCircle, TrendingUp, ChevronLeft, 
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
-import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
+import { useApprovalHandlers, extraPaxRate } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { sumVerifiedPositivePayments, sumVerifiedDownpayments } from '../utils/payments';
@@ -1343,7 +1343,12 @@ export default function Dashboard() {
                         onChange={handleApprovalInputChange}
                         className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
                       />
-                      <p className="text-xs text-slate-400 mt-1">Each extra pax costs ₱{approvalBooking.package?.pkg_price || 0} (package price per pax).</p>
+                      <p className="text-xs text-slate-400 mt-1">
+                    Each extra guest costs ₱{extraPaxRate(approvalBooking.package).toLocaleString()}
+                    {approvalBooking.package?.pricing_type === 'per_pax'
+                      ? ' (this package is priced per guest).'
+                      : ' (the extra-guest rate for this fixed-price package).'}
+                  </p>
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons, extra services)</label>

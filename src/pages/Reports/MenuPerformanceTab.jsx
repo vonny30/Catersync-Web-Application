@@ -57,7 +57,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
   const {
     productLineMix, packageMix, menuItemMix, categoryDemandData,
     packageRevenue, shortOrderRevenue, combinedRevenue,
-    menuItemRevenue, deliveryFeeTotal, traysSold, topSellingItem,
+    menuItemRevenue, deliveryFeeTotal, unattributedFoodRevenue, traysSold, topSellingItem,
     hasEstimatedMenuRevenue, totalPackageBookings,
   } = derived;
 
@@ -263,10 +263,23 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                 <span>Delivery fees</span>
                 <span className="font-semibold tabular-nums">{formatCurrency(deliveryFeeTotal)}</span>
               </div>
+              {unattributedFoodRevenue > 0 && (
+                <div className="flex justify-between max-w-md">
+                  <span>Not attributed to a dish</span>
+                  <span className="font-semibold tabular-nums">{formatCurrency(unattributedFoodRevenue)}</span>
+                </div>
+              )}
               <div className="flex justify-between max-w-md pt-1 border-t border-slate-300 text-slate-800">
                 <span className="font-semibold">Short order revenue</span>
                 <span className="font-bold tabular-nums">{formatCurrency(shortOrderRevenue)}</span>
               </div>
+              {unattributedFoodRevenue > 0 && (
+                <p className="pt-2 text-slate-500">
+                  Some short orders in this period have no readable item list, so their food
+                  revenue cannot be split across dishes. It is shown on its own line so the
+                  three figures still reconcile.
+                </p>
+              )}
               {hasEstimatedMenuRevenue && (
                 <p className="pt-2 text-amber-700">
                   Some orders had no priced items to split against — those are counted at current menu prices instead.

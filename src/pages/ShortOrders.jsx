@@ -22,6 +22,7 @@ import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
 import { isPaymentLedgerLocked, totalLossOnRecompute, totalLossLockedMessage } from '../utils/payments';
 import { bookingEditLockedMessage, MAX_SHORT_ORDERS_PER_DAY, STATUS_ORDER, findStatusOrderDrift } from '../utils/bookingStatus';
+import { toDateTimeLocalValue } from '../utils/datetimeLocal';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import { getBookingsOnDate } from '../utils/availability';
 import DateRangeFilter from './Reports/DateRangeFilter';
@@ -579,7 +580,7 @@ export default function ShortOrders() {
     setFormData({
       customer_id: order.customer_id || '',
       booking_type: 'Short Order',
-      event_datetime: order.event_datetime ? new Date(order.event_datetime).toISOString().slice(0, 16) : '',
+      event_datetime: toDateTimeLocalValue(order.event_datetime),
       venue: order.venue || '',
       notes: order.notes || '',
       delivery_fee: order.delivery_fee?.toString() || '0',
@@ -1007,10 +1008,23 @@ export default function ShortOrders() {
 
     // 3. Update payments to Fully Paid
     if (totalPaid > 0) {
+      // Scoped to Downpayment rows only, matching useCompletionHandlers.
+      // Updating every payment row on the booking rewrote rows that had no
+      // business changing: a 'Pending Verification' proof nobody had reviewed
+      // and a 'Proof Rejected' one a manager had explicitly turned down both
+      // became 'Fully Paid'. Because sumVerifiedPositivePayments counts
+      // anything outside the unverified statuses, that silently promoted
+      // rejected and unreviewed money into real revenue.
+      //
+      // This rule now exists in three places — here, ShortOrders.jsx, and
+      // useCompletionHandlers.js — and has already drifted once. If you touch
+      // one, touch all three, or better, collapse them into the hook.
       const { error: updatePaymentsError } = await supabase
         .from('payment')
         .update({ pay_status: 'Fully Paid' })
-        .eq('booking_id', id);
+        .eq('booking_id', id)
+        .eq('pay_status', 'Downpayment')
+        .gt('amount_paid', 0);
       if (updatePaymentsError) throw updatePaymentsError;
     }
     toast.success('Short order completed. Remaining payments marked Fully Paid.');

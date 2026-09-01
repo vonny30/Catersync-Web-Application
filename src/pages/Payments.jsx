@@ -268,9 +268,14 @@ export default function Payments() {
   // --- FILTER LOGIC (search + type + method + date, independent of status) ---
   const { start: dateRangeStart, end: dateRangeEnd } = getRangeBounds(datePreset, customStart, customEnd);
   const activePaymentFilterCount = [!!tableSearchTerm, typeFilter !== 'All', methodFilter !== 'All', datePreset !== 'All Time'].filter(Boolean).length;
-  const typeAndDateFiltered = payments.filter(p => {
-    if (mainTab === 'Refunds' && (p.amount_paid || 0) >= 0) return false;
-    if (mainTab === 'Payments' && (p.amount_paid || 0) < 0) return false;
+  // The search/type/method/date filters, WITHOUT the Payments/Refunds sign
+  // split. Total Collections is a net figure and can only be net if the
+  // refunds are still in the set when it is computed — getPaymentsReceived is
+  // net precisely because refunds arrive as negative rows, so filtering them
+  // out first and then calling it produced a GROSS number under a caption
+  // promising a net one. On the Refunds tab it was worse: the set held only
+  // negatives, so the card rendered a negative "Total Collections".
+  const filterCommon = (p) => {
     if (tableSearchTerm) {
       const search = tableSearchTerm.toLowerCase();
       const clientName = p.booking?.customer ? `${p.booking.customer.first_name} ${p.booking.customer.last_name}`.toLowerCase() : '';
@@ -284,6 +289,16 @@ export default function Payments() {
     }
     if (methodFilter !== 'All' && p.pay_method !== methodFilter) return false;
     if (datePreset !== 'All Time' && !isWithinRange(p.pay_datetime, dateRangeStart, dateRangeEnd)) return false;
+    return true;
+  };
+
+  // Every row the current filters allow, both signs — what the money cards read.
+  const dateFilteredBothSigns = payments.filter(filterCommon);
+
+  // The same set, narrowed to the tab being viewed — what the TABLE reads.
+  const typeAndDateFiltered = dateFilteredBothSigns.filter(p => {
+    if (mainTab === 'Refunds') return (p.amount_paid || 0) < 0;
+    if (mainTab === 'Payments') return (p.amount_paid || 0) >= 0;
     return true;
   });
 
@@ -344,7 +359,7 @@ export default function Payments() {
   // use. Deriving it from typeAndDateFiltered rather than the raw list is what
   // makes the card describe the table beneath it; the status cards above
   // already work this way.
-  const received = getPaymentsReceived(typeAndDateFiltered);
+  const received = getPaymentsReceived(dateFilteredBothSigns);
 
   // --- HANDLERS ---
   const handleInputChange = (e) => {
@@ -1127,7 +1142,8 @@ export default function Payments() {
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Total Collections</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">₱{received.paymentsReceived.toLocaleString()}</h3>
           <p className="text-[13px] text-slate-600 mt-2.5">
-            Already subtracts any refunds · {datePreset === 'All Time' ? 'all time' : datePreset.toLowerCase()}
+            Net of refunds · {datePreset === 'All Time' ? 'all time' : datePreset.toLowerCase()}
+            {received.refundsIssued > 0 && ` · ₱${received.refundsIssued.toLocaleString()} refunded`}
           </p>
         </button>
         <button

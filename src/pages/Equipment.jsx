@@ -692,7 +692,15 @@ export default function Equipment() {
         return;
       }
     } catch (checkError) {
+      // A guard that cannot run has to BLOCK, not wave the write through. This
+      // used to console.warn and fall straight into the update, so a transient
+      // failure of the impact query looked exactly like a clean pass — and the
+      // stock reduction that would strand a booking went in anyway, with the
+      // manager seeing a success toast. The assign path has always aborted
+      // here; these two did not.
       console.warn('Committed-quantity check failed:', checkError);
+      toast.error("Couldn't check what this change would do to existing bookings, so nothing was saved. Try again in a moment.", { duration: 7000 });
+      return;
     }
 
     try {
@@ -780,7 +788,15 @@ export default function Equipment() {
         return;
       }
     } catch (checkError) {
+      // A guard that cannot run has to BLOCK, not wave the write through. This
+      // used to console.warn and fall straight into the update, so a transient
+      // failure of the impact query looked exactly like a clean pass — and the
+      // stock reduction that would strand a booking went in anyway, with the
+      // manager seeing a success toast. The assign path has always aborted
+      // here; these two did not.
       console.warn('Committed-quantity check failed:', checkError);
+      toast.error("Couldn't check what this change would do to existing bookings, so nothing was saved. Try again in a moment.", { duration: 7000 });
+      return;
     }
 
     try {

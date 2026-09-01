@@ -379,6 +379,10 @@ export default function Reports() {
     const menuItemMap = {};
     const menuItemLookup = Object.fromEntries(menuItems.map(m => [m.menu_item_id, m]));
     let deliveryFeeTotal = 0;
+    // Food money from short orders whose menu_selections could not be read, so
+    // it belongs to no dish. Tracked rather than dropped so the footer's three
+    // figures actually add up.
+    let unattributedFoodRevenue = 0;
     let hasEstimatedMenuRevenue = false;
 
     shortOrderBookings.forEach(b => {
@@ -390,10 +394,22 @@ export default function Reports() {
       } catch {
         selections = [];
       }
-      if (selections.length === 0) return;
-
+      // The delivery fee is counted BEFORE the early return, not after. A short
+      // order with no readable menu_selections still charged a delivery fee and
+      // its total_amount is still inside shortOrderRevenue below — dropping its
+      // fee here left the footer printing "menu items + delivery fees" over a
+      // rule line and a short order revenue total larger than their sum, with
+      // the difference unexplained.
       const deliveryFee = b.delivery_fee || 0;
       deliveryFeeTotal += deliveryFee;
+
+      if (selections.length === 0) {
+        // Nothing to attribute to a dish, but the food money is real, so keep
+        // it out of the menu table and let the footer account for it.
+        unattributedFoodRevenue += Math.max(0, (b.total_amount || 0) - deliveryFee);
+        return;
+      }
+
       const foodRevenue = Math.max(0, (b.total_amount || 0) - deliveryFee);
 
       const lines = selections.map(sel => {
@@ -639,7 +655,7 @@ export default function Reports() {
       committedVehicles, fleetUtilization, serviceableVehicles,
       productLineMix, packageMix, menuItemMix, categoryDemandData,
       packageRevenue, shortOrderRevenue, combinedRevenue,
-      menuItemRevenue, deliveryFeeTotal, traysSold, topSellingItem,
+      menuItemRevenue, deliveryFeeTotal, unattributedFoodRevenue, traysSold, topSellingItem,
       hasEstimatedMenuRevenue, totalPackageBookings,
       equipmentUtilizationData, vehicleUtilizationData, totalVehicles, dispatchedVehicles,
       repeatCustomers, oneTimeCustomers, totalCustomers: customerList.length,
