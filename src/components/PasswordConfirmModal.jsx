@@ -58,7 +58,7 @@ export default function PasswordConfirmModal({
               aria-label={showPassword ? 'Hide password' : 'Show password'}
               title={showPassword ? 'Hide password' : 'Show password'}
             >
-              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              {showPassword ? <Eye size={16} /> : <EyeOff size={16} />}
             </button>
           </div>
           {error && <p className="text-xs text-red-600 font-semibold mt-1.5">{error}</p>}

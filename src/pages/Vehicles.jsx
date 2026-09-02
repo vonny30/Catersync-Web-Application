@@ -1270,7 +1270,7 @@ export default function Vehicles() {
         <p className="text-[13px] font-semibold text-slate-600 mb-2.5">
           For <span className="text-slate-900">{selectedDateLabel}</span> — follows the date selected above
         </p>
-        <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))]">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <button
             onClick={() => setIsEventsModalOpen(true)}
             className="relative overflow-hidden rounded-[15px] border border-slate-200/70 bg-white px-5 py-[18px] text-left cursor-pointer transition-all hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
@@ -1307,52 +1307,48 @@ export default function Vehicles() {
 
       {/* --- TAB CONTROL --- */}
       <div ref={availabilityPanelRef} className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden">
-        <div>
-          {/* Underline tabs, matching every other page. White pills on a grey
-              bar were this page's own invention. */}
-          <div className="flex items-center gap-0.5 px-2 border-b border-slate-100 overflow-x-auto">
-            <button
-              onClick={() => setActiveTableTab('availability')}
-              className={`shrink-0 flex items-center gap-[7px] whitespace-nowrap px-[15px] py-[13px] -mb-px border-b-2 text-[14.5px] transition-colors cursor-pointer ${activeTableTab === 'availability' ? 'border-[#008A45] text-[#007038] font-bold' : 'border-transparent text-slate-600 font-semibold hover:text-slate-900'}`}
-            >
-              <CalendarClock size={14} /> Availability
-            </button>
-            <button
-              onClick={() => setActiveTableTab('inventory')}
-              className={`shrink-0 flex items-center gap-[7px] whitespace-nowrap px-[15px] py-[13px] -mb-px border-b-2 text-[14.5px] transition-colors cursor-pointer ${activeTableTab === 'inventory' ? 'border-[#008A45] text-[#007038] font-bold' : 'border-transparent text-slate-600 font-semibold hover:text-slate-900'}`}
-            >
-              <LayoutGrid size={14} /> Fleet
-              <span className={`inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full text-[12.5px] font-bold tabular-nums ${activeTableTab === 'inventory' ? 'bg-[#EAF3F2] text-[#00703a]' : 'bg-slate-100 text-slate-600'}`}>{totalFleet}</span>
-            </button>
-            <button
-              onClick={() => setActiveTableTab('assignments')}
-              className={`shrink-0 flex items-center gap-[7px] whitespace-nowrap px-[15px] py-[13px] -mb-px border-b-2 text-[14.5px] transition-colors cursor-pointer ${activeTableTab === 'assignments' ? 'border-[#008A45] text-[#007038] font-bold' : 'border-transparent text-slate-600 font-semibold hover:text-slate-900'}`}
-            >
-              <ClipboardList size={14} /> Active Assignments
-              {activeAssignmentRows.length > 0 && (
-                <span className={`inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full text-[12.5px] font-bold tabular-nums ${
-                  overdueAssignments.length > 0
-                    ? 'bg-red-50 text-red-700'
-                    : activeTableTab === 'assignments' ? 'bg-[#EAF3F2] text-[#00703a]' : 'bg-slate-100 text-slate-600'
-                }`}>
-                  {assignmentGroups.length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setActiveTableTab('history')}
-              className={`shrink-0 flex items-center gap-[7px] whitespace-nowrap px-[15px] py-[13px] -mb-px border-b-2 text-[14.5px] transition-colors cursor-pointer ${activeTableTab === 'history' ? 'border-[#008A45] text-[#007038] font-bold' : 'border-transparent text-slate-600 font-semibold hover:text-slate-900'}`}
-            >
-              <History size={14} /> History
-            </button>
-          </div>
-          <p className="px-5 py-3.5 border-b border-slate-100 text-[13.5px] text-slate-600 [text-wrap:pretty]">
-            {activeTableTab === 'availability' && <>Every vehicle's committed/available status for <span className="font-semibold text-slate-700">{selectedDateLabel}</span>.</>}
-            {activeTableTab === 'inventory' && <>The full fleet list — edit details, add new vehicles, or flag maintenance/unavailable.</>}
-            {activeTableTab === 'assignments' && <>Everything currently dispatched to any event, regardless of the date selected above.</>}
-            {activeTableTab === 'history' && <>The full log of every assignment ever made — scheduled and completed — across the whole fleet.</>}
-          </p>
+        {/* Underline tabs, matching Equipment and every other page. Built
+            from an array for the same reason Equipment's is: four hand-written
+            buttons meant four places to keep the active/hover/badge styling in
+            step, and they had already drifted — icons were 14px here and 15px
+            there, and the overdue badge was bg-red-50 against Equipment's
+            bg-red-100. */}
+        <div className="flex items-center gap-0.5 px-2 border-b border-slate-100 overflow-x-auto">
+          {[
+            { key: 'availability', label: 'Availability', Icon: CalendarClock },
+            { key: 'inventory', label: 'Fleet', Icon: LayoutGrid, count: totalFleet },
+            { key: 'assignments', label: 'Active Assignments', Icon: ClipboardList, count: assignmentGroups.length, alert: overdueAssignments.length > 0 },
+            { key: 'history', label: 'History', Icon: History },
+          ].map(t => {
+            const isActive = activeTableTab === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setActiveTableTab(t.key)}
+                className={`shrink-0 flex items-center gap-[7px] whitespace-nowrap px-[15px] py-[13px] -mb-px border-b-2 text-[14.5px] transition-colors cursor-pointer ${
+                  isActive
+                    ? 'border-[#008A45] text-[#007038] font-bold'
+                    : 'border-transparent text-slate-600 font-semibold hover:text-slate-900'
+                }`}
+              >
+                <t.Icon size={15} /> {t.label}
+                {t.count !== undefined && t.count > 0 && (
+                  <span className={`inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full text-[12.5px] font-bold tabular-nums ${
+                    t.alert ? 'bg-red-100 text-red-700' : isActive ? 'bg-[#EAF3F2] text-[#00703a]' : 'bg-slate-100 text-slate-600'
+                  }`}>
+                    {t.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
+        <p className="px-5 py-3.5 border-b border-slate-100 text-[13.5px] text-slate-600 [text-wrap:pretty]">
+          {activeTableTab === 'availability' && <>Every vehicle's committed/available status for <span className="font-semibold text-slate-700">{selectedDateLabel}</span>.</>}
+          {activeTableTab === 'inventory' && <>The full fleet list — edit details, add new vehicles, or flag maintenance/unavailable.</>}
+          {activeTableTab === 'assignments' && <>Everything currently dispatched to any event, regardless of the date selected above.</>}
+          {activeTableTab === 'history' && <>The full log of every assignment ever made — scheduled and completed — across the whole fleet.</>}
+        </p>
 
         {/* ===== AVAILABILITY TAB ===== */}
         {activeTableTab === 'availability' && (

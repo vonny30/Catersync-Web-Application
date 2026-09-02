@@ -46,6 +46,7 @@ date needs a change, not just a re-read.
 
 | Date | Change | Effect on the OM app |
 |---|---|---|
+| 2 Sep 2026 | **Schema decision settled**: `return_log` and `booking_equipment.returned_quantity` approved | §5.3's remaining blocks lift once the migration lands. Build the return checklist all-or-nothing per item until then, then extend it — do not invent a workaround store. |
 | 1 Sep 2026 | `staff_account`, `kitchen_task_status` and `is_main_cook()` confirmed **live** in the database; §1.3, §5.3 and §8 corrected — **OM authentication is buildable**, following the main-cook pattern (§2.1) | **Breaking.** This file previously said the OM could not log in and that the app was blocked before any screen rendered. Both were wrong. Anyone who read it before this date holds the opposite belief |
 | 31 Aug 2026 | This document created; §1 role definition added | — |
 | 30 Aug 2026 | Short-order **service method** added — `PICKUP_VENUE_MARKER`, `getServiceMethod`, `FREE_DELIVERY_AREAS` | **Breaking.** A customer pickup gets no vehicle and must not appear on an itinerary. §3.5 |
@@ -503,10 +504,18 @@ Close the **collection run** when the equipment is back. Closing the setup run
 early is harmless — availability is computed from windows, not from this column
 — but it makes the History tab read wrongly, so don't.
 
-### 5.3 What the OM app CANNOT write yet
+### 5.3 What the OM app cannot write yet — unblocked 2 Sep 2026
 
-Two of the documented features have nowhere to land. This is
-`blueprint-04-mobile-sync.md` §7 and it is Vaughn's decision, not a coding one:
+> **Decision made.** Vaughn has approved adding `return_log` and
+> `booking_equipment.returned_quantity`. Once the migration lands, both rows
+> below become buildable and this section shrinks to nothing. Until then the
+> checklist is all-or-nothing per item — build it that way rather than working
+> around the gap, because the workaround would outlive the gap.
+
+Two of the documented features have nowhere to land **yet**. The decision to
+give them one is made (`blueprint-04-mobile-sync.md` §7); what remains is
+writing the migration, which needs Vaughn's groupmate because the database is
+shared:
 
 | Feature | Blocked by |
 |---|---|
@@ -604,8 +613,10 @@ Ordered by how easy each is to hit.
 
 ## 8. What is still open
 
-- **The three writes in §5.3** — Vaughn's decision on whether the no-schema-changes
-  rule holds. Everything else in this document is buildable today.
+- ~~**The three writes in §5.3**~~ **SETTLED 2 Sep 2026** — Vaughn approved
+  adding `return_log` and `booking_equipment.returned_quantity`. Partial returns
+  and missing/damaged become buildable once the migration lands; until then
+  build the checklist all-or-nothing, not around the gap.
 - **`is_operations_manager()` and its policies** — the *mechanism* exists
   (§2.1); what is missing is the role predicate mirroring `is_main_cook()` and
   the policies scoping it to §1.3. This is a database change on a shared

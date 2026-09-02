@@ -433,7 +433,14 @@ Approve. The alternative — silent insertion, exactly matching equipment — is
 more consistent, but it commits a scarce physical thing without anyone looking
 at it, and nobody goes hunting for a problem they don't know exists.
 
-**9.2 · The trip profile numbers.** `serviceHours: 5` for a setup and `0.5` for
+**9.2 · SETTLED, 30 Aug 2026 — calibrated with PG's.** Setup is 2-3 hours, so
+`setupHours` is **3**; the van returns to base between runs rather than driving
+venue to venue (*"goes back to the warehouse to proceed"*), so `HOP_HOURS` is
+**1.5**; collection is 4-7 hours after the event and the early end is taken, so
+`PICKUP_GRACE_HOURS` is **4**. `utils/vehicle.js` quotes the answers at each
+constant. The original question is kept below for the record.
+
+**9.2 (original) · The trip profile numbers.** `serviceHours: 5` for a setup and `0.5` for
 a delivery are my estimates, not PG's. They decide how many trips a day the
 system permits, so they are worth one conversation with the client. If the real
 answer is "it depends", the constants stay and we take the conservative end.
@@ -471,7 +478,14 @@ asserted the opposite in a comment and carried a defensive `pickupsSkipped`
 path for it; the comment is corrected and that path now reads as what it is —
 a genuine failure branch, not an expected limitation.
 
-**9.4 · Can one vehicle serve two events on one run?** Dropping equipment at two
+**9.4 · SETTLED, 30 Aug 2026 — no.** One run serves one event. PG's handles a
+tight day by leaving earlier and building in a transport allowance rather than
+by chaining venues (*"the van goes into the venue earlier to make haste to
+proceed with the next one so what they do is give a more time allowance in
+transporting"*), which is why `HOP_HOURS` is an allowance at base and not a
+venue-to-venue hop. The overlap rule stays "never". Original below.
+
+**9.4 (original) · Can one vehicle serve two events on one run?** Dropping equipment at two
 venues in a single trip is a real thing caterers do. It is impossible today (one
 `vehicle_assign` row per booking) and would stay impossible under this plan. If
 PG's does it, say so now — it changes the overlap rule from "never" to "only

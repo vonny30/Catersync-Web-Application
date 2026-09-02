@@ -287,7 +287,25 @@ are also the ones with no blockers.
 
 ---
 
-## 7. The decision
+## 7. The decision — SETTLED 2 Sep 2026
+
+> **Vaughn's answer: add the two remaining items.** `return_log`, and
+> `booking_equipment.returned_quantity`. `staff_account` and
+> `kitchen_task_status` already exist, so this is a smaller change than §7.1 was
+> originally written to propose.
+>
+> This unblocks **UFR-OM-03** ("log returned, missing, or damaged items"), which
+> is a graded requirement that had no home in the schema. Nothing is renamed,
+> retyped or dropped, so no web code breaks. Build order in §6 stands: Phase D
+> is now open.
+>
+> Still to settle before writing the migration: whether the OM needs to record a
+> dispatch status beyond `Scheduled`/`Completed` (§8 of `ops-manager-sync.md`).
+> If they do, it joins this migration rather than following as a second one.
+
+The original framing of the decision is kept below.
+
+## 7. The decision (original)
 
 **Does the "no schema changes" rule still hold?**
 

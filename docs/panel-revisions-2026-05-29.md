@@ -25,6 +25,7 @@ figure comes from `utils/reportMetrics.js`, every stock figure from
 |---|---|
 | **OPEN** | Not addressed. Actionable now. |
 | **DECIDE** | Needs Vaughn's answer before coding. |
+| **DECIDED** | Answered. The decision and its acceptance criteria are written down; the code is still owed. |
 | **MOBILE** | Belongs to the customer mobile app, not this repo. |
 | **DONE** | Already closed. Evidence given for the panel. |
 
@@ -47,9 +48,9 @@ figure comes from `utils/reportMetrics.js`, every stock figure from
 | PR-11 | Booking | Curativo | Event Type shows wrong data on review page | **MOBILE** |
 | PR-12 | Booking | Curativo | Customer cancel must read Cancelled, not Rejected | **MOBILE** (contract below) |
 | PR-13 | Login | Förster | Block concurrent login from another device | DONE |
-| PR-14 | Login | Curativo | Password visibility icon is incorrect | **DECIDE** |
+| PR-14 | Login | Curativo | Password visibility icon is incorrect | DONE |
 | PR-15 | Dashboard | Rivera | "Upcoming Event (7 Days)" label is ambiguous | DONE |
-| PR-16 | Bookings | Rivera | Bookings with a downpayment can still be deleted | **DECIDE** |
+| PR-16 | Bookings | Rivera | Bookings with a downpayment can still be deleted | **DECIDED** (build pending) |
 | PR-17 | Payments | Rivera | "Pending Balance" unclear | DONE |
 | PR-18 | Payments | Rivera | "Net Collected" unclear | DONE |
 | PR-19 | Payments | Rivera | "Fully Paid" count doesn't match the records | DONE |
@@ -65,7 +66,7 @@ figure comes from `utils/reportMetrics.js`, every stock figure from
 | PR-29 | Menu Performance | Rivera | Clarify how it is calculated | DONE |
 | PR-30 | Menu Performance | Rivera | Orders vs trays as units | DONE |
 | PR-31 | Menu Performance | Rivera | How packages vs specific menu items are treated | DONE |
-| PR-32 | Menu Performance | Rivera | Should a Bronze Package sale count toward Beef Caldereta? | **DECIDE** |
+| PR-32 | Menu Performance | Rivera | Should a Bronze Package sale count toward Beef Caldereta? | **DECIDED** (build pending) |
 | PR-33 | Equipment | Förster | What is the policy for equipment return? | DONE |
 | PR-34 | Equipment | Adviser | "Does the total number of equipment really matter?" + see upcoming events with their packages and assigned equipment | DONE |
 
@@ -510,7 +511,11 @@ templates are set up under Packages & Menus.
 
 ---
 
-## 3. Needs a decision before coding
+## 3. Decisions — answered 2 Sep 2026, some with code still owed
+
+Every item here has Vaughn's answer recorded against it. PR-14 is built; PR-16
+and PR-32 are decided with acceptance criteria and the code outstanding — see
+§6.
 
 ### PR-10 · Order of booking records
 
@@ -539,61 +544,81 @@ repeat rows across pages without it.
 
 > "Password visibility icon is incorrect." — Curativo
 
-All six password fields use the same convention consistently
-(`Login.jsx:225`, `ResetPassword.jsx:104,127`, `SettingsPage.jsx:457,479,502`):
+**DONE — 2 Sep 2026.** Vaughn: *"the login eye icon is the one that is correct
+so follow that."*
+
+The earlier writing of this entry was wrong twice, and the corrections are the
+point. It described the codebase as using the **action** convention and counted
+**six** toggles across three files. In fact there were **seven**, and they did
+not agree with each other:
 
 ```
-hidden  → <Eye/>     (open eye — "click to reveal")
-visible → <EyeOff/>  (slashed eye — "click to hide")
+Login.jsx:292, ResetPassword.jsx:139,162,
+SettingsPage.jsx:477,499,522        visible -> <Eye/>     (state convention)
+
+PasswordConfirmModal.jsx:61         visible -> <EyeOff/>  (action convention)
 ```
 
-That is the **action** convention (the icon shows what the click does). The panel
-appears to expect the **state** convention (the icon shows the current state:
-hidden → slashed eye). Both are used widely; the code is at least internally
-consistent.
+So the icon genuinely *was* incorrect — not because either convention is wrong,
+but because it **flipped depending on the screen**, and the odd one out was the
+password prompt guarding destructive deletes. That is the screen a panelist is
+most likely to reach, which is very probably what Curativo saw.
 
-**Question:** flip all six to the state convention, or keep the action convention
-and explain it to the panel? Flipping is a six-line change.
+**Change:** `PasswordConfirmModal.jsx:61` now matches the other six —
+`showPassword ? <Eye/> : <EyeOff/>`. All seven toggles are consistent, and the
+convention is Login's: **an open eye means the password is currently visible.**
+The `aria-label` and `title` already read "Hide password" / "Show password" and
+were correct throughout; they are unchanged.
+
+**Acceptance:** every password field in the app shows the same icon for the same
+state, including the confirm-password modal.
 
 ### PR-16 · Deleting a booking that has a downpayment
 
 > "Clarify why some bookings with an existing **down payment** can still be
 > deleted." — Rivera
 
-Current behaviour is deliberate but arguably wrong: `Bookings.jsx:1043-1051`
-warns "All associated payments, equipment, and vehicle assignments will also be
-deleted", asks for confirmation and a password, then deletes. So a booking with
-real money recorded against it can be erased along with its financial history.
+**DECIDED 2 Sep 2026 — deletion stays available, behind a password and a warning
+that names the amount.** Vaughn chose this over blocking it outright.
 
-**Recommendation:** block it. A booking with any verified payment should not be
-deletable at all — cancel it instead, which already records a refund or a
-forfeited downpayment properly. Deleting destroys the audit trail the Reports
-module depends on.
+The reasoning holds: a manager sometimes genuinely needs to remove a record, and
+an absolute block just moves the problem outside the system. What was missing is
+not the ability but the **informed** part of informed consent — the current
+warning says "All associated payments, equipment, and vehicle assignments will
+also be deleted" without saying how much money that is.
 
-**Question:** block deletion outright when verified payments exist (recommended),
-or keep it available with a stronger warning?
+**Change (not yet built):** in `Bookings.jsx` and `BookingDetails.jsx`, before
+the existing confirm-and-password flow, compute the verified paid total with
+`sumVerifiedPositivePayments`. When it is above zero, the confirm dialog must
+name it — *"This booking has ₱25,000 in verified payments. Deleting it removes
+those payment records permanently. Cancel it instead if you need to refund or
+forfeit the downpayment."* Password re-verification stays as it is.
+
+**Acceptance:** deleting a booking with verified payments states the peso amount
+before asking for the password; deleting one with none is unchanged.
 
 ### PR-32 · Should a package sale count toward its menu items?
 
 > "Clarify whether, for example, the sale of the **Bronze Package** should also
 > contribute to the performance count of **Beef Caldereta**." — Rivera
 
-The current rebuild (`76bc18a`) deliberately keeps them apart: **Menu Item Mix
-counts only Short Order `menu_selections`**, so a Bronze Package sale does not
-increment Beef Caldereta. The reasoning is in `blueprint-02-language.md` §4 — a
-package and a tray are different units of sale and cannot share a ranking.
+**DECIDED 2 Sep 2026 — yes, a package sale counts toward its dishes.** Vaughn's
+answer: the caldereta gets cooked either way, so it belongs in the picture of
+what the kitchen actually produces.
 
-But the panel is asking a real operational question, and there is a defensible
-second answer: for **kitchen volume** the caldereta gets cooked either way.
+This does **not** undo `blueprint-02-language.md` §4. That rule was about money
+and ranking: a package and a tray are different units of sale and cannot share a
+peso ranking. Counting production is a different question with a different unit.
 
-**Options:** (a) keep them separate and state the rule on the page —
-"menu item figures cover short orders only"; (b) add a separate **Dishes
-Prepared** view that counts a dish from both sources, using `package_menu` to
-expand each package booking, measured in trays/portions and never in pesos —
-which keeps the revenue tables honest while answering the kitchen question.
+**Change (not yet built):** add a **Dishes Prepared** view to Menu Performance
+that expands each package booking through `package_menu` and adds those dishes
+to the ones ordered by name in short-order `menu_selections`. Measured in
+**trays and portions only, never in pesos** — that is what keeps the revenue
+tables honest while answering the kitchen's question. The existing Menu Item Mix
+table stays exactly as it is, with its scope stated on the page.
 
-**Question:** (a) label the current behaviour, or (b) build the Dishes Prepared
-view as well?
+**Acceptance:** a Bronze Package sale increments Beef Caldereta in Dishes
+Prepared and does not change Menu Item Mix or any revenue figure.
 
 ---
 
@@ -663,20 +688,37 @@ list. This is the single most likely way the mobile app breaks the web UI.
 
 ## 6. Suggested order
 
-Updated 30 Aug 2026. PR-19 and PR-20/21 are now closed, which leaves:
+Updated 2 Sep 2026. All four open decisions are answered, so nothing here is
+waiting on Vaughn any more. What is left is build work and one blocked item:
 
-1. **PR-27** — still the only OPEN item, and it is **blocked, not pending**.
-   It did not reproduce against live data on 22 Aug: BKG-067 has zero
+1. **PR-16 — the delete warning that names the money.** Smallest of the three,
+   entirely local to two confirm dialogs, and it closes a real audit-trail
+   risk. `sumVerifiedPositivePayments` already exists; the acceptance criteria
+   are in §3.
+2. **PR-32 — the Dishes Prepared view.** Larger, and the one to be careful
+   with: it expands package bookings through `package_menu` and must stay in
+   trays and portions, never pesos. Menu Item Mix does not change.
+3. **The `return_log` + `booking_equipment.returned_quantity` migration.** The
+   decision is settled (`blueprint-04-mobile-sync.md` §7); it unblocks
+   UFR-OM-03 partial returns and needs Vaughn's groupmate, since the database
+   is shared. Until it lands, build the return checklist all-or-nothing per
+   item — **do not invent a workaround store**, because the workaround would
+   outlive the gap.
+4. **PR-27** — the only **OPEN** item, and it is **blocked, not pending**. It
+   did not reproduce against live data on 22 Aug: BKG-067 has zero
    `booking_equipment` rows and its package has zero template rows, so there is
    nothing on that booking that could display a status, and the whole
    `booking_equipment` table has no row with `returned = true`. Fixing it blind
    would mean changing code to satisfy a symptom nobody can currently observe.
    **Ask the panel for the screenshot before touching it.**
-2. **§3 decisions** (PR-14 password-visibility icon, PR-16 deleting bookings
-   that carry a downpayment) — these need Vaughn's answer, not code.
 
-Everything else in the summary table is DONE. Nothing currently known is
-silently wrong; PR-27 is unverifiable rather than unfixed.
+Two questions remain open, and both are for PG's rather than for this repo: the
+**fleet size** (the capstone's §1.1 says three cars and two motorcycles;
+`FLEET_SIZING` assumes three) and whether the Operations Manager needs a
+**dispatch status** beyond `Scheduled`/`Completed`. If they do, it joins the
+migration in item 3 rather than becoming a second one.
+
+Everything else in the summary table is DONE.
 
 ### Payments restructure (2026-08-23, not from the tracked panel review)
 
