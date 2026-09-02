@@ -587,6 +587,12 @@ Ordered by how easy each is to hit.
    not model new policies on them**, and do not assume the database is
    protecting you today. §2.1.
 
+   This is also why the usual reassurance about the Supabase anon key does not
+   apply here. The key ships in every client bundle, which is normal *because*
+   RLS is meant to stand behind it. With these policies in place it does not,
+   so the key grants what they grant. `docs/HANDOFF.md`, under **Things that
+   will bite you**, states the same thing from the web app's side.
+
 10. **`kitchen_task_status.booking_id` is `text`, not `uuid`.** `booking.booking_id`
     is a uuid, so there is **no real foreign key**: kitchen rows can point at
     bookings that do not exist, and deleting a booking silently orphans them.

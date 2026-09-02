@@ -25,3 +25,11 @@ dist-ssr
 
 .vercel
 .env*
+
+# A disused git directory left behind when the repository moved into frontend/.
+# It was tracked — 273 files of object store, hooks samples and refs committed
+# into the working repo. Untracked 3 Sep 2026; ignored so it cannot return.
+.git_disabled/
+
+# The Claude Code preview's dev-server config. Local tooling, not project code.
+.claude/

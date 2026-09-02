@@ -223,6 +223,29 @@ usable figure.
 
 ## Things that will bite you
 
+- **The Supabase anon key is in the client bundle, and RLS is not currently
+  protecting it.** `VITE_`-prefixed variables are inlined at build time, so
+  `VITE_SUPABASE_ANON_KEY` ships in the JavaScript Vercel serves to every
+  visitor. That is normal and is *supposed* to be safe, because row-level
+  security is what stands behind it.
+
+  **It is not safe here.** `booking`, `customer` and `payment` each carry a
+  policy granting `anon` access with `USING (true)`, and one on `booking` is an
+  **`UPDATE`** — so anyone holding that key can read every customer's name,
+  address and contact number, read every payment, and write
+  `booking.total_amount`. See `ops-manager-sync.md` **landmine 9**, which has
+  the detail.
+
+  So do not repeat the usual line that the anon key is "public by design, so it
+  isn't a leak". It is the correct general rule and it is false for this
+  project until those policies are tightened — a fix that belongs to Vaughn and
+  his groupmate together, because the database is shared and narrowing a policy
+  can break her app silently.
+
+  `.env` was untracked from git on 3 Sep 2026. That was for **diff noise
+  only** — the key was already published by every build, and removing it from
+  the repository reduces exposure by nothing.
+
 - ~~`Reports/index.jsx` fetches ten tables with no `.range()`/`.limit()`.~~
   **Fixed** — `fetchAll()` pages with a stable `.order()` on each primary key.
 - ~~Dashboard and Reports compute "collected" differently.~~ **Fixed** — all
