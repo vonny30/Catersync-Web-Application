@@ -208,36 +208,32 @@ export default function ItemFormModal({
                     const minPaxNum = parseInt(formData.minPax) || 0;
                     const maxPaxNum = formData.max_pax === '' ? null : parseInt(formData.max_pax);
                     const maxPaxTooLow = maxPaxNum !== null && !isNaN(maxPaxNum) && maxPaxNum < minPaxNum;
-                    const extraPriceNum = formData.extra_pax_price === '' ? null : parseFloat(formData.extra_pax_price);
-                    const extraPriceNegative = extraPriceNum !== null && !isNaN(extraPriceNum) && extraPriceNum < 0;
+                    const maxPaxMissing = formData.max_pax === '' || formData.max_pax === null || formData.max_pax === undefined;
                     return (
-                      <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                      <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                         <div>
-                          <label className="block text-xs font-bold text-slate-700 mb-1.5">Max Pax Included</label>
+                          <label className="block text-xs font-bold text-slate-700 mb-1.5">Max Pax Included *</label>
                           <input type="number" name="max_pax" min={minPaxNum || 1} value={formData.max_pax} onChange={onInputChange}
                             placeholder="e.g. 100"
-                            className={`w-full border rounded-lg p-2.5 text-sm focus:ring-2 outline-none ${maxPaxTooLow ? 'border-red-400 focus:ring-red-200' : 'border-slate-300 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
+                            required
+                            className={`w-full border rounded-lg p-2.5 text-sm focus:ring-2 outline-none ${(maxPaxTooLow || maxPaxMissing) ? 'border-red-400 focus:ring-red-200' : 'border-slate-300 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
                             disabled={isSubmitting} />
                           {maxPaxTooLow ? (
                             <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
                               <AlertTriangle size={12} /> Can't be less than Minimum Pax ({minPaxNum}).
                             </p>
-                          ) : (
-                            <p className="text-xs text-slate-400 mt-1">Different from Min Pax above — guests beyond this number pay the extra fee below.</p>
-                          )}
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-slate-700 mb-1.5">Extra Pax Price (₱)</label>
-                          <input type="number" name="extra_pax_price" min="0" value={formData.extra_pax_price} onChange={onInputChange}
-                            placeholder="e.g. 250"
-                            className={`w-full border rounded-lg p-2.5 text-sm focus:ring-2 outline-none ${extraPriceNegative ? 'border-red-400 focus:ring-red-200' : 'border-slate-300 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
-                            disabled={isSubmitting} />
-                          {extraPriceNegative ? (
+                          ) : maxPaxMissing ? (
                             <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
-                              <AlertTriangle size={12} /> Can't be negative.
+                              <AlertTriangle size={12} /> Required — a fixed package covers a band of guests.
                             </p>
                           ) : (
-                            <p className="text-xs text-slate-400 mt-1">Price per guest above max</p>
+                            /* The old text promised "guests beyond this number pay the extra
+                               fee below". Under the band rule there is no extra fee and no
+                               beyond: a booking outside minimum..max is refused, the same way
+                               the minimum has always worked. */
+                            <p className="text-xs text-slate-400 mt-1">
+                              This package covers {minPaxNum || '—'}–{maxPaxNum || '—'} guests at one flat price. A booking outside that range is refused; use a per-pax package for larger events.
+                            </p>
                           )}
                         </div>
                       </div>

@@ -22,6 +22,7 @@ import { getDispatchWindow, TRIP_LEG } from '../utils/vehicle';
 import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
+import { validatePaxForPackage } from '../utils/packageRules';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
@@ -102,7 +103,7 @@ export default function BookingDetails() {
         .select(`
           *,
           customer:customer_id (first_name, last_name, contact_no, cus_address, email_address, customer_id),
-          package:package_id (pkg_name, pkg_price, pkg_description, pricing_type, max_pax, extra_pax_price)
+          package:package_id (pkg_name, pkg_price, pkg_description, pricing_type, minimum_pax, max_pax, extra_pax_price)
         `)
         .eq('booking_id', id)
         .maybeSingle();
@@ -630,7 +631,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
       // 1. Fetch package pricing
       const { data: pkgData, error: pkgError } = await supabase
         .from('package')
-        .select('pkg_price, pricing_type, max_pax, extra_pax_price, minimum_pax')
+        .select('pkg_name, pkg_price, pricing_type, max_pax, extra_pax_price, minimum_pax')
         .eq('package_id', packageId)
         .maybeSingle();
       if (!pkgError && pkgData) {
@@ -741,9 +742,13 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
       setIsSubmitting(false);
       return;
     }
-    if (!editFormData.pax_count || parseInt(editFormData.pax_count) < 1) {
-      toast.error('Enter the number of guests — at least 1.');
-      setEditFieldErrors({ pax_count: 'Must be at least 1.' });
+    // Was `>= 1` and nothing else, so a booking created at the package
+    // minimum could be edited below it — or, now, above the cap — and saved.
+    // selectedPackageInfo is already loaded for the total calculation.
+    const paxCheck = validatePaxForPackage(selectedPackageInfo, editFormData.pax_count);
+    if (!paxCheck.ok) {
+      toast.error(paxCheck.message);
+      setEditFieldErrors({ pax_count: paxCheck.message });
       setIsSubmitting(false);
       return;
     }
@@ -2617,6 +2622,12 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
               />
 
               <div className="space-y-4">
+                {/* Hidden on a fixed package. It covers a band now, and a
+                    booking outside that band is refused — so extra guests
+                    cannot change the total, and a field that cannot change
+                    anything should not be asking for a number. Per-pax
+                    packages have no cap and keep it. */}
+                {approvalBooking.package?.pricing_type !== 'fixed' && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Extra Pax (additional guests)</label>
                   <input
@@ -2634,6 +2645,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                       : ' (the extra-guest rate for this fixed-price package).'}
                   </p>
                 </div>
+                )}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons, extra services)</label>
                   <input

@@ -431,6 +431,16 @@ export default function PackagesAndMenus() {
     // trap as equipment quantity: Max Pax Included can't be below the
     // package's own Minimum Pax, and Extra Pax Price can't be negative.
     if (pricing_type === 'fixed') {
+      // A cap is now REQUIRED on a fixed package, because the booking guard
+      // treats max_pax = null as "no cap recorded" and lets anything through.
+      // That tolerance exists so packages predating the rule keep working; it
+      // is not a state a package should be able to enter from here. Requiring
+      // it on save is what drains null out over time instead of a migration
+      // guessing a number nobody has decided.
+      if (max_pax === '' || max_pax === null || max_pax === undefined) {
+        toast.error('A fixed-price package needs a Max Pax — it covers a band of guests, and a booking outside that band is refused.');
+        return false;
+      }
       if (max_pax !== '' && max_pax !== null && max_pax !== undefined) {
         const maxPaxNum = parseInt(max_pax);
         if (isNaN(maxPaxNum) || maxPaxNum < 1) {

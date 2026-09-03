@@ -1333,6 +1333,12 @@ export default function Dashboard() {
               <div className="space-y-4">
                 {approvalBooking.booking_type === 'Package' ? (
                   <>
+                    {/* Hidden on a fixed package. It covers a band now, and a
+                        booking outside that band is refused — so extra guests
+                        cannot change the total, and a field that cannot change
+                        anything should not be asking for a number. Per-pax
+                        packages have no cap and keep it. */}
+                    {approvalBooking.package?.pricing_type !== 'fixed' && (
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">Extra Pax (additional guests)</label>
                       <input
@@ -1350,6 +1356,7 @@ export default function Dashboard() {
                       : ' (the extra-guest rate for this fixed-price package).'}
                   </p>
                     </div>
+                    )}
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons, extra services)</label>
                       <input

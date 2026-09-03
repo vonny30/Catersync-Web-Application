@@ -23,6 +23,7 @@ import DateTimePicker from '../components/DateTimePicker';
 import { isPaymentLedgerLocked } from '../utils/payments';
 import { bookingEditLockedMessage, STATUS_ORDER, findStatusOrderDrift } from '../utils/bookingStatus';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
+import { validatePaxForPackage } from '../utils/packageRules';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds } from './Reports/helpers';
@@ -769,11 +770,13 @@ export default function Bookings() {
       return;
     }
 
+    // Minimum AND maximum, from the one validator the edit and approval paths
+    // also call. This used to be the only place any pax rule was enforced.
     const selectedPackage = packages.find(p => p.package_id === formData.package_id);
-    if (selectedPackage && parseInt(formData.pax_count) < selectedPackage.minimum_pax) {
-      const msg = `Minimum pax for this package is ${selectedPackage.minimum_pax}.`;
-      toast.error(msg);
-      setFieldErrors({ pax_count: msg });
+    const paxCheck = validatePaxForPackage(selectedPackage, formData.pax_count);
+    if (!paxCheck.ok) {
+      toast.error(paxCheck.message);
+      setFieldErrors({ pax_count: paxCheck.message });
       setIsSubmitting(false);
       return;
     }
@@ -2237,6 +2240,12 @@ This will also delete ${rowsHere} payment record${rowsHere === 1 ? '' : 's'} tot
               />
 
               <div className="space-y-4">
+                {/* Hidden on a fixed package. It covers a band now, and a
+                    booking outside that band is refused — so extra guests
+                    cannot change the total, and a field that cannot change
+                    anything should not be asking for a number. Per-pax
+                    packages have no cap and keep it. */}
+                {approvalBooking.package?.pricing_type !== 'fixed' && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Extra Pax (additional guests)</label>
                   <input
@@ -2254,6 +2263,7 @@ This will also delete ${rowsHere} payment record${rowsHere === 1 ? '' : 's'} tot
                       : ' (the extra-guest rate for this fixed-price package).'}
                   </p>
                 </div>
+                )}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons, extra services)</label>
                   <input

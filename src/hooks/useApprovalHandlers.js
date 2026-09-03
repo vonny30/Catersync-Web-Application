@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { allocateEquipmentForBooking, getEquipmentAvailabilityPreview } from '../utils/equipment';
 import { allocateVehiclesForBooking } from '../utils/vehicle';
+import { validatePaxForPackage } from '../utils/packageRules';
 import { sumVerifiedPositivePayments } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, MAX_SHORT_ORDERS_PER_DAY, STATUS_ORDER } from '../utils/bookingStatus';
 
@@ -148,6 +149,27 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
     setIsSubmitting(true);
 
     try {
+      // Headcount, before anything else happens.
+      //
+      // This path had NO pax validation at all, and it is the one that needs
+      // it most: it writes pax_count + extraPax below, then reallocates
+      // equipment against that new figure. Approving a 55-guest booking with
+      // 30 extra pax wrote 85 and allocated 85 chairs, with nothing checking
+      // whether the package covers 85 people.
+      //
+      // Validated here rather than beside the write so a refusal costs
+      // nothing — no confirm dialog answered, no availability preview
+      // fetched, and above all no partial approval.
+      if (approvalType === 'package') {
+        const effectivePax = (approvalBooking.pax_count || 0) + (approvalData.extraPax || 0);
+        const paxCheck = validatePaxForPackage(approvalBooking.package, effectivePax);
+        if (!paxCheck.ok) {
+          toast.error(paxCheck.message, { duration: 7000 });
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       // Note: approval no longer checks payment status — in the Updated
       // Flow, payment only happens AFTER a booking is approved, so there's
       // nothing to warn about here. Any confirmation the manager needs
