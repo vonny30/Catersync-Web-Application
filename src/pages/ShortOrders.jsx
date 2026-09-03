@@ -223,7 +223,10 @@ export default function ShortOrders() {
 
         const paymentMap = {};
         paymentsData.forEach(p => {
-          if (!paymentMap[p.booking_id]) paymentMap[p.booking_id] = { positive: 0, refunded: 0, downpayment: 0 };
+          // `rows` counts the records themselves — the delete warning names both
+          // the count and the value, and they are different sentences.
+          if (!paymentMap[p.booking_id]) paymentMap[p.booking_id] = { positive: 0, refunded: 0, downpayment: 0, rows: 0 };
+          paymentMap[p.booking_id].rows += 1;
           const amount = parseFloat(p.amount_paid) || 0;
           const isUnverified = p.pay_status === 'Pending Verification' || p.pay_status === 'Proof Rejected';
           if (amount > 0 && !isUnverified) {
@@ -236,7 +239,7 @@ export default function ShortOrders() {
 
         const now = new Date();
         const enriched = ordersData.map(order => {
-          const p = paymentMap[order.booking_id] || { positive: 0, refunded: 0, downpayment: 0 };
+          const p = paymentMap[order.booking_id] || { positive: 0, refunded: 0, downpayment: 0, rows: 0 };
           let refundStatus = null;
           if (order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') {
             const eventDate = order.event_datetime ? new Date(order.event_datetime) : null;
@@ -258,7 +261,7 @@ export default function ShortOrders() {
               refundStatus = 'No Payments';
             }
           }
-          return { ...order, positivePayments: p.positive, totalRefunded: p.refunded, downpaymentPaid: p.downpayment, refundStatus };
+          return { ...order, positivePayments: p.positive, paymentRowCount: p.rows || 0, totalRefunded: p.refunded, downpaymentPaid: p.downpayment, refundStatus };
         });
         setOrders(enriched);
 
@@ -1038,9 +1041,19 @@ export default function ShortOrders() {
 
   const handleDelete = async (id) => {
     const targetOrder = orders.find(o => o.booking_id === id);
+    // PR-16. Name the money before asking. Deletion stays available — Vaughn's
+    // call, 2 Sep 2026 — but it stops being a decision made without the number.
+    // ShortOrderDetails already does this; this list page was the copy missed.
+    const paidHere = targetOrder?.positivePayments || 0;
+    const rowsHere = targetOrder?.paymentRowCount || 0;
+    const moneyWarning = rowsHere > 0
+      ? `
+
+This will also delete ${rowsHere} payment record${rowsHere === 1 ? '' : 's'} totalling ₱${paidHere.toLocaleString()}. That money will disappear from every report. Cancel it instead if you need to refund or forfeit the downpayment.`
+      : '';
     const confirmed = await showConfirm({
       title: 'Delete Order?',
-      message: `Are you sure you want to permanently delete this ${targetOrder?.booking_status || ''} order? This action cannot be undone. All associated payments and vehicle assignments will also be deleted.`,
+      message: `Are you sure you want to permanently delete this ${targetOrder?.booking_status || ''} order? This action cannot be undone. Its vehicle assignments will be released.${moneyWarning}`,
       confirmLabel: 'Delete',
       confirmVariant: 'danger',
     });

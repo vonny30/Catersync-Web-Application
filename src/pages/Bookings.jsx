@@ -281,8 +281,12 @@ export default function Bookings() {
           paymentsMap = {};
           for (const p of paymentsData) {
             if (!paymentsMap[p.booking_id]) {
-              paymentsMap[p.booking_id] = { positive: 0, refunded: 0, downpayment: 0 };
+              // `rows` counts the payment records themselves, not their value —
+              // the delete warning names both, and "2 records totalling ₱0" is a
+              // different sentence from "no records".
+              paymentsMap[p.booking_id] = { positive: 0, refunded: 0, downpayment: 0, rows: 0 };
             }
+            paymentsMap[p.booking_id].rows += 1;
             const amount = parseFloat(p.amount_paid) || 0;
             // Pending Verification / Proof Rejected rows aren't confirmed
             // funds yet, so they don't count toward what's actually paid.
@@ -300,8 +304,9 @@ export default function Bookings() {
 
         const now = new Date();
         const enriched = bookingsData.map(booking => {
-          const p = paymentsMap[booking.booking_id] || { positive: 0, refunded: 0, downpayment: 0 };
+          const p = paymentsMap[booking.booking_id] || { positive: 0, refunded: 0, downpayment: 0, rows: 0 };
           const positivePayments = p.positive;
+          const paymentRowCount = p.rows || 0;
           const totalRefunded = p.refunded;
           const downpaymentPaid = p.downpayment;
 
@@ -333,6 +338,7 @@ export default function Bookings() {
             customer: customersMap[booking.customer_id] || null,
             package: packagesMap[booking.package_id] || null,
             positivePayments,
+            paymentRowCount,
             totalRefunded,
             downpaymentPaid,
             refundStatus,
@@ -1091,9 +1097,24 @@ const handleMarkCompleted = async (id) => {
 
   const handleDelete = async (id) => {
     const targetBooking = bookings.find(b => b.booking_id === id);
+    // PR-16. Name the money before asking. The old wording said "All
+    // associated payments, equipment, and vehicle assignments will also be
+    // deleted", which does not convey that a six-figure sum is about to
+    // vanish from every report. Deletion stays available — Vaughn's call, 2
+    // Sep 2026 — but it stops being a decision made without the number.
+    // BookingDetails and ShortOrderDetails already do this; the list pages
+    // are the copies that were missed, the same split as the completion bug.
+    const paidHere = targetBooking?.positivePayments || 0;
+    const rowsHere = targetBooking?.paymentRowCount || 0;
+    const moneyWarning = rowsHere > 0
+      ? `
+
+This will also delete ${rowsHere} payment record${rowsHere === 1 ? '' : 's'} totalling ₱${paidHere.toLocaleString()}. That money will disappear from every report. Cancel it instead if you need to refund or forfeit the downpayment.`
+      : '';
+
     const confirmed = await showConfirm({
       title: 'Delete Booking?',
-      message: `Are you sure you want to permanently delete this ${targetBooking?.booking_status || ''} booking? This action cannot be undone. All associated payments, equipment, and vehicle assignments will also be deleted.`,
+      message: `Are you sure you want to permanently delete this ${targetBooking?.booking_status || ''} booking? This action cannot be undone. Its equipment and vehicle assignments will be released.${moneyWarning}`,
       confirmLabel: 'Delete',
       confirmVariant: 'danger',
     });
