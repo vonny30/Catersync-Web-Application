@@ -282,7 +282,7 @@ export default function Dashboard() {
       if (upcomingError) throw upcomingError;
       setStats(prev => ({ ...prev, upcomingEvents: upcomingData?.length || 0 }));
 
-      // --- Total Collections This Month ---
+      // --- Payments Received This Month ---
       // Anchored on pay_datetime and computed by utils/reportMetrics, the same
       // function the Payments page and Reports now use. The booking status comes
       // along so cash retained from a cancelled booking can be reported on its
@@ -640,7 +640,7 @@ export default function Dashboard() {
       // cancelled bookings is reported on the card's second line instead —
       // it is deliberately not part of this total.
       setStatsModalData(getPaymentsReceived(data || []).activeRows);
-      setStatsModalTitle(`Total Collections This Month (${today.toLocaleString('default', { month: 'long', year: 'numeric' })})`);
+      setStatsModalTitle(`Payments Received This Month (${today.toLocaleString('default', { month: 'long', year: 'numeric' })})`);
       setStatsModalType('revenue');
       resetStatsFilters();
       setIsStatsModalOpen(true);
@@ -795,7 +795,7 @@ export default function Dashboard() {
           <span className="text-[12.5px] text-slate-400 mt-1">{upcomingWindowLabel()}</span>
         </button>
 
-        {/* Total Collections This Month */}
+        {/* Payments Received This Month */}
         <button
           onClick={handleRevenueClick}
           className="relative overflow-hidden bg-white border border-slate-200/70 rounded-2xl p-[22px] flex flex-col items-center justify-center text-center hover:shadow-[0_4px_14px_rgba(15,23,42,0.06)] hover:-translate-y-0.5 hover:border-[#008A45]/30 transition-all cursor-pointer group"
@@ -807,7 +807,7 @@ export default function Dashboard() {
           <span className="text-[28px] font-semibold tracking-[-0.03em] tabular-nums text-slate-900 mb-2 leading-none">
             ₱{stats.revenueThisMonth.toLocaleString()}
           </span>
-          <span className="text-[15px] font-semibold text-slate-600">Total Collections This Month</span>
+          <span className="text-[15px] font-semibold text-slate-600">Payments Received This Month</span>
         </button>
       </div>
 

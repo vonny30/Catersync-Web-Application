@@ -106,7 +106,7 @@ export default function VehicleUtilizationTab({ derived, onOpenDetail }) {
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Plate Number</th>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Type</th>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Status</th>
-                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Active Dispatches</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Trips booked</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
@@ -119,7 +119,7 @@ export default function VehicleUtilizationTab({ derived, onOpenDetail }) {
                       badge: { label: v.status, variant: v.status === 'Available' ? 'good' : 'warning' },
                       fields: [
                         { label: 'Type', value: v.type },
-                        { label: 'Active dispatches', value: v.activeDispatches, emphasis: true },
+                        { label: 'Trips booked', value: v.activeDispatches, emphasis: true },
                       ],
                     })}
                     className="hover:bg-[#fbfcfd] cursor-pointer"

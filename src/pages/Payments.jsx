@@ -274,7 +274,7 @@ export default function Payments() {
   // net precisely because refunds arrive as negative rows, so filtering them
   // out first and then calling it produced a GROSS number under a caption
   // promising a net one. On the Refunds tab it was worse: the set held only
-  // negatives, so the card rendered a negative "Total Collections".
+  // negatives, so the card rendered a negative "Payments Received".
   const filterCommon = (p) => {
     if (tableSearchTerm) {
       const search = tableSearchTerm.toLowerCase();
@@ -952,7 +952,7 @@ export default function Payments() {
 
   // --- Summary Card Click Handlers ---
 
-  // 1. Total Collections – exactly the rows the card summed.
+  // 1. Payments Received – exactly the rows the card summed.
   //
   // Sourced from `received.activeRows`, NOT from the raw `payments` list. The
   // card became date-filtered when it moved to getPaymentsReceived, but this
@@ -977,7 +977,7 @@ export default function Payments() {
       }));
     setSummaryModalData(data);
     // Name the period, since these rows are the card's period — not all time.
-    setSummaryModalTitle(`Total Collections – ${datePreset === 'All Time' ? 'all time' : datePreset.toLowerCase()}`);
+    setSummaryModalTitle(`Payments Received – ${datePreset === 'All Time' ? 'all time' : datePreset.toLowerCase()}`);
     setSummaryModalType('collected');
     setSummarySearchTerm('');
     setSummaryTypeFilter('All');
@@ -1139,7 +1139,7 @@ export default function Payments() {
           className="relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white p-5 text-left transition-all cursor-pointer hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]"
         >
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
-          <p className="text-[13px] font-semibold text-slate-600 mb-2">Total Collections</p>
+          <p className="text-[13px] font-semibold text-slate-600 mb-2">Payments Received</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">₱{received.paymentsReceived.toLocaleString()}</h3>
           <p className="text-[13px] text-slate-600 mt-2.5">
             Net of refunds · {datePreset === 'All Time' ? 'all time' : datePreset.toLowerCase()}

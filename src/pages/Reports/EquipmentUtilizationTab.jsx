@@ -24,7 +24,7 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
             description: `Live snapshot across ${equipmentUtilizationData.length} equipment type(s) from the equipment table (stock) and booking_equipment table (items not yet returned).`,
             fields: [
               { label: 'Utilization', value: `${utilizationRate}%`, emphasis: true },
-              { label: 'In use', value: totalDeployed },
+              { label: 'Committed', value: totalDeployed },
               { label: 'Usable stock', value: totalUsable },
               { label: 'Units owned', value: totalUnits },
             ],
@@ -34,16 +34,16 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
           <span className={cardAccentClass('green')} />
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Utilization</p>
           <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{utilizationRate}%</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">{totalDeployed} of {totalUsable} usable units in use</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">{totalDeployed} of {totalUsable} usable units committed</p>
         </button>
         <button
           onClick={() => onOpenDetail({
             title: 'Available Equipment',
-            description: 'From the equipment table: units currently in good condition and not in use on a booking.',
+            description: 'From the equipment table: units currently in good condition and not committed to a booking.',
             fields: [
               { label: 'Free now', value: totalFree, emphasis: true },
               { label: 'Usable stock', value: totalUsable },
-              { label: 'In use', value: totalDeployed },
+              { label: 'Committed', value: totalDeployed },
             ],
           })}
           className={`border rounded-2xl p-5 text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 ${cardColorClasses()}`}
@@ -51,7 +51,7 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
           <span className={cardAccentClass('teal')} />
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Free Now</p>
           <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{totalFree}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">{totalUsable} usable − {totalDeployed} in use</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">{totalUsable} usable − {totalDeployed} committed</p>
         </button>
         <button
           onClick={() => onOpenDetail({
@@ -85,7 +85,7 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
         <div className="p-5 border-b border-slate-200">
           <h3 className="text-base font-bold text-slate-900">Equipment by Type</h3>
-          <p className="text-xs text-slate-500 mt-1">Live snapshot — not affected by the date range above. Owned − out of service = usable; usable − in use = free.</p>
+          <p className="text-xs text-slate-500 mt-1">Live snapshot — not affected by the date range above. Owned − out of service = usable; usable − committed = free.</p>
         </div>
         {equipmentUtilizationData.length === 0 ? (
           <div className="p-8 text-center text-slate-500 text-sm">No equipment data available.</div>
@@ -98,7 +98,7 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Owned</th>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Out of service</th>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Usable</th>
-                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">In use</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Committed</th>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Free</th>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Utilization</th>
                 </tr>
@@ -111,11 +111,11 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
                       key={item.id}
                       onClick={() => onOpenDetail({
                         title: item.name,
-                        description: 'From the equipment table (stock, damaged, maintenance) and booking_equipment table (currently in use, not yet returned).',
+                        description: 'From the equipment table (stock, damaged, maintenance) and booking_equipment table (committed and not yet returned).',
                         badge: usageRate >= 80 ? { label: 'Near capacity', variant: 'warning' } : { label: 'Available', variant: 'good' },
                         fields: [
                           { label: 'Utilization', value: `${usageRate}%`, emphasis: true },
-                          { label: 'In use', value: item.deployed },
+                          { label: 'Committed', value: item.deployed },
                           { label: 'Free now', value: item.free },
                           { label: 'Usable', value: item.usable },
                           { label: 'Damaged', value: item.damaged },

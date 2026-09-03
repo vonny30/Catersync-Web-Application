@@ -38,7 +38,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
           disagreed with the Dashboard for exactly that reason. */}
       <section className="bg-white border border-slate-200/70 rounded-2xl p-6 mb-[18px]">
         <div>
-          <span className="block text-[13px] font-semibold text-slate-600 mb-2.5">Total Collections</span>
+          <span className="block text-[13px] font-semibold text-slate-600 mb-2.5">Payments Received</span>
           <span className="block text-[38px] font-semibold tracking-[-0.035em] leading-none tabular-nums text-slate-900">
             {formatCurrency(financialSummary.paymentsReceived)}
           </span>
