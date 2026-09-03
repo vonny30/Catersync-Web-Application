@@ -39,7 +39,7 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
         <button
           onClick={() => onOpenDetail({
             title: 'Available Equipment',
-            description: 'From the equipment table: units currently in good condition and not deployed to a booking.',
+            description: 'From the equipment table: units currently in good condition and not in use on a booking.',
             fields: [
               { label: 'Free now', value: totalFree, emphasis: true },
               { label: 'Usable stock', value: totalUsable },
@@ -111,7 +111,7 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
                       key={item.id}
                       onClick={() => onOpenDetail({
                         title: item.name,
-                        description: 'From the equipment table (stock, damaged, maintenance) and booking_equipment table (currently deployed, not yet returned).',
+                        description: 'From the equipment table (stock, damaged, maintenance) and booking_equipment table (currently in use, not yet returned).',
                         badge: usageRate >= 80 ? { label: 'Near capacity', variant: 'warning' } : { label: 'Available', variant: 'good' },
                         fields: [
                           { label: 'Utilization', value: `${usageRate}%`, emphasis: true },

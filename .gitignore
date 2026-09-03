@@ -33,3 +33,7 @@ dist-ssr
 
 # The Claude Code preview's dev-server config. Local tooling, not project code.
 .claude/
+
+# Where stale .git/index.lock files get parked when they cannot be removed in
+# place, plus whatever scratch lands beside them. Never project content.
+_to_delete/

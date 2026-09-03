@@ -2223,7 +2223,7 @@ This will also delete ${rowsHere} payment record${rowsHere === 1 ? '' : 's'} tot
                   value={rejectionReason}
                   onChange={(e) => setRejectionReason(e.target.value)}
                   rows="3"
-                  placeholder="e.g., Incomplete details, client requested cancellation, etc."
+                  placeholder="e.g., Incomplete details, customer requested cancellation, etc."
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
                 />
                 <p className="text-xs text-slate-400 mt-1">Optional, but recommended.</p>

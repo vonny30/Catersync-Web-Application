@@ -563,7 +563,7 @@ export default function Dashboard() {
         .order('event_datetime', { ascending: true });
       if (error) throw error;
       setStatsModalData(data || []);
-      setStatsModalTitle('Pending Orders (All Types)');
+      setStatsModalTitle('Pending Bookings & Orders');
       setStatsModalType('pending');
       resetStatsFilters();
       setIsStatsModalOpen(true);
@@ -773,7 +773,7 @@ export default function Dashboard() {
             <Clock size={20} className="text-amber-600" />
           </div>
           <span className="text-[34px] font-semibold tracking-[-0.03em] tabular-nums text-slate-900 mb-2 leading-none">{stats.pendingBookings}</span>
-          <span className="text-[15px] font-semibold text-slate-600">Pending Orders</span>
+          <span className="text-[15px] font-semibold text-slate-600">Pending Bookings &amp; Orders</span>
           <span className="text-[12.5px] text-slate-400 mt-1">(Packages + Short Orders)</span>
         </button>
 
@@ -907,7 +907,7 @@ export default function Dashboard() {
         {/* RIGHT: Pending Orders (combined) */}
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm h-fit">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-[19px] font-bold tracking-[-0.015em] text-slate-900">Pending Orders</h2>
+            <h2 className="text-[19px] font-bold tracking-[-0.015em] text-slate-900">Pending Bookings &amp; Orders</h2>
             <button
               onClick={() => navigate('/app/bookings')}
               className="text-[14.5px] font-semibold text-[#008A45] hover:text-[#007038] transition-colors"
@@ -1457,7 +1457,7 @@ export default function Dashboard() {
                   value={rejectionReason}
                   onChange={(e) => setRejectionReason(e.target.value)}
                   rows="3"
-                  placeholder="e.g., Incomplete details, client requested cancellation, etc."
+                  placeholder="e.g., Incomplete details, customer requested cancellation, etc."
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
                   required
                 />

@@ -3591,7 +3591,7 @@ export default function Equipment() {
                             <tr className="bg-white border-b border-slate-100">
                               <th className="px-4 py-2 text-[11.5px] font-bold uppercase tracking-[0.05em] text-slate-600">Item</th>
                               <th className="px-3 py-2 text-[11.5px] font-bold uppercase tracking-[0.05em] text-slate-600 text-right whitespace-nowrap">Needs</th>
-                              <th className="px-3 py-2 text-[11.5px] font-bold uppercase tracking-[0.05em] text-slate-600 text-right whitespace-nowrap">Allocated</th>
+                              <th className="px-3 py-2 text-[11.5px] font-bold uppercase tracking-[0.05em] text-slate-600 text-right whitespace-nowrap">Assigned</th>
                               <th className="px-4 py-2 text-[11.5px] font-bold uppercase tracking-[0.05em] text-slate-600 text-right whitespace-nowrap">Missing</th>
                             </tr>
                           </thead>

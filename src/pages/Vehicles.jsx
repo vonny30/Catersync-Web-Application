@@ -107,7 +107,10 @@ export default function Vehicles() {
 
   // --- History tab — full assignment log (Scheduled + Completed) ---
   const [historySearch, setHistorySearch] = useState('');
-  const [historyStatusFilter, setHistoryStatusFilter] = useState('All'); // 'All' | 'Scheduled' | 'In Use' | 'Completed'
+  const [historyStatusFilter, setHistoryStatusFilter] = useState('All'); // 'All' | 'Assigned' | 'In Use' | 'Returned' — the LABELS
+  // from ASSIGNMENT_STAGES, not the stored assignment_status values. This said
+  // Scheduled/Completed, which are the stored ones, directly above the warning
+  // that mixing the two emptied this table once already.
   const [historyDatePreset, setHistoryDatePreset] = useState('All Time');
   const [historyDateCustomStart, setHistoryDateCustomStart] = useState('');
   const [historyDateCustomEnd, setHistoryDateCustomEnd] = useState('');

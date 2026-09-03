@@ -290,7 +290,7 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <PackageCheck size={16} className={eqTheme.icon} />
-                <span className="font-bold text-slate-900 text-sm">Equipment Allocation</span>
+                <span className="font-bold text-slate-900 text-sm">Equipment Assignment</span>
                 {effectivePaxCount ? (
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 inline-flex items-center gap-0.5">
                     <Users size={10} /> {effectivePaxCount} pax

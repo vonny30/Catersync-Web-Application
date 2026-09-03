@@ -1268,7 +1268,7 @@ This will also delete ${rowsHere} payment record${rowsHere === 1 ? '' : 's'} tot
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Bookings</h1>
-          <p className="text-[14.5px] text-slate-600 mt-1.5">Manage all client catering reservations (package bookings only)</p>
+          <p className="text-[14.5px] text-slate-600 mt-1.5">Manage all customer catering bookings (packages only)</p>
         </div>
         <button
           onClick={openNewBookingModal}
@@ -2324,7 +2324,7 @@ This will also delete ${rowsHere} payment record${rowsHere === 1 ? '' : 's'} tot
                   value={rejectionReason}
                   onChange={(e) => setRejectionReason(e.target.value)}
                   rows="3"
-                  placeholder="e.g., Incomplete details, client requested cancellation, etc."
+                  placeholder="e.g., Incomplete details, customer requested cancellation, etc."
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
                 />
                 <p className="text-xs text-slate-400 mt-1">Optional, but recommended.</p>

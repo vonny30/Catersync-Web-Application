@@ -2116,7 +2116,9 @@ export default function Payments() {
               {/* Booking Details Preview */}
               {selectedBooking && (
                 <div className="bg-[#F8F9FA] border border-slate-200 rounded-lg p-4 space-y-2 text-sm">
-                  <h4 className="font-bold text-slate-900 text-sm mb-2">Order Details</h4>
+                  <h4 className="font-bold text-slate-900 text-sm mb-2">
+                    {selectedBooking.booking_type === 'Short Order' ? 'Order Details' : 'Booking Details'}
+                  </h4>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
                     <span className="text-slate-600 font-medium">Customer:</span>
                     <span className="text-slate-900 font-semibold">

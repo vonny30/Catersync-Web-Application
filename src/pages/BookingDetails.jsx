@@ -27,6 +27,7 @@ import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
 import { fetchAllRows } from '../utils/fetchAllRows';
+import { getAssignmentStatus } from '../utils/statusLabels';
 
 export default function BookingDetails() {
   const { id } = useParams();
@@ -1697,7 +1698,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
           {/* Menu Selections */}
           <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/50 rounded-xl p-6 shadow-xs">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-slate-900">Equipment Allocation</h3>
+              <h3 className="text-sm font-bold text-slate-900">Equipment Assignment</h3>
               <div className="flex items-center gap-2">
                 <button
                   onClick={openAssignEquipModal}
@@ -1788,6 +1789,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                   .sort((x, y) => new Date(x.dispatch_datetime || 0) - new Date(y.dispatch_datetime || 0))
                   .map(d => {
                   const returned = d.assignment_status === 'Completed';
+                  const stage = getAssignmentStatus(returned, booking?.event_datetime);
                   const win = getDispatchWindow(d, booking);
                   const isCollection = win?.leg === TRIP_LEG.pickup;
                   return (
@@ -1812,10 +1814,19 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                           </span>
                         </p>
                       </div>
+                      {/* Three stages, not two. `returned ? 'Returned' :
+                          'Scheduled'` collapsed Assigned and In Use into one
+                          word, so during the event this page said Scheduled
+                          while the Vehicles page said In Use for the same row.
+                          getAssignmentStatus owns the lifecycle; both read it
+                          now. Note it takes the FINISHED flag, not a status
+                          string. */}
                       <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${
-                        returned ? 'bg-slate-100 text-slate-600' : 'bg-blue-50 text-blue-700'
+                        stage.key === 'returned' ? 'bg-slate-100 text-slate-600'
+                          : stage.key === 'in_use' ? 'bg-emerald-50 text-emerald-700'
+                          : 'bg-blue-50 text-blue-700'
                       }`}>
-                        {returned ? 'Returned' : 'Scheduled'}
+                        {stage.label}
                       </span>
                     </div>
                   );
@@ -2429,7 +2440,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                   value={rejectionReason}
                   onChange={(e) => setRejectionReason(e.target.value)}
                   rows="3"
-                  placeholder="e.g., Incomplete details, client requested cancellation, etc."
+                  placeholder="e.g., Incomplete details, customer requested cancellation, etc."
                   className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none resize-none"
                   required
                 />

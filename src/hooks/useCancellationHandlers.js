@@ -124,9 +124,9 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
         }
       } else {
         if (positivePayments > 0 && !isRefundable && daysUntilEvent !== null) {
-          refundNote = `Client cancelled ${daysUntilEvent} day${daysUntilEvent === 1 ? '' : 's'} before the event (less than 3 days). Downpayment of ₱${totalDownpayment.toLocaleString()} is non-refundable per policy.`;
+          refundNote = `Customer cancelled ${daysUntilEvent} day${daysUntilEvent === 1 ? '' : 's'} before the event (less than 3 days). Downpayment of ₱${totalDownpayment.toLocaleString()} is non-refundable per policy.`;
         } else {
-          refundNote = 'Client cancelled – no refund processed.';
+          refundNote = 'Customer cancelled – no refund processed.';
         }
       }
 

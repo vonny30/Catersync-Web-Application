@@ -101,14 +101,14 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
         <StatCard
           label="Equipment In Use"
           value={`${equipmentUsageRate}%`}
-          sub={`${totalEquipmentDeployed} of ${totalEquipmentUnits} units deployed`}
+          sub={`${totalEquipmentDeployed} of ${totalEquipmentUnits} units in use`}
           color="blue"
           onClick={() => onOpenDetail({
             title: 'Equipment In Use',
             description: `Live snapshot from the equipment table (stock counts) and booking_equipment table (items not yet marked returned), across ${equipmentUtilizationData.length} equipment type(s).`,
             fields: [
               { label: 'Utilization', value: `${equipmentUsageRate}%`, emphasis: true },
-              { label: 'Deployed', value: totalEquipmentDeployed },
+              { label: 'In use', value: totalEquipmentDeployed },
               { label: 'Total fleet', value: totalEquipmentUnits },
             ],
           })}
