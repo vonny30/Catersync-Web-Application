@@ -230,7 +230,9 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
       </div>
 
       <div className="bg-white border border-slate-200/70 rounded-2xl overflow-hidden">
-        <div className="px-5 pt-[18px] pb-4 border-b border-slate-100"><h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Monthly Booking Summary (Completed)</h3></div>
+        <div className="px-5 pt-[18px] pb-4 border-b border-slate-100"><h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Recent Months (Completed)</h3>
+          <p className="text-[13px] text-slate-600 mt-1">Latest 3 months — full history on the Booking Summary tab.</p>
+        </div>
         {bookingSummaryData.length === 0 ? (
           <div className="p-8 text-center text-slate-500 text-sm">No completed bookings yet.</div>
         ) : (

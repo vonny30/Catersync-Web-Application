@@ -1,6 +1,7 @@
 // src/contexts/AuthContext.jsx
 import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { supabase } from '../supabase';
+import { clearCurrentManagerCache } from '../utils/currentManager';
 import toast from 'react-hot-toast';
 import {
   claimManagerSessionIfFree,
@@ -121,6 +122,10 @@ export const AuthProvider = ({ children }) => {
     }
     managerIdRef.current = null;
     browserSessionIdRef.current = null;
+    // The dispatch-attribution lookup caches manager_id per auth user. It is
+    // keyed by user id so a different account would miss anyway, but clearing
+    // it here keeps the teardown in one place rather than relying on that.
+    clearCurrentManagerCache();
   };
 
   // Called on every realtime UPDATE to this manager's row, including ones

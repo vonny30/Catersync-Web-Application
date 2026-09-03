@@ -120,7 +120,7 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
           color="teal"
           onClick={() => onOpenDetail({
             title: 'Vehicles Dispatched',
-            description: 'Live snapshot from the vehicle table (fleet) and vehicle_assign table (assignments currently marked Scheduled).',
+            description: 'From vehicle_assign: vehicles whose dispatch window contains this moment. A vehicle booked for a future event is committed, not on the road — that count is shown separately.',
             fields: [
               { label: 'Dispatched', value: dispatchedVehicles, emphasis: true },
               { label: 'Total fleet', value: totalVehicles },

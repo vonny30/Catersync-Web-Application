@@ -17,6 +17,7 @@
 import { supabase } from '../supabase';
 import { ACTIVE_BOOKING_STATUSES } from './bookingStatus';
 import { fetchAllRows } from './fetchAllRows';
+import { getCurrentManagerId } from './currentManager';
 
 // --- Trip types -------------------------------------------------------------
 //
@@ -1092,9 +1093,13 @@ export const allocateVehiclesForBooking = async (booking, chosenVehicleIds = nul
     return { picks: [], shortfall: plan.shortfall, pickupsSkipped: false };
   }
 
+  // Approval dispatches too, so it attributes too. One lookup for both legs.
+  const managerId = await getCurrentManagerId();
+
   const setupRows = plan.picks.map(p => ({
     vehicle_id: p.vehicle_id,
     booking_id: booking.booking_id,
+    manager_id: managerId,
     dispatch_datetime: p.setupDispatch.toISOString(),
     assignment_status: 'Scheduled',
   }));
@@ -1108,6 +1113,7 @@ export const allocateVehiclesForBooking = async (booking, chosenVehicleIds = nul
     .map(p => ({
       vehicle_id: p.vehicle_id,
       booking_id: booking.booking_id,
+      manager_id: managerId,
       dispatch_datetime: p.pickupDispatch.toISOString(),
       assignment_status: 'Scheduled',
     }));

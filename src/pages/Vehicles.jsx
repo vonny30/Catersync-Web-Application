@@ -25,6 +25,7 @@ import { fetchAllRows } from '../utils/fetchAllRows';
 import { getAssignmentStatus, RESOURCE_STATE } from '../utils/statusLabels';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange } from './Reports/helpers';
+import { getCurrentManagerId } from '../utils/currentManager';
 
 const toDateInputValue = (d) => {
   const yr = d.getFullYear();
@@ -704,9 +705,12 @@ export default function Vehicles() {
         return;
       }
 
+      const managerId = await getCurrentManagerId();
+
       const inserts = selectedVehicleIds.map(vehicleId => ({
         vehicle_id: vehicleId,
         booking_id: assignForm.booking_id,
+        manager_id: managerId,
         dispatch_datetime: new Date(assignForm.dispatch_datetime).toISOString(),
         assignment_status: 'Scheduled',
       }));

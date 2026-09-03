@@ -17,6 +17,7 @@ import toast from 'react-hot-toast';
 import { supabase } from '../supabase';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
+import { getCurrentManagerId } from '../utils/currentManager';
 import {
   defaultSetupDispatch, findConflictingAssignment, describeAssignment, needsTransport,
   recheckConflictsBeforeInsert, DUPLICATE_ASSIGNMENT_CODE, duplicateAssignmentMessage,
@@ -154,9 +155,15 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
         return;
       }
 
+      // Who dispatched this. Resolved once here rather than per row, and null
+      // if it cannot be resolved — the column is nullable, and losing the
+      // attribution is better than refusing to assign the vehicle.
+      const managerId = await getCurrentManagerId();
+
       const inserts = selectedVehicleIds.map(vehicleId => ({
         vehicle_id: vehicleId,
         booking_id: booking.booking_id,
+        manager_id: managerId,
         // An instant, not a wall-clock string: the column is timestamptz, and
         // a zoneless value would be read as UTC and land eight hours out.
         dispatch_datetime: new Date(dispatchValue).toISOString(),

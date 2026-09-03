@@ -183,7 +183,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
         )}
         {showPareto && (
           <div className="px-5 py-3 border-t border-slate-100 bg-[#fbfcfd] text-[12.5px] text-slate-600">
-            <span className="font-semibold text-slate-800">{paretoIndex + 1}</span> of {packageMix.length} package{packageMix.length === 1 ? '' : 's'} account for the first {PARETO_LINE}% of package revenue.
+            <span className="font-semibold text-slate-800">{paretoIndex + 1}</span> of {packageMix.length} packages account{paretoIndex === 0 ? 's' : ''} for {PARETO_LINE}% of package revenue.
           </div>
         )}
       </Panel>

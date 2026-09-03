@@ -24,7 +24,7 @@ export default function BookingSummaryTab({ derived, onOpenDetail }) {
           <span className={cardAccentClass('blue')} />
           <p className={LABEL}>Completed Events</p>
           <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{totalCompleted}</h3>
-          <p className={SUB}>Marked Completed in this period</p>
+          <p className={SUB}>Events in this period, now marked Completed</p>
         </div>
         <div className={CARD}>
           <span className={cardAccentClass('green')} />
@@ -45,7 +45,7 @@ export default function BookingSummaryTab({ derived, onOpenDetail }) {
         {/* The qualifier lived in the heading AND the description. Saying it
             twice at two sizes is what made the header look cramped. */}
         <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Historical booking summary</h3>
-        <p className="text-[13.5px] text-slate-600 mt-1.5">Includes only bookings that have been marked as Completed, within the selected period.</p>
+        <p className="text-[13.5px] text-slate-600 mt-1.5">Bookings whose <span className="font-semibold text-slate-700">event date</span> falls in the selected period and which are now marked Completed. The period filters the event, not the day it was marked.</p>
       </div>
       {bookingSummaryData.length === 0 ? (
         <div className="p-8 text-center text-slate-500 text-sm">No completed bookings found.</div>
