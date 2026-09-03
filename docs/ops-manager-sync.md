@@ -46,6 +46,7 @@ date needs a change, not just a re-read.
 
 | Date | Change | Effect on the OM app |
 |---|---|---|
+| 3 Sep 2026 | **`anon` read and write policies dropped** on `booking`, `customer` and `payment` (landmine 9) | **Breaking for any client not signing its user in.** Unauthenticated reads now return **zero rows, not an error** — which reads as "no work today". The OM app must authenticate before it queries. §2.1, and `db-changes-2026-09-03.md` |
 | 2 Sep 2026 | **Schema decision settled**: `return_log` and `booking_equipment.returned_quantity` approved | §5.3's remaining blocks lift once the migration lands. Build the return checklist all-or-nothing per item until then, then extend it — do not invent a workaround store. |
 | 1 Sep 2026 | `staff_account`, `kitchen_task_status` and `is_main_cook()` confirmed **live** in the database; §1.3, §5.3 and §8 corrected — **OM authentication is buildable**, following the main-cook pattern (§2.1) | **Breaking.** This file previously said the OM could not log in and that the app was blocked before any screen rendered. Both were wrong. Anyone who read it before this date holds the opposite belief |
 | 31 Aug 2026 | This document created; §1 role definition added | — |
@@ -579,19 +580,30 @@ Ordered by how easy each is to hit.
    assume. Completed rows now survive — cancelling releases what is still held
    and keeps what already happened — so a returned item stays in history.
 
-9. **The `anon` RLS policies are wider than they look.** `booking`, `customer`
-   and `payment` each carry a policy granting `anon` access with
-   `USING (true)`, and one on `booking` is an **`UPDATE`** — so any booking's
-   `total_amount` is currently writable by anyone holding the public key. These
-   predate the OM app and Vaughn is addressing them with his groupmate. **Do
-   not model new policies on them**, and do not assume the database is
-   protecting you today. §2.1.
+9. **`anon` reads are closed — but sign your users in.** Until 3 Sep 2026,
+   `booking`, `customer` and `payment` each carried a policy granting `anon`
+   access with `USING (true)`, and one on `booking` was an **`UPDATE`** whose
+   `WITH CHECK` constrained only `booking_status` — so `total_amount`, `venue`,
+   `event_datetime` and `pax_count` were freely writable by anyone holding the
+   public key. All four are dropped. Verified: the anonymous request that
+   returned 11 bookings, 21 customers and every payment row now returns
+   nothing. `docs/db-changes-2026-09-03.md` has the record and the revert.
 
-   This is also why the usual reassurance about the Supabase anon key does not
-   apply here. The key ships in every client bundle, which is normal *because*
-   RLS is meant to stand behind it. With these policies in place it does not,
-   so the key grants what they grant. `docs/HANDOFF.md`, under **Things that
-   will bite you**, states the same thing from the web app's side.
+   **What this means for the OM app.** The scoped `authenticated` policies are
+   now the only way in, so the app **must sign its user in** before reading
+   anything — an unauthenticated client sees zero rows rather than an error,
+   which looks exactly like "no work today". Build against §2.1 from the start;
+   do not develop against `anon` and expect to add auth later.
+
+   Three `anon` **INSERT** policies remain by design — submit a pending
+   booking, create a customer record, submit payment proof — because that is
+   the customer signup flow. They are a spam surface, not a read one, and the
+   OM app has no reason to use them.
+
+   The usual reassurance about the Supabase anon key now holds again: the key
+   ships in every client bundle, which is fine *because* RLS stands behind it.
+   That was not true before 3 Sep. `docs/HANDOFF.md`, under **Things that will
+   bite you**, carries the same note from the web app's side.
 
 10. **`kitchen_task_status.booking_id` is `text`, not `uuid`.** `booking.booking_id`
     is a uuid, so there is **no real foreign key**: kitchen rows can point at
