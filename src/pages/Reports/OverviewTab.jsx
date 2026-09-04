@@ -35,7 +35,12 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
   const hasTopSellers = Boolean(topPackage || topItem);
   const totalEquipmentDeployed = equipmentUtilizationData.reduce((sum, e) => sum + e.deployed, 0);
   const totalEquipmentUnits = equipmentUtilizationData.reduce((sum, e) => sum + e.total, 0);
-  const equipmentUsageRate = totalEquipmentUnits > 0 ? Math.round((totalEquipmentDeployed / totalEquipmentUnits) * 100) : 0;
+  const totalEquipmentUsable = equipmentUtilizationData.reduce((sum, e) => sum + e.usable, 0);
+  // Usable stock, not units owned — the same denominator EquipmentUtilizationTab
+  // uses. Dividing by everything owned counts damaged and under-maintenance gear
+  // as spare capacity, which reports a lower utilization than is real. The two
+  // pages showed different percentages for the same fleet until this matched.
+  const equipmentUsageRate = totalEquipmentUsable > 0 ? Math.round((totalEquipmentDeployed / totalEquipmentUsable) * 100) : 0;
   const totalCompletedBookings = bookingSummaryData.reduce((sum, r) => sum + r.bookings, 0);
 
   return (
@@ -101,7 +106,7 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
         <StatCard
           label="Equipment Committed"
           value={`${equipmentUsageRate}%`}
-          sub={`${totalEquipmentDeployed} of ${totalEquipmentUnits} units committed`}
+          sub={`${totalEquipmentDeployed} of ${totalEquipmentUsable} usable units committed`}
           color="blue"
           onClick={() => onOpenDetail({
             title: 'Equipment Committed',
@@ -109,7 +114,8 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
             fields: [
               { label: 'Utilization', value: `${equipmentUsageRate}%`, emphasis: true },
               { label: 'Committed', value: totalEquipmentDeployed },
-              { label: 'Total fleet', value: totalEquipmentUnits },
+              { label: 'Usable stock', value: totalEquipmentUsable },
+              { label: 'Units owned', value: totalEquipmentUnits },
             ],
           })}
         />
