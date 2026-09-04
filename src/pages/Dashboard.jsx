@@ -1104,9 +1104,23 @@ export default function Dashboard() {
                     </button>
                   )}
                 </div>
+                {/* Only the Pending modal gets a date filter, because it is
+                    the only one whose rows are not already scoped by date. The
+                    other three are queried inside a window — this month's
+                    payments, today's events, the next seven days — so a filter
+                    over them can narrow the set but never widen it, while
+                    DateRangeFilter announced the range it believed it had
+                    applied. Choosing "This Year" on the payments modal printed
+                    "Jan 1 – Dec 31, 2026" over September's rows alone: ₱11,400
+                    against a real ₱26,650. The default was the same lie in
+                    reverse — "Showing all-time data" over one month.
+
+                    Those three state their period in their own title, which is
+                    where a scope the reader cannot change belongs. */}
+                {statsModalType === 'pending' && (
                 <div className="flex flex-col items-start gap-1">
                   <p className="text-xs font-semibold text-slate-600">
-                    Filter by {statsModalType === 'revenue' ? 'payment date' : 'event date'}:
+                    Filter by event date:
                   </p>
                   <DateRangeFilter
                     preset={statsDatePreset}
@@ -1120,6 +1134,7 @@ export default function Dashboard() {
                     onClear={() => { setStatsDatePreset('All Time'); setStatsDateCustomStart(''); setStatsDateCustomEnd(''); }}
                   />
                 </div>
+                )}
               </div>
             )}
 
