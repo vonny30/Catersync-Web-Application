@@ -87,13 +87,13 @@ export default function VehicleUtilizationTab({ derived, onOpenDetail }) {
           <span className={cardAccentClass('teal')} />
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Available</p>
           <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{availableVehicles}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">Free for a new dispatch</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">Available for a new dispatch</p>
         </button>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
         <div className="p-5 border-b border-slate-200">
-          <h3 className="text-base font-bold text-slate-900">Vehicle Fleet Status</h3>
+          <h3 className="text-base font-bold text-slate-900">Fleet Status</h3>
           <p className="text-xs text-slate-500 mt-1">Live snapshot of current status — not affected by the date range above.</p>
         </div>
         {vehicleUtilizationData.length === 0 ? (

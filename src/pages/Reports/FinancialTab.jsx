@@ -131,7 +131,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
             </BarChart>
           </ResponsiveContainer>
         )}
-        <p className="mt-2 text-[13px] text-slate-600">Each bar is the total verified payments for that month.</p>
+        <p className="mt-2 text-[13px] text-slate-600">Each bar is the verified payments taken that month, net of any refunds issued in the same month — so a month can read lower than the payments alone, or go negative.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

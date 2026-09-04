@@ -1140,7 +1140,7 @@ export default function PackagesAndMenus() {
       {/* HEADER */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Packages &amp; Menu</h1>
+          <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Packages &amp; Menus</h1>
           {/* The per-tray fact moved to the menu section subhead, where it is
               actually relevant, instead of a 12px grey line nested in a 14px one. */}
           <p className="text-[14.5px] text-slate-600 mt-1.5 max-w-[560px] [text-wrap:pretty]">

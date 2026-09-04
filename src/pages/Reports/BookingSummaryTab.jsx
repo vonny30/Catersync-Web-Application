@@ -44,7 +44,7 @@ export default function BookingSummaryTab({ derived, onOpenDetail }) {
       <div className="px-5 pt-[18px] pb-4 border-b border-slate-100">
         {/* The qualifier lived in the heading AND the description. Saying it
             twice at two sizes is what made the header look cramped. */}
-        <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Historical booking summary</h3>
+        <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Historical Booking Summary</h3>
         <p className="text-[13.5px] text-slate-600 mt-1.5">Bookings whose <span className="font-semibold text-slate-700">event date</span> falls in the selected period and which are now marked Completed. The period filters the event, not the day it was marked.</p>
       </div>
       {bookingSummaryData.length === 0 ? (
@@ -60,7 +60,7 @@ export default function BookingSummaryTab({ derived, onOpenDetail }) {
                     net figure exists to compare it against; with no cost data
                     anywhere, none does. */}
                 <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Event Month</th>
-                <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Total Completed Bookings</th>
+                <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Completed Bookings</th>
                 <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Revenue Earned</th>
                 <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Top Package</th>
               </tr>

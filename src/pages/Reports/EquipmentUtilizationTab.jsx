@@ -41,7 +41,7 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
             title: 'Available Equipment',
             description: 'From the equipment table: units currently in good condition and not committed to a booking.',
             fields: [
-              { label: 'Free now', value: totalFree, emphasis: true },
+              { label: 'Available now', value: totalFree, emphasis: true },
               { label: 'Usable stock', value: totalUsable },
               { label: 'Committed', value: totalDeployed },
             ],
@@ -49,7 +49,7 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
           className={`border rounded-2xl p-5 text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 ${cardColorClasses()}`}
         >
           <span className={cardAccentClass('teal')} />
-          <p className="text-[13px] font-semibold text-slate-600 mb-2">Free Now</p>
+          <p className="text-[13px] font-semibold text-slate-600 mb-2">Available Now</p>
           <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{totalFree}</h3>
           <p className="text-[13px] text-slate-600 mt-2.5">{totalUsable} usable − {totalDeployed} committed</p>
         </button>
@@ -85,7 +85,7 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
         <div className="p-5 border-b border-slate-200">
           <h3 className="text-base font-bold text-slate-900">Equipment by Type</h3>
-          <p className="text-xs text-slate-500 mt-1">Live snapshot — not affected by the date range above. Owned − out of service = usable; usable − committed = free.</p>
+          <p className="text-xs text-slate-500 mt-1">Live snapshot — not affected by the date range above. Owned − out of service = usable; usable − committed = available.</p>
         </div>
         {equipmentUtilizationData.length === 0 ? (
           <div className="p-8 text-center text-slate-500 text-sm">No equipment data available.</div>
@@ -99,7 +99,7 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Out of service</th>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Usable</th>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Committed</th>
-                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Free</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Available</th>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Utilization</th>
                 </tr>
               </thead>
@@ -116,7 +116,7 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
                         fields: [
                           { label: 'Utilization', value: `${usageRate}%`, emphasis: true },
                           { label: 'Committed', value: item.deployed },
-                          { label: 'Free now', value: item.free },
+                          { label: 'Available now', value: item.free },
                           { label: 'Usable', value: item.usable },
                           { label: 'Damaged', value: item.damaged },
                           { label: 'Under maintenance', value: item.maintenance },

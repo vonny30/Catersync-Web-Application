@@ -690,7 +690,7 @@ export default function Reports() {
     <div className="space-y-[18px] relative pb-12 pr-2">
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
         <div>
-          <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Financial &amp; Reports</h1>
+          <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Reports</h1>
           {/* One sentence at one size. The old version nested a 12px grey line
               inside a 14px grey paragraph, and "click any card for details" is
               an instruction for an affordance the cards already carry. The
