@@ -118,7 +118,7 @@ export const allocateEquipmentForBooking = async (bookingId, packageId, paxCount
 
     if (templateError) throw templateError;
     if (!equipTemplate || equipTemplate.length === 0) {
-      console.log('No equipment template found for this package.');
+      console.warn('No equipment template found for this package — approval will allocate nothing.');
       return [];
     }
 
@@ -151,7 +151,7 @@ export const allocateEquipmentForBooking = async (bookingId, packageId, paxCount
     }
 
     if (allocations.length === 0) {
-      console.log('No allocations to insert.');
+      if (import.meta.env.DEV) console.log('No allocations to insert.');
       return [];
     }
 
@@ -161,7 +161,7 @@ export const allocateEquipmentForBooking = async (bookingId, packageId, paxCount
 
     if (insertError) throw insertError;
 
-    console.log(`✅ Allocated ${allocations.length} equipment items for booking ${bookingId}`);
+    if (import.meta.env.DEV) console.log(`✅ Allocated ${allocations.length} equipment items for booking ${bookingId}`);
     return allocations;
   } catch (error) {
     console.error('Error allocating equipment:', error);

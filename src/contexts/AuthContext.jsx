@@ -135,11 +135,11 @@ export const AuthProvider = ({ children }) => {
   // sign itself out right after successfully claiming the session.
   const handleKicked = (newSessionId, startedAt) => {
     if (!newSessionId || newSessionId === browserSessionIdRef.current) {
-      console.log('[session-lock] Ignoring realtime update — this is our own claim.', { newSessionId, ours: browserSessionIdRef.current });
+      if (import.meta.env.DEV) console.log('[session-lock] Ignoring realtime update — this is our own claim.', { newSessionId, ours: browserSessionIdRef.current });
       return;
     }
     if (isKickedRef.current) return; // already handling
-    console.log('[session-lock] Kicked — another device/tab claimed the session.', { newSessionId, ours: browserSessionIdRef.current, startedAt });
+    if (import.meta.env.DEV) console.log('[session-lock] Kicked — another device/tab claimed the session.', { newSessionId, ours: browserSessionIdRef.current, startedAt });
     isKickedRef.current = true;
     kickedAtRef.current = startedAt || null;
     teardownSessionLock();
@@ -230,7 +230,7 @@ export const AuthProvider = ({ children }) => {
         // the other side is never touched.
         const claim = await claimManagerSessionIfFree(manager.manager_id);
         if (!claim.claimed) {
-          console.log('[session-lock] Blocked — account already active elsewhere.', claim);
+          if (import.meta.env.DEV) console.log('[session-lock] Blocked — account already active elsewhere.', claim);
           isBlockedRef.current = true;
           // activeSince is a rolling heartbeat, not the original login
           // time — worded as "active as of" rather than "signed in since"
@@ -249,11 +249,11 @@ export const AuthProvider = ({ children }) => {
           await supabase.auth.signOut({ scope: 'local' });
           return false;
         }
-        console.log('[session-lock] Claimed (fresh sign-in):', claim.browserSessionId);
+        if (import.meta.env.DEV) console.log('[session-lock] Claimed (fresh sign-in):', claim.browserSessionId);
         lockResult = { status: 'claimed', browserSessionId: claim.browserSessionId };
       } else {
         lockResult = await verifyOrReclaimManagerSession(manager.manager_id);
-        console.log('[session-lock] verifyOrReclaim result:', lockResult.status, lockResult.browserSessionId);
+        if (import.meta.env.DEV) console.log('[session-lock] verifyOrReclaim result:', lockResult.status, lockResult.browserSessionId);
       }
 
       if (lockResult.status === 'kicked') {
@@ -291,7 +291,7 @@ export const AuthProvider = ({ children }) => {
 
       if (retryCount.current < maxRetries && !isRetry) {
         retryCount.current++;
-        console.log(`Retrying manager check (attempt ${retryCount.current})...`);
+        if (import.meta.env.DEV) console.log(`Retrying manager check (attempt ${retryCount.current})...`);
         await new Promise(resolve => setTimeout(resolve, 1500));
         // Calls the impl directly, not the queued wrapper — we're still
         // inside a queued turn right now, so this stays serialized with
@@ -334,11 +334,11 @@ export const AuthProvider = ({ children }) => {
     const { data: listener } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (window._pendingWalkInCount > 0) {
-          console.log(`Skipping auth event (${event}) – ${window._pendingWalkInCount} pending walk‑in creation(s).`);
+          if (import.meta.env.DEV) console.log(`Skipping auth event (${event}) – ${window._pendingWalkInCount} pending walk‑in creation(s).`);
           return;
         }
 
-        console.log('Auth event:', event);
+        if (import.meta.env.DEV) console.log('Auth event:', event);
 
 if (event === 'SIGNED_OUT') {
           clearInactivityTimer();

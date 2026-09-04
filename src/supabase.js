@@ -7,8 +7,16 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export { supabaseUrl };
 export const supabaseAnonKey = supabaseKey;
 
-console.log("Supabase URL is:", supabaseUrl);
-console.log("Supabase Key is:", supabaseKey ? "Found!" : "Missing!");
+// Dev only. These fired on every production page load, printing the project
+// URL into the console of a deployed app — and `import.meta.env.DEV` is a
+// literal Vite substitutes at build time, so this whole block is eliminated
+// from the shipped bundle rather than merely staying quiet in it. The check
+// itself is still worth having locally: a missing .env otherwise surfaces as
+// an opaque fetch failure much later.
+if (import.meta.env.DEV) {
+  console.log("Supabase URL is:", supabaseUrl);
+  console.log("Supabase Key is:", supabaseKey ? "Found!" : "Missing!");
+}
 
 // The auth token uses Supabase's default localStorage-backed storage —
 // deliberately NOT overridden to sessionStorage. Storing it per-tab used
