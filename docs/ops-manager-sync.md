@@ -46,6 +46,7 @@ date needs a change, not just a re-read.
 
 | Date | Change | Effect on the OM app |
 |---|---|---|
+| 4 Sep 2026 | **Mobile module review**: three proposed writes rejected — `equipment.quantity_available`, `vehicle.vehicle_status`, and completing a booking on return. Short Orders confirmed to still need vehicle dispatch | **Breaking for any OM app built to the 4 Sep module spec.** All three corrupt state the web app derives. §5.0 |
 | 3 Sep 2026 | **`anon` read and write policies dropped** on `booking`, `customer` and `payment` (landmine 9) | **Breaking for any client not signing its user in.** Unauthenticated reads now return **zero rows, not an error** — which reads as "no work today". The OM app must authenticate before it queries. §2.1, and `db-changes-2026-09-03.md` |
 | 2 Sep 2026 | **Schema decision settled**: `return_log` and `booking_equipment.returned_quantity` approved | §5.3's remaining blocks lift once the migration lands. Build the return checklist all-or-nothing per item until then, then extend it — do not invent a workaround store. |
 | 1 Sep 2026 | `staff_account`, `kitchen_task_status` and `is_main_cook()` confirmed **live** in the database; §1.3, §5.3 and §8 corrected — **OM authentication is buildable**, following the main-cook pattern (§2.1) | **Breaking.** This file previously said the OM could not log in and that the app was blocked before any screen rendered. Both were wrong. Anyone who read it before this date holds the opposite belief |
@@ -462,6 +463,77 @@ customer.
 ---
 
 ## 5. Writes
+
+### 5.0 Three writes the OM app must NOT make
+
+Added 4 Sep 2026, after reviewing a mobile module spec that proposed all three.
+Each one corrupts state the web app derives from something else. None of them
+appears in §5.1 or §5.2 — but "we never mentioned it" was evidently not enough,
+so they are named here.
+
+**1. Never write `equipment.quantity_available`.**
+
+A return checklist must not do this:
+
+```
+quantity_available = quantity_available + returned quantity     -- WRONG
+```
+
+`quantity_available` is **usable stock**, and it is *never decremented when
+equipment is assigned* — commitment lives in `booking_equipment` rows, which are
+per date (§3.4). The only writer on the web side is a manager typing the owned
+figure into the Edit Equipment form.
+
+Adding returned quantity back therefore inflates inventory permanently and
+without bound: 189 -> 217 -> 245 -> ... Every availability check, the approval
+stock guard and the Reports utilisation figure go wrong together, and nothing
+errors.
+
+**Setting `returned = true` is the entire job.** Availability is derived.
+
+**2. Never write `vehicle.vehicle_status`.**
+
+Do not set it to `Available` when a trip closes. That column is the vehicle's
+**base** status — `Available` / `Maintenance` / `Unavailable` — not a
+per-assignment field.
+
+Two failures, both silent:
+
+- A vehicle can serve more than one active booking (verified: 2 do today).
+  Closing one trip would release a van still committed to another.
+- If the manager has flagged the van `Maintenance`, this clears it, and a
+  vehicle in the workshop reappears as dispatchable.
+
+`vehicle_assign.assignment_status = 'Completed'` alone is correct (§5.2). The
+web computes availability from assignment windows, never from this column.
+
+**3. Never set `booking.booking_status = 'Completed'` on return alone.**
+
+The web app refuses to complete a booking that still owes money:
+
+> Can't mark this booking as completed — ₱2,500 is still owed. Full payment
+> is required first.
+
+A dispatcher closing the return checklist has no view of the balance. Either
+check the remaining balance first and refuse with the same sentence, or **do not
+touch `booking_status` at all** and leave completion to the manager. Marking it
+Completed from the van is how an unpaid event becomes collected revenue.
+
+If the app does complete a booking, it must set `status_order` in the same
+write — `Completed = 4` (§2). Nothing in the database keeps the two in step.
+
+### 5.0.1 Short Orders need dispatch too
+
+A module scoped to "Catering Packages only" leaves a gap: **2 short orders
+currently hold `vehicle_assign` rows**. Nobody releases those vans.
+
+Equipment scope is right — zero short orders carry `booking_equipment` — so the
+return checklist can stay package-only. The **vehicle** half cannot: either
+include short-order trips in the itinerary and let the dispatcher close them, or
+say plainly who does, because today the answer is nobody.
+
+See also §3.5: a short order whose venue is the pickup marker gets no van at
+all, and must not appear on any itinerary.
 
 ### 5.1 Recording a return — works today
 

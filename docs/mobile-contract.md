@@ -257,6 +257,35 @@ package rows already hold ₱0, so nothing changed in the data.
 
 ---
 
+### 5.5 What the Main Cook actually gets when it reads a package menu
+
+Added 4 Sep 2026, checked against live data.
+
+**Confirmed-only is the right filter, and it is safe.** A booking reaches
+`Confirmed` only after a verified downpayment of at least 50%, so no Confirmed
+package carries unreviewed money (verified: zero today). The kitchen never
+prepares against a payment nobody has checked.
+
+**But Confirmed does not guarantee a menu.** A package's `menu_selections` is an
+object keyed by `category_id` (§5.1), and it is `{}` whenever the package
+includes no categories. That is not hypothetical: **Granite Package has zero
+categories and two live bookings.** It is a decorations package — equipment and
+setup, no food.
+
+So the cook app needs a real empty state — "no food to prepare for this booking"
+- not a blank screen that looks like a loading failure. Both of today's Granite
+bookings would hit it.
+
+**And the shape is the object one.** Both Confirmed packages in the database
+right now have `jsonb_typeof(menu_selections) = 'object'`. Iterating that as an
+array yields nothing and throws nothing, so a wrong parser and an empty package
+look identical on screen. Branch on the shape before you branch on emptiness.
+
+**The Main Cook writes nothing** except `kitchen_task_status`. It must not touch
+equipment, vehicles, payments or `booking_status` — the return checklist and the
+completion guard belong to the Operations app and the manager respectively. See
+`ops-manager-sync.md` §5.0.
+
 ## 6. Reading data at all: the 1000-row cap
 
 PostgREST caps every response at 1000 rows and returns the truncated set **with
