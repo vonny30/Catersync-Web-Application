@@ -2229,7 +2229,14 @@ This will also delete ${rowsHere} payment record${rowsHere === 1 ? '' : 's'} tot
                   <span className="font-medium text-slate-600">Current Total:</span>
                   <span className="font-bold text-slate-900">₱{approvalBooking.total_amount?.toLocaleString() || '0'}</span>
                 </div>
-                <p className="text-xs text-slate-500 mt-2">* Adjust extra pax or add fees below.</p>
+                <p className="text-xs text-slate-500 mt-2">
+                  {/* The extra-pax input is hidden on a fixed package — it covers
+                      a band and refuses anything outside it — so this line must
+                      not keep offering it. Per-pax packages still have it. */}
+                  {approvalBooking.package?.pricing_type === 'fixed'
+                    ? '* Add fees below.'
+                    : '* Adjust extra pax or add fees below.'}
+                </p>
               </div>
 
               <ApprovalAvailabilityCheck

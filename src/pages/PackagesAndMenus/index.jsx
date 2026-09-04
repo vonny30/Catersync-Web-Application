@@ -12,6 +12,7 @@ import PackageCard from './PackageCard';
 import MenuItemCard from './MenuItemCard';
 import ItemFormModal from './ItemFormModal';
 import CategoryManagerModal from './CategoryManagerModal';
+import { requiresMaxPax } from '../../utils/packageRules';
 
 export default function PackagesAndMenus() {
   const { showConfirm } = useConfirm();
@@ -427,9 +428,10 @@ export default function PackagesAndMenus() {
     }
 
     // 4b. Fixed-pricing fields — same "shouldn't allow an impossible value"
-    // trap as equipment quantity: Max Pax Included can't be below the
-    // package's own Minimum Pax, and Extra Pax Price can't be negative.
-    if (pricing_type === 'fixed') {
+    // trap as equipment quantity: Max Pax Included is required and can't be
+    // below the package's own Minimum Pax. (The Extra Pax Price check that
+    // used to live here went with the field itself in fa0cabc.)
+    if (requiresMaxPax(pricing_type)) {
       // A cap is now REQUIRED on a fixed package, because the booking guard
       // treats max_pax = null as "no cap recorded" and lets anything through.
       // That tolerance exists so packages predating the rule keep working; it
@@ -607,7 +609,7 @@ export default function PackagesAndMenus() {
           pkg_price: cleanPrice,
           minimum_pax: parseInt(formData.minPax) || 0,
           pricing_type: formData.pricing_type || 'per_pax',
-          max_pax: formData.pricing_type === 'fixed' ? (parseInt(formData.max_pax) || null) : null,
+          max_pax: requiresMaxPax(formData.pricing_type) ? (parseInt(formData.max_pax) || null) : null,
           // Null for both types. A fixed package covers a band and refuses
           // anything outside it; a per-pax package charges pkg_price for every
           // guest, extra ones included (extraPaxRate). Neither reads this.

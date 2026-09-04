@@ -12,15 +12,19 @@ import { ACTIVE_BOOKING_STATUSES, MAX_SHORT_ORDERS_PER_DAY, STATUS_ORDER } from 
 /**
  * What one extra guest costs on a package.
  *
- * A per-pax package charges the headline price for every guest, so an extra
- * guest costs exactly that. A FIXED-price package charges one price up to
- * max_pax and `extra_pax_price` beyond it — charging the whole package price
- * per head there is the difference between 400 and 25,000 a guest.
+ * Only the per-pax branch is live. That package charges the headline price for
+ * every guest, so an extra guest costs exactly that — and getting it wrong was
+ * the difference between 400 and 25,000 a head, which is why this exists.
  *
- * `computeBaseTotal` below has always had this branch; the approval modal did
- * not, so the two disagreed the moment a manager typed into Extra Pax. Both
- * read this now, and so does the hint under the input — a hint that states a
- * different rule from the one being applied is worse than no hint.
+ * THE FIXED BRANCH IS DEAD and kept only so the function is total. A fixed
+ * package now covers minimum_pax..max_pax and REFUSES a headcount outside it
+ * rather than surcharging (docs/fixed-package-cap.md), the extra-pax input is
+ * hidden for it, and `extra_pax_price` is written null for both types
+ * (docs/field-alignment.md §1). It returns 0 there and nothing asks.
+ *
+ * The original problem this solved: `computeBaseTotal` had the branch and the
+ * approval modal did not, so the two disagreed the moment a manager typed into
+ * Extra Pax. Both read this, and so does the hint under the input.
  */
 export const extraPaxRate = (pkg) => {
   if (!pkg) return 0;

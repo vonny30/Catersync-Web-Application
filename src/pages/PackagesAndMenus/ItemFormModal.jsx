@@ -4,6 +4,7 @@ import Select from '../../components/Select';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import { DEFAULT_COLORS, getSwatchColor } from './constants';
+import { requiresMaxPax } from '../../utils/packageRules';
 
 function FormSection({ title, children }) {
   return (
@@ -204,7 +205,7 @@ export default function ItemFormModal({
                     </div>
                   </div>
 
-                  {formData.pricing_type === 'fixed' && (() => {
+                  {requiresMaxPax(formData.pricing_type) && (() => {
                     const minPaxNum = parseInt(formData.minPax) || 0;
                     const maxPaxNum = formData.max_pax === '' ? null : parseInt(formData.max_pax);
                     const maxPaxTooLow = maxPaxNum !== null && !isNaN(maxPaxNum) && maxPaxNum < minPaxNum;
