@@ -73,7 +73,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
               <span className={`${FIG} text-slate-900`}>{formatCurrency(financialSummary.paidAgainstEvents)}</span>
             </button>
             <button onClick={() => onCardClick('outstanding')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
-              <span className="block text-[13px] text-slate-600 mb-1.5">Contracted, not yet collected</span>
+              <span className="block text-[13px] text-slate-600 mb-1.5">Unpaid on These Events</span>
               <span className={`${FIG} text-amber-700`}>{formatCurrency(financialSummary.outstanding)}</span>
             </button>
           </div>
@@ -107,7 +107,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
 
       <div className="bg-white border border-slate-200/70 rounded-2xl p-6">
         <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
-          <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Monthly Collections</h3>
+          <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Payments received by month</h3>
           <span className="text-[13px] text-slate-600">Refunds already subtracted</span>
         </div>
         {monthlyRevenueData.length === 0 ? (

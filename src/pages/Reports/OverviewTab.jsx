@@ -22,7 +22,7 @@ const SECTION_HEAD = 'text-[13px] font-bold text-slate-600 tracking-[0.04em] mb-
 
 export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
   const {
-    financialSummary, totalSubmitted, cancellationRate,
+    financialSummary, totalSubmitted, cancellationRate, rejectedCount, customerCancelledCount, pendingInRangeCount,
     packageMix, menuItemMix, topSellingItem,
     equipmentUtilizationData, totalVehicles, dispatchedVehicles, totalCustomers, repeatCustomers, oneTimeCustomers,
     bookingSummaryData,
@@ -49,25 +49,25 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
           saying which was which. They already split cleanly, so the headings
           name a grouping that was always there but never stated.
           Everything in this first group is anchored on the EVENT date -- hence
-          the "events in this period" sub-lines. Completed Events is a count
+          the "events in this period" sub-lines. Completed Bookings is a count
           rather than an amount, but it belongs here because it is the volume
           those money figures are earned on. */}
       <section>
         <h2 className={SECTION_HEAD}>Financial</h2>
         <div className={SECTION_GRID}>
-        <StatCard label="Contract Value" value={formatCurrency(financialSummary.contractValue)} sub="Events in this period" color="green" onClick={() => onCardClick('revenue')} />
+        <StatCard label="Contract Value" value={formatCurrency(financialSummary.contractValue)} sub={`Events in this period${pendingInRangeCount > 0 ? ` · includes ${pendingInRangeCount} not yet approved` : ''}`} color="green" onClick={() => onCardClick('revenue')} />
         <StatCard label="Paid to Date" value={formatCurrency(financialSummary.paidAgainstEvents)} sub="Against those events" color="teal" onClick={() => onCardClick('collected')} />
-        <StatCard label="Contracted, not yet collected" value={formatCurrency(financialSummary.outstanding)} sub="Includes bookings still awaiting approval" color="amber" onClick={() => onCardClick('outstanding')} />
+        <StatCard label="Unpaid on These Events" value={formatCurrency(financialSummary.outstanding)} sub="Of the events in this period" color="amber" onClick={() => onCardClick('outstanding')} />
         <StatCard
-          label="Completed Events"
+          label="Completed Bookings"
           count
           value={totalCompletedBookings}
           sub="In selected period"
           color="blue"
           onClick={() => onOpenDetail({
-            title: 'Completed Events',
+            title: 'Completed Bookings',
             description: `From the booking table: rows where booking_status = "Completed" and the event date falls in the selected period. ${bookingSummaryData.length} month(s) had at least one.`,
-            fields: [{ label: 'Completed events', value: totalCompletedBookings, emphasis: true }],
+            fields: [{ label: 'Completed bookings', value: totalCompletedBookings, emphasis: true }],
           })}
         />
         </div>
@@ -77,29 +77,31 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
         <h2 className={SECTION_HEAD}>Operations</h2>
         <div className={SECTION_GRID}>
         <StatCard
-          label="Bookings Submitted"
+          label="Bookings & Orders Submitted"
           count
           value={totalSubmitted}
           sub="All statuses"
           color="purple"
           onClick={() => onOpenDetail({
-            title: 'Bookings Submitted',
+            title: 'Bookings & Orders Submitted',
             description: 'From the booking table: every row submitted in the selected period, counted by its submission date — regardless of what status it ended up with.',
             fields: [{ label: 'Total submitted', value: totalSubmitted, emphasis: true }],
           })}
         />
         <StatCard
-          label="Cancellation Rate"
+          label="Rejected & Cancelled"
           value={`${cancellationRate}%`}
-          sub="Rejected + Cancelled"
+          sub="of all bookings & orders submitted"
           color="red"
           onClick={() => onOpenDetail({
-            title: 'Cancellation Rate',
-            description: 'From the booking table: bookings whose status is Rejected or Cancelled, divided by all bookings submitted in this period.',
+            title: 'Rejected & Cancelled',
+            description: 'From the booking table: bookings and orders whose status is Rejected or Cancelled, divided by all submitted in this period. Rejected means PG’s declined the work; Cancelled means the customer withdrew.',
             badge: { label: cancellationRate > 20 ? 'Needs attention' : 'Healthy', variant: cancellationRate > 20 ? 'warning' : 'good' },
             fields: [
               { label: 'Rate', value: `${cancellationRate}%`, emphasis: true },
-              { label: 'Bookings submitted', value: totalSubmitted },
+              { label: 'Rejected by PG’s', value: rejectedCount },
+              { label: 'Cancelled by customer', value: customerCancelledCount },
+              { label: 'Bookings & orders submitted', value: totalSubmitted },
             ],
           })}
         />
@@ -122,7 +124,7 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
         <StatCard
           label="Vehicles Dispatched"
           value={`${dispatchedVehicles} / ${totalVehicles}`}
-          sub="Currently on assignment"
+          sub="On the road now"
           color="teal"
           onClick={() => onOpenDetail({
             title: 'Vehicles Dispatched',
@@ -168,7 +170,7 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
                 <div className="flex items-baseline justify-between gap-3.5">
                   <div className="min-w-0">
                     <span className="block text-base font-semibold text-slate-900">{topPackage.name}</span>
-                    <span className="block text-[13px] text-slate-600 mt-0.5">Best-selling package</span>
+                    <span className="block text-[13px] text-slate-600 mt-0.5">Highest-earning package</span>
                   </div>
                   <span className="shrink-0 text-[15px] font-semibold text-[#007038] tabular-nums">{formatPercent(topPackage.revenueShare)}</span>
                 </div>
@@ -178,7 +180,7 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
                 <div className="flex items-baseline justify-between gap-3.5">
                   <div className="min-w-0">
                     <span className="block text-base font-semibold text-slate-900">{topItem.name}</span>
-                    <span className="block text-[13px] text-slate-600 mt-0.5">Best-selling menu item</span>
+                    <span className="block text-[13px] text-slate-600 mt-0.5">Highest-earning menu item</span>
                   </div>
                   <span className="shrink-0 text-[15px] font-semibold text-[#007038] tabular-nums">{formatPercent(topItem.revenueShare)}</span>
                 </div>

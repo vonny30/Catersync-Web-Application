@@ -9,8 +9,10 @@ export default function BookingSummaryTab({ derived, onOpenDetail }) {
   // table can never disagree.
   const totalCompleted = bookingSummaryData.reduce((sum, r) => sum + r.bookings, 0);
   const totalRevenue = bookingSummaryData.reduce((sum, r) => sum + r.revenue, 0);
-  // Mean revenue per completed event -- revenue earned divided by the number of
-  // events that earned it. Guarded so an empty period reads 0, not NaN.
+  // Mean revenue per completed booking -- revenue earned divided by the number
+  // of bookings that earned it. Short orders are in this count and are not
+  // events, which is why nothing here says "event". Guarded so an empty period
+  // reads 0, not NaN.
   const avgPerEvent = totalCompleted > 0 ? totalRevenue / totalCompleted : 0;
 
   const CARD = `border rounded-2xl p-5 text-left ${cardColorClasses()}`;
@@ -22,21 +24,21 @@ export default function BookingSummaryTab({ derived, onOpenDetail }) {
       <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))]">
         <div className={CARD}>
           <span className={cardAccentClass('blue')} />
-          <p className={LABEL}>Completed Events</p>
+          <p className={LABEL}>Completed Bookings</p>
           <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{totalCompleted}</h3>
-          <p className={SUB}>Events in this period, now marked Completed</p>
+          <p className={SUB}>Bookings &amp; orders in this period, now marked Completed</p>
         </div>
         <div className={CARD}>
           <span className={cardAccentClass('green')} />
           <p className={LABEL}>Revenue Earned</p>
           <h3 className="text-[26px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{formatCurrency(totalRevenue)}</h3>
-          <p className={SUB}>Contract value of those events</p>
+          <p className={SUB}>Contract value of those bookings</p>
         </div>
         <div className={CARD}>
           <span className={cardAccentClass('teal')} />
-          <p className={LABEL}>Average per Event</p>
+          <p className={LABEL}>Average per Booking</p>
           <h3 className="text-[26px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{formatCurrency(avgPerEvent)}</h3>
-          <p className={SUB}>Revenue earned ÷ completed events</p>
+          <p className={SUB}>Revenue earned ÷ completed bookings</p>
         </div>
       </div>
 

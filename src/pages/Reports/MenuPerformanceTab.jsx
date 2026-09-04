@@ -83,7 +83,10 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
               <thead>
                 <tr className={TH}>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Product Line</th>
-                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Bookings</th>
+                  {/* "Count", not "Bookings": the Short Orders row counts
+                      short orders, which are not bookings. The column is too
+                      narrow for the "Bookings & Orders" umbrella used elsewhere. */}
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Count</th>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Revenue</th>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap w-1/3">Share of Revenue</th>
                 </tr>
@@ -100,7 +103,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                       fields: [
                         { label: 'Revenue', value: formatCurrency(line.revenue), emphasis: true },
                         { label: 'Share of total revenue', value: formatPercent(line.revenueShare) },
-                        { label: 'Bookings', value: line.count },
+                        { label: 'Bookings & orders', value: line.count },
                       ],
                     })}
                     className="hover:bg-[#fbfcfd] cursor-pointer"

@@ -159,6 +159,12 @@ export default function Reports() {
 
     const activeBookingsInRange = bookingsInEventRange.filter(b => !CANCELLED_STATUSES.includes(b.booking_status));
     const activeBookingIds = new Set(activeBookingsInRange.map(b => b.booking_id));
+    // A Pending row is an enquiry PG's has not accepted, but it still carries a
+    // total_amount and so still lands in Contract Value. The figure stays as it
+    // is — these three cards are a tied set, contractValue - paidAgainstEvents
+    // = outstandingBalance, and FinancialTab prints that division on screen —
+    // so the count is disclosed in the sub-line instead of being subtracted.
+    const pendingInRangeCount = activeBookingsInRange.filter(b => b.booking_status === 'Pending').length;
 
     // --- FINANCIAL ---
     const paymentMap = {};
@@ -288,7 +294,13 @@ export default function Reports() {
       statusCounts[b.booking_status] = (statusCounts[b.booking_status] || 0) + 1;
     });
     const totalSubmitted = bookingsInSubmitRange.length;
-    const cancelledCount = (statusCounts['Rejected'] || 0) + (statusCounts['Cancelled'] || 0);
+    // Rejected (PG's declined the work) and Cancelled (the customer withdrew)
+    // are opposite business events. One combined rate is still the right
+    // headline — both end in no event — but which one is driving it is the
+    // actionable part, so the drill-down names them separately.
+    const rejectedCount = statusCounts['Rejected'] || 0;
+    const customerCancelledCount = statusCounts['Cancelled'] || 0;
+    const cancelledCount = rejectedCount + customerCancelledCount;
     const cancellationRate = totalSubmitted > 0 ? Math.round((cancelledCount / totalSubmitted) * 1000) / 10 : 0;
 
     // ============================================================
@@ -647,7 +659,7 @@ export default function Reports() {
 
     return {
       financialSummary, monthlyRevenueData, paymentMethodData, refunds, totalRefunded,
-      totalSubmitted, cancellationRate,
+      totalSubmitted, cancellationRate, rejectedCount, customerCancelledCount, pendingInRangeCount,
       committedVehicles, fleetUtilization, serviceableVehicles,
       productLineMix, packageMix, menuItemMix, categoryDemandData,
       packageRevenue, shortOrderRevenue, combinedRevenue,
@@ -664,7 +676,7 @@ export default function Reports() {
     const breakdowns = {
       revenue: { data: derived.financialSummary._revenueBreakdown, title: 'Contract Value — events in this period' },
       collected: { data: derived.financialSummary._collectedBreakdown, title: 'Paid against these events' },
-      outstanding: { data: derived.financialSummary._outstandingBreakdown, title: 'Contracted, not yet collected' },
+      outstanding: { data: derived.financialSummary._outstandingBreakdown, title: 'Unpaid on These Events' },
     };
     const entry = breakdowns[type];
     if (!entry) return;
