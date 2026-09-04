@@ -359,7 +359,6 @@ export default function PackagesAndMenus() {
         equipmentPerPax: equipmentPerPax || {},
         pricing_type: item.pricing_type || 'per_pax',
         max_pax: item.max_pax?.toString() || '',
-        extra_pax_price: item.extra_pax_price?.toString() || '',
         colors: item.colors || [],
         existingImageUrl: item.pkg_image || null,
       });
@@ -398,7 +397,7 @@ export default function PackagesAndMenus() {
   // ✅ VALIDATION – with duplicate check, image, and description
   // ============================================================
   const validatePackageForm = async () => {
-    const { title, price, minPax, selectedCategories, selectedEquipment, equipmentQuantities, description, imageFile, pricing_type, max_pax, extra_pax_price } = formData;
+    const { title, price, minPax, selectedCategories, selectedEquipment, equipmentQuantities, description, imageFile, pricing_type, max_pax } = formData;
 
     // 1. Title
     if (!title || title.trim() === '') {
@@ -449,13 +448,6 @@ export default function PackagesAndMenus() {
         }
         if (maxPaxNum < minPaxNum) {
           toast.error(`Max Pax Included (${maxPaxNum}) can't be less than Minimum Pax (${minPaxNum}).`);
-          return false;
-        }
-      }
-      if (extra_pax_price !== '' && extra_pax_price !== null && extra_pax_price !== undefined) {
-        const extraPriceNum = parseFloat(extra_pax_price);
-        if (isNaN(extraPriceNum) || extraPriceNum < 0) {
-          toast.error('Extra Pax Price cannot be negative.');
           return false;
         }
       }
@@ -616,7 +608,10 @@ export default function PackagesAndMenus() {
           minimum_pax: parseInt(formData.minPax) || 0,
           pricing_type: formData.pricing_type || 'per_pax',
           max_pax: formData.pricing_type === 'fixed' ? (parseInt(formData.max_pax) || null) : null,
-          extra_pax_price: formData.pricing_type === 'fixed' ? (parseFloat(formData.extra_pax_price) || 0) : 0,
+          // Null for both types. A fixed package covers a band and refuses
+          // anything outside it; a per-pax package charges pkg_price for every
+          // guest, extra ones included (extraPaxRate). Neither reads this.
+          extra_pax_price: null,
           colors: formData.colors || [],
         };
         if (uploadedImageUrl) {

@@ -1,5 +1,5 @@
 // src/pages/ShortOrderDetails.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo} from 'react';
 import Select from '../components/Select';
 import AssignVehicleModal from '../components/AssignVehicleModal';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -53,11 +53,24 @@ export default function ShortOrderDetails() {
     event_datetime: '',
     venue: '',
     delivery_fee: '0',
-    total_amount: '',
     notes: '',
     menu_selections: [], // [{menu_item_id, quantity}]
   });
   const [editTempItem, setEditTempItem] = useState({ menu_item_id: '', quantity: 1 });
+
+  // Derived, not stored — and this was not merely a duplicate of the list
+  // form's useMemo. The save recomputed the total from menu + delivery fee
+  // while the input rendered the value LOADED from the row, which nothing
+  // updated as items were added. So the "auto-calculated" box could show one
+  // number while a different one was written. The input was also editable and
+  // had an onChange, so anything typed into it was silently discarded.
+  const editComputedTotal = useMemo(() => {
+    const menuTotal = (editFormData.menu_selections || []).reduce((sum, sel) => {
+      const item = menuItems.find(m => m.menu_item_id === sel.menu_item_id);
+      return sum + (item ? item.menu_price * sel.quantity : 0);
+    }, 0);
+    return (menuTotal + (parseFloat(editFormData.delivery_fee) || 0)).toFixed(2);
+  }, [editFormData.menu_selections, editFormData.delivery_fee, menuItems]);
 
   // --- Refund Modal state (local) ---
   const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
@@ -554,7 +567,6 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
       event_datetime: toDateTimeLocalValue(order.event_datetime),
       venue: order.venue || '',
       delivery_fee: order.delivery_fee?.toString() || '0',
-      total_amount: order.total_amount?.toString() || '',
       notes: order.notes || '',
       menu_selections: selections,
     });
@@ -675,22 +687,13 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
     }
 
     try {
-      // Recalculate total from selections
-      let total = 0;
-      for (const sel of editFormData.menu_selections) {
-        const menuItem = menuItems.find(m => m.menu_item_id === sel.menu_item_id);
-        if (menuItem) {
-          total += menuItem.menu_price * sel.quantity;
-        }
-      }
-      total += parseFloat(editFormData.delivery_fee) || 0;
-
       const payload = {
         customer_id: editFormData.customer_id,
         event_datetime: editFormData.event_datetime ? new Date(editFormData.event_datetime).toISOString() : null,
         venue: editFormData.venue,
         notes: editFormData.notes || null,
-        total_amount: total,
+        // Exactly the figure the box shows.
+        total_amount: parseFloat(editComputedTotal) || 0,
         delivery_fee: parseFloat(editFormData.delivery_fee) || 0,
         menu_selections: editFormData.menu_selections,
         booking_type: 'Short Order',
@@ -1591,11 +1594,11 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                 <input
                   type="number"
                   name="total_amount"
-                  value={editFormData.total_amount}
-                  onChange={handleEditInputChange}
+                  value={editComputedTotal}
                   placeholder="Auto-calculated"
                   step="0.01"
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+                  disabled
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none bg-slate-100 text-slate-600"
                   disabled
                 />
               </div>

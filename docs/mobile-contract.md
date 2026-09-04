@@ -32,6 +32,11 @@ theoretical; they are live in the database now.
 
 §3 explains each. If you read nothing else, read §3.1.
 
+**And one that predates all four, for a Kitchen Staff app rather than an ops
+one:** `booking.menu_selections` holds a different JSON *shape* per booking type
+— an array for short orders, an object for packages. Reading one as the other
+returns nothing and raises nothing, so a prep list simply comes up empty. **§5.1.**
+
 ---
 
 ## 1. Stored values are the contract. Labels are not.
@@ -178,7 +183,81 @@ the same thing rather than failing on a foreign key.
 - Returns open **3 hours after the event starts**, not at the event end. Same
   rule for vehicles.
 
-## 5. Reading data at all: the 1000-row cap
+## 5. Booking fields that differ by type
+
+One `booking` table, two products. A row carries only the fields its own type
+uses, and reading a field the other type owns gets you a value that is empty,
+zero, or the wrong shape entirely.
+
+### 5.1 `menu_selections` is POLYMORPHIC. Branch on `booking_type` first.
+
+**This is the one most likely to cost a day.** The column holds two different
+JSON shapes depending on the booking type:
+
+```jsonc
+// booking_type = 'Short Order'  — an ARRAY of items and quantities
+[ { "menu_item_id": "uuid", "quantity": 2 } ]
+
+// booking_type = 'Package'      — an OBJECT keyed by category_id,
+//                                 whose value is the customer's chosen dish
+{ "14c99363-…": "136debf9-…", "f55b66a6-…": "2cb11bac-…" }
+```
+
+Verified against the live database, 4 Sep 2026: **all 12 package rows are JSON
+objects, all 5 short-order rows are arrays.** The keys are `category.category_id`
+and the values are `menu_item.menu_item_id` — one chosen dish per included
+category.
+
+Why it will bite rather than break: **iterating the object as an array yields
+nothing and throws nothing.** A Kitchen Staff app written against the short-order
+shape shows an empty prep list for every package booking, with no error in the
+console and no failed request to find. The bug looks like "no orders today".
+
+```js
+const sel = booking.menu_selections;
+const items = booking.booking_type === 'Short Order'
+  ? (Array.isArray(sel) ? sel : [])                 // [{menu_item_id, quantity}]
+  : Object.entries(sel || {});                      // [[category_id, menu_item_id]]
+```
+
+Note the quantity: a short order says how many trays; a package says which dish
+per category and takes its quantity from `pax_count`. They are not the same
+question, so do not try to normalise them into one list without deciding what
+the number means.
+
+**This is documented, not split.** Two columns would be cleaner, and a migration
+touching every booking days before a defence is the wrong trade.
+
+### 5.2 Do not set `pax_count` on a short order
+
+Short orders are sold in trays; headcount is not their unit and nothing in the
+web app reads it for them. `booking.pax_count` is `integer NOT NULL` with no
+default, so something must be supplied — `ShortOrders.jsx` supplies the honest
+`0`.
+
+Four of the five existing short-order rows carry a real headcount and one does
+not. **The empty one is the correct one.** Those four came from the customer app
+and nothing has ever read them.
+
+### 5.3 `extra_pax_price` is out of pricing entirely
+
+It is now written `null` for both package types and has no reader on either
+side. A fixed-price package charges `pkg_price` flat inside
+`minimum_pax..max_pax` and **refuses** a booking outside that band — there is no
+"beyond the cap" to surcharge (`fixed-package-cap.md`). A per-pax package
+charges `pkg_price` for every guest, extra ones included. Ignore the column; the
+column itself is kept only so that dropping it is not a migration.
+
+### 5.4 A package booking carries no `delivery_fee`
+
+Decided 4 Sep 2026. The column stays — it is nullable with `DEFAULT 0`, and
+short orders use it — but a package booking neither collects nor displays one,
+and the admin no longer writes the key for a package at all. All 12 existing
+package rows already hold ₱0, so nothing changed in the data.
+
+---
+
+## 6. Reading data at all: the 1000-row cap
 
 PostgREST caps every response at 1000 rows and returns the truncated set **with
 no error**. Nothing throws, nothing warns. Any screen computing a total from an
@@ -197,7 +276,7 @@ a PostgREST builder is single-use.
 `vehicle_assign` is the table most likely to cross 1000 next — it now grows by
 **two rows per booking per vehicle**, not one.
 
-## 6. Money
+## 7. Money
 
 One rule, because three different answers to "how much have we collected"
 appeared once already:
@@ -210,20 +289,20 @@ appeared once already:
 - A forfeited downpayment on a cancelled booking is real cash but is not live
   business — the web reports it on its own line.
 
-## 7. Keeping this honest as we keep updating
+## 8. Keeping this honest as we keep updating
 
 1. **This file changes first.** Any change to a shared table's meaning — a new
    stored value, a new derived rule, a new row-per-booking assumption — is
    written here before it is coded anywhere.
 2. **Both mobile repos should carry a copy or a link.** Whichever assistant is
    working in them reads this before touching a shared table.
-3. **Every change that adds rows to a shared table gets a line in §5**, because
+3. **Every change that adds rows to a shared table gets a line in §6**, because
    the row cap is the failure nobody sees.
 4. When the two disagree, **neither side "wins" by being newer** — the question
    is which one matches what PG's actually does, and that is a question for
    Vaughn, not for either codebase.
 
-## 8. What this document does not yet cover
+## 9. What this document does not yet cover
 
 Honest gaps, because nobody has seen the mobile code:
 
@@ -235,8 +314,10 @@ Honest gaps, because nobody has seen the mobile code:
   it immediately.
 - **Auth and roles.** How the two apps authenticate and what row-level security
   applies to them.
-- **`menu_selections` stores only `{menu_item_id, quantity}`** — no price
-  snapshot. Tray counts are exact; peso figures are always derived. That matters
-  most to a Kitchen Staff app, and is worth confirming against what it displays.
+- ~~**`menu_selections` stores only `{menu_item_id, quantity}`**~~ — **corrected
+  4 Sep 2026, see §5.1.** That is the SHORT ORDER shape only; a package stores an
+  object keyed by category. The rest of the bullet stands for both: there is no
+  price snapshot, so tray counts are exact and peso figures are always derived.
+  This bullet was itself an example of the mistake §5.1 describes.
 
 Filling these in needs the repos.

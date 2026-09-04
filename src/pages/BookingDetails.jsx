@@ -67,7 +67,6 @@ export default function BookingDetails() {
     motif_color: '',
     notes: '',
     total_amount: '',
-    delivery_fee: '0',
     menu_selections: {},
   });
 
@@ -581,7 +580,9 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
         total += (pax - pkg.max_pax) * (pkg.extra_pax_price || 0);
       }
     }
-    return total + (parseFloat(booking.delivery_fee) || 0);
+    // A package booking carries no delivery fee — Vaughn's rule, 4 Sep 2026.
+    // The add form never collected one; this page was the outlier.
+    return total;
   };
 
   const editWouldLoseTotal = () => {
@@ -610,7 +611,6 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
       motif_color: booking.motif_color || '',
       notes: booking.notes || '',
       total_amount: booking.total_amount?.toString() || '',
-      delivery_fee: booking.delivery_fee?.toString() || '0',
       menu_selections: booking.menu_selections || {},
     });
     // Fetch package info for the current package
@@ -684,7 +684,6 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
     if (!pkg) return editFormData.total_amount;
 
     const pax = parseInt(editFormData.pax_count) || 0;
-    const deliveryFee = parseFloat(editFormData.delivery_fee) || 0;
 
     let total = 0;
     if (pkg.pricing_type === 'per_pax') {
@@ -695,9 +694,8 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
         total += (pax - pkg.max_pax) * (pkg.extra_pax_price || 0);
       }
     }
-    total += deliveryFee;
     return total.toFixed(2);
-  }, [selectedPackageInfo, editFormData.pax_count, editFormData.delivery_fee, editFormData.total_amount]);
+  }, [selectedPackageInfo, editFormData.pax_count, editFormData.total_amount]);
 
   const handleEditInputChange = (e) => {
     const { name, value } = e.target;
@@ -816,7 +814,6 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
         motif_color: editFormData.motif_color || null,
         notes: editFormData.notes || null,
         total_amount: parseFloat(editComputedTotal) || 0,
-        delivery_fee: parseFloat(editFormData.delivery_fee) || 0,
         menu_selections: editFormData.menu_selections,
       };
 
@@ -1432,9 +1429,6 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                         {booking.package.max_pax && (
                           <span className="text-xs text-slate-500">(up to {booking.package.max_pax} pax)</span>
                         )}
-                        {booking.package.extra_pax_price > 0 && (
-                          <span className="text-xs text-slate-500">· ₱{booking.package.extra_pax_price}/extra pax</span>
-                        )}
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1">
@@ -1982,17 +1976,6 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none bg-slate-50 text-slate-600"
                   />
                   {editFieldErrors.total_amount && <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.total_amount}</p>}
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Delivery Fee</label>
-                  <input
-                    type="number"
-                    name="delivery_fee"
-                    value={editFormData.delivery_fee}
-                    onChange={handleEditInputChange}
-                    placeholder="0.00"
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
-                  />
                 </div>
               </div>
 

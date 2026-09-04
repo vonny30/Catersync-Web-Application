@@ -53,7 +53,6 @@ export const EMPTY_FORM_DATA = {
   equipmentPerPax: {},
   pricing_type: 'per_pax',
   max_pax: '',
-  extra_pax_price: '',
   colors: [],
   existingImageUrl: null,
 };

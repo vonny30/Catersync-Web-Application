@@ -15,10 +15,6 @@ const STAT_VALUE = 'block text-xl font-semibold tracking-[-0.02em] tabular-nums 
 export default function PackageCard({ pkg, categoryNames, equipmentNames, onEdit, onArchive, onDelete }) {
   const isArchived = pkg.pkg_availability === 'Archived';
   // Extra-pax pricing only means anything on a fixed package that caps its
-  // headcount -- on a per-pax package every guest is already charged, so
-  // showing an "extra pax" rate there would describe a charge that is never
-  // applied. Same condition the card has always used.
-  const showExtraPax = pkg.pricing_type === 'fixed' && pkg.max_pax && pkg.extra_pax_price > 0;
 
   return (
     <div className="flex flex-col md:flex-row bg-white border border-slate-200/70 rounded-2xl overflow-hidden transition-all hover:border-[#c9dfd4] hover:shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
@@ -81,17 +77,8 @@ export default function PackageCard({ pkg, categoryNames, equipmentNames, onEdit
           </div>
           {pkg.pricing_type === 'fixed' && pkg.max_pax && (
             <div>
-              <span className={STAT_LABEL}>Max pax included</span>
+              <span className={STAT_LABEL}>Max pax</span>
               <span className={STAT_VALUE}>{pkg.max_pax}</span>
-            </div>
-          )}
-          {showExtraPax && (
-            <div>
-              <span className={STAT_LABEL}>Extra pax</span>
-              <span className={STAT_VALUE}>
-                ₱{Number(pkg.extra_pax_price).toLocaleString()}
-                <span className="text-sm font-medium text-slate-600">/pax</span>
-              </span>
             </div>
           )}
         </div>

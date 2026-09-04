@@ -366,8 +366,11 @@ export default function Reports() {
     );
 
     // --- MENU ITEM MIX (each item against all menu-item revenue) ---
-    // menu_selections stores only {menu_item_id, quantity} — there is no price
-    // snapshot — so a line has to start from today's menu_price. Left there,
+    // A SHORT ORDER's menu_selections stores only {menu_item_id, quantity} —
+    // there is no price snapshot — so a line has to start from today's
+    // menu_price. (A package's menu_selections is a different shape entirely:
+    // an object keyed by category_id. This block only ever walks short orders,
+    // but see mobile-contract.md §5.1 before reusing the assumption.) Left there,
     // raising a price would silently restate last year's revenue and the item
     // totals would never add up to what customers actually paid.
     //
