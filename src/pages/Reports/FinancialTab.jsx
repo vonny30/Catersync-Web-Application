@@ -73,7 +73,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
               <span className={`${FIG} text-slate-900`}>{formatCurrency(financialSummary.paidAgainstEvents)}</span>
             </button>
             <button onClick={() => onCardClick('outstanding')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
-              <span className="block text-[13px] text-slate-600 mb-1.5">Outstanding Balance</span>
+              <span className="block text-[13px] text-slate-600 mb-1.5">Contracted, not yet collected</span>
               <span className={`${FIG} text-amber-700`}>{formatCurrency(financialSummary.outstanding)}</span>
             </button>
           </div>

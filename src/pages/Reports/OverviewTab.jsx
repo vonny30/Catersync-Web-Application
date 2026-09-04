@@ -52,7 +52,7 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
         <div className={SECTION_GRID}>
         <StatCard label="Contract Value" value={formatCurrency(financialSummary.contractValue)} sub="Events in this period" color="green" onClick={() => onCardClick('revenue')} />
         <StatCard label="Paid to Date" value={formatCurrency(financialSummary.paidAgainstEvents)} sub="Against those events" color="teal" onClick={() => onCardClick('collected')} />
-        <StatCard label="Outstanding Balance" value={formatCurrency(financialSummary.outstanding)} sub="Still to collect" color="amber" onClick={() => onCardClick('outstanding')} />
+        <StatCard label="Contracted, not yet collected" value={formatCurrency(financialSummary.outstanding)} sub="Includes bookings still awaiting approval" color="amber" onClick={() => onCardClick('outstanding')} />
         <StatCard
           label="Completed Events"
           count

@@ -671,7 +671,7 @@ export default function Reports() {
     const breakdowns = {
       revenue: { data: derived.financialSummary._revenueBreakdown, title: 'Contract Value — events in this period' },
       collected: { data: derived.financialSummary._collectedBreakdown, title: 'Paid against these events' },
-      outstanding: { data: derived.financialSummary._outstandingBreakdown, title: 'Outstanding Balance' },
+      outstanding: { data: derived.financialSummary._outstandingBreakdown, title: 'Contracted, not yet collected' },
     };
     const entry = breakdowns[type];
     if (!entry) return;
