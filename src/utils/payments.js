@@ -128,3 +128,36 @@ export function describePaymentKind(payment, priorVerifiedPayments, bookingTotal
   if (priorPaid <= 0) return 'Downpayment';
   return 'Partial payment';
 }
+
+// The money sentence in every delete-confirmation dialog.
+//
+// This existed four times — two list pages, two detail pages — and every copy
+// read "N payment records totalling ₱X", which is arithmetic the numbers do
+// not support. The count is every payment row on the booking; the total is
+// only the VERIFIED, POSITIVE ones. A booking with two verified payments of
+// ₱2,500 and one still awaiting verification announced "3 payment records
+// totalling ₱5,000", and a manager who added up the rows in front of them got
+// ₱7,500. The same gap opens on a refunded booking, where a negative row is
+// counted but never summed.
+//
+// Both figures are worth stating — the rows are what gets destroyed, the
+// verified total is what leaves the reports — so the fix is to stop claiming
+// they are the same figure. "including" makes the total a subset of the rows
+// rather than their sum, which is exactly what it is.
+//
+// Returns '' when there is nothing to warn about, so callers can append it
+// unconditionally.
+export function formatPaymentDeletionWarning(rowCount, verifiedTotal, { tail = '' } = {}) {
+  if (!rowCount) return '';
+
+  const plural = rowCount !== 1;
+  const records = `This will also delete ${rowCount} payment record${plural ? 's' : ''}`;
+  const money = verifiedTotal > 0
+    ? `, including ₱${verifiedTotal.toLocaleString()} in verified payments. That money will disappear from every report.`
+    // Nothing verified means nothing to remove from the reports, and saying
+    // "₱0" invites the reading that the records are worthless. They are still
+    // the customer's submitted proof, and they are still being destroyed.
+    : `. No verified money is attached, so no reported figure changes — but the record${plural ? 's themselves are' : ' itself is'} gone.`;
+
+  return `\n\n${records}${money}${tail ? ` ${tail}` : ''}`;
+}

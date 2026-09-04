@@ -20,7 +20,7 @@ import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
-import { isPaymentLedgerLocked } from '../utils/payments';
+import { isPaymentLedgerLocked, formatPaymentDeletionWarning } from '../utils/payments';
 import { bookingEditLockedMessage, STATUS_ORDER, findStatusOrderDrift } from '../utils/bookingStatus';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
 import { validatePaxForPackage } from '../utils/packageRules';
@@ -1109,11 +1109,9 @@ const handleMarkCompleted = async (id) => {
     // are the copies that were missed, the same split as the completion bug.
     const paidHere = targetBooking?.positivePayments || 0;
     const rowsHere = targetBooking?.paymentRowCount || 0;
-    const moneyWarning = rowsHere > 0
-      ? `
-
-This will also delete ${rowsHere} payment record${rowsHere === 1 ? '' : 's'} totalling ₱${paidHere.toLocaleString()}. That money will disappear from every report. Cancel it instead if you need to refund or forfeit the downpayment.`
-      : '';
+    const moneyWarning = formatPaymentDeletionWarning(rowsHere, paidHere, {
+      tail: 'Cancel it instead if you need to refund or forfeit the downpayment.',
+    });
 
     const confirmed = await showConfirm({
       title: 'Delete Booking?',

@@ -17,7 +17,7 @@ import { useCancellationHandlers } from '../hooks/useCancellationHandlers';
 import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
-import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind } from '../utils/payments';
+import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind, formatPaymentDeletionWarning } from '../utils/payments';
 import { getServiceMethod, reconcileServiceMethodChange, PICKUP_VENUE_MARKER, getDispatchWindow, TRIP_LEG } from '../utils/vehicle';
 import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
@@ -478,11 +478,7 @@ export default function ShortOrderDetails() {
     // leaving the reports.
     const recordedMoney = sumVerifiedPositivePayments(payments);
     const paymentRowCount = (payments || []).length;
-    const moneyWarning = paymentRowCount > 0
-      ? `
-
-This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ? '' : 's'} totalling ₱${recordedMoney.toLocaleString()}. That money will disappear from every report.`
-      : '';
+    const moneyWarning = formatPaymentDeletionWarning(paymentRowCount, recordedMoney);
 
     const confirmed = await showConfirm({
       title: 'Delete Short Order?',

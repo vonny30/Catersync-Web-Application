@@ -19,7 +19,7 @@ import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
 import { allocateEquipmentForBooking } from '../utils/equipment';
 import { getDispatchWindow, TRIP_LEG } from '../utils/vehicle';
-import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind } from '../utils/payments';
+import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind, formatPaymentDeletionWarning } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
 import { validatePaxForPackage } from '../utils/packageRules';
@@ -511,11 +511,7 @@ export default function BookingDetails() {
     // the same verified total the rest of the page shows.
     const recordedMoney = sumVerifiedPositivePayments(payments);
     const paymentRowCount = (payments || []).length;
-    const moneyWarning = paymentRowCount > 0
-      ? `
-
-This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ? '' : 's'} totalling ₱${recordedMoney.toLocaleString()}. That money will disappear from every report.`
-      : '';
+    const moneyWarning = formatPaymentDeletionWarning(paymentRowCount, recordedMoney);
 
     const confirmed = await showConfirm({
       title: 'Delete Booking?',

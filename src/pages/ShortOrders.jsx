@@ -20,7 +20,7 @@ import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
-import { isPaymentLedgerLocked, totalLossOnRecompute, totalLossLockedMessage } from '../utils/payments';
+import { isPaymentLedgerLocked, totalLossOnRecompute, totalLossLockedMessage, formatPaymentDeletionWarning } from '../utils/payments';
 import { bookingEditLockedMessage, MAX_SHORT_ORDERS_PER_DAY, STATUS_ORDER, findStatusOrderDrift } from '../utils/bookingStatus';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
@@ -1046,11 +1046,9 @@ export default function ShortOrders() {
     // ShortOrderDetails already does this; this list page was the copy missed.
     const paidHere = targetOrder?.positivePayments || 0;
     const rowsHere = targetOrder?.paymentRowCount || 0;
-    const moneyWarning = rowsHere > 0
-      ? `
-
-This will also delete ${rowsHere} payment record${rowsHere === 1 ? '' : 's'} totalling ₱${paidHere.toLocaleString()}. That money will disappear from every report. Cancel it instead if you need to refund or forfeit the downpayment.`
-      : '';
+    const moneyWarning = formatPaymentDeletionWarning(rowsHere, paidHere, {
+      tail: 'Cancel it instead if you need to refund or forfeit the downpayment.',
+    });
     const confirmed = await showConfirm({
       title: 'Delete Order?',
       message: `Are you sure you want to permanently delete this ${targetOrder?.booking_status || ''} order? This action cannot be undone. Its vehicle assignments will be released.${moneyWarning}`,
