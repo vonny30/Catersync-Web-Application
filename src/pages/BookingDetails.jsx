@@ -1965,7 +1965,7 @@ This will also delete ${paymentRowCount} payment record${paymentRowCount === 1 ?
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
                   />
                 </div>
-                <div>
+                <div className="col-span-2">
                   <label className="block text-xs font-bold text-slate-700 mb-1">Total Amount (auto-calculated)</label>
                   <input
                     type="number"
