@@ -1141,9 +1141,17 @@ export default function Payments() {
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Payments Received</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">₱{received.paymentsReceived.toLocaleString()}</h3>
+          {/* Two things were wrong here. The figure quoted was refundsIssued,
+              which includes refunds on Rejected/Cancelled bookings -- money that
+              never came out of paymentsReceived and sits in
+              retainedFromCancellations instead. And "Net of refunds" printed
+              unconditionally, asserting a deduction even when none had been
+              made. A refund is a deduction from payments, not a kind of
+              payment, so it is only mentioned when one exists. Matches
+              FinancialTab. */}
           <p className="text-[13px] text-slate-600 mt-2.5">
-            Net of refunds · {datePreset === 'All Time' ? 'all time' : datePreset.toLowerCase()}
-            {received.refundsIssued > 0 && ` · ₱${received.refundsIssued.toLocaleString()} refunded`}
+            All payments received · {datePreset === 'All Time' ? 'all time' : datePreset.toLowerCase()}
+            {received.refundsNettedAgainstReceived > 0 && ` — less ₱${received.refundsNettedAgainstReceived.toLocaleString()} refunded`}
           </p>
         </button>
         <button

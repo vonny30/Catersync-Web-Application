@@ -90,11 +90,30 @@ export function getPaymentsReceived(payments, { start, end, bookingStatusById } 
   const paymentsReceived = sum(activeRows);
   const retainedFromCancellations = sum(cancelledRows);
 
+  // The refunds actually deducted from `paymentsReceived` — which is NOT
+  // `refundsIssued`.
+  //
+  // `refundsIssued` counts every refund in the period, including refunds on
+  // Rejected/Cancelled bookings. Those rows are in `cancelledRows`, so they
+  // reduce `retainedFromCancellations` and never touch `paymentsReceived`. And
+  // a refund is most often issued precisely BECAUSE a booking was cancelled,
+  // so the two figures diverge in exactly the common case. Quoting
+  // `refundsIssued` beside `paymentsReceived` claims a deduction that was
+  // never made.
+  //
+  // This lived inline in Reports/index.jsx with that warning attached. It is
+  // here now because Payments.jsx needed the same number and copying the
+  // reduce would have made it two figures that can drift apart.
+  const refundsNettedAgainstReceived = activeRows
+    .filter(p => (p.amount_paid || 0) < 0)
+    .reduce((total, p) => total + Math.abs(p.amount_paid), 0);
+
   return {
     paymentsReceived,
     retainedFromCancellations,
     totalCashIn: paymentsReceived + retainedFromCancellations,
     refundsIssued,
+    refundsNettedAgainstReceived,
     activeRows,
     cancelledRows,
     countedRows: counted,

@@ -209,17 +209,10 @@ export default function Reports() {
       paymentsReceived: received.paymentsReceived,
       retainedFromCancellations: received.retainedFromCancellations,
       refundsIssued: received.refundsIssued,
-      // Refunds actually netted out of paymentsReceived.
-      //
-      // refundsIssued counts every refund in the period, including those on
-      // Rejected/Cancelled bookings -- but those rows land in
-      // retainedFromCancellations, NOT in paymentsReceived. Since a refund is
-      // most often issued precisely because a booking was cancelled, quoting
-      // refundsIssued beside paymentsReceived would claim a deduction that
-      // was never made. This is the figure that honestly describes it.
-      refundsNettedAgainstReceived: received.activeRows
-        .filter(p => (p.amount_paid || 0) < 0)
-        .reduce((sum, p) => sum + Math.abs(p.amount_paid), 0),
+      // Refunds actually netted out of paymentsReceived -- NOT refundsIssued.
+      // The distinction and its reasoning now live with the derivation, in
+      // getPaymentsReceived; Payments.jsx reads the same field.
+      refundsNettedAgainstReceived: received.refundsNettedAgainstReceived,
       _revenueBreakdown: revenueBreakdown,
       _collectedBreakdown: collectedBreakdown,
       _outstandingBreakdown: outstandingBreakdown,
