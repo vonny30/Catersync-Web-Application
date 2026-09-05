@@ -1,6 +1,7 @@
 // src/pages/Dashboard.jsx
 import { useState, useEffect, useCallback } from 'react';
 import Select from '../components/Select';
+import ModalTotal from '../components/ModalTotal';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -621,6 +622,7 @@ export default function Dashboard() {
           .from('payment')
           .select(`
             payment_id,
+            booking_id,
             amount_paid,
             pay_datetime,
             pay_method,
@@ -718,7 +720,13 @@ export default function Dashboard() {
   // disagree with the headline by exactly the refunds in the period.
   const groupedStatsModalData = statsModalType !== 'revenue' ? [] : Object.values(
     filteredStatsModalData.reduce((groups, p) => {
-      const key = p.booking_id || p.payment_id;
+      // The embedded `booking:booking_id (...)` returns the booking as a
+      // nested object and does NOT also return a scalar booking_id, so
+      // `p.booking_id` is undefined here and every payment grouped alone —
+      // which is how BKG-122's two instalments still rendered as two rows.
+      // The id is read from the row first (it is selected explicitly now) and
+      // from the embedded booking second.
+      const key = p.booking_id || p.booking?.booking_id || p.payment_id;
       if (!groups[key]) groups[key] = { key, booking: p.booking, entries: [] };
       groups[key].entries.push(p);
       return groups;
@@ -1288,13 +1296,6 @@ export default function Dashboard() {
                           );
                         })}
                       </tbody>
-                      <tfoot className="bg-slate-50 border-t-2 border-slate-200">
-                        <tr>
-                          <td colSpan="8" className="p-3 text-right font-bold text-slate-700">
-                            Total: {filteredStatsModalData.length} record(s)
-                          </td>
-                        </tr>
-                      </tfoot>
                     </table>
                   )}
 
@@ -1384,24 +1385,21 @@ export default function Dashboard() {
                           );
                         })}
                       </tbody>
-                      <tfoot className="bg-slate-50 border-t-2 border-slate-200">
-                        <tr>
-                          <td colSpan="4" className="p-3 text-right font-bold text-slate-700">Total received:</td>
-                          {/* Summed over the same rows the table renders, so
-                              grouping cannot move this figure. It stays equal
-                              to the card that opened the modal. */}
-                          <td className="p-3 text-right font-bold text-emerald-700">
-                            ₱{groupedStatsModalData.reduce((sum, g) => sum + g.total, 0).toLocaleString()}
-                          </td>
-                          <td colSpan="4" className="p-3"></td>
-                        </tr>
-                      </tfoot>
                     </table>
                   )}
                 </>
               )}
             </div>
-            <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-200 shrink-0">
+            <div className="flex items-center justify-between gap-4 px-6 py-4 bg-slate-50 border-t border-slate-200 shrink-0">
+              {statsModalType === 'revenue' ? (
+                <ModalTotal
+                  label="Total received"
+                  value={`₱${groupedStatsModalData.reduce((sum, g) => sum + g.total, 0).toLocaleString()}`}
+                  hint={`${groupedStatsModalData.length} booking${groupedStatsModalData.length === 1 ? '' : 's'}`}
+                />
+              ) : (
+                <ModalTotal label="Records" value={filteredStatsModalData.length} tone="neutral" />
+              )}
               <button
                 onClick={closeStatsModal}
                 className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"

@@ -1,6 +1,7 @@
 // src/pages/Payments.jsx
 import { useState, useEffect, useRef } from 'react';
 import Select from '../components/Select';
+import ModalTotal from '../components/ModalTotal';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -1954,15 +1955,6 @@ export default function Payments() {
                           );
                         })}
                       </tbody>
-                      <tfoot className="bg-slate-50 border-t-2 border-slate-200">
-                        <tr>
-                          <td colSpan="4" className="p-3 text-right font-bold text-slate-700">Total:</td>
-                          <td className="p-3 text-right font-bold text-emerald-700">
-                            ₱{filteredSummaryModalData.reduce((sum, p) => sum + (p.amount_paid || 0), 0).toLocaleString()}
-                          </td>
-                          <td colSpan="2"></td>
-                        </tr>
-                      </tfoot>
                     </table>
                   )}
 
@@ -2001,16 +1993,6 @@ export default function Payments() {
                           </tr>
                         ))}
                       </tbody>
-                      <tfoot className="bg-slate-50 border-t-2 border-slate-200">
-                        <tr>
-                          <td colSpan="4" className="p-3 text-right font-bold text-slate-700">
-                            {filteredSummaryModalData.length} booking(s) paid in full:
-                          </td>
-                          <td className="p-3 text-right font-bold text-emerald-700">
-                            ₱{filteredSummaryModalData.reduce((sum, b) => sum + (b.paid || 0), 0).toLocaleString()}
-                          </td>
-                        </tr>
-                      </tfoot>
                     </table>
                   )}
 
@@ -2050,21 +2032,45 @@ export default function Payments() {
                           </tr>
                         ))}
                       </tbody>
-                      <tfoot className="bg-slate-50 border-t-2 border-slate-200">
-                        <tr>
-                          <td colSpan="5" className="p-3 text-right font-bold text-slate-700">Total outstanding:</td>
-                          <td className="p-3 text-right font-bold text-red-600">
-                            ₱{filteredSummaryModalData.reduce((sum, b) => sum + (b.remaining || 0), 0).toLocaleString()}
-                          </td>
-                        </tr>
-                      </tfoot>
                     </table>
                   )}
                 </>
               )}
             </div>
 
-            <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-200 shrink-0">
+            {/* The total lives here rather than in a table footer. These lists
+                scroll inside the modal, so a <tfoot> total is off-screen until
+                you reach the end of it — and the total is the reason the modal
+                was opened. This bar is shrink-0, so it is always visible.
+
+                Rendered inline per type rather than through a shared variable:
+                a component-body const holding this would push the React
+                Compiler past its analysis budget for a file this size and
+                silently drop react-hooks/set-state-in-effect for the whole
+                page. Verified by bisecting, not guessed. */}
+            <div className="flex items-center justify-between gap-4 px-6 py-4 bg-slate-50 border-t border-slate-200 shrink-0">
+              {summaryModalType === 'collected' && (
+                <ModalTotal
+                  label="Total received"
+                  value={`₱${filteredSummaryModalData.reduce((sum, p) => sum + (p.amount_paid || 0), 0).toLocaleString()}`}
+                  hint={`${filteredSummaryModalData.length} record${filteredSummaryModalData.length === 1 ? '' : 's'}`}
+                />
+              )}
+              {summaryModalType === 'fullypaid' && (
+                <ModalTotal
+                  label="Total paid in full"
+                  value={`₱${filteredSummaryModalData.reduce((sum, b) => sum + (b.paid || 0), 0).toLocaleString()}`}
+                  hint={`${filteredSummaryModalData.length} booking${filteredSummaryModalData.length === 1 ? '' : 's'}`}
+                />
+              )}
+              {summaryModalType === 'pending' && (
+                <ModalTotal
+                  label="Total outstanding"
+                  value={`₱${filteredSummaryModalData.reduce((sum, b) => sum + (b.remaining || 0), 0).toLocaleString()}`}
+                  tone="negative"
+                  hint={`${filteredSummaryModalData.length} record${filteredSummaryModalData.length === 1 ? '' : 's'}`}
+                />
+              )}
               <button
                 onClick={closeSummaryModal}
                 className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"

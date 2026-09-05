@@ -1,5 +1,6 @@
 // src/pages/Reports/DetailModal.jsx
 import { useState } from 'react';
+import ModalTotal from '../../components/ModalTotal';
 import Select from '../../components/Select';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -197,13 +198,6 @@ export default function DetailModal({ detailModal, onClose }) {
                       </tr>
                     ))}
                   </tbody>
-                  <tfoot className="bg-slate-50 border-t-2 border-slate-200">
-                    <tr>
-                      <td colSpan="4" className="p-3 text-right font-bold text-slate-700">Total:</td>
-                      <td className="px-5 py-[15px] text-right font-bold text-emerald-700">{formatCurrency(filteredData.reduce((sum, item) => sum + item.total, 0))}</td>
-                      <td className="px-5 py-[15px]"></td>
-                    </tr>
-                  </tfoot>
                 </table>
               )}
 
@@ -291,12 +285,6 @@ export default function DetailModal({ detailModal, onClose }) {
                       </tr>
                     ))}
                   </tbody>
-                  <tfoot className="bg-slate-50 border-t-2 border-slate-200">
-                    <tr>
-                      <td colSpan="6" className="p-3 text-right font-bold text-slate-700">Total Outstanding:</td>
-                      <td className="px-5 py-[15px] text-right font-bold text-red-600">{formatCurrency(filteredData.reduce((sum, item) => sum + item.outstanding, 0))}</td>
-                    </tr>
-                  </tfoot>
                 </table>
               )}
 
@@ -309,7 +297,23 @@ export default function DetailModal({ detailModal, onClose }) {
           )}
         </div>
 
-        <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-200 shrink-0">
+        <div className="flex items-center justify-between gap-4 px-6 py-4 bg-slate-50 border-t border-slate-200 shrink-0">
+          {detailModal.type === 'revenue' && (
+            <ModalTotal
+              label="Total"
+              value={formatCurrency(filteredData.reduce((sum, item) => sum + item.total, 0))}
+              hint={`${filteredData.length} record${filteredData.length === 1 ? '' : 's'}`}
+            />
+          )}
+          {detailModal.type === 'outstanding' && (
+            <ModalTotal
+              label="Total outstanding"
+              value={formatCurrency(filteredData.reduce((sum, item) => sum + item.outstanding, 0))}
+              tone="negative"
+              hint={`${filteredData.length} record${filteredData.length === 1 ? '' : 's'}`}
+            />
+          )}
+          {detailModal.type !== 'revenue' && detailModal.type !== 'outstanding' && <span />}
           <button
             onClick={onClose}
             className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"
