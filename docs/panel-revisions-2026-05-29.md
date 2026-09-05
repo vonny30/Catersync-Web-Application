@@ -1001,13 +1001,42 @@ $$ LANGUAGE plpgsql;
 `ELSE 1` rather than 5: an unrecognised status should surface at the top of the
 work queue, not be filed with the rejections.
 
-**Not applied.** It replaces a function rather than altering a table, so it is
-not a schema change in the sense `HANDOFF.md` forbids — but it is a database
-change and it is Vaughn's call. Every existing row was corrected on 5 Sep, so
-the data is right today; without the trigger fix it drifts again on the next
-status change and is cleaned up on the next page load.
+**APPLIED 5 Sep 2026**, on Vaughn's instruction. The script, the verification
+and the exact previous definition are in `sql/fix_status_order_trigger.sql`.
+It replaces a function rather than altering a table, so it is not a schema
+change in the sense `HANDOFF.md` forbids.
 
-**Acceptance:** approve a Pending booking and re-query `status_order` without
-reloading the page. It should read 2. Today it reads 2 as well — Approved is one
-of the two values that agree — so test with **Confirm**, which should read 3 and
-currently reads 5.
+### Verified before and after
+
+The defect was reproduced first, so the fix has something to be measured
+against. Both runs were inside transactions that were rolled back.
+
+| | Wrote | Trigger stored | |
+|---|---|---|---|
+| Before | `booking_status='Confirmed', status_order=3` | **5** | wrong |
+| After | the same statement | **3** | correct |
+
+Then every transition, and every insert:
+
+- **UPDATE path** — Approved 2, Confirmed 3, Completed 4, Rejected 5,
+  Cancelled 6. All correct.
+- **INSERT path** — a fresh booking in each of the six statuses produced
+  1 through 6 in order. All correct.
+- **Live data** — 0 rows disagree with `STATUS_ORDER`. Counts unchanged at
+  14 bookings, 15 payments, 17 equipment assignments, 16 vehicle assignments.
+
+### It caught itself on the way in
+
+Between the repair of the seeded rows and the trigger being replaced, **BKG-105
+was cancelled through the web app**. `useCancellationHandlers.js` wrote
+`status_order: 6` in the same statement as the status; the old trigger
+overwrote it with 4, and the row turned up in the very next integrity check.
+
+That is the whole defect, observed once more in the real application on a real
+user action, minutes before the thing that causes it was removed. It was
+repaired with the same status-order-only UPDATE the app's self-heal uses.
+
+**Still true after the fix:** every write path must keep setting `status_order`,
+and the self-heal must stay. The trigger now agrees with the app, but the app
+cannot depend on a trigger the mobile repo does not know about, and a database
+restored from an older backup brings the old function back with it.
