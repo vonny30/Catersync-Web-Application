@@ -78,18 +78,53 @@ date, never a stored string — that boundary is the point of the file.
 sort Pending → Approved → Confirmed → Completed → Rejected → Cancelled.
 PostgREST cannot `ORDER BY` a CASE expression, so the order has to be stored.
 
-**Nothing in the database maintains it.** Any client that writes
-`booking_status` must write the matching number in the same update:
+Any client that writes `booking_status` must write the matching number in the
+same update:
 
 ```
 Pending 1 · Approved 2 · Confirmed 3 · Completed 4 · Rejected 5 · Cancelled 6
 ```
 
-This has already gone wrong in production: three Confirmed bookings carried
-`status_order` 5 and a Cancelled one carried 4, so they interleaved with
-Rejected and Completed rows in the manager's list. It is the single most likely
-way a mobile app silently corrupts the web UI, because the write succeeds and
-nothing anywhere complains.
+### Corrected 5 Sep 2026 — this section previously said the wrong thing
+
+It said *"nothing in the database maintains it"*. That was false, and the truth
+is the reason the corruption below kept happening.
+
+There is a trigger on `booking`:
+
+```sql
+CREATE TRIGGER set_status_order BEFORE INSERT OR UPDATE OF booking_status
+  ON public.booking FOR EACH ROW EXECUTE FUNCTION update_status_order();
+```
+
+Its mapping predated the Confirmed status, so **Confirmed fell through an
+`ELSE` to 5**, Completed was 3 and Cancelled was 4 — four of six values
+disagreeing with the list above. Being `BEFORE INSERT` it overwrote whatever
+the client supplied, in the same statement.
+
+**The web app changed the function on 5 Sep 2026 so it matches the list above.**
+`sql/fix_status_order_trigger.sql` in the admin repo holds the script and the
+exact previous definition.
+
+**What this means for a mobile app:**
+
+- **Nothing you must change.** Your writes were already correct; they were
+  being overwritten. They now land as written.
+- **A booking your app creates or updates gets the right `status_order`
+  automatically**, where before a Confirmed one silently sorted into Rejected's
+  slot in the manager's list.
+- **Keep writing `status_order` anyway.** Do not start relying on the trigger.
+  A database restored from a backup taken before 5 Sep brings the old function
+  back with it, and nothing would warn either of us.
+- If you ever repair the column yourself, **update `status_order` alone**. The
+  trigger is scoped to `UPDATE OF booking_status`, so a repair that also
+  touches the status is overwritten by the very thing it is repairing.
+
+The original warning still stands on its own terms: this was already the single
+most likely way a mobile app silently corrupted the web UI, because the write
+succeeds and nothing anywhere complains. Three Confirmed bookings carried
+`status_order` 5 and a Cancelled one carried 4, and they interleaved with
+Rejected and Completed rows in the manager's list.
 
 Related, and equally unenforced:
 

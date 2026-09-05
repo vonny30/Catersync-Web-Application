@@ -67,11 +67,26 @@ Consequences that are easy to get wrong, and have been:
 
 These fail without an error. Check them when touching the area.
 
-- **`booking.status_order` is not maintained by the database.** Every write
-  that changes `booking_status` must set the matching value from
-  `utils/bookingStatus.js`. It has drifted before (Confirmed rows sorting into
-  Rejected's slot) — the mobile app writes `booking_status` too. The list pages
-  self-heal it via `findStatusOrderDrift`.
+- **`booking.status_order` IS maintained by the database — set it anyway.**
+  A `BEFORE INSERT OR UPDATE OF booking_status` trigger (`set_status_order`)
+  writes this column and overwrites whatever the statement supplied. Until
+  5 Sep 2026 its mapping predated the Confirmed status and disagreed with
+  `utils/bookingStatus.js` on four of six values, which is what made Confirmed
+  rows sort into Rejected's slot. `sql/fix_status_order_trigger.sql` corrected
+  it; the two now agree.
+
+  Every write that changes `booking_status` must **still** set the matching
+  value from `utils/bookingStatus.js`, and the self-heal
+  (`findStatusOrderDrift`) must stay — but note the reason has changed. It is
+  no longer that the column is unmaintained. It is that this app cannot depend
+  on a trigger it does not own: the mobile repo writes `booking_status` too and
+  knows nothing about it, and a database restored from a backup taken before
+  5 Sep reinstates the old function silently.
+
+  One consequence is load-bearing: the self-heal works **only** because its
+  UPDATE touches `status_order` alone, so the trigger — scoped to
+  `UPDATE OF booking_status` — does not fire on it. Never fold the repair into
+  a status change.
 - **Realtime on an unpublished table reports `SUBSCRIBED` and delivers
   nothing, forever.** Any new table you subscribe to must be added to the
   `supabase_realtime` publication. Row-filtered subscriptions also need
