@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabase';
 import toast from 'react-hot-toast';
-import { getBookingRef, getRangeBounds, isWithinRange } from './helpers';
+import { getBookingRef, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './helpers';
 import { isUnverifiedPayment } from '../../utils/payments';
 import { getPaymentsReceived } from '../../utils/reportMetrics';
 import { fetchAllRows } from '../../utils/fetchAllRows';
@@ -39,7 +39,7 @@ export default function Reports() {
   const [isLoading, setIsLoading] = useState(true);
   const [rawData, setRawData] = useState(null);
 
-  const [datePreset, setDatePreset] = useState('All Time');
+  const [datePreset, setDatePreset] = useState(DEFAULT_DATE_PRESET);
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
 
@@ -691,7 +691,7 @@ export default function Reports() {
   const closeDetailModal = () => setDetailModal({ open: false, type: null, data: [], title: '' });
 
   const handleClearFilter = () => {
-    setDatePreset('All Time');
+    setDatePreset(DEFAULT_DATE_PRESET);
     setCustomStart('');
     setCustomEnd('');
   };

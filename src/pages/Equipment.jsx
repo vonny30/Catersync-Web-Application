@@ -21,7 +21,7 @@ import { errorInputClass } from '../utils/formErrors';
 import { getDailyEquipmentSnapshot, checkEquipmentAvailabilityImpact, getStockBreakdown, deriveEquipmentDemand, revalidateAssignmentCapacity } from '../utils/equipment.jsx';
 import { getAssignmentStatus, ASSIGNMENT_STAGES } from '../utils/statusLabels';
 import DateRangeFilter from './Reports/DateRangeFilter';
-import { getRangeBounds, isWithinRange } from './Reports/helpers';
+import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './Reports/helpers';
 import { fetchAllRows } from '../utils/fetchAllRows';
 
 const toDateInputValue = (d) => {
@@ -165,7 +165,7 @@ export default function Equipment() {
   // let a manager narrow it down instead of scrolling through everything. ---
   const [assignmentSearchTerm, setAssignmentSearchTerm] = useState('');
   const [assignmentSectionFilter, setAssignmentSectionFilter] = useState('All'); // 'All' | 'Overdue' | 'Today' | 'Upcoming'
-  const [assignmentDatePreset, setAssignmentDatePreset] = useState('All Time');
+  const [assignmentDatePreset, setAssignmentDatePreset] = useState(DEFAULT_DATE_PRESET);
   const [assignmentDateCustomStart, setAssignmentDateCustomStart] = useState('');
   const [assignmentDateCustomEnd, setAssignmentDateCustomEnd] = useState('');
 
@@ -174,7 +174,7 @@ export default function Equipment() {
   // findable place instead of being buried per-item in the Usage modal. ---
   const [historySearch, setHistorySearch] = useState('');
   const [historyStatusFilter, setHistoryStatusFilter] = useState('All'); // 'All' | 'Assigned' | 'In Use' | 'Returned'
-  const [historyDatePreset, setHistoryDatePreset] = useState('All Time');
+  const [historyDatePreset, setHistoryDatePreset] = useState(DEFAULT_DATE_PRESET);
   const [historyDateCustomStart, setHistoryDateCustomStart] = useState('');
   const [historyDateCustomEnd, setHistoryDateCustomEnd] = useState('');
 
@@ -1657,7 +1657,7 @@ export default function Equipment() {
     if (assignmentSectionFilter === 'Overdue' && !g.isOverdue) return false;
     if (assignmentSectionFilter === 'Today' && !(g.isToday && !g.isOverdue)) return false;
     if (assignmentSectionFilter === 'Upcoming' && (g.isOverdue || g.isToday)) return false;
-    if (assignmentDatePreset !== 'All Time' && !isWithinRange(g.eventDate, assignmentRangeStart, assignmentRangeEnd)) return false;
+    if (assignmentDatePreset !== DEFAULT_DATE_PRESET && !isWithinRange(g.eventDate, assignmentRangeStart, assignmentRangeEnd)) return false;
     if (assignmentSearchTerm.trim()) {
       const term = assignmentSearchTerm.toLowerCase();
       const ref = (g.booking ? getBookingRef(g.booking) : '').toLowerCase();
@@ -1669,7 +1669,7 @@ export default function Equipment() {
     return true;
   });
 
-  const activeAssignmentFilterCount = (assignmentSearchTerm.trim() ? 1 : 0) + (assignmentSectionFilter !== 'All' ? 1 : 0) + (assignmentDatePreset !== 'All Time' ? 1 : 0);
+  const activeAssignmentFilterCount = (assignmentSearchTerm.trim() ? 1 : 0) + (assignmentSectionFilter !== 'All' ? 1 : 0) + (assignmentDatePreset !== DEFAULT_DATE_PRESET ? 1 : 0);
 
   // 'priority' (the default) keeps assignmentGroups' own overdue-first sort;
   // 'date' and 'customer' let a manager override that with a plain oldest/
@@ -1700,7 +1700,7 @@ export default function Equipment() {
         const filterKey = historyStatusFilter === 'Assigned' ? 'assigned' : historyStatusFilter === 'In Use' ? 'in_use' : 'returned';
         if (status.key !== filterKey) return false;
       }
-      if (historyDatePreset !== 'All Time' && !isWithinRange(a.booking?.event_datetime, historyRangeStart, historyRangeEnd)) return false;
+      if (historyDatePreset !== DEFAULT_DATE_PRESET && !isWithinRange(a.booking?.event_datetime, historyRangeStart, historyRangeEnd)) return false;
       if (historySearch.trim()) {
         const term = historySearch.toLowerCase();
         const eqName = (a.equipment?.eqm_name || '').toLowerCase();
@@ -1713,7 +1713,7 @@ export default function Equipment() {
     })
     .sort((a, b) => new Date(b.assigned_at || 0) - new Date(a.assigned_at || 0));
 
-  const activeHistoryFilterCount = (historySearch.trim() ? 1 : 0) + (historyStatusFilter !== 'All' ? 1 : 0) + (historyDatePreset !== 'All Time' ? 1 : 0);
+  const activeHistoryFilterCount = (historySearch.trim() ? 1 : 0) + (historyStatusFilter !== 'All' ? 1 : 0) + (historyDatePreset !== DEFAULT_DATE_PRESET ? 1 : 0);
 
   // No field chosen = the default sort already applied above (newest
   // assigned first). Choosing a header overrides it.
@@ -2598,7 +2598,7 @@ export default function Equipment() {
               )}
               {activeAssignmentFilterCount > 0 && (
                 <button
-                  onClick={() => { setAssignmentSearchTerm(''); setAssignmentSectionFilter('All'); setAssignmentDatePreset('All Time'); setAssignmentDateCustomStart(''); setAssignmentDateCustomEnd(''); }}
+                  onClick={() => { setAssignmentSearchTerm(''); setAssignmentSectionFilter('All'); setAssignmentDatePreset(DEFAULT_DATE_PRESET); setAssignmentDateCustomStart(''); setAssignmentDateCustomEnd(''); }}
                   className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors cursor-pointer"
                 >
                   Clear filters
@@ -2661,7 +2661,7 @@ export default function Equipment() {
               onPresetChange={setAssignmentDatePreset}
               onCustomStartChange={setAssignmentDateCustomStart}
               onCustomEndChange={setAssignmentDateCustomEnd}
-              onClear={() => { setAssignmentDatePreset('All Time'); setAssignmentDateCustomStart(''); setAssignmentDateCustomEnd(''); }}
+              onClear={() => { setAssignmentDatePreset(DEFAULT_DATE_PRESET); setAssignmentDateCustomStart(''); setAssignmentDateCustomEnd(''); }}
             />
           </div>
         </div>
@@ -2791,7 +2791,7 @@ export default function Equipment() {
                 </div>
                 {activeHistoryFilterCount > 0 && (
                   <button
-                    onClick={() => { setHistorySearch(''); setHistoryStatusFilter('All'); setHistoryDatePreset('All Time'); setHistoryDateCustomStart(''); setHistoryDateCustomEnd(''); }}
+                    onClick={() => { setHistorySearch(''); setHistoryStatusFilter('All'); setHistoryDatePreset(DEFAULT_DATE_PRESET); setHistoryDateCustomStart(''); setHistoryDateCustomEnd(''); }}
                     className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors cursor-pointer"
                   >
                     Clear filters
@@ -2809,7 +2809,7 @@ export default function Equipment() {
                   onPresetChange={setHistoryDatePreset}
                   onCustomStartChange={setHistoryDateCustomStart}
                   onCustomEndChange={setHistoryDateCustomEnd}
-                  onClear={() => { setHistoryDatePreset('All Time'); setHistoryDateCustomStart(''); setHistoryDateCustomEnd(''); }}
+                  onClear={() => { setHistoryDatePreset(DEFAULT_DATE_PRESET); setHistoryDateCustomStart(''); setHistoryDateCustomEnd(''); }}
                 />
               </div>
               <p className="text-[13px] text-slate-600 tabular-nums">

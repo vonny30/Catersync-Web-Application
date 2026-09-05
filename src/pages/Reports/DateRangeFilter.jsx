@@ -78,19 +78,34 @@ export default function DateRangeFilter({
           </button>
         )}
       </div>
-      <p className="text-xs font-medium text-slate-500 pr-1">
+      {/* Most pages now open on This Month rather than All Time, so this line
+          stopped being a note about a filter someone applied and became the
+          statement of what is on screen. Hence "Showing" rather than "Filter
+          applied", and the period carried at full weight instead of trailing
+          off in muted grey — a manager who does not notice the window will
+          read a partial figure as the whole business.
+
+          The dates are spelled out for the same reason the "next 7 days" card
+          spells out its window: "This Month" alone leaves the reader to work
+          out what it covers, and an empty table is alarming until you can see
+          the period that produced it. */}
+      <p className="text-[12.5px] font-medium text-slate-500 pr-1">
         {isIncomplete ? (
           <span className="text-amber-600 font-semibold">
             Pick {!customStart ? 'a start date' : 'an end date'} to apply this range
           </span>
         ) : isFiltered ? (
           <>
-            <span className="text-emerald-600 font-semibold">Filter applied:</span>{' '}
-            {preset}
-            {rangeStart && rangeEnd && <> ({formatDate(rangeStart)} – {formatDate(rangeEnd)})</>}
+            Showing{' '}
+            <span className="text-emerald-700 font-semibold">{preset}</span>
+            {rangeStart && rangeEnd && (
+              <span className="text-emerald-700 font-semibold">
+                {' '}· {formatDate(rangeStart)} – {formatDate(rangeEnd)}
+              </span>
+            )}
           </>
         ) : (
-          'Showing all-time data'
+          <>Showing <span className="font-semibold text-slate-600">all time</span> — every record, no date limit</>
         )}
       </p>
     </div>

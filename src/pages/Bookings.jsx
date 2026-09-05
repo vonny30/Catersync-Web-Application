@@ -62,6 +62,11 @@ export default function Bookings() {
     packageId: '',
     venue: '',
   });
+  // Deliberately All Time, while every other date filter in the app now opens
+  // on the current month (DEFAULT_DATE_PRESET in Reports/helpers.js). This is a
+  // record LIST: its job is showing what is coming, and defaulting to the
+  // current month would hide next month's events behind a filter nobody chose.
+  // Do not "make this consistent" without deciding that first.
   const [datePreset, setDatePreset] = useState('All Time');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');

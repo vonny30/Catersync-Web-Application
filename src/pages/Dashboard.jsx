@@ -15,7 +15,7 @@ import { sumVerifiedPositivePayments, sumVerifiedDownpayments } from '../utils/p
 import { getPaymentsReceived } from '../utils/reportMetrics';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import DateRangeFilter from './Reports/DateRangeFilter';
-import { getRangeBounds, isWithinRange } from './Reports/helpers';
+import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './Reports/helpers';
 
 // `date.toISOString().split('T')[0]` converts to UTC before slicing the
 // date portion — for any UTC+ timezone (PG's Catering is PHT, UTC+8),
@@ -102,7 +102,7 @@ export default function Dashboard() {
   const [statsSearchTerm, setStatsSearchTerm] = useState('');
   const [statsTypeFilter, setStatsTypeFilter] = useState('All'); // 'All' | 'Package' | 'Short Order'
   const [statsMethodFilter, setStatsMethodFilter] = useState('All'); // revenue view only
-  const [statsDatePreset, setStatsDatePreset] = useState('All Time');
+  const [statsDatePreset, setStatsDatePreset] = useState(DEFAULT_DATE_PRESET);
   const [statsDateCustomStart, setStatsDateCustomStart] = useState('');
   const [statsDateCustomEnd, setStatsDateCustomEnd] = useState('');
 
@@ -658,7 +658,7 @@ export default function Dashboard() {
     setStatsSearchTerm('');
     setStatsTypeFilter('All');
     setStatsMethodFilter('All');
-    setStatsDatePreset('All Time');
+    setStatsDatePreset(DEFAULT_DATE_PRESET);
     setStatsDateCustomStart('');
     setStatsDateCustomEnd('');
   };
@@ -678,7 +678,7 @@ export default function Dashboard() {
       const itemType = item.booking?.booking_type === 'Short Order' ? 'Short Order' : 'Package';
       if (statsTypeFilter !== 'All' && itemType !== statsTypeFilter) return false;
       if (statsMethodFilter !== 'All' && item.pay_method !== statsMethodFilter) return false;
-      if (statsDatePreset !== 'All Time' && !isWithinRange(item.pay_datetime, statsDateRangeStart, statsDateRangeEnd)) return false;
+      if (statsDatePreset !== DEFAULT_DATE_PRESET && !isWithinRange(item.pay_datetime, statsDateRangeStart, statsDateRangeEnd)) return false;
       if (statsSearchTerm.trim()) {
         const term = statsSearchTerm.toLowerCase();
         const customerName = item.booking?.customer
@@ -692,7 +692,7 @@ export default function Dashboard() {
     }
     const itemType = item.booking_type === 'Short Order' ? 'Short Order' : 'Package';
     if (statsTypeFilter !== 'All' && itemType !== statsTypeFilter) return false;
-    if (statsDatePreset !== 'All Time' && !isWithinRange(item.event_datetime, statsDateRangeStart, statsDateRangeEnd)) return false;
+    if (statsDatePreset !== DEFAULT_DATE_PRESET && !isWithinRange(item.event_datetime, statsDateRangeStart, statsDateRangeEnd)) return false;
     if (statsSearchTerm.trim()) {
       const term = statsSearchTerm.toLowerCase();
       const customerName = getClientName(item).toLowerCase();
@@ -702,7 +702,7 @@ export default function Dashboard() {
     }
     return true;
   });
-  const activeStatsFilterCount = (statsSearchTerm.trim() ? 1 : 0) + (statsTypeFilter !== 'All' ? 1 : 0) + (statsModalType === 'revenue' && statsMethodFilter !== 'All' ? 1 : 0) + (statsDatePreset !== 'All Time' ? 1 : 0);
+  const activeStatsFilterCount = (statsSearchTerm.trim() ? 1 : 0) + (statsTypeFilter !== 'All' ? 1 : 0) + (statsModalType === 'revenue' && statsMethodFilter !== 'All' ? 1 : 0) + (statsDatePreset !== DEFAULT_DATE_PRESET ? 1 : 0);
 
   const handleStatsRowClick = (item) => {
     if (item.booking_id) {
@@ -1169,7 +1169,7 @@ export default function Dashboard() {
                     onPresetChange={setStatsDatePreset}
                     onCustomStartChange={setStatsDateCustomStart}
                     onCustomEndChange={setStatsDateCustomEnd}
-                    onClear={() => { setStatsDatePreset('All Time'); setStatsDateCustomStart(''); setStatsDateCustomEnd(''); }}
+                    onClear={() => { setStatsDatePreset(DEFAULT_DATE_PRESET); setStatsDateCustomStart(''); setStatsDateCustomEnd(''); }}
                   />
                 </div>
                 )}

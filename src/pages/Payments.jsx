@@ -14,7 +14,7 @@ import { getPaymentsReceived } from '../utils/reportMetrics';
 import { getConfirmEligibility, buildConfirmDialog, applyConfirmation } from '../utils/confirmBooking';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import DateRangeFilter from './Reports/DateRangeFilter';
-import { getRangeBounds, isWithinRange } from './Reports/helpers';
+import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './Reports/helpers';
 
 export default function Payments() {
   const navigate = useNavigate();
@@ -56,7 +56,7 @@ export default function Payments() {
   };
 
   // --- DATE FILTER STATE ---
-  const [datePreset, setDatePreset] = useState('All Time');
+  const [datePreset, setDatePreset] = useState(DEFAULT_DATE_PRESET);
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
 
@@ -99,7 +99,7 @@ export default function Payments() {
   const [summarySearchTerm, setSummarySearchTerm] = useState('');
   const [summaryTypeFilter, setSummaryTypeFilter] = useState('All'); // 'All' | 'Package' | 'Short Order'
   const [summaryMethodFilter, setSummaryMethodFilter] = useState('All'); // 'All' | 'Cash' | 'GCash' | 'Bank Transfer' | 'Refund' — only meaningful for Collected/Fully Paid (payment-level records); Pending is booking-level and has no pay_method
-  const [summaryDatePreset, setSummaryDatePreset] = useState('All Time');
+  const [summaryDatePreset, setSummaryDatePreset] = useState(DEFAULT_DATE_PRESET);
   const [summaryDateCustomStart, setSummaryDateCustomStart] = useState('');
   const [summaryDateCustomEnd, setSummaryDateCustomEnd] = useState('');
 
@@ -268,7 +268,7 @@ export default function Payments() {
 
   // --- FILTER LOGIC (search + type + method + date, independent of status) ---
   const { start: dateRangeStart, end: dateRangeEnd } = getRangeBounds(datePreset, customStart, customEnd);
-  const activePaymentFilterCount = [!!tableSearchTerm, typeFilter !== 'All', methodFilter !== 'All', datePreset !== 'All Time'].filter(Boolean).length;
+  const activePaymentFilterCount = [!!tableSearchTerm, typeFilter !== 'All', methodFilter !== 'All', datePreset !== DEFAULT_DATE_PRESET].filter(Boolean).length;
   // The search/type/method/date filters, WITHOUT the Payments/Refunds sign
   // split. Total Collections is a net figure and can only be net if the
   // refunds are still in the set when it is computed — getPaymentsReceived is
@@ -289,7 +289,7 @@ export default function Payments() {
       if (typeFilter === 'Short Order' && bookingType !== 'Short Order') return false;
     }
     if (methodFilter !== 'All' && p.pay_method !== methodFilter) return false;
-    if (datePreset !== 'All Time' && !isWithinRange(p.pay_datetime, dateRangeStart, dateRangeEnd)) return false;
+    if (datePreset !== DEFAULT_DATE_PRESET && !isWithinRange(p.pay_datetime, dateRangeStart, dateRangeEnd)) return false;
     return true;
   };
 
@@ -895,7 +895,7 @@ export default function Payments() {
     // is reset to All on every open, but booking-shaped rows have no
     // pay_method, so a stray value here would silently empty the list.
     if (summaryModalType === 'collected' && summaryMethodFilter !== 'All' && item.pay_method !== summaryMethodFilter) return false;
-    if (summaryDatePreset !== 'All Time') {
+    if (summaryDatePreset !== DEFAULT_DATE_PRESET) {
       // Collected/Fully Paid are payment rows (pay_datetime); Pending
       // Balance is a booking-level aggregate with no payment date, so it
       // filters by event date instead.
@@ -914,7 +914,7 @@ export default function Payments() {
     }
     return true;
   });
-  const activeSummaryFilterCount = (summarySearchTerm.trim() ? 1 : 0) + (summaryTypeFilter !== 'All' ? 1 : 0) + (summaryMethodFilter !== 'All' ? 1 : 0) + (summaryDatePreset !== 'All Time' ? 1 : 0);
+  const activeSummaryFilterCount = (summarySearchTerm.trim() ? 1 : 0) + (summaryTypeFilter !== 'All' ? 1 : 0) + (summaryMethodFilter !== 'All' ? 1 : 0) + (summaryDatePreset !== DEFAULT_DATE_PRESET ? 1 : 0);
 
   // --- GROUP THE "PAYMENTS RECEIVED" LIST BY BOOKING — same reasoning as the
   // main table: several payments against one booking read as clutter when
@@ -1017,7 +1017,7 @@ export default function Payments() {
     setSummarySearchTerm('');
     setSummaryTypeFilter('All');
     setSummaryMethodFilter('All');
-    setSummaryDatePreset('All Time');
+    setSummaryDatePreset(DEFAULT_DATE_PRESET);
     setSummaryDateCustomStart('');
     setSummaryDateCustomEnd('');
     setIsSummaryModalOpen(true);
@@ -1044,7 +1044,7 @@ export default function Payments() {
     setSummarySearchTerm('');
     setSummaryTypeFilter('All');
     setSummaryMethodFilter('All');
-    setSummaryDatePreset('All Time');
+    setSummaryDatePreset(DEFAULT_DATE_PRESET);
     setSummaryDateCustomStart('');
     setSummaryDateCustomEnd('');
     setIsSummaryModalOpen(true);
@@ -1080,7 +1080,7 @@ export default function Payments() {
     setSummarySearchTerm('');
     setSummaryTypeFilter('All');
     setSummaryMethodFilter('All');
-    setSummaryDatePreset('All Time');
+    setSummaryDatePreset(DEFAULT_DATE_PRESET);
     setSummaryDateCustomStart('');
     setSummaryDateCustomEnd('');
     setIsSummaryModalOpen(true);
@@ -1102,7 +1102,7 @@ export default function Payments() {
     setSummarySearchTerm('');
     setSummaryTypeFilter('All');
     setSummaryMethodFilter('All');
-    setSummaryDatePreset('All Time');
+    setSummaryDatePreset(DEFAULT_DATE_PRESET);
     setSummaryDateCustomStart('');
     setSummaryDateCustomEnd('');
   };
@@ -1302,7 +1302,7 @@ export default function Payments() {
           <div className="flex items-center gap-2">
             {activePaymentFilterCount > 0 && (
               <button
-                onClick={() => { setTableSearchTerm(''); setTypeFilter('All'); setMethodFilter('All'); setDatePreset('All Time'); setCustomStart(''); setCustomEnd(''); }}
+                onClick={() => { setTableSearchTerm(''); setTypeFilter('All'); setMethodFilter('All'); setDatePreset(DEFAULT_DATE_PRESET); setCustomStart(''); setCustomEnd(''); }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
               >
                 <RotateCcw size={13} /> Clear all
@@ -1360,7 +1360,7 @@ export default function Payments() {
           </div>
 
           <div>
-            <label className={`block text-[13px] font-semibold mb-1 ${datePreset !== 'All Time' ? 'text-[#007038]' : 'text-slate-600'}`}>Payment Date</label>
+            <label className={`block text-[13px] font-semibold mb-1 ${datePreset !== DEFAULT_DATE_PRESET ? 'text-[#007038]' : 'text-slate-600'}`}>Payment Date</label>
             <DateRangeFilter
               preset={datePreset}
               customStart={customStart}
@@ -1370,7 +1370,7 @@ export default function Payments() {
               onPresetChange={setDatePreset}
               onCustomStartChange={setCustomStart}
               onCustomEndChange={setCustomEnd}
-              onClear={() => { setDatePreset('All Time'); setCustomStart(''); setCustomEnd(''); }}
+              onClear={() => { setDatePreset(DEFAULT_DATE_PRESET); setCustomStart(''); setCustomEnd(''); }}
             />
           </div>
         </div>
@@ -1858,7 +1858,7 @@ export default function Payments() {
                       setSummarySearchTerm('');
                       setSummaryTypeFilter('All');
                       setSummaryMethodFilter('All');
-                      setSummaryDatePreset('All Time');
+                      setSummaryDatePreset(DEFAULT_DATE_PRESET);
                       setSummaryDateCustomStart('');
                       setSummaryDateCustomEnd('');
                     }}
@@ -1881,7 +1881,7 @@ export default function Payments() {
                   onPresetChange={setSummaryDatePreset}
                   onCustomStartChange={setSummaryDateCustomStart}
                   onCustomEndChange={setSummaryDateCustomEnd}
-                  onClear={() => { setSummaryDatePreset('All Time'); setSummaryDateCustomStart(''); setSummaryDateCustomEnd(''); }}
+                  onClear={() => { setSummaryDatePreset(DEFAULT_DATE_PRESET); setSummaryDateCustomStart(''); setSummaryDateCustomEnd(''); }}
                 />
               </div>
             </div>

@@ -4,7 +4,7 @@ import Select from '../../components/Select';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { ExternalLink, Search } from 'lucide-react';
-import { formatCurrency, formatDate, getRangeBounds, isWithinRange } from './helpers';
+import { formatCurrency, formatDate, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './helpers';
 import DateRangeFilter from './DateRangeFilter';
 
 export default function DetailModal({ detailModal, onClose }) {
@@ -16,7 +16,7 @@ export default function DetailModal({ detailModal, onClose }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('All'); // 'All' | 'Package' | 'Short Order'
   const [statusFilter, setStatusFilter] = useState('All'); // revenue view only
-  const [datePreset, setDatePreset] = useState('All Time');
+  const [datePreset, setDatePreset] = useState(DEFAULT_DATE_PRESET);
   const [dateCustomStart, setDateCustomStart] = useState('');
   const [dateCustomEnd, setDateCustomEnd] = useState('');
 
@@ -24,7 +24,7 @@ export default function DetailModal({ detailModal, onClose }) {
     setSearchTerm('');
     setTypeFilter('All');
     setStatusFilter('All');
-    setDatePreset('All Time');
+    setDatePreset(DEFAULT_DATE_PRESET);
     setDateCustomStart('');
     setDateCustomEnd('');
   };
@@ -46,7 +46,7 @@ export default function DetailModal({ detailModal, onClose }) {
       if (itemType !== typeFilter) return false;
     }
     if (detailModal.type === 'revenue' && statusFilter !== 'All' && item.status !== statusFilter) return false;
-    if (datePreset !== 'All Time' && !isWithinRange(item.eventDate, dateRangeStart, dateRangeEnd)) return false;
+    if (datePreset !== DEFAULT_DATE_PRESET && !isWithinRange(item.eventDate, dateRangeStart, dateRangeEnd)) return false;
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       const customer = (item.customer || '').toLowerCase();
@@ -55,7 +55,7 @@ export default function DetailModal({ detailModal, onClose }) {
     }
     return true;
   });
-  const activeFilterCount = (searchTerm.trim() ? 1 : 0) + (typeFilter !== 'All' ? 1 : 0) + (detailModal.type === 'revenue' && statusFilter !== 'All' ? 1 : 0) + (datePreset !== 'All Time' ? 1 : 0);
+  const activeFilterCount = (searchTerm.trim() ? 1 : 0) + (typeFilter !== 'All' ? 1 : 0) + (detailModal.type === 'revenue' && statusFilter !== 'All' ? 1 : 0) + (datePreset !== DEFAULT_DATE_PRESET ? 1 : 0);
 
   if (!detailModal.open) return null;
 
@@ -144,7 +144,7 @@ export default function DetailModal({ detailModal, onClose }) {
                 onPresetChange={setDatePreset}
                 onCustomStartChange={setDateCustomStart}
                 onCustomEndChange={setDateCustomEnd}
-                onClear={() => { setDatePreset('All Time'); setDateCustomStart(''); setDateCustomEnd(''); }}
+                onClear={() => { setDatePreset(DEFAULT_DATE_PRESET); setDateCustomStart(''); setDateCustomEnd(''); }}
               />
             </div>
           </div>

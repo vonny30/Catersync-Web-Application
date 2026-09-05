@@ -31,6 +31,22 @@ export const getBookingRef = (booking) => {
 
 export const DATE_RANGE_PRESETS = ['All Time', 'This Month', 'This Year', 'Last 30 Days', 'Custom'];
 
+// What a page opens on, and what "clear the filter" returns it to.
+//
+// All Time was the old default everywhere, and it read as "no filter" — so a
+// manager saw every record the business had ever taken and had no prompt that
+// a period existed at all. The current month is the question actually being
+// asked most of the time, and DateRangeFilter now states the window on screen.
+//
+// This is also what "active filter" is measured against. Comparing to
+// 'All Time' would make every page report one active filter the moment it
+// loaded, which is not something the manager did.
+//
+// The Bookings and Short Orders LISTS deliberately stay on 'All Time' and do
+// not import this: their job is showing what is coming, and an event next
+// month must not be hidden behind a filter nobody chose.
+export const DEFAULT_DATE_PRESET = 'This Month';
+
 // Returns { start: Date|null, end: Date|null } — null on either side means
 // "unbounded" (used for 'All Time' or an incomplete custom range).
 export function getRangeBounds(preset, customStart, customEnd) {

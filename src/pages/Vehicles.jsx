@@ -24,7 +24,7 @@ import {
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { getAssignmentStatus, RESOURCE_STATE } from '../utils/statusLabels';
 import DateRangeFilter from './Reports/DateRangeFilter';
-import { getRangeBounds, isWithinRange } from './Reports/helpers';
+import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './Reports/helpers';
 import { getCurrentManagerId } from '../utils/currentManager';
 
 const toDateInputValue = (d) => {
@@ -101,7 +101,7 @@ export default function Vehicles() {
   // regardless of the date picker above, so it can grow long. ---
   const [assignmentSearchTerm, setAssignmentSearchTerm] = useState('');
   const [assignmentSectionFilter, setAssignmentSectionFilter] = useState('All'); // 'All' | 'Overdue' | 'Today' | 'Upcoming'
-  const [assignmentDatePreset, setAssignmentDatePreset] = useState('All Time');
+  const [assignmentDatePreset, setAssignmentDatePreset] = useState(DEFAULT_DATE_PRESET);
   const [assignmentDateCustomStart, setAssignmentDateCustomStart] = useState('');
   const [assignmentDateCustomEnd, setAssignmentDateCustomEnd] = useState('');
   const [assignmentSort, setAssignmentSort] = useState({ field: 'priority', direction: 'asc' }); // 'priority' | 'date' | 'customer'
@@ -112,7 +112,7 @@ export default function Vehicles() {
   // from ASSIGNMENT_STAGES, not the stored assignment_status values. This said
   // Scheduled/Completed, which are the stored ones, directly above the warning
   // that mixing the two emptied this table once already.
-  const [historyDatePreset, setHistoryDatePreset] = useState('All Time');
+  const [historyDatePreset, setHistoryDatePreset] = useState(DEFAULT_DATE_PRESET);
   const [historyDateCustomStart, setHistoryDateCustomStart] = useState('');
   const [historyDateCustomEnd, setHistoryDateCustomEnd] = useState('');
   const [historySort, setHistorySort] = useState({ field: null, direction: 'desc' });
@@ -1065,7 +1065,7 @@ export default function Vehicles() {
     if (assignmentSectionFilter === 'Overdue' && !g.isOverdue) return false;
     if (assignmentSectionFilter === 'Today' && !(g.isToday && !g.isOverdue)) return false;
     if (assignmentSectionFilter === 'Upcoming' && (g.isOverdue || g.isToday)) return false;
-    if (assignmentDatePreset !== 'All Time' && !isWithinRange(g.eventDate, assignmentRangeStart, assignmentRangeEnd)) return false;
+    if (assignmentDatePreset !== DEFAULT_DATE_PRESET && !isWithinRange(g.eventDate, assignmentRangeStart, assignmentRangeEnd)) return false;
     if (assignmentSearchTerm.trim()) {
       const term = assignmentSearchTerm.toLowerCase();
       const ref = (g.booking ? getBookingRef(g.booking) : '').toLowerCase();
@@ -1077,7 +1077,7 @@ export default function Vehicles() {
     return true;
   });
 
-  const activeAssignmentFilterCount = (assignmentSearchTerm.trim() ? 1 : 0) + (assignmentSectionFilter !== 'All' ? 1 : 0) + (assignmentDatePreset !== 'All Time' ? 1 : 0);
+  const activeAssignmentFilterCount = (assignmentSearchTerm.trim() ? 1 : 0) + (assignmentSectionFilter !== 'All' ? 1 : 0) + (assignmentDatePreset !== DEFAULT_DATE_PRESET ? 1 : 0);
 
   const sortedFilteredAssignmentGroups = assignmentSort.field === 'date'
     ? [...filteredAssignmentGroups].sort((a, b) => {
@@ -1111,7 +1111,7 @@ export default function Vehicles() {
         const filterKey = historyStatusFilter === 'Assigned' ? 'assigned' : historyStatusFilter === 'In Use' ? 'in_use' : 'returned';
         if (status.key !== filterKey) return false;
       }
-      if (historyDatePreset !== 'All Time' && !isWithinRange(a.booking?.event_datetime, historyRangeStart, historyRangeEnd)) return false;
+      if (historyDatePreset !== DEFAULT_DATE_PRESET && !isWithinRange(a.booking?.event_datetime, historyRangeStart, historyRangeEnd)) return false;
       if (historySearch.trim()) {
         const term = historySearch.toLowerCase();
         const plate = (a.vehicle?.plate_number || '').toLowerCase();
@@ -1124,7 +1124,7 @@ export default function Vehicles() {
     })
     .sort((a, b) => new Date(b.dispatch_datetime || 0) - new Date(a.dispatch_datetime || 0));
 
-  const activeHistoryFilterCount = (historySearch.trim() ? 1 : 0) + (historyStatusFilter !== 'All' ? 1 : 0) + (historyDatePreset !== 'All Time' ? 1 : 0);
+  const activeHistoryFilterCount = (historySearch.trim() ? 1 : 0) + (historyStatusFilter !== 'All' ? 1 : 0) + (historyDatePreset !== DEFAULT_DATE_PRESET ? 1 : 0);
 
   const sortedFilteredHistoryRows = historySort.field
     ? [...filteredHistoryRows].sort((a, b) => {
@@ -1728,7 +1728,7 @@ export default function Vehicles() {
               )}
               {activeAssignmentFilterCount > 0 && (
                 <button
-                  onClick={() => { setAssignmentSearchTerm(''); setAssignmentSectionFilter('All'); setAssignmentDatePreset('All Time'); setAssignmentDateCustomStart(''); setAssignmentDateCustomEnd(''); }}
+                  onClick={() => { setAssignmentSearchTerm(''); setAssignmentSectionFilter('All'); setAssignmentDatePreset(DEFAULT_DATE_PRESET); setAssignmentDateCustomStart(''); setAssignmentDateCustomEnd(''); }}
                   className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors cursor-pointer"
                 >
                   Clear filters
@@ -1789,7 +1789,7 @@ export default function Vehicles() {
               onPresetChange={setAssignmentDatePreset}
               onCustomStartChange={setAssignmentDateCustomStart}
               onCustomEndChange={setAssignmentDateCustomEnd}
-              onClear={() => { setAssignmentDatePreset('All Time'); setAssignmentDateCustomStart(''); setAssignmentDateCustomEnd(''); }}
+              onClear={() => { setAssignmentDatePreset(DEFAULT_DATE_PRESET); setAssignmentDateCustomStart(''); setAssignmentDateCustomEnd(''); }}
             />
           </div>
         </div>
@@ -1949,7 +1949,7 @@ export default function Vehicles() {
                 </div>
                 {activeHistoryFilterCount > 0 && (
                   <button
-                    onClick={() => { setHistorySearch(''); setHistoryStatusFilter('All'); setHistoryDatePreset('All Time'); setHistoryDateCustomStart(''); setHistoryDateCustomEnd(''); }}
+                    onClick={() => { setHistorySearch(''); setHistoryStatusFilter('All'); setHistoryDatePreset(DEFAULT_DATE_PRESET); setHistoryDateCustomStart(''); setHistoryDateCustomEnd(''); }}
                     className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors cursor-pointer"
                   >
                     Clear filters
@@ -1967,7 +1967,7 @@ export default function Vehicles() {
                   onPresetChange={setHistoryDatePreset}
                   onCustomStartChange={setHistoryDateCustomStart}
                   onCustomEndChange={setHistoryDateCustomEnd}
-                  onClear={() => { setHistoryDatePreset('All Time'); setHistoryDateCustomStart(''); setHistoryDateCustomEnd(''); }}
+                  onClear={() => { setHistoryDatePreset(DEFAULT_DATE_PRESET); setHistoryDateCustomStart(''); setHistoryDateCustomEnd(''); }}
                 />
               </div>
               <p className="text-[13px] text-slate-600 tabular-nums">

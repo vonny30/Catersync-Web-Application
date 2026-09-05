@@ -58,6 +58,26 @@ body,
   border-radius: 2px;
 }
 
+/* Every button in the app shows a hand, not an arrow.
+   Tailwind v4's preflight does not set a cursor on <button>, and the browser
+   default is `cursor: default` — so 414 of this app's 441 buttons rendered an
+   arrow, and only the 27 that happened to carry an explicit `cursor-pointer`
+   read as clickable. That is the inconsistency, and it is one rule rather than
+   414 edits.
+
+   Inside `@layer base` deliberately. Tailwind's utilities live in a later
+   layer, so `cursor-not-allowed`, `cursor-wait` and friends still win wherever
+   a component sets them. `:not(:disabled)` is belt and braces on top of that:
+   every conditional `cursor-not-allowed` in this codebase is already paired
+   with a real `disabled` attribute, and a disabled control must never invite
+   a click. `[role="button"]` covers the handful of non-<button> triggers. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+}
+
 /* Clickable table rows across the app (Payments, Bookings, Short Orders,
    booking/order detail pages) only ever tinted the background a faint gray
    on hover — nothing marked the row itself as an actionable target the way
