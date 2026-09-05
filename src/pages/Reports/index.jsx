@@ -212,6 +212,11 @@ export default function Reports() {
       contractValue: totalContractValue,
       paidAgainstEvents: totalCollected,
       outstanding: totalOutstanding,
+      // Panel PR-38: the headline counts Confirmed and Completed only. The
+      // other two are carried alongside so the tab can show what it excludes
+      // instead of leaving a manager to wonder where the difference went.
+      revenueReceived: received.revenueReceived,
+      awaitingConfirmation: received.awaitingConfirmation,
       paymentsReceived: received.paymentsReceived,
       retainedFromCancellations: received.retainedFromCancellations,
       refundsIssued: received.refundsIssued,

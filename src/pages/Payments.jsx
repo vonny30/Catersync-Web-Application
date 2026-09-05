@@ -11,6 +11,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { sumVerifiedPositivePayments, getPaymentsAwaitingVerification, UNVERIFIED_PAY_STATUSES, describePaymentKind } from '../utils/payments';
 import { getPaymentsReceived } from '../utils/reportMetrics';
+import { getConfirmEligibility, buildConfirmDialog, applyConfirmation } from '../utils/confirmBooking';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange } from './Reports/helpers';
@@ -461,6 +462,34 @@ export default function Payments() {
   };
 
   // --- CRUD (with file upload) ---
+  // Money just became real on `booking`. If that makes it confirmable, offer
+  // the Confirm Event dialog here rather than sending the manager to the
+  // booking page to find the button — verifying a downpayment and confirming
+  // the event it pays for are one decision, and they were two screens apart.
+  //
+  // `paidAfter` is passed in because `payments` in this component still holds
+  // the state from before the write: fetchData() has been called but has not
+  // returned, so recomputing here would miss the payment that prompted this.
+  //
+  // Silent when the booking is not Approved or the 50% bar is not met. The
+  // dialog is offered, not requested, so there is nothing to explain.
+  const offerConfirmAfterPayment = async (booking, paidAfter) => {
+    if (!booking) return;
+    const eligibility = getConfirmEligibility(booking, paidAfter);
+    if (!eligibility.eligible) return;
+    const confirmed = await showConfirm(
+      buildConfirmDialog(booking, eligibility, { fromVerification: true })
+    );
+    if (!confirmed) return;
+    try {
+      await applyConfirmation(booking.booking_id);
+      toast.success('Booking confirmed.');
+      fetchData();
+    } catch (error) {
+      handleError(error, 'Failed to confirm booking.');
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -647,6 +676,9 @@ export default function Payments() {
 
       closeModal();
       fetchData();
+      // A manually recorded payment is verified the moment it lands — there is
+      // no proof to review — so it reaches the same offer as a verified one.
+      await offerConfirmAfterPayment(selectedBooking, paid + amount);
     } catch (error) {
       handleError(error, 'Failed to save payment.');
     } finally {
@@ -713,6 +745,9 @@ export default function Payments() {
       setIsVerifyModalOpen(false);
       toast.success(`Payment verified as ${verifyMethod} and marked "${finalStatus}".`);
       fetchData();
+      // `alreadyVerified` excludes this payment by construction, so adding it
+      // back is the new verified total for the booking.
+      await offerConfirmAfterPayment(payment.booking, alreadyVerified + (payment.amount_paid || 0));
     } catch (error) {
       handleError(error, 'Failed to verify payment.');
     } finally {
@@ -954,7 +989,7 @@ export default function Payments() {
 
   // 1. Payments Received – exactly the rows the card summed.
   //
-  // Sourced from `received.activeRows`, NOT from the raw `payments` list. The
+  // Sourced from `received.revenueRows`, NOT from the raw `payments` list. The
   // card became date-filtered when it moved to getPaymentsReceived, but this
   // handler kept reading the unfiltered list — so with a period selected the
   // card showed that period while the modal behind it opened on all time, and
@@ -963,7 +998,7 @@ export default function Payments() {
   // again, and refunds stay included so the modal's footer reconciles with a
   // headline that is explicitly net of them.
   const handleCollectedClick = () => {
-    const data = received.activeRows
+    const data = received.revenueRows
       .map(p => ({
         ...p,
         clientName: getClientName(p),
@@ -1140,7 +1175,13 @@ export default function Payments() {
         >
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Payments Received</p>
-          <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">₱{received.paymentsReceived.toLocaleString()}</h3>
+          {/* Panel PR-38: confirmed and completed bookings only. The same
+              figure, under the same words, as the Dashboard and the Reports
+              Financial tab — all three read revenueReceived from
+              utils/reportMetrics, so the phrase cannot come to mean two
+              different things on two pages. The money this excludes is on the
+              two lines below, never dropped. */}
+          <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">₱{received.revenueReceived.toLocaleString()}</h3>
           {/* Two things were wrong here. The figure quoted was refundsIssued,
               which includes refunds on Rejected/Cancelled bookings -- money that
               never came out of paymentsReceived and sits in
@@ -1150,9 +1191,19 @@ export default function Payments() {
               payment, so it is only mentioned when one exists. Matches
               FinancialTab. */}
           <p className="text-[13px] text-slate-600 mt-2.5">
-            All payments received · {datePreset === 'All Time' ? 'all time' : datePreset.toLowerCase()}
+            On confirmed &amp; completed bookings · {datePreset === 'All Time' ? 'all time' : datePreset.toLowerCase()}
             {received.refundsNettedAgainstReceived > 0 && ` — less ₱${received.refundsNettedAgainstReceived.toLocaleString()} refunded`}
           </p>
+          {received.awaitingConfirmation > 0 && (
+            <p className="text-[12.5px] text-slate-500 mt-1">
+              plus ₱{received.awaitingConfirmation.toLocaleString()} awaiting confirmation
+            </p>
+          )}
+          {received.retainedFromCancellations !== 0 && (
+            <p className="text-[12.5px] text-amber-700 mt-1">
+              plus ₱{received.retainedFromCancellations.toLocaleString()} retained from cancellations
+            </p>
+          )}
         </button>
         <button
           onClick={handlePendingClick}

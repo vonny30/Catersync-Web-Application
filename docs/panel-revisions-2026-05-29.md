@@ -72,7 +72,7 @@ figure comes from `utils/reportMetrics.js`, every stock figure from
 | PR-35 | Booking | Förster | Simulate a booking for another month; check it works and what it does to the dashboard | **OPEN** (test, not code) |
 | PR-36 | Booking | Förster | Fix grammar of "Quick Looks" | DONE (the label is now "Quick filters") |
 | PR-37 | Booking | Förster | Date Filter: the first date must be earlier than the second | DONE |
-| PR-38 | Dashboard | Förster | Only confirmed & completed should count as revenue; no collectables/payables | **DECIDED** 5 Sep — keep as cash received |
+| PR-38 | Dashboard | Förster | Only confirmed & completed should count as revenue; no collectables/payables | DONE — applied literally, 5 Sep |
 | PR-39 | Dashboard | Förster | The filter on the dashboard didn't work | DONE |
 | PR-40 | User | Förster | There should be no Duplicate Names | **DECIDED** 5 Sep — warn, do not block (build owed) |
 
@@ -724,32 +724,83 @@ drift from it.
 > "Only **confirmed** & **completed** bookings should count as part of revenue —
 > collectables/payables must not yet be included." — Förster
 
-**DECIDED 5 Sep 2026 — the card stays as cash received.** Vaughn's answer.
+**DONE 5 Sep 2026 — applied literally, once the reason not to was removed.**
 
-The substance of the comment is already met, and by construction. The card is
-labelled **"Payments Received This Month"** and sums verified payments anchored
-on `pay_datetime` (`Dashboard.jsx:295-307` via `getPaymentsReceived`). A
-receivable has no payment row, so no collectable or payable can reach it. Money
-kept from a cancelled booking is reported on its own `retainedThisMonth` line
-rather than folded into the headline.
+The first answer that day was to keep the card as cash received, on the grounds
+that filtering by status would strand verified money on Approved bookings.
+Vaughn's counter was better: fix the stranding instead of designing around it.
+**Verifying a payment now opens the Confirm Event dialog immediately**, so a
+booking stops sitting at Approved with money against it, and the panel's rule
+becomes the right one rather than a lossy one.
 
-The literal clause — filter to Confirmed and Completed — is deliberately **not**
-implemented, for a reason worth being able to say out loud:
+### What the card counts
 
-- A booking becomes **Confirmed** precisely when a verified payment of 50% or
-  more lands (`utils/bookingStatus.js`). So a verified payment on a booking that
-  is still Approved is a normal, transient state: the money arrived, the manager
-  has not clicked Confirm yet.
-- Filtering by status would therefore drop cash the business genuinely holds,
-  and the figure would move when a manager clicks a button rather than when
-  money moves. That is a worse answer to "how much came in this month", not a
-  better one.
+Verified payments anchored on `pay_datetime`, on **Confirmed and Completed
+bookings only**. Nothing owed can reach it — an unpaid balance has no payment
+row — and nothing on a booking still awaiting confirmation can either.
 
-**How to answer the panel:** the concern was that revenue must not include money
-not yet received. It cannot — the card counts payments, not bookings. Show the
-label, then show the retained-from-cancellations line beside it.
+The two excluded figures are shown beneath it rather than dropped:
 
-**No code owed.** This entry is the record of the decision.
+| September 2026 | |
+|---|---|
+| **Payments Received This Month** | **₱34,000** |
+| plus awaiting confirmation | ₱15,000 |
+| plus retained from cancellations | ₱19,500 |
+
+A figure a manager cannot find is worse than one they disagree with, so nothing
+vanishes. `REVENUE_BOOKING_STATUSES` in `utils/reportMetrics.js` is the single
+definition.
+
+### Applied on all three pages that show this number
+
+Dashboard, Payments and the Reports Financial tab all read `revenueReceived`
+from the same function, and all three show the same two sub-lines in the same
+order. Changing only the Dashboard would have reproduced the defect logged in
+`page-test-report-2026-09-04.md` §1.2, where one phrase meant two different
+things on two pages.
+
+Each card's drill-down lists `revenueRows` — exactly the rows the headline
+summed — so a modal can never disagree with the card that opened it.
+
+### The chain, and the three traps in it
+
+`utils/confirmBooking.js` is new and holds the rule, the dialog copy and the
+write. It exists because confirmation was already implemented three times and
+the chain needed a fourth caller.
+
+1. **The stale-payments race.** `payments` still holds pre-verification rows at
+   the moment the chain fires — `fetchData()` has been called but has not
+   returned — so recomputing the verified total would miss the payment just
+   verified and refuse to confirm because of it. The verifier passes the new
+   total in (`paidOverride`).
+2. **The dialog is never skipped.** Confirming freezes equipment allocation and
+   the existing dialog says so. A manager arriving from verification has had no
+   other chance to be told, so the saving is the navigation, not the warning.
+   The copy gains one leading sentence explaining why a dialog appeared on its
+   own, and its cancel button reads *Not Yet* rather than *Cancel*.
+3. **Silent when ineligible.** Below 50%, or on a booking that is not Approved,
+   nothing appears. The prompt is offered, not requested.
+
+It fires from all three places verified money is created: proof verification on
+the two detail pages, proof verification on the Payments page, and a payment
+recorded by hand.
+
+**Still owed:** `Bookings.jsx` and `ShortOrders.jsx` each keep their own copy of
+the confirm rule. They are unchanged and still correct; folding them into
+`utils/confirmBooking.js` is a separate change with its own review.
+
+### Verified
+
+- `getPaymentsReceived` unit-tested against the real module: 11 checks including
+  all three invariants and the exclusion of unverified rows.
+- The live September rows run through the real module produce 34,000 / 15,000 /
+  19,500, matching three independent SQL aggregations exactly.
+- ESLint rule counts on all nine edited files are identical to `HEAD`. One
+  regression was found and fixed on the way: calling the new helper from
+  `handleSubmit` while it was declared further down the file made the React
+  Compiler flag pre-existing `Date.now()`/`Math.random()` calls; bisecting
+  isolated it to that one call site, and moving the declaration above its first
+  caller cleared it.
 
 ### PR-39 · The filter on the dashboard didn't work
 

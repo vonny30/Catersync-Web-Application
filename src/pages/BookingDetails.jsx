@@ -365,6 +365,7 @@ export default function BookingDetails() {
     canConfirmBooking,
     isConfirming,
     handleConfirmBooking,
+    promptToConfirm,
   } = useConfirmationHandlers({
     booking,
     payments,
@@ -405,6 +406,16 @@ export default function BookingDetails() {
     payments,
     totalAmount: booking?.total_amount || 0,
     fetchData: fetchBooking,
+    // Verifying a payment can be the moment a booking becomes confirmable, so
+    // the Confirm Event dialog is offered right here instead of sending the
+    // manager off to find the button. `silentIfIneligible` keeps it quiet when
+    // the payment does not reach 50%: the dialog is offered, not requested, so
+    // a booking that cannot be confirmed yet should raise nothing at all.
+    onVerified: ({ paid }) => promptToConfirm({
+      paidOverride: paid,
+      silentIfIneligible: true,
+      fromVerification: true,
+    }),
   });
 
   // --- Refund after rejection/cancellation (local) ---

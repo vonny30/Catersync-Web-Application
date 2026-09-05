@@ -40,16 +40,24 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
         <div>
           <span className="block text-[13px] font-semibold text-slate-600 mb-2.5">Payments Received</span>
           <span className="block text-[38px] font-semibold tracking-[-0.035em] leading-none tabular-nums text-slate-900">
-            {formatCurrency(financialSummary.paymentsReceived)}
+            {formatCurrency(financialSummary.revenueReceived)}
           </span>
           <span className="block text-[13.5px] text-slate-600 mt-3">
-            Cash received in this period, by payment date
+            Cash received in this period on confirmed &amp; completed bookings, by payment date
             {financialSummary.refundsNettedAgainstReceived > 0
               ? ` — net of ${formatCurrency(financialSummary.refundsNettedAgainstReceived)} refunded`
               : ''}
           </span>
-          {/* Money kept from cancelled bookings is real cash that is not in the
-              figure above, so it is stated rather than folded in. */}
+          {/* The two figures the headline excludes. Both are real cash, so
+              neither is dropped: one is on a booking not yet confirmed, the
+              other was kept when a booking was cancelled. Stated rather than
+              folded in, and in the same order on all three pages that show
+              this number. */}
+          {financialSummary.awaitingConfirmation > 0 && (
+            <span className="block text-[13px] text-slate-600 mt-1.5">
+              A further {formatCurrency(financialSummary.awaitingConfirmation)} is awaiting confirmation.
+            </span>
+          )}
           {financialSummary.retainedFromCancellations > 0 && (
             <span className="block text-[13px] text-slate-600 mt-1.5">
               A further {formatCurrency(financialSummary.retainedFromCancellations)} was retained from cancelled bookings.

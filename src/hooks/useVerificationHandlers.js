@@ -11,7 +11,19 @@ import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 
 const KNOWN_METHODS = ['Cash', 'GCash', 'Bank Transfer'];
 
-export function useVerificationHandlers({ payments, totalAmount, fetchData }) {
+/**
+ * @param onVerified
+ *   Called after a payment is successfully verified, with the new verified
+ *   total for that booking: `({ paid }) => void`.
+ *
+ *   This is what carries the manager straight into the Confirm Event dialog
+ *   instead of making them navigate to the booking and find the button. The
+ *   total is passed rather than left to be recomputed because `payments` here
+ *   still holds the pre-verification rows at this moment — fetchData() has been
+ *   called but has not returned — so a recomputation would miss the payment
+ *   that was just verified and refuse to confirm because of it.
+ */
+export function useVerificationHandlers({ payments, totalAmount, fetchData, onVerified }) {
   const { requestPasswordConfirm } = usePasswordConfirm();
   const [isRejectProofModalOpen, setIsRejectProofModalOpen] = useState(false);
   const [rejectProofTarget, setRejectProofTarget] = useState(null);
@@ -67,6 +79,12 @@ export function useVerificationHandlers({ payments, totalAmount, fetchData }) {
       setIsVerifyModalOpen(false);
       toast.success(`Payment verified as ${verifyMethod} and marked "${finalStatus}".`);
       fetchData();
+      // The money is now real, which may be the moment this booking becomes
+      // confirmable. `alreadyVerified` excludes this payment by construction
+      // (see the filter above), so adding it back gives the new verified total.
+      // Handed over rather than recomputed — see the note on `onVerified`.
+      const paidAfterThis = alreadyVerified + (payment.amount_paid || 0);
+      onVerified?.({ paid: paidAfterThis });
     } catch (error) {
       console.error(error);
       toast.error('Failed to verify payment.');

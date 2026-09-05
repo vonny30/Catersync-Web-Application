@@ -30,6 +30,16 @@ export const CANCELLED_BOOKING_STATUSES = ['Rejected', 'Cancelled'];
 
 export const isCancelledBooking = (status) => CANCELLED_BOOKING_STATUSES.includes(status);
 
+// Panel, 29 May 2026 (Förster): "Only confirmed & completed bookings should
+// count as part of revenue — collectables/payables must not yet be included."
+//
+// A verified payment against a booking the manager has not confirmed yet is
+// real cash, but the event is not locked in. It is reported on its own line
+// rather than in the headline or nowhere.
+export const REVENUE_BOOKING_STATUSES = ['Confirmed', 'Completed'];
+
+export const countsTowardRevenue = (status) => REVENUE_BOOKING_STATUSES.includes(status);
+
 // Payments carry their booking either nested (Payments.jsx selects
 // `booking:booking_id (booking_status)`) or via a lookup the caller builds from
 // a separate query (Reports fetches bookings and payments as two lists). Accept
@@ -63,7 +73,15 @@ export function isWithinRange(dateValue, start, end) {
  * live business; dropping it would hide money that is genuinely in the bank. So
  * it gets its own line and the caller decides how to show it.
  *
- * `paymentsReceived + retainedFromCancellations === totalCashIn`, always.
+ * Three invariants, all exact:
+ *
+ *   revenueReceived + awaitingConfirmation === paymentsReceived
+ *   paymentsReceived + retainedFromCancellations === totalCashIn
+ *   revenueRows + awaitingConfirmationRows === activeRows
+ *
+ * `revenueReceived` is the one to put on a card labelled as revenue — see
+ * REVENUE_BOOKING_STATUSES above for why the booking's status is a filter at
+ * all. `paymentsReceived` remains every live payment regardless of status.
  *
  * @param payments  payment rows, each with amount_paid, pay_datetime, pay_status
  * @param options.start / options.end   period bounds; omit both for all time
@@ -75,10 +93,28 @@ export function getPaymentsReceived(payments, { start, end, bookingStatusById } 
     (!start && !end ? true : isWithinRange(p.pay_datetime, start, end))
   ));
 
+  // Three buckets, not two. `activeRows` is kept exactly as it was — every
+  // verified payment on a booking that is not dead — and is then split again
+  // into the money the panel counts as revenue and the money that has arrived
+  // against a booking still waiting to be confirmed.
+  //
+  //   revenueRows + awaitingConfirmationRows === activeRows
+  //   activeRows  + cancelledRows            === countedRows
+  //
+  // Nothing is dropped at any level, which is the point: a figure a manager
+  // cannot find is worse than one they disagree with.
   const activeRows = [];
   const cancelledRows = [];
+  const revenueRows = [];
+  const awaitingConfirmationRows = [];
   counted.forEach(p => {
-    (isCancelledBooking(bookingStatusOf(p, bookingStatusById)) ? cancelledRows : activeRows).push(p);
+    const status = bookingStatusOf(p, bookingStatusById);
+    if (isCancelledBooking(status)) {
+      cancelledRows.push(p);
+      return;
+    }
+    activeRows.push(p);
+    (countsTowardRevenue(status) ? revenueRows : awaitingConfirmationRows).push(p);
   });
 
   // Refunds are negative amount_paid rows, so a plain sum is already net.
@@ -89,6 +125,8 @@ export function getPaymentsReceived(payments, { start, end, bookingStatusById } 
 
   const paymentsReceived = sum(activeRows);
   const retainedFromCancellations = sum(cancelledRows);
+  const revenueReceived = sum(revenueRows);
+  const awaitingConfirmation = sum(awaitingConfirmationRows);
 
   // The refunds actually deducted from `paymentsReceived` — which is NOT
   // `refundsIssued`.
@@ -109,11 +147,22 @@ export function getPaymentsReceived(payments, { start, end, bookingStatusById } 
     .reduce((total, p) => total + Math.abs(p.amount_paid), 0);
 
   return {
+    // `revenueReceived` is the headline figure on every page that shows one:
+    // verified payments on Confirmed and Completed bookings only.
+    revenueReceived,
+    // Verified cash on a booking still sitting at Pending or Approved. Show it
+    // beside the headline; never inside it.
+    awaitingConfirmation,
+    // Unchanged, and still the sum of the two above. Kept because callers that
+    // legitimately want all live cash (and the Payments page's own record list)
+    // read it, and because removing it would silently change three pages.
     paymentsReceived,
     retainedFromCancellations,
     totalCashIn: paymentsReceived + retainedFromCancellations,
     refundsIssued,
     refundsNettedAgainstReceived,
+    revenueRows,
+    awaitingConfirmationRows,
     activeRows,
     cancelledRows,
     countedRows: counted,

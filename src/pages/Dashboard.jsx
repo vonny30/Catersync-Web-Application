@@ -76,6 +76,7 @@ export default function Dashboard() {
     pendingBookings: 0,
     upcomingEvents: 0,
     revenueThisMonth: 0,
+    awaitingConfirmationThisMonth: 0,
     retainedThisMonth: 0,
   });
   const [todayEvents, setTodayEvents] = useState([]);
@@ -304,7 +305,11 @@ export default function Dashboard() {
       const received = getPaymentsReceived(revenueData);
       setStats(prev => ({
         ...prev,
-        revenueThisMonth: received.paymentsReceived,
+        // Panel PR-38: only Confirmed and Completed bookings count as revenue.
+        // The other two figures are reported beside it rather than folded in
+        // or dropped — see REVENUE_BOOKING_STATUSES in utils/reportMetrics.
+        revenueThisMonth: received.revenueReceived,
+        awaitingConfirmationThisMonth: received.awaitingConfirmation,
         retainedThisMonth: received.retainedFromCancellations,
       }));
 
@@ -636,10 +641,10 @@ export default function Dashboard() {
         'collections modal'
       );
       // List exactly the rows the card counted, so the modal's own total
-      // reconciles with the figure that was clicked. Cash retained from
-      // cancelled bookings is reported on the card's second line instead —
-      // it is deliberately not part of this total.
-      setStatsModalData(getPaymentsReceived(data || []).activeRows);
+      // reconciles with the figure that was clicked. Cash awaiting confirmation
+      // and cash retained from cancelled bookings are reported on the card's
+      // own lines instead — deliberately not part of this total.
+      setStatsModalData(getPaymentsReceived(data || []).revenueRows);
       setStatsModalTitle(`Payments Received This Month (${today.toLocaleString('default', { month: 'long', year: 'numeric' })})`);
       setStatsModalType('revenue');
       resetStatsFilters();
@@ -808,6 +813,39 @@ export default function Dashboard() {
             ₱{stats.revenueThisMonth.toLocaleString()}
           </span>
           <span className="text-[15px] font-semibold text-slate-600">Payments Received This Month</span>
+          {/* Panel, 29 May 2026 (Förster): "Only confirmed & completed bookings
+              should count as part of revenue — collectables/payables must not
+              yet be included."
+
+              Applied literally, as asked. The headline counts verified
+              payments on Confirmed and Completed bookings only, anchored on
+              pay_datetime — so nothing owed can reach it (an unpaid balance
+              has no payment row) and nothing on a booking still awaiting
+              confirmation can either.
+
+              The money that filter excludes is shown beneath rather than
+              dropped, because a figure a manager cannot find is worse than one
+              they disagree with. What used to make this filter unsafe — cash
+              stranded on an Approved booking nobody had confirmed — is handled
+              at source: verifying a payment now offers the Confirm Event
+              dialog immediately (utils/confirmBooking.js). */}
+          <span className="text-[12.5px] text-slate-400 mt-1">Verified payments on confirmed &amp; completed bookings</span>
+          {/* Cash taken on a booking that was later cancelled is real money but
+              not live business, so getPaymentsReceived splits it out and the
+              headline above excludes it. It was being computed and then thrown
+              away — and it is precisely the deduction the panel asked to be
+              able to see. Shown only when there is some, so a clean month stays
+              clean. */}
+          {stats.awaitingConfirmationThisMonth > 0 && (
+            <span className="text-[12.5px] text-slate-500 mt-1">
+              plus ₱{stats.awaitingConfirmationThisMonth.toLocaleString()} awaiting confirmation
+            </span>
+          )}
+          {stats.retainedThisMonth > 0 && (
+            <span className="text-[12.5px] text-amber-700 mt-1">
+              plus ₱{stats.retainedThisMonth.toLocaleString()} retained from cancellations
+            </span>
+          )}
         </button>
       </div>
 
