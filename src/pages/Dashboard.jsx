@@ -702,6 +702,45 @@ export default function Dashboard() {
     }
     return true;
   });
+  // --- One row per booking, not one per payment record ---
+  //
+  // A booking carries several payments (deposit, top-up, the one that clears
+  // it), and this modal listed each separately — so BKG-122 appeared twice,
+  // reading as two bookings rather than one booking paid in two instalments.
+  // The Payments page solved this on 23 Aug by grouping on booking_id; this is
+  // the same grouping, so the two screens describe the world the same way.
+  //
+  // ONE DELIBERATE DIFFERENCE. Payments.jsx sums a group with
+  // sumVerifiedPositivePayments, which drops refunds, because refunds live on
+  // their own tab there. This modal must reconcile with the card that opened
+  // it, and that card's figure is net of refunds — so the group total is a
+  // plain sum. Using the Payments page's helper here would make the footer
+  // disagree with the headline by exactly the refunds in the period.
+  const groupedStatsModalData = statsModalType !== 'revenue' ? [] : Object.values(
+    filteredStatsModalData.reduce((groups, p) => {
+      const key = p.booking_id || p.payment_id;
+      if (!groups[key]) groups[key] = { key, booking: p.booking, entries: [] };
+      groups[key].entries.push(p);
+      return groups;
+    }, {})
+  ).map(group => {
+    const entries = [...group.entries].sort(
+      (a, b) => new Date(b.pay_datetime || 0) - new Date(a.pay_datetime || 0)
+    );
+    const methods = [...new Set(entries.map(e => e.pay_method).filter(Boolean))];
+    return {
+      ...group,
+      entries,
+      latest: entries[0],
+      count: entries.length,
+      // Net, including refunds — see above.
+      total: entries.reduce((sum, e) => sum + (e.amount_paid || 0), 0),
+      // Two instalments paid different ways is normal; naming one of them
+      // would be wrong, so say there was more than one.
+      method: methods.length === 0 ? 'N/A' : methods.length === 1 ? methods[0] : `${methods.length} methods`,
+    };
+  });
+
   const activeStatsFilterCount = (statsSearchTerm.trim() ? 1 : 0) + (statsTypeFilter !== 'All' ? 1 : 0) + (statsModalType === 'revenue' && statsMethodFilter !== 'All' ? 1 : 0) + (statsDatePreset !== DEFAULT_DATE_PRESET ? 1 : 0);
 
   const handleStatsRowClick = (item) => {
@@ -1084,7 +1123,14 @@ export default function Dashboard() {
             <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0 bg-white">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">{statsModalTitle}</h2>
-                <p className="text-xs text-slate-500 mt-0.5">{filteredStatsModalData.length} of {statsModalData.length} record(s) shown</p>
+                {/* Counts what the table actually renders. On the revenue
+                    view that is bookings, not payment records — the two differ
+                    whenever a booking was paid in instalments. */}
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {statsModalType === 'revenue'
+                    ? `${groupedStatsModalData.length} booking${groupedStatsModalData.length === 1 ? '' : 's'} · ${filteredStatsModalData.length} of ${statsModalData.length} payment record(s)`
+                    : `${filteredStatsModalData.length} of ${statsModalData.length} record(s) shown`}
+                </p>
               </div>
               <button
                 onClick={closeStatsModal}
@@ -1260,16 +1306,18 @@ export default function Dashboard() {
                           <th className="p-3">Reference</th>
                           <th className="p-3">Customer</th>
                           <th className="p-3">Venue</th>
+                          <th className="p-3">Payments</th>
                           <th className="p-3 text-right">Amount</th>
                           <th className="p-3">Method</th>
-                          <th className="p-3">Date</th>
+                          <th className="p-3">Latest</th>
                           <th className="p-3 text-center">Status</th>
                           <th className="p-3 text-center">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-sm">
-                        {filteredStatsModalData.map((payment) => {
-                          const booking = payment.booking;
+                        {groupedStatsModalData.map((group) => {
+                          const { latest, booking } = group;
+                          const payment = latest;
                           const customerName = booking?.customer
                             ? `${booking.customer.first_name} ${booking.customer.last_name}`
                             : 'Unknown';
@@ -1277,7 +1325,7 @@ export default function Dashboard() {
                           const detailPath = isShortOrder ? '/app/orders' : '/app/bookings';
                           return (
                             <tr
-                              key={payment.payment_id}
+                              key={group.key}
                               className="hover:bg-slate-50 transition-colors cursor-pointer"
                               onClick={() => {
                                 if (booking?.booking_id) {
@@ -1290,13 +1338,30 @@ export default function Dashboard() {
                               </td>
                               <td className="p-3 font-medium text-slate-900">{customerName}</td>
                               <td className="p-3 text-slate-600">{booking?.venue || 'N/A'}</td>
-                              <td className="p-3 text-right font-bold text-emerald-600">
-                                ₱{payment.amount_paid?.toLocaleString() || 0}
+                              {/* Says how many records this one row stands for,
+                                  so a booking paid in instalments is legible as
+                                  one booking rather than looking like a
+                                  duplicate. Same wording as the Payments page. */}
+                              <td className="p-3 text-slate-600 text-xs">
+                                {group.count} payment{group.count === 1 ? '' : 's'}
                               </td>
-                              <td className="p-3 text-slate-600">{payment.pay_method || 'N/A'}</td>
+                              <td className="p-3 text-right font-bold text-emerald-600">
+                                ₱{group.total.toLocaleString()}
+                              </td>
+                              <td className="p-3 text-slate-600">{group.method}</td>
                               <td className="p-3 text-slate-600 text-xs">
                                 {payment.pay_datetime ? new Date(payment.pay_datetime).toLocaleString() : 'N/A'}
                               </td>
+                              {/* The MOST RECENT payment's stored status, not a
+                                  status for the booking overall. Deliberately
+                                  the stored value rather than
+                                  describePaymentKind: this modal only fetched
+                                  the current month, so an earlier instalment
+                                  outside the period is invisible here and a
+                                  derived "Downpayment / Partial / Full" label
+                                  could be computed against an incomplete
+                                  ledger. The booking page has the full history
+                                  and derives it correctly there. */}
                               <td className="p-3 text-center">
                                 <span className={`px-2 py-1 rounded-full text-xs font-bold ${payment.pay_status === 'Fully Paid' ? 'bg-green-100 text-green-700' : payment.pay_status === 'Downpayment' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
                                   {payment.pay_status || 'N/A'}
@@ -1321,9 +1386,12 @@ export default function Dashboard() {
                       </tbody>
                       <tfoot className="bg-slate-50 border-t-2 border-slate-200">
                         <tr>
-                          <td colSpan="3" className="p-3 text-right font-bold text-slate-700">Total received:</td>
+                          <td colSpan="4" className="p-3 text-right font-bold text-slate-700">Total received:</td>
+                          {/* Summed over the same rows the table renders, so
+                              grouping cannot move this figure. It stays equal
+                              to the card that opened the modal. */}
                           <td className="p-3 text-right font-bold text-emerald-700">
-                            ₱{filteredStatsModalData.reduce((sum, p) => sum + (p.amount_paid || 0), 0).toLocaleString()}
+                            ₱{groupedStatsModalData.reduce((sum, g) => sum + g.total, 0).toLocaleString()}
                           </td>
                           <td colSpan="4" className="p-3"></td>
                         </tr>
