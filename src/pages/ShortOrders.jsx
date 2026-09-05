@@ -1224,7 +1224,7 @@ export default function ShortOrders() {
         </button>
       </div>
 
-      {/* STATUS OVERVIEW + QUICK LOOKS */}
+      {/* STATUS OVERVIEW + QUICK FILTERS */}
       <div className="bg-white rounded-2xl border border-slate-200/70 p-5">
         <div className="flex items-center gap-1.5 mb-3">
           <LayoutGrid size={13} className="text-slate-500" />

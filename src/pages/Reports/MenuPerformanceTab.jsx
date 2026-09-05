@@ -194,7 +194,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
       {/* ---------- 3. MENU ITEM MIX ---------- */}
       <Panel
         title="Menu Item Mix"
-        description="Short order items measured against total menu item revenue. Trays sold and revenue are shown side by side on purpose: the item people order most and the item that earns most are rarely the same item, and one column can never show both."
+        description="Short order items measured against total menu item revenue. Dishes served inside a package are not counted here: a package is sold once per event and a tray is sold by the tray, so the two cannot share one revenue ranking. Package dishes are counted separately in a Dishes Prepared view, planned for the next increment. Trays sold and revenue sit side by side on purpose: the item people order most and the item that earns most are rarely the same item, and one column can never show both."
       >
         {menuItemMix.length === 0 ? (
           <div className={EMPTY}>No short order items in this period.</div>

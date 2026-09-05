@@ -16,9 +16,32 @@ export const ACTIVE_BOOKING_STATUSES = ['Approved', 'Confirmed'];
 // pages' primary sort (Pending first, then Approved, Confirmed, Completed,
 // Cancelled, Rejected, with newest-created first inside each group) — it
 // exists because PostgREST can't ORDER BY an arbitrary CASE expression, so
-// this needs a real column. It is NOT auto-maintained by the database —
-// every place that changes booking_status must also set the matching
-// status_order value here, or that row stops sorting into the right group.
+// this needs a real column.
+//
+// IT *IS* MAINTAINED BY THE DATABASE, AND THE DATABASE IS WRONG.
+// Corrected 5 Sep 2026; this comment previously said the opposite.
+//
+//   CREATE TRIGGER set_status_order BEFORE INSERT OR UPDATE OF booking_status
+//     ON public.booking FOR EACH ROW EXECUTE FUNCTION update_status_order()
+//
+// `update_status_order` writes a mapping that predates the Confirmed status:
+//
+//   Pending 1 · Approved 2 · Completed 3 · Cancelled 4 · Rejected 5
+//   Confirmed -> falls through to ELSE -> 5
+//
+// It disagrees with the map below on four of six values, and it overwrites
+// whatever the app supplies, on every insert and on every update that touches
+// booking_status. So each write path here still has to set status_order — the
+// trigger is not doing the job — but setting it in the SAME statement that
+// changes booking_status is useless, because the trigger fires after and wins.
+//
+// The self-heal below works only because its UPDATE touches status_order
+// alone: the trigger is scoped to UPDATE OF booking_status and does not fire.
+// That is load-bearing. Do not fold the repair into a status change.
+//
+// The real fix is to correct the trigger function to match this map, or to
+// drop it. Until then the drift returns after every status change and is only
+// cleaned up on the next list load.
 export const STATUS_ORDER = {
   Pending: 1,
   Approved: 2,
@@ -35,11 +58,12 @@ export const STATUS_ORDER = {
 // slot) and a Cancelled one carried 4 (Completed's), which is why Confirmed
 // and Cancelled rows appeared interleaved with Rejected and Completed.
 //
-// Every write path in THIS app sets both, so the drift comes from rows
-// written before that was true, or from the customer mobile app sharing this
-// table — it changes booking_status too (a customer cancelling their own
-// booking), and it has no reason to know about a sort column that exists
-// purely for this UI.
+// The cause was found on 5 Sep 2026 and it is the `set_status_order` trigger
+// described above, not stale rows and not the mobile app. Those two figures
+// are the trigger's mapping exactly: it sends Confirmed to 5 through its ELSE
+// branch and Cancelled to 4. Every booking inserted through any client gets
+// them, including this one — a freshly seeded database reproduced it on all
+// 13 rows at once.
 //
 // Given that, the list can't assume the column is right. This returns the
 // rows whose status_order contradicts their status, so a caller can repair

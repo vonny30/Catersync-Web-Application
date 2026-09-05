@@ -50,7 +50,7 @@ figure comes from `utils/reportMetrics.js`, every stock figure from
 | PR-13 | Login | Förster | Block concurrent login from another device | DONE |
 | PR-14 | Login | Curativo | Password visibility icon is incorrect | DONE |
 | PR-15 | Dashboard | Rivera | "Upcoming Event (7 Days)" label is ambiguous | DONE |
-| PR-16 | Bookings | Rivera | Bookings with a downpayment can still be deleted | **DECIDED** (build pending) |
+| PR-16 | Bookings | Rivera | Bookings with a downpayment can still be deleted | DONE (built; §3 text below was stale until 5 Sep) |
 | PR-17 | Payments | Rivera | "Pending Balance" unclear | DONE |
 | PR-18 | Payments | Rivera | "Net Collected" unclear | DONE |
 | PR-19 | Payments | Rivera | "Fully Paid" count doesn't match the records | DONE |
@@ -61,7 +61,7 @@ figure comes from `utils/reportMetrics.js`, every stock figure from
 | PR-24 | Equipment | Rivera | "Free to Use" → "Available" | DONE |
 | PR-25 | Equipment | Rivera | Availability bar is wrong | DONE |
 | PR-26 | Equipment | Rivera | Total count ≠ available count when assigning | DONE |
-| PR-27 | Equipment | Rivera | BK-067 shows returned but was never assigned | **OPEN** (investigate) |
+| PR-27 | Equipment | Rivera | BK-067 shows returned but was never assigned | DONE (built; BK-067 itself no longer exists in the data) |
 | PR-28 | Vehicles | Rivera | "Free to Use" → "Available" | DONE |
 | PR-29 | Menu Performance | Rivera | Clarify how it is calculated | DONE |
 | PR-30 | Menu Performance | Rivera | Orders vs trays as units | DONE |
@@ -69,8 +69,20 @@ figure comes from `utils/reportMetrics.js`, every stock figure from
 | PR-32 | Menu Performance | Rivera | Should a Bronze Package sale count toward Beef Caldereta? | **DECIDED** (build pending) |
 | PR-33 | Equipment | Förster | What is the policy for equipment return? | DONE |
 | PR-34 | Equipment | Adviser | "Does the total number of equipment really matter?" + see upcoming events with their packages and assigned equipment | DONE |
+| PR-35 | Booking | Förster | Simulate a booking for another month; check it works and what it does to the dashboard | **OPEN** (test, not code) |
+| PR-36 | Booking | Förster | Fix grammar of "Quick Looks" | DONE (the label is now "Quick filters") |
+| PR-37 | Booking | Förster | Date Filter: the first date must be earlier than the second | DONE |
+| PR-38 | Dashboard | Förster | Only confirmed & completed should count as revenue; no collectables/payables | **DECIDED** 5 Sep — keep as cash received |
+| PR-39 | Dashboard | Förster | The filter on the dashboard didn't work | DONE |
+| PR-40 | User | Förster | There should be no Duplicate Names | **DECIDED** 5 Sep — warn, do not block (build owed) |
 
-Counts: **23 done**, **4 open**, **3 need a decision**, **2 mobile**, 2 split.
+Counts: **27 done**, **2 open**, **2 need code against a made decision**, **2 mobile**, 2 split.
+
+> **PR-35 to PR-40 were missing from this file until 5 Sep 2026.** The minutes
+> carry 40 items; this file tracked 34. The whole last block of Förster's
+> comments — the Booking, Dashboard and User Module rows on page 5 of the form —
+> was never entered, so nothing was checking them. Four of the six turned out to
+> be satisfied already. Two were not. §3.5 has each one.
 
 ---
 
@@ -267,7 +279,16 @@ badge for an estimated line, it is claiming a state that does not exist.
 
 **Files:** `src/utils/equipment.jsx` (snapshot), `src/pages/Equipment.jsx`
 (availability row detail modal, ~the `evCanReturn` block)
-**Change:** first reproduce with BK-067. Then ensure every estimated line renders
+**BUILT — verified in the code 5 Sep 2026.** `Equipment.jsx:3041-3042` renders
+*"Estimated from package (not yet manually assigned)"* for any line with
+`source === 'estimated'` (set at `utils/equipment.jsx:629`). The diagnosis below
+was right and the fix is in.
+
+**BK-067 itself can no longer be reproduced** — the database was reset and holds
+one booking, BKG-105. Demonstrate the fix on any booking with no manual
+assignment rather than on that reference.
+
+**Change (as specified, now built):** ensure every estimated line renders
 as **"Estimated from package — not yet assigned"** and never shows an assignment
 status or a return control. Only rows backed by a real `booking_equipment` row
 may show Assigned / In Use / Returned.
@@ -587,7 +608,15 @@ not the ability but the **informed** part of informed consent — the current
 warning says "All associated payments, equipment, and vehicle assignments will
 also be deleted" without saying how much money that is.
 
-**Change (not yet built):** in `Bookings.jsx` and `BookingDetails.jsx`, before
+**BUILT — verified in the code 5 Sep 2026.** `formatPaymentDeletionWarning`
+(`utils/payments.js:150`) is called from all four delete paths — `Bookings.jsx`,
+`BookingDetails.jsx`, `ShortOrders.jsx`, `ShortOrderDetails.jsx` — and names the
+amount: *"This will also delete 1 payment record, including ₱9,000 in verified
+payments. That money will disappear from every report."* When nothing is
+verified it says so instead of printing ₱0. Seen live on 4 Sep. The paragraph
+below was the spec and is kept as the record of what was asked for.
+
+**Change (as specified, now built):** in `Bookings.jsx` and `BookingDetails.jsx`, before
 the existing confirm-and-password flow, compute the verified paid total with
 `sumVerifiedPositivePayments`. When it is above zero, the confirm dialog must
 name it — *"This booking has ₱25,000 in verified payments. Deleting it removes
@@ -610,7 +639,16 @@ This does **not** undo `blueprint-02-language.md` §4. That rule was about money
 and ranking: a package and a tray are different units of sale and cannot share a
 peso ranking. Counting production is a different question with a different unit.
 
-**Change (not yet built):** add a **Dishes Prepared** view to Menu Performance
+**5 Sep 2026 — the decision stands, the build is deferred.** Vaughn's answer:
+state the scope on the page now and build Dishes Prepared in the next increment.
+Rivera's question was *clarify*, and a sentence on the panel answers it honestly
+without opening a new code path on the Reports page days before a defence.
+
+**Done instead (5 Sep):** the Menu Item Mix panel states that it covers
+short-order trays only, that package dishes are not counted in it, and that they
+are counted separately in a Dishes Prepared view planned for the next increment.
+
+**Deferred change:** add a **Dishes Prepared** view to Menu Performance
 that expands each package booking through `package_menu` and adds those dishes
 to the ones ordered by name in short-order `menu_selections`. Measured in
 **trays and portions only, never in pesos** — that is what keeps the revenue
@@ -619,6 +657,149 @@ table stays exactly as it is, with its scope stated on the page.
 
 **Acceptance:** a Bronze Package sale increments Beef Caldereta in Dishes
 Prepared and does not change Menu Item Mix or any revenue figure.
+
+---
+
+## 3.5 The six items this file was missing — added 5 Sep 2026
+
+Found by reading the minutes form against this file line by line. The form has
+40 items; §1 tracked 34. Everything below is Förster's block on page 5 of the
+form, which was never entered here. **Four of the six were already satisfied** —
+they only ever looked open because nobody had written them down.
+
+Each verdict below was checked against the code on 5 Sep 2026, not assumed.
+
+### PR-35 · Simulate a booking for another month
+
+> "Simulate **booking/reservation** for another month to see if it doesn't work,
+> or whether it changes the dashboard info." — Förster
+
+**OPEN, and it is a test rather than a change.** Förster is asking whether a
+booking dated outside the current month behaves correctly and what it does to
+the dashboard figures. Nothing in the code suggests it would not, but nobody
+has run it.
+
+What the answer should be, so the test has something to check against:
+
+| Dashboard element | Anchored on | A booking next month should |
+|---|---|---|
+| Payments Received This Month | `pay_datetime` | not move it, unless a payment is recorded this month |
+| Events in the next 7 days | `event_datetime` | not appear, unless the event is inside the window |
+| Pending / status counters | booking rows | increment immediately |
+| Calendar | `event_datetime`, Confirmed only | show a dot on that day once Confirmed |
+
+**Acceptance:** create a booking for the following month, walk it to Confirmed,
+and confirm each row above behaves as stated. Anything that disagrees is the
+defect Förster was pointing at.
+
+### PR-36 · "Quick Looks" grammar
+
+> "Fix grammar of Quick Looks; change **"looks"** to **"look"**." — Förster
+
+**DONE.** The heading no longer says either. `Bookings.jsx:1306` and
+`ShortOrders.jsx:1251` render **"Quick filters"**, which is both grammatical and
+more accurate — they are filters. The string "Quick Looks" survives only in JSX
+comments (`Bookings.jsx:1282`, `ShortOrders.jsx:1227`), which never render.
+
+Worth tidying those two comments so a reader does not think the old label is
+still live, but nothing on screen is wrong.
+
+### PR-37 · Date Filter — first date must be earlier than the second
+
+> "**Date Filter** - The **first date** must be earlier than the **2nd date**
+> (validation issue)." — Förster
+
+**DONE, and in the strongest form available.** `Reports/DateRangeFilter.jsx:64`
+sets `min={customStart || undefined}` on the end-date input, so the calendar
+cannot offer a day before the start — an impossible range cannot be built rather
+than being rejected after the fact.
+
+It holds everywhere, because all eight pages with a custom range import that one
+component: Bookings, Dashboard, Equipment, Payments, ShortOrders, Vehicles,
+Reports/index and Reports/DetailModal. There is no second date-range widget to
+drift from it.
+
+### PR-38 · Only confirmed & completed bookings should count as revenue
+
+> "Only **confirmed** & **completed** bookings should count as part of revenue —
+> collectables/payables must not yet be included." — Förster
+
+**DECIDED 5 Sep 2026 — the card stays as cash received.** Vaughn's answer.
+
+The substance of the comment is already met, and by construction. The card is
+labelled **"Payments Received This Month"** and sums verified payments anchored
+on `pay_datetime` (`Dashboard.jsx:295-307` via `getPaymentsReceived`). A
+receivable has no payment row, so no collectable or payable can reach it. Money
+kept from a cancelled booking is reported on its own `retainedThisMonth` line
+rather than folded into the headline.
+
+The literal clause — filter to Confirmed and Completed — is deliberately **not**
+implemented, for a reason worth being able to say out loud:
+
+- A booking becomes **Confirmed** precisely when a verified payment of 50% or
+  more lands (`utils/bookingStatus.js`). So a verified payment on a booking that
+  is still Approved is a normal, transient state: the money arrived, the manager
+  has not clicked Confirm yet.
+- Filtering by status would therefore drop cash the business genuinely holds,
+  and the figure would move when a manager clicks a button rather than when
+  money moves. That is a worse answer to "how much came in this month", not a
+  better one.
+
+**How to answer the panel:** the concern was that revenue must not include money
+not yet received. It cannot — the card counts payments, not bookings. Show the
+label, then show the retained-from-cancellations line beside it.
+
+**No code owed.** This entry is the record of the decision.
+
+### PR-39 · The filter on the dashboard didn't work
+
+> "The **filter** on the dashboard didn't work." — Förster
+
+**DONE.** Every dashboard stat card opens a modal with a working filter set:
+search across customer name, booking reference and venue; a Package / Short
+Order type filter; a payment-method filter on the revenue view; and the shared
+date-range filter (`Dashboard.jsx:669-700`). The active-filter count is shown so
+it is visible when one is applied.
+
+The revenue view filters on `pay_datetime` and every other view on
+`event_datetime` — the same anchor split as the cards themselves, so a filtered
+list always sums to its card.
+
+One known fault in this area is **not** this item and is recorded separately in
+`page-test-report-2026-09-04.md` §1.1: the payments modal's own date filter can
+only narrow a set already scoped to the current month, yet prints the wider
+range as applied. That is a real defect and still open.
+
+### PR-40 · There should be no duplicate names
+
+> "Update that there should be no **Duplicate** Names." — Förster
+
+**DECIDED 5 Sep 2026 — warn the manager, do not block.** Vaughn's answer.
+
+The customer table is where the panel saw it. Checked 5 Sep against live data:
+
+| Table | Duplicate names |
+|---|---|
+| `customer` | **2** — two accounts both "Customer User", different emails |
+| `menu_item`, `equipment`, `package` | none |
+
+Two real people can share a name, so refusing the second one is wrong: it would
+reject a genuine namesake and the manager would have no way through. What the
+manager actually needs is to be able to **tell them apart at the moment of
+choosing**, which is the customer picker on the booking form.
+
+**Change (owed):** where a customer is selected or displayed, detect other
+customers sharing the same normalised `first_name + last_name` and disambiguate
+the row — show the email or contact number beside the name, and mark it so the
+manager can see there is more than one. Do not block the save.
+
+**Acceptance:** with two customers named "Customer User", the picker shows both
+with something that distinguishes them, and a booking can still be created for
+either. With unique names nothing changes on screen.
+
+**Not a schema change**, and not a mobile change — customers register from the
+mobile app, but the fix is a web-side display rule, so it does not depend on
+your groupmate.
 
 ---
 
@@ -745,3 +926,88 @@ what's in §2-5 above:
    raw `pay_status`), so a payment's displayed kind is frozen at the moment it
    was recorded and never retroactively flips to "Fully Paid" when a later
    payment clears the balance (closes PR-03 above).
+
+---
+
+## 7. Found while reseeding — the `set_status_order` trigger
+
+Not a panel item. Found on 5 Sep 2026 while seeding demo data, and it is the
+cause of a defect this project has already written down twice and misdiagnosed
+both times.
+
+There is a trigger on `booking`:
+
+```sql
+CREATE TRIGGER set_status_order BEFORE INSERT OR UPDATE OF booking_status
+  ON public.booking FOR EACH ROW EXECUTE FUNCTION update_status_order();
+```
+
+Its mapping predates the Confirmed status:
+
+| | trigger | `utils/bookingStatus.js` |
+|---|---|---|
+| Pending | 1 | 1 |
+| Approved | 2 | 2 |
+| **Confirmed** | **5** (falls through `ELSE`) | **3** |
+| **Completed** | **3** | **4** |
+| **Cancelled** | **4** | **6** |
+| Rejected | 5 | 5 |
+
+Four of six disagree, and the trigger wins: it is `BEFORE INSERT`, so it
+overwrites whatever the app supplies.
+
+**This is exactly the symptom `bookingStatus.js` records.** That file said
+*"three Confirmed bookings carried status_order 5 (Rejected's slot) and a
+Cancelled one carried 4 (Completed's)"* and attributed it to old rows or to the
+mobile app. Both were wrong — 5 and 4 are the trigger's values for those two
+statuses. Seeding 13 fresh bookings through a direct SQL insert reproduced it on
+all 13 at once, with no mobile app involved.
+
+The file's other claim — *"It is NOT auto-maintained by the database"* — was the
+opposite of the truth. Corrected in place on 5 Sep.
+
+### Why it has not been more visible
+
+The self-heal in `Bookings.jsx` repairs the drift on every list load, and it
+works **only because its UPDATE touches `status_order` alone**. The trigger is
+scoped to `UPDATE OF booking_status`, so it does not fire on that statement.
+That is load-bearing and easy to break: folding the repair into a status change
+would make it a no-op.
+
+So the visible behaviour is: change a booking's status, and it sorts into the
+wrong group until the list is reloaded.
+
+### The fix
+
+Replace the function body so it matches `STATUS_ORDER`:
+
+```sql
+CREATE OR REPLACE FUNCTION update_status_order() RETURNS trigger AS $$
+BEGIN
+  NEW.status_order := CASE NEW.booking_status
+    WHEN 'Pending'   THEN 1
+    WHEN 'Approved'  THEN 2
+    WHEN 'Confirmed' THEN 3
+    WHEN 'Completed' THEN 4
+    WHEN 'Rejected'  THEN 5
+    WHEN 'Cancelled' THEN 6
+    ELSE 1
+  END;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+`ELSE 1` rather than 5: an unrecognised status should surface at the top of the
+work queue, not be filed with the rejections.
+
+**Not applied.** It replaces a function rather than altering a table, so it is
+not a schema change in the sense `HANDOFF.md` forbids — but it is a database
+change and it is Vaughn's call. Every existing row was corrected on 5 Sep, so
+the data is right today; without the trigger fix it drifts again on the next
+status change and is cleaned up on the next page load.
+
+**Acceptance:** approve a Pending booking and re-query `status_order` without
+reloading the page. It should read 2. Today it reads 2 as well — Approved is one
+of the two values that agree — so test with **Confirm**, which should read 3 and
+currently reads 5.
