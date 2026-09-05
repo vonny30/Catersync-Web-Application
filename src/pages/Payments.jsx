@@ -290,7 +290,7 @@ export default function Payments() {
       if (typeFilter === 'Short Order' && bookingType !== 'Short Order') return false;
     }
     if (methodFilter !== 'All' && p.pay_method !== methodFilter) return false;
-    if (datePreset !== DEFAULT_DATE_PRESET && !isWithinRange(p.pay_datetime, dateRangeStart, dateRangeEnd)) return false;
+    if (datePreset !== 'All Time' && !isWithinRange(p.pay_datetime, dateRangeStart, dateRangeEnd)) return false;
     return true;
   };
 
@@ -896,7 +896,7 @@ export default function Payments() {
     // is reset to All on every open, but booking-shaped rows have no
     // pay_method, so a stray value here would silently empty the list.
     if (summaryModalType === 'collected' && summaryMethodFilter !== 'All' && item.pay_method !== summaryMethodFilter) return false;
-    if (summaryDatePreset !== DEFAULT_DATE_PRESET) {
+    if (summaryDatePreset !== 'All Time') {
       // Collected/Fully Paid are payment rows (pay_datetime); Pending
       // Balance is a booking-level aggregate with no payment date, so it
       // filters by event date instead.

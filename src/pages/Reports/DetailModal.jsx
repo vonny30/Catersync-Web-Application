@@ -47,7 +47,7 @@ export default function DetailModal({ detailModal, onClose }) {
       if (itemType !== typeFilter) return false;
     }
     if (detailModal.type === 'revenue' && statusFilter !== 'All' && item.status !== statusFilter) return false;
-    if (datePreset !== DEFAULT_DATE_PRESET && !isWithinRange(item.eventDate, dateRangeStart, dateRangeEnd)) return false;
+    if (datePreset !== 'All Time' && !isWithinRange(item.eventDate, dateRangeStart, dateRangeEnd)) return false;
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       const customer = (item.customer || '').toLowerCase();

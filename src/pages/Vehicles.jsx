@@ -1065,7 +1065,7 @@ export default function Vehicles() {
     if (assignmentSectionFilter === 'Overdue' && !g.isOverdue) return false;
     if (assignmentSectionFilter === 'Today' && !(g.isToday && !g.isOverdue)) return false;
     if (assignmentSectionFilter === 'Upcoming' && (g.isOverdue || g.isToday)) return false;
-    if (assignmentDatePreset !== DEFAULT_DATE_PRESET && !isWithinRange(g.eventDate, assignmentRangeStart, assignmentRangeEnd)) return false;
+    if (assignmentDatePreset !== 'All Time' && !isWithinRange(g.eventDate, assignmentRangeStart, assignmentRangeEnd)) return false;
     if (assignmentSearchTerm.trim()) {
       const term = assignmentSearchTerm.toLowerCase();
       const ref = (g.booking ? getBookingRef(g.booking) : '').toLowerCase();
@@ -1111,7 +1111,7 @@ export default function Vehicles() {
         const filterKey = historyStatusFilter === 'Assigned' ? 'assigned' : historyStatusFilter === 'In Use' ? 'in_use' : 'returned';
         if (status.key !== filterKey) return false;
       }
-      if (historyDatePreset !== DEFAULT_DATE_PRESET && !isWithinRange(a.booking?.event_datetime, historyRangeStart, historyRangeEnd)) return false;
+      if (historyDatePreset !== 'All Time' && !isWithinRange(a.booking?.event_datetime, historyRangeStart, historyRangeEnd)) return false;
       if (historySearch.trim()) {
         const term = historySearch.toLowerCase();
         const plate = (a.vehicle?.plate_number || '').toLowerCase();

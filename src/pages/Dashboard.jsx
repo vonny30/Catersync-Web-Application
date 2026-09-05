@@ -680,7 +680,7 @@ export default function Dashboard() {
       const itemType = item.booking?.booking_type === 'Short Order' ? 'Short Order' : 'Package';
       if (statsTypeFilter !== 'All' && itemType !== statsTypeFilter) return false;
       if (statsMethodFilter !== 'All' && item.pay_method !== statsMethodFilter) return false;
-      if (statsDatePreset !== DEFAULT_DATE_PRESET && !isWithinRange(item.pay_datetime, statsDateRangeStart, statsDateRangeEnd)) return false;
+      if (statsDatePreset !== 'All Time' && !isWithinRange(item.pay_datetime, statsDateRangeStart, statsDateRangeEnd)) return false;
       if (statsSearchTerm.trim()) {
         const term = statsSearchTerm.toLowerCase();
         const customerName = item.booking?.customer
@@ -694,7 +694,7 @@ export default function Dashboard() {
     }
     const itemType = item.booking_type === 'Short Order' ? 'Short Order' : 'Package';
     if (statsTypeFilter !== 'All' && itemType !== statsTypeFilter) return false;
-    if (statsDatePreset !== DEFAULT_DATE_PRESET && !isWithinRange(item.event_datetime, statsDateRangeStart, statsDateRangeEnd)) return false;
+    if (statsDatePreset !== 'All Time' && !isWithinRange(item.event_datetime, statsDateRangeStart, statsDateRangeEnd)) return false;
     if (statsSearchTerm.trim()) {
       const term = statsSearchTerm.toLowerCase();
       const customerName = getClientName(item).toLowerCase();

@@ -47,6 +47,30 @@ export const DATE_RANGE_PRESETS = ['All Time', 'This Month', 'This Year', 'Last 
 // month must not be hidden behind a filter nobody chose.
 export const DEFAULT_DATE_PRESET = 'This Month';
 
+// ---------------------------------------------------------------------------
+// TWO DIFFERENT QUESTIONS. Do not use this constant for the second one.
+// ---------------------------------------------------------------------------
+//
+//   "Is a filter active — has the manager moved off the default?"
+//        preset !== DEFAULT_DATE_PRESET
+//        Used by the active-filter badges and the filter label colour.
+//
+//   "Should a date range be applied at all?"
+//        preset !== 'All Time'
+//        'All Time' is the ONLY preset that means unbounded. Every other
+//        preset, the default included, has real bounds that must be applied.
+//
+// Conflating these shipped a live defect on 5 Sep 2026: the guards were
+// written `preset !== DEFAULT_DATE_PRESET && !isWithinRange(...)`, so on the
+// default preset the guard was false, the range was never applied, and seven
+// pages showed ALL-TIME data under a label that said "this month". The
+// Payments page read PHP 103,000 while the Dashboard read PHP 50,500 for the
+// same rule and the same period.
+//
+// It fails silently and it fails only on the default, which is the one state
+// nobody thinks to test.
+// ---------------------------------------------------------------------------
+
 // Returns { start: Date|null, end: Date|null } — null on either side means
 // "unbounded" (used for 'All Time' or an incomplete custom range).
 export function getRangeBounds(preset, customStart, customEnd) {
