@@ -1167,143 +1167,276 @@ export default function ShortOrderDetails() {
             flowing grid, so a card cannot migrate between columns depending on
             whether Refund History is present. items-stretch levels the bottoms
             of a pair and moves any slack inside the card as padding. */}
-        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-start">
-          {/* Payment Tracking */}
-          <div className="min-[980px]:col-span-7 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><CreditCard size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Payment Tracking</h3></div>
-              {canRecordPayment && (
-                <button
-                  onClick={openPaymentModal}
-                  className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
-                >
-                  <Plus size={14} /> Record Payment
-                </button>
-              )}
-              {!canRecordPayment && order.booking_status === 'Pending' && (
-                <span className="text-xs text-slate-400 italic">Approve this order to enable payments</span>
-              )}
-              {!canRecordPayment && (order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') && (
-                <span className="text-xs text-slate-400 italic">Payments closed</span>
-              )}
-            </div>
-                {/* Same balance panel as Booking Details: one figure with its
-                    proportion, instead of four equal grey bars in which the
-                    amount still owed carried no more weight than the contract
-                    total the manager already knew. */}
-                <div className="bg-[#fbfcfd] border border-[#eef2f6] rounded-[13px] px-[19px] py-[17px] mb-3.5">
-                  <span className="block text-[10.5px] font-bold tracking-[0.11em] uppercase text-slate-500">
-                    {order.booking_status === 'Rejected' || order.booking_status === 'Cancelled' ? 'Balance' : 'Balance remaining'}
-                  </span>
-                  <div className="mt-1.5 flex items-baseline gap-2.5 flex-wrap">
-                    <span className={`text-[clamp(28px,2.6vw,34px)] font-extrabold tracking-[-0.035em] tabular-nums ${
-                      remainingBalance > 0 ? 'text-[#8a5a0a]' : 'text-[#056636]'
-                    }`}>
-                      {order.booking_status === 'Rejected' || order.booking_status === 'Cancelled'
-                        ? `N/A — ${order.booking_status}`
-                        : `₱${remainingBalance.toLocaleString()}`}
+          {/* Two column stacks, same as Booking Details. Dispatch used to sit
+              full width at the very bottom, below the refund row, detached from
+              everything — a short order has no Equipment card, so it had no
+              partner and was given its own row. It belongs under Menu Items in
+              the 5-column stack: that column is the short one (a few trays),
+              Payment Tracking on the 7 side is the tall one, and stacking the
+              two right-hand cards balances the page instead of leaving Dispatch
+              stranded after a gap. */}
+          <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-start">
+            <div className="min-[980px]:col-span-7 flex flex-col gap-6 min-w-0">
+              {/* Payment Tracking */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><CreditCard size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Payment Tracking</h3></div>
+                {canRecordPayment && (
+                  <button
+                    onClick={openPaymentModal}
+                    className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
+                  >
+                    <Plus size={14} /> Record Payment
+                  </button>
+                )}
+                {!canRecordPayment && order.booking_status === 'Pending' && (
+                  <span className="text-xs text-slate-400 italic">Approve this order to enable payments</span>
+                )}
+                {!canRecordPayment && (order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') && (
+                  <span className="text-xs text-slate-400 italic">Payments closed</span>
+                )}
+              </div>
+                  {/* Same balance panel as Booking Details: one figure with its
+                      proportion, instead of four equal grey bars in which the
+                      amount still owed carried no more weight than the contract
+                      total the manager already knew. */}
+                  <div className="bg-[#fbfcfd] border border-[#eef2f6] rounded-[13px] px-[19px] py-[17px] mb-3.5">
+                    <span className="block text-[10.5px] font-bold tracking-[0.11em] uppercase text-slate-500">
+                      {order.booking_status === 'Rejected' || order.booking_status === 'Cancelled' ? 'Balance' : 'Balance remaining'}
                     </span>
-                    <span className="text-[13px] font-semibold text-slate-500">of ₱{order.total_amount?.toLocaleString() || '0'}</span>
-                  </div>
-                  <div className="mt-[13px] h-2 rounded-full bg-[#e8edf3] overflow-hidden">
-                    <div className="h-full rounded-full bg-[#008A45]" style={{ width: `${pctCollected}%` }} />
-                  </div>
-                  <span className="block mt-2 text-xs font-semibold text-slate-500">
-                    {pctCollected}% collected · ₱{netPaid.toLocaleString()} of ₱{order.total_amount?.toLocaleString() || '0'}
-                    {downpaymentPaid > 0 && ` · ₱${downpaymentPaid.toLocaleString()} downpayment`}
-                  </span>
-                </div>
-            {paymentEntries.length > 0 && (
-              <div className="mt-4 border border-slate-300 rounded-lg overflow-hidden">
-                <CardScrollArea>
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="bg-[#EAF3F2] text-slate-900 font-bold border-b border-slate-300">
-                      <th className="p-3">Amount</th>
-                      <th className="p-3">Method</th>
-                      <th className="p-3">Status</th>
-                      <th className="p-3">Proof</th>
-                      <th className="p-3">Date</th>
-                      <th className="p-3 text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 text-slate-700">
-                    {paymentEntries.map(p => {
-                      const pendingVerification = p.pay_status === 'Pending Verification';
-                      // Frozen historical label — matches Payments.jsx and
-                      // BookingDetails.jsx: only the payment that actually
-                      // clears the balance reads "Fully Paid".
-                      const kind = describePaymentKind(
-                        p,
-                        payments.filter(other => other.payment_id !== p.payment_id
-                          && new Date(other.pay_datetime || 0) <= new Date(p.pay_datetime || 0)),
-                        order.total_amount,
-                      );
-                      return (
-                      <tr key={p.payment_id} className={pendingVerification ? 'bg-blue-50' : ''}>
-                        <td className="p-3 font-bold">
-                          ₱{p.amount_paid.toLocaleString()}
-                        </td>
-                        <td className="p-3">{p.pay_method || 'N/A'}</td>
-                        <td className="p-3">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            kind === 'Fully Paid' ? 'bg-green-100 text-green-700 border border-green-200' :
-                            p.pay_status === 'Pending Verification' ? 'bg-blue-100 text-blue-700 border border-blue-200' :
-                            p.pay_status === 'Proof Rejected' ? 'bg-red-100 text-red-700 border border-red-200' :
-                            'bg-amber-100 text-amber-700 border border-amber-200'
-                          }`}>
-                            {kind}
-                          </span>
-                        </td>
-                        <td className="p-3">{renderProof(p.pay_proof)}</td>
-                        <td className="p-3">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleString() : 'N/A'}</td>
-                        <td className="p-3 text-center">
-                          {pendingVerification && (
-                            <div className="flex justify-center gap-2">
-                              <button onClick={() => openVerifyModal(p)} disabled={isVerifying} className="text-green-600 hover:text-green-800 disabled:opacity-50" title="Verify Payment">
-                                <Check size={14} />
-                              </button>
-                              <button onClick={() => openRejectProofModal(p)} disabled={isVerifying} className="text-red-500 hover:text-red-700 disabled:opacity-50" title="Reject Proof">
-                                <X size={14} />
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                </CardScrollArea>
-              </div>
-            )}
-          </div>
-
-          {/* Menu Items */}
-          <div className="min-[980px]:col-span-5 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><UtensilsCrossed size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Menu Items (Trays)</h3></div>
-              <span className="text-xs font-medium text-slate-500">{menuSelections.length} item{menuSelections.length !== 1 ? 's' : ''}</span>
-            </div>
-            {menuSelections.length === 0 ? (
-              <p className="text-sm text-slate-500 italic">No menu items selected.</p>
-            ) : (
-              <CardScrollArea>
-              <div className="space-y-2">
-                {menuSelections.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
-                    <div>
-                      <span className="text-sm font-semibold text-slate-700">{item.menu_name}</span>
-                      <span className="text-xs text-slate-500 ml-2">× {item.quantity}</span>
+                    <div className="mt-1.5 flex items-baseline gap-2.5 flex-wrap">
+                      <span className={`text-[clamp(28px,2.6vw,34px)] font-extrabold tracking-[-0.035em] tabular-nums ${
+                        remainingBalance > 0 ? 'text-[#8a5a0a]' : 'text-[#056636]'
+                      }`}>
+                        {order.booking_status === 'Rejected' || order.booking_status === 'Cancelled'
+                          ? `N/A — ${order.booking_status}`
+                          : `₱${remainingBalance.toLocaleString()}`}
+                      </span>
+                      <span className="text-[13px] font-semibold text-slate-500">of ₱{order.total_amount?.toLocaleString() || '0'}</span>
                     </div>
-                    <span className="text-sm font-bold text-slate-900">₱{(item.menu_price * item.quantity).toLocaleString()}</span>
+                    <div className="mt-[13px] h-2 rounded-full bg-[#e8edf3] overflow-hidden">
+                      <div className="h-full rounded-full bg-[#008A45]" style={{ width: `${pctCollected}%` }} />
+                    </div>
+                    <span className="block mt-2 text-xs font-semibold text-slate-500">
+                      {pctCollected}% collected · ₱{netPaid.toLocaleString()} of ₱{order.total_amount?.toLocaleString() || '0'}
+                      {downpaymentPaid > 0 && ` · ₱${downpaymentPaid.toLocaleString()} downpayment`}
+                    </span>
                   </div>
-                ))}
+              {paymentEntries.length > 0 && (
+                <div className="mt-4 border border-slate-300 rounded-lg overflow-hidden">
+                  <CardScrollArea>
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="bg-[#EAF3F2] text-slate-900 font-bold border-b border-slate-300">
+                        <th className="p-3">Amount</th>
+                        <th className="p-3">Method</th>
+                        <th className="p-3">Status</th>
+                        <th className="p-3">Proof</th>
+                        <th className="p-3">Date</th>
+                        <th className="p-3 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 text-slate-700">
+                      {paymentEntries.map(p => {
+                        const pendingVerification = p.pay_status === 'Pending Verification';
+                        // Frozen historical label — matches Payments.jsx and
+                        // BookingDetails.jsx: only the payment that actually
+                        // clears the balance reads "Fully Paid".
+                        const kind = describePaymentKind(
+                          p,
+                          payments.filter(other => other.payment_id !== p.payment_id
+                            && new Date(other.pay_datetime || 0) <= new Date(p.pay_datetime || 0)),
+                          order.total_amount,
+                        );
+                        return (
+                        <tr key={p.payment_id} className={pendingVerification ? 'bg-blue-50' : ''}>
+                          <td className="p-3 font-bold">
+                            ₱{p.amount_paid.toLocaleString()}
+                          </td>
+                          <td className="p-3">{p.pay_method || 'N/A'}</td>
+                          <td className="p-3">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              kind === 'Fully Paid' ? 'bg-green-100 text-green-700 border border-green-200' :
+                              p.pay_status === 'Pending Verification' ? 'bg-blue-100 text-blue-700 border border-blue-200' :
+                              p.pay_status === 'Proof Rejected' ? 'bg-red-100 text-red-700 border border-red-200' :
+                              'bg-amber-100 text-amber-700 border border-amber-200'
+                            }`}>
+                              {kind}
+                            </span>
+                          </td>
+                          <td className="p-3">{renderProof(p.pay_proof)}</td>
+                          <td className="p-3">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleString() : 'N/A'}</td>
+                          <td className="p-3 text-center">
+                            {pendingVerification && (
+                              <div className="flex justify-center gap-2">
+                                <button onClick={() => openVerifyModal(p)} disabled={isVerifying} className="text-green-600 hover:text-green-800 disabled:opacity-50" title="Verify Payment">
+                                  <Check size={14} />
+                                </button>
+                                <button onClick={() => openRejectProofModal(p)} disabled={isVerifying} className="text-red-500 hover:text-red-700 disabled:opacity-50" title="Reject Proof">
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  </CardScrollArea>
+                </div>
+              )}
+            </div>
+            </div>
+
+            <div className="min-[980px]:col-span-5 flex flex-col gap-6 min-w-0">
+              {/* Menu Items */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><UtensilsCrossed size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Menu Items (Trays)</h3></div>
+                <span className="text-xs font-medium text-slate-500">{menuSelections.length} item{menuSelections.length !== 1 ? 's' : ''}</span>
               </div>
-              </CardScrollArea>
-            )}
+              {menuSelections.length === 0 ? (
+                <p className="text-sm text-slate-500 italic">No menu items selected.</p>
+              ) : (
+                <CardScrollArea>
+                <div className="space-y-2">
+                  {menuSelections.map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
+                      <div>
+                        <span className="text-sm font-semibold text-slate-700">{item.menu_name}</span>
+                        <span className="text-xs text-slate-500 ml-2">× {item.quantity}</span>
+                      </div>
+                      <span className="text-sm font-bold text-slate-900">₱{(item.menu_price * item.quantity).toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+                </CardScrollArea>
+              )}
+            </div>
+
+              {/* Dispatch */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900 flex items-center gap-2"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><Truck size={17} /></span>
+                  <span className="min-w-0">
+                    Dispatch
+                    <span className="block mt-0.5 text-[12.5px] font-normal text-slate-500">
+                      {dispatchRuns.length} run{dispatchRuns.length !== 1 ? 's' : ''} · {countDistinctVehicles(dispatches)} vehicle{countDistinctVehicles(dispatches) !== 1 ? 's' : ''}
+                      {dispatches.length > 0 && (dispatches.every(d => d.assignment_status === 'Completed') ? ' · all returned' : ' · all assigned')}
+                    </span>
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 border border-sky-200">
+                    Short Order
+                  </span>
+                </h3>
+                <div className="flex items-center gap-2">
+                  {/* Hidden on a pickup: there is nothing to dispatch, and the
+                      button would walk a manager into assigning a van for an
+                      order the customer is collecting. */}
+                  {/* Still hidden entirely on a pickup — there is nothing to
+                      dispatch. Otherwise always rendered and LOCKED once the
+                      booking is, the way Equipment does it, rather than
+                      disappearing and leaving no hint that dispatch was
+                      deliberately closed. */}
+                  {!isCustomerPickup && (
+                    <button
+                      onClick={openAssignVehicleModal}
+                      className={isPaymentLedgerLocked(order.booking_status)
+                        ? 'bg-slate-100 text-slate-400 font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors'
+                        : 'bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm'}
+                      title={isPaymentLedgerLocked(order.booking_status) ? `Locked — vehicles can't be dispatched once an order is ${order.booking_status}` : undefined}
+                    >
+                      {isPaymentLedgerLocked(order.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
+                    </button>
+                  )}
+
+                </div>
+              </div>
+
+              {dispatches.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  {isCustomerPickup
+                    ? 'No vehicle needed — the customer is collecting this order from the main branch.'
+                    : canDispatch
+                      ? 'No vehicle assigned yet. This delivery still needs transport arranged.'
+                      : order?.booking_status === 'Pending'
+                        ? 'Vehicles are assigned when this order is approved.'
+                        : `No vehicles — this order is ${order?.booking_status?.toLowerCase() || 'not active'}.`}
+                </p>
+              ) : (
+                <CardScrollArea>
+                <div className="space-y-2">
+                  {isCustomerPickup && (
+                    <p className="flex items-start gap-1.5 text-[13px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                      <span>This is a customer pickup, but a vehicle is still assigned to it. Release it from the Vehicles page unless it is being delivered after all.</span>
+                    </p>
+                  )}
+                  {/* One block per RUN, not per vehicle-leg — grouped on the
+                      exact departure time so vehicles genuinely leaving at
+                      different times still show separately. */}
+                  {dispatchRuns.map(run => {
+                    const isCollection = run.leg === TRIP_LEG.pickup;
+                    const stages = run.rows.map(r => getAssignmentStatus(r.assignment_status === 'Completed', order?.event_datetime));
+                    const shared = stages.every(st => st.key === stages[0].key) ? stages[0] : null;
+                    const pill = (st) => `inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${
+                      // Same three states, same three colours as Booking
+                      // Details: slate for the expected "Assigned", amber for
+                      // still-out, emerald for settled, on a 50/200/700 ladder.
+                      st.key === 'returned' ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+                        : st.key === 'in_use' ? 'bg-amber-50 border border-amber-200 text-amber-700'
+                        : 'bg-slate-50 border border-slate-200 text-slate-600'
+                    }`;
+                    return (
+                      <div key={run.key} className="bg-[#fbfcfd] border border-[#eef2f6] rounded-xl overflow-hidden">
+                        {/* The run's own header: an arrow saying which direction
+                            the van is going, the leg named as a micro-label, and
+                            the window as "leaves -> back" on one line. The leg
+                            used to be a coloured pill competing with the status
+                            pill beside it; direction is not a status, so it is
+                            drawn as an icon and a quiet label instead. */}
+                        <div className="flex items-start gap-3 px-4 pt-3.5 pb-3 border-b border-[#eef2f6]">
+                          <span className={`inline-flex items-center justify-center w-7 h-7 rounded-[9px] shrink-0 ${
+                            isCollection ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'
+                          }`}>
+                            {isCollection ? <ArrowDownLeft size={14} /> : <ArrowUpRight size={14} />}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <span className="block text-[10.5px] font-bold tracking-[0.1em] uppercase text-slate-500">
+                              {run.legLabel || 'Run'}{isCollection ? ' \u00b7 return' : ' \u00b7 outbound'}
+                            </span>
+                            <span className="block mt-0.5 text-[13.5px] font-bold text-slate-900">
+                              {run.window
+                                ? `${run.window.start.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} \u2192 back ${run.window.end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+                                : (run.dispatchAt ? new Date(run.dispatchAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Time not set')}
+                            </span>
+                          </div>
+                          {shared && <span className={`${pill(shared)} shrink-0`}>{shared.label}</span>}
+                        </div>
+
+                        {/* One row per vehicle, divided rather than boxed, so the
+                            plates line up down the left edge. */}
+                        <div className="divide-y divide-[#eef2f6]">
+                          {run.rows.map((d, i) => (
+                            <div key={d.assignment_id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                              <span className="flex items-baseline gap-2 min-w-0">
+                                <span className="text-[13.5px] font-bold text-slate-900 whitespace-nowrap">{d.vehicle?.plate_number || 'Unknown vehicle'}</span>
+                                <span className="text-[12.5px] text-slate-500 truncate">{d.vehicle?.vehicle_type || ''}</span>
+                              </span>
+                              {!shared && <span className={`${pill(stages[i])} shrink-0`}>{stages[i].label}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                </CardScrollArea>
+              )}
+            </div>
+            </div>
           </div>
-        </div>
 
         {/* Full width — five-column table, and it only appears on a cancelled
             or refunded order. */}
@@ -1388,132 +1521,6 @@ export default function ShortOrderDetails() {
           )}
         </div>
 
-        {/* Dispatch takes the FULL 12 rather than the 5-slot of a half-empty
-            row. A short order has no Equipment card, so pairing Dispatch with
-            nothing would strand it beside an empty half — the exact thing this
-            layout exists to remove. Full width keeps the page's left edge
-            unbroken and gives the vehicle chips room to sit on one line. */}
-        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-start">
-          <div className="min-[980px]:col-span-12 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900 flex items-center gap-2"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><Truck size={17} /></span>
-                <span className="min-w-0">
-                  Dispatch
-                  <span className="block mt-0.5 text-[12.5px] font-normal text-slate-500">
-                    {dispatchRuns.length} run{dispatchRuns.length !== 1 ? 's' : ''} · {countDistinctVehicles(dispatches)} vehicle{countDistinctVehicles(dispatches) !== 1 ? 's' : ''}
-                    {dispatches.length > 0 && (dispatches.every(d => d.assignment_status === 'Completed') ? ' · all returned' : ' · all assigned')}
-                  </span>
-                </span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 border border-sky-200">
-                  Short Order
-                </span>
-              </h3>
-              <div className="flex items-center gap-2">
-                {/* Hidden on a pickup: there is nothing to dispatch, and the
-                    button would walk a manager into assigning a van for an
-                    order the customer is collecting. */}
-                {/* Still hidden entirely on a pickup — there is nothing to
-                    dispatch. Otherwise always rendered and LOCKED once the
-                    booking is, the way Equipment does it, rather than
-                    disappearing and leaving no hint that dispatch was
-                    deliberately closed. */}
-                {!isCustomerPickup && (
-                  <button
-                    onClick={openAssignVehicleModal}
-                    className={isPaymentLedgerLocked(order.booking_status)
-                      ? 'bg-slate-100 text-slate-400 font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors'
-                      : 'bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm'}
-                    title={isPaymentLedgerLocked(order.booking_status) ? `Locked — vehicles can't be dispatched once an order is ${order.booking_status}` : undefined}
-                  >
-                    {isPaymentLedgerLocked(order.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
-                  </button>
-                )}
-
-              </div>
-            </div>
-
-            {dispatches.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                {isCustomerPickup
-                  ? 'No vehicle needed — the customer is collecting this order from the main branch.'
-                  : canDispatch
-                    ? 'No vehicle assigned yet. This delivery still needs transport arranged.'
-                    : order?.booking_status === 'Pending'
-                      ? 'Vehicles are assigned when this order is approved.'
-                      : `No vehicles — this order is ${order?.booking_status?.toLowerCase() || 'not active'}.`}
-              </p>
-            ) : (
-              <CardScrollArea>
-              <div className="space-y-2">
-                {isCustomerPickup && (
-                  <p className="flex items-start gap-1.5 text-[13px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                    <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-                    <span>This is a customer pickup, but a vehicle is still assigned to it. Release it from the Vehicles page unless it is being delivered after all.</span>
-                  </p>
-                )}
-                {/* One block per RUN, not per vehicle-leg — grouped on the
-                    exact departure time so vehicles genuinely leaving at
-                    different times still show separately. */}
-                {dispatchRuns.map(run => {
-                  const isCollection = run.leg === TRIP_LEG.pickup;
-                  const stages = run.rows.map(r => getAssignmentStatus(r.assignment_status === 'Completed', order?.event_datetime));
-                  const shared = stages.every(st => st.key === stages[0].key) ? stages[0] : null;
-                  const pill = (st) => `inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${
-                    // Same three states, same three colours as Booking
-                    // Details: slate for the expected "Assigned", amber for
-                    // still-out, emerald for settled, on a 50/200/700 ladder.
-                    st.key === 'returned' ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
-                      : st.key === 'in_use' ? 'bg-amber-50 border border-amber-200 text-amber-700'
-                      : 'bg-slate-50 border border-slate-200 text-slate-600'
-                  }`;
-                  return (
-                    <div key={run.key} className="bg-[#fbfcfd] border border-[#eef2f6] rounded-xl overflow-hidden">
-                      {/* The run's own header: an arrow saying which direction
-                          the van is going, the leg named as a micro-label, and
-                          the window as "leaves -> back" on one line. The leg
-                          used to be a coloured pill competing with the status
-                          pill beside it; direction is not a status, so it is
-                          drawn as an icon and a quiet label instead. */}
-                      <div className="flex items-start gap-3 px-4 pt-3.5 pb-3 border-b border-[#eef2f6]">
-                        <span className={`inline-flex items-center justify-center w-7 h-7 rounded-[9px] shrink-0 ${
-                          isCollection ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'
-                        }`}>
-                          {isCollection ? <ArrowDownLeft size={14} /> : <ArrowUpRight size={14} />}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <span className="block text-[10.5px] font-bold tracking-[0.1em] uppercase text-slate-500">
-                            {run.legLabel || 'Run'}{isCollection ? ' \u00b7 return' : ' \u00b7 outbound'}
-                          </span>
-                          <span className="block mt-0.5 text-[13.5px] font-bold text-slate-900">
-                            {run.window
-                              ? `${run.window.start.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} \u2192 back ${run.window.end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
-                              : (run.dispatchAt ? new Date(run.dispatchAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Time not set')}
-                          </span>
-                        </div>
-                        {shared && <span className={`${pill(shared)} shrink-0`}>{shared.label}</span>}
-                      </div>
-
-                      {/* One row per vehicle, divided rather than boxed, so the
-                          plates line up down the left edge. */}
-                      <div className="divide-y divide-[#eef2f6]">
-                        {run.rows.map((d, i) => (
-                          <div key={d.assignment_id} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                            <span className="flex items-baseline gap-2 min-w-0">
-                              <span className="text-[13.5px] font-bold text-slate-900 whitespace-nowrap">{d.vehicle?.plate_number || 'Unknown vehicle'}</span>
-                              <span className="text-[12.5px] text-slate-500 truncate">{d.vehicle?.vehicle_type || ''}</span>
-                            </span>
-                            {!shared && <span className={`${pill(stages[i])} shrink-0`}>{stages[i].label}</span>}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              </CardScrollArea>
-            )}
-          </div>
-        </div>
       </div>
 
       {/* ===== EDIT MODAL ===== */}

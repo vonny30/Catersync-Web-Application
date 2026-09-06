@@ -1344,7 +1344,7 @@ export default function Dashboard() {
                                   so a booking paid in instalments is legible as
                                   one booking rather than looking like a
                                   duplicate. Same wording as the Payments page. */}
-                              <td className="p-3 text-slate-600 text-xs">
+                              <td className="p-3 text-slate-600 text-xs whitespace-nowrap">
                                 {group.count} payment{group.count === 1 ? '' : 's'}
                               </td>
                               <td className="p-3 text-right font-bold text-emerald-600">

@@ -1737,7 +1737,7 @@ export default function Payments() {
                         <td className="px-4 py-[15px] text-sm font-medium text-slate-600">
                           <button
                             onClick={(e) => { e.stopPropagation(); handleRowClick(latest); }}
-                            className="inline-flex items-center gap-1 text-slate-600 hover:text-[#008A45] hover:underline"
+                            className="inline-flex items-center gap-1 whitespace-nowrap text-slate-600 hover:text-[#008A45] hover:underline"
                             title="View all payments for this booking"
                           >
                             {group.count} payment{group.count === 1 ? '' : 's'} <ChevronRight size={12} />
@@ -2236,7 +2236,7 @@ export default function Payments() {
                                   <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-700 border border-blue-200 rounded-full">Package</span>
                                 )}
                               </td>
-                              <td className="p-3 text-slate-600">
+                              <td className="p-3 text-slate-600 whitespace-nowrap">
                                 {group.count} payment{group.count === 1 ? '' : 's'}
                               </td>
                               <td className="p-3 text-right font-bold text-emerald-600">
