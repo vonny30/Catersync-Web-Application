@@ -1471,7 +1471,7 @@ export default function BookingDetails() {
           ~280px — a venue address wrapped to two lines in the width "120" was
           wasting. Labels now sit ABOVE their values, so each value gets the
           whole cell. */}
-      <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-stretch">
+      <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-start">
 
         <SectionCard className="min-[980px]:col-span-7">
           <SectionHeader icon={Calendar} title="Event">
@@ -1584,160 +1584,375 @@ export default function BookingDetails() {
             cards — "Payment Tracking" sat above Menu Selections, "Dispatch"
             above Payment Tracking, "Menu Selections" above Equipment. Each
             card is now labelled by what it actually renders. */}
-        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-stretch">
-          {/* Payment Tracking */}
-          <div className="min-[980px]:col-span-7 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><CreditCard size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Payment Tracking</h3></div>
-              {canRecordPayment && (
-                <button
-                  onClick={openPaymentModal}
-                  className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
-                >
-                  <Plus size={14} /> Record Payment
-                </button>
-              )}
-              {!canRecordPayment && booking.booking_status === 'Pending' && (
-                <span className="text-xs text-slate-400 italic">Approve this booking to enable payments</span>
-              )}
-              {!canRecordPayment && (booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') && (
-                <span className="text-xs text-slate-400 italic">Payments closed</span>
-              )}
-            </div>
-            {/* One panel instead of four stacked rows. Total, downpayment, paid
-                and remaining were four equal grey bars, so the figure a manager
-                opens this card for — what is still owed — had the same weight
-                as the contract total they already knew. The relationship is a
-                proportion, so it is drawn as one. */}
-            <div className="bg-[#fbfcfd] border border-[#eef2f6] rounded-[13px] px-[19px] py-[17px] mb-3.5">
-              <span className="block text-[10.5px] font-bold tracking-[0.11em] uppercase text-slate-500">
-                {booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled' ? 'Balance' : 'Balance remaining'}
-              </span>
-              <div className="mt-1.5 flex items-baseline gap-2.5 flex-wrap">
-                <span className={`text-[clamp(28px,2.6vw,34px)] font-extrabold tracking-[-0.035em] tabular-nums ${
-                  remainingBalance > 0 ? 'text-[#8a5a0a]' : 'text-[#056636]'
-                }`}>
-                  {booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled'
-                    ? `N/A — ${booking.booking_status}`
-                    : `₱${remainingBalance.toLocaleString()}`}
+        {/* Two independent COLUMN STACKS, not paired rows.
+
+            Pairing cards into rows and stretching them to equal height did
+            exactly what it was meant to prevent: Equipment, with three line
+            items, was padded to match a Dispatch card that was itself
+            scrolling inside a 300px cap. Content was hidden on one side and
+            ~200px of white space manufactured on the other, in the same row.
+
+            Stretching only helps when two cards are close in height. These are
+            not: Menu is a fixed short list, Dispatch and Equipment both grow
+            with the record.
+
+            Each column is now a stack at natural height. What is left over
+            falls to the BOTTOM of the shorter column, below its last card,
+            where it is page background rather than a hole punched in a white
+            card. The seam still sits at one x, because the columns are fixed
+            7/5 widths — and a card still cannot migrate between columns,
+            because membership is explicit here. That was only ever a hazard of
+            a single flowing grid. */}
+        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-start">
+          <div className="min-[980px]:col-span-7 flex flex-col gap-6 min-w-0">
+            {/* Payment Tracking */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><CreditCard size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Payment Tracking</h3></div>
+                {canRecordPayment && (
+                  <button
+                    onClick={openPaymentModal}
+                    className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
+                  >
+                    <Plus size={14} /> Record Payment
+                  </button>
+                )}
+                {!canRecordPayment && booking.booking_status === 'Pending' && (
+                  <span className="text-xs text-slate-400 italic">Approve this booking to enable payments</span>
+                )}
+                {!canRecordPayment && (booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') && (
+                  <span className="text-xs text-slate-400 italic">Payments closed</span>
+                )}
+              </div>
+              {/* One panel instead of four stacked rows. Total, downpayment, paid
+                  and remaining were four equal grey bars, so the figure a manager
+                  opens this card for — what is still owed — had the same weight
+                  as the contract total they already knew. The relationship is a
+                  proportion, so it is drawn as one. */}
+              <div className="bg-[#fbfcfd] border border-[#eef2f6] rounded-[13px] px-[19px] py-[17px] mb-3.5">
+                <span className="block text-[10.5px] font-bold tracking-[0.11em] uppercase text-slate-500">
+                  {booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled' ? 'Balance' : 'Balance remaining'}
                 </span>
-                <span className="text-[13px] font-semibold text-slate-500">of ₱{booking.total_amount?.toLocaleString() || '0'}</span>
+                <div className="mt-1.5 flex items-baseline gap-2.5 flex-wrap">
+                  <span className={`text-[clamp(28px,2.6vw,34px)] font-extrabold tracking-[-0.035em] tabular-nums ${
+                    remainingBalance > 0 ? 'text-[#8a5a0a]' : 'text-[#056636]'
+                  }`}>
+                    {booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled'
+                      ? `N/A — ${booking.booking_status}`
+                      : `₱${remainingBalance.toLocaleString()}`}
+                  </span>
+                  <span className="text-[13px] font-semibold text-slate-500">of ₱{booking.total_amount?.toLocaleString() || '0'}</span>
+                </div>
+                {/* Clamped at 100% so an overpayment cannot draw a bar wider than
+                    its track — the same guard FinancialTab uses. */}
+                <div className="mt-[13px] h-2 rounded-full bg-[#e8edf3] overflow-hidden">
+                  <div className="h-full rounded-full bg-[#008A45]" style={{ width: `${pctCollected}%` }} />
+                </div>
+                <span className="block mt-2 text-xs font-semibold text-slate-500">
+                  {pctCollected}% collected · ₱{netPaid.toLocaleString()} of ₱{booking.total_amount?.toLocaleString() || '0'}
+                  {downpaymentPaid > 0 && ` · ₱${downpaymentPaid.toLocaleString()} downpayment`}
+                </span>
               </div>
-              {/* Clamped at 100% so an overpayment cannot draw a bar wider than
-                  its track — the same guard FinancialTab uses. */}
-              <div className="mt-[13px] h-2 rounded-full bg-[#e8edf3] overflow-hidden">
-                <div className="h-full rounded-full bg-[#008A45]" style={{ width: `${pctCollected}%` }} />
-              </div>
-              <span className="block mt-2 text-xs font-semibold text-slate-500">
-                {pctCollected}% collected · ₱{netPaid.toLocaleString()} of ₱{booking.total_amount?.toLocaleString() || '0'}
-                {downpaymentPaid > 0 && ` · ₱${downpaymentPaid.toLocaleString()} downpayment`}
-              </span>
+
+              {paymentEntries.length > 0 && (
+                <div className="mt-4 border border-slate-300 rounded-lg overflow-hidden">
+                  <CardScrollArea>
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="bg-[#EAF3F2] text-slate-900 font-bold border-b border-slate-300">
+                        <th className="p-3">Amount</th>
+                        <th className="p-3">Method</th>
+                        <th className="p-3">Status</th>
+                        <th className="p-3">Proof</th>
+                        <th className="p-3">Date</th>
+                        <th className="p-3 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 text-slate-700">
+                      {paymentEntries.map(p => {
+                        const pendingVerification = p.pay_status === 'Pending Verification';
+                        // Frozen historical label — the third payment on this
+                        // booking reads "Partial payment" rather than a third
+                        // "Downpayment", and only the payment that actually
+                        // cleared the balance ever reads "Fully Paid".
+                        const kind = describePaymentKind(
+                          p,
+                          payments.filter(other => other.payment_id !== p.payment_id
+                            && new Date(other.pay_datetime || 0) <= new Date(p.pay_datetime || 0)),
+                          booking.total_amount,
+                        );
+                        return (
+                        <tr key={p.payment_id} className={pendingVerification ? 'bg-blue-50' : ''}>
+                          <td className="p-3 font-bold">
+                            ₱{p.amount_paid.toLocaleString()}
+                          </td>
+                          <td className="p-3">{p.pay_method || 'N/A'}</td>
+                          <td className="p-3">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              kind === 'Fully Paid' ? 'bg-green-100 text-green-700 border border-green-200' :
+                              p.pay_status === 'Pending Verification' ? 'bg-blue-100 text-blue-700 border border-blue-200' :
+                              p.pay_status === 'Proof Rejected' ? 'bg-red-100 text-red-700 border border-red-200' :
+                              'bg-amber-100 text-amber-700 border border-amber-200'
+                            }`}>
+                              {kind}
+                            </span>
+                          </td>
+                          <td className="p-3">{renderProof(p.pay_proof)}</td>
+                          <td className="p-3">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleString() : 'N/A'}</td>
+                          <td className="p-3 text-center">
+                            {pendingVerification && (
+                              <div className="flex justify-center gap-2">
+                                <button onClick={() => openVerifyModal(p)} disabled={isVerifying} className="text-green-600 hover:text-green-800 disabled:opacity-50" title="Verify Payment">
+                                  <Check size={14} />
+                                </button>
+                                <button onClick={() => openRejectProofModal(p)} disabled={isVerifying} className="text-red-500 hover:text-red-700 disabled:opacity-50" title="Reject Proof">
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  </CardScrollArea>
+                </div>
+              )}
             </div>
 
-            {paymentEntries.length > 0 && (
-              <div className="mt-4 border border-slate-300 rounded-lg overflow-hidden">
-                <CardScrollArea>
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="bg-[#EAF3F2] text-slate-900 font-bold border-b border-slate-300">
-                      <th className="p-3">Amount</th>
-                      <th className="p-3">Method</th>
-                      <th className="p-3">Status</th>
-                      <th className="p-3">Proof</th>
-                      <th className="p-3">Date</th>
-                      <th className="p-3 text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 text-slate-700">
-                    {paymentEntries.map(p => {
-                      const pendingVerification = p.pay_status === 'Pending Verification';
-                      // Frozen historical label — the third payment on this
-                      // booking reads "Partial payment" rather than a third
-                      // "Downpayment", and only the payment that actually
-                      // cleared the balance ever reads "Fully Paid".
-                      const kind = describePaymentKind(
-                        p,
-                        payments.filter(other => other.payment_id !== p.payment_id
-                          && new Date(other.pay_datetime || 0) <= new Date(p.pay_datetime || 0)),
-                        booking.total_amount,
-                      );
-                      return (
-                      <tr key={p.payment_id} className={pendingVerification ? 'bg-blue-50' : ''}>
-                        <td className="p-3 font-bold">
-                          ₱{p.amount_paid.toLocaleString()}
-                        </td>
-                        <td className="p-3">{p.pay_method || 'N/A'}</td>
-                        <td className="p-3">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            kind === 'Fully Paid' ? 'bg-green-100 text-green-700 border border-green-200' :
-                            p.pay_status === 'Pending Verification' ? 'bg-blue-100 text-blue-700 border border-blue-200' :
-                            p.pay_status === 'Proof Rejected' ? 'bg-red-100 text-red-700 border border-red-200' :
-                            'bg-amber-100 text-amber-700 border border-amber-200'
-                          }`}>
-                            {kind}
-                          </span>
-                        </td>
-                        <td className="p-3">{renderProof(p.pay_proof)}</td>
-                        <td className="p-3">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleString() : 'N/A'}</td>
-                        <td className="p-3 text-center">
-                          {pendingVerification && (
-                            <div className="flex justify-center gap-2">
-                              <button onClick={() => openVerifyModal(p)} disabled={isVerifying} className="text-green-600 hover:text-green-800 disabled:opacity-50" title="Verify Payment">
-                                <Check size={14} />
-                              </button>
-                              <button onClick={() => openRejectProofModal(p)} disabled={isVerifying} className="text-red-500 hover:text-red-700 disabled:opacity-50" title="Reject Proof">
-                                <X size={14} />
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                </CardScrollArea>
+            {/* Equipment Assignment */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><Briefcase size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Equipment Assignment</h3></div>
+                <div className="flex items-center gap-2.5">
+                  {/* The count moved to the footer, where it sits beside the unit
+                      total it belongs with. What earns space in the header is the
+                      STATE: whether anything is still out. */}
+                  {equipment.length > 0 && (
+                    equipment.every(i => i.returned)
+                      ? <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 whitespace-nowrap"><Check size={13} /> All returned</span>
+                      : equipment.some(i => i.returned)
+                        ? <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">{equipment.filter(i => i.returned).length} of {equipment.length} returned</span>
+                        : <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 whitespace-nowrap"><Check size={13} /> All assigned</span>
+                  )}
+                  <button
+                    onClick={openAssignEquipModal}
+                    className={isPaymentLedgerLocked(booking.booking_status)
+                      ? 'bg-slate-100 text-slate-400 font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors'
+                      : 'bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm'}
+                    title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be assigned once a booking is ${booking.booking_status}` : undefined}
+                  >
+                    {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} Assign Equipment
+                  </button>
+                </div>
               </div>
-            )}
+              {equipment.length === 0 ? (
+                <p className="text-sm text-slate-500 italic">No equipment allocated.</p>
+              ) : (
+                <CardScrollArea>
+                {/* Divided rows rather than a stack of boxes: with a dozen line
+                    items a bordered card each turns the list into corduroy. The
+                    quantity gets its own right-hand column so the numbers read
+                    DOWN as a column instead of trailing each name. */}
+                <div className="divide-y divide-slate-100">
+                  {equipment.map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-center gap-3 px-1 py-3">
+                      <span className="text-sm font-semibold text-slate-800 min-w-0 truncate">{item.eqm_name}</span>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="text-sm font-bold tabular-nums text-slate-700">× {item.quantity}</span>
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${item.returned ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-slate-50 border border-slate-200 text-slate-600'}`}>
+                          {item.returned ? 'Returned' : 'Assigned'}
+                        </span>
+                        {!item.returned && (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => openEditEquipModal(item)}
+                              className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-blue-500 hover:text-blue-700'}
+                              title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be edited once a booking is ${booking.booking_status}` : 'Edit quantity'}
+                            >
+                              {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
+                            </button>
+                            <button
+                              onClick={() => handleRemoveEquipment(item.assignment_id)}
+                              className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-red-400 hover:text-red-600'}
+                              title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be removed once a booking is ${booking.booking_status}` : 'Remove'}
+                            >
+                              {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Trash2 size={14} />}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                </CardScrollArea>
+              )}
+              {/* Line items and units are different quantities and were never
+                  both stated — the header said "3 items" of a 109-unit
+                  allocation. */}
+              {equipment.length > 0 && (
+                <div className="flex justify-between items-center gap-3 mt-3.5 pt-3 border-t border-slate-100 text-[12.5px] text-slate-500">
+                  <span>{equipment.length} line item{equipment.length !== 1 ? 's' : ''}</span>
+                  <span className="font-semibold text-slate-700 tabular-nums">
+                    {equipment.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0)} units total
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Menu Selections */}
-          <div className="min-[980px]:col-span-5 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><UtensilsCrossed size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Menu Selections</h3></div>
-              <span className="text-xs font-medium text-slate-500">{menuSelections.length} item{menuSelections.length !== 1 ? 's' : ''}</span>
-            </div>
-            {menuSelections.length === 0 ? (
-              <p className="text-sm text-slate-500 italic">No menu selections recorded.</p>
-            ) : (
-              <CardScrollArea>
-              <div className="space-y-2">
-                {/* Category is the QUIET half — it repeats down the column and
-                    only says which slot the dish fills. The dish is the thing
-                    being read, so it carries the ink. */}
-                {menuSelections.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3">
-                    <span className="shrink-0 px-[11px] py-1 rounded-full bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-600 whitespace-nowrap">
-                      {item.category_name}
-                    </span>
-                    <span className="text-[13.5px] font-semibold text-slate-900 text-right">{item.menu_name}</span>
-                  </div>
-                ))}
+          <div className="min-[980px]:col-span-5 flex flex-col gap-6 min-w-0">
+            {/* Menu Selections */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><UtensilsCrossed size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Menu Selections</h3></div>
+                <span className="text-xs font-medium text-slate-500">{menuSelections.length} item{menuSelections.length !== 1 ? 's' : ''}</span>
               </div>
-              </CardScrollArea>
-            )}
+              {menuSelections.length === 0 ? (
+                <p className="text-sm text-slate-500 italic">No menu selections recorded.</p>
+              ) : (
+                <CardScrollArea>
+                <div className="space-y-2">
+                  {/* Category is the QUIET half — it repeats down the column and
+                      only says which slot the dish fills. The dish is the thing
+                      being read, so it carries the ink. */}
+                  {menuSelections.map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-center gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3">
+                      <span className="shrink-0 px-[11px] py-1 rounded-full bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-600 whitespace-nowrap">
+                        {item.category_name}
+                      </span>
+                      <span className="text-[13.5px] font-semibold text-slate-900 text-right">{item.menu_name}</span>
+                    </div>
+                  ))}
+                </div>
+                </CardScrollArea>
+              )}
+            </div>
+
+            {/* Dispatch — blueprint-03 5.8. Until now a vehicle appeared on
+                this page only inside the delete warning, so the booking never
+                knew what was carrying it while the vehicle knew its booking. */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900 flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><Truck size={17} /></span>
+                  <span className="min-w-0">
+                    Dispatch
+                    <span className="block mt-0.5 text-[12.5px] font-normal text-slate-500">
+                      {dispatchRuns.length} run{dispatchRuns.length !== 1 ? 's' : ''} · {countDistinctVehicles(dispatches)} vehicle{countDistinctVehicles(dispatches) !== 1 ? 's' : ''}
+                      {dispatches.length > 0 && (dispatches.every(d => d.assignment_status === 'Completed') ? ' · all returned' : ' · all assigned')}
+                    </span>
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200">
+                    Package
+                  </span>
+                </h3>
+                <div className="flex items-center gap-2">
+                  {/* Always rendered and locked, the way Equipment does it — the
+                      button used to vanish entirely, so a Confirmed booking gave
+                      no hint that dispatch was deliberately closed rather than
+                      missing. */}
+                  <button
+                    onClick={openAssignVehicleModal}
+                    className={isPaymentLedgerLocked(booking.booking_status)
+                      ? 'bg-slate-100 text-slate-400 font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors'
+                      : 'bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm'}
+                    title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — vehicles can't be dispatched once a booking is ${booking.booking_status}` : undefined}
+                  >
+                    {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
+                  </button>
+
+                </div>
+              </div>
+
+              {dispatches.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  {canDispatch
+                    ? 'No vehicle assigned yet. This event still needs transport arranged.'
+                    : booking?.booking_status === 'Pending'
+                      ? 'Vehicles are assigned when this booking is approved.'
+                      : `No vehicles — this booking is ${booking?.booking_status?.toLowerCase() || 'not active'}.`}
+                </p>
+              ) : (
+                <CardScrollArea>
+                <div className="space-y-2.5">
+                  {/* One block per RUN, not per vehicle-leg. The window text was
+                      repeated once per vehicle, so a three-van event rendered
+                      six near-identical rows. Grouped on the exact departure
+                      time, so vehicles that genuinely leave at different times
+                      still get their own block rather than being folded into a
+                      tidy summary that hides the difference. */}
+                  {dispatchRuns.map(run => {
+                    const isCollection = run.leg === TRIP_LEG.pickup;
+                    const stages = run.rows.map(r => getAssignmentStatus(r.assignment_status === 'Completed', booking?.event_datetime));
+                    const shared = stages.every(st => st.key === stages[0].key) ? stages[0] : null;
+                    const pill = (st) => `inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${
+                      // One meaning per colour, and the EXPECTED state is the
+                      // quiet one. "Assigned" is the normal condition of every
+                      // row, yet it was the loudest thing on the card — an amber
+                      // pill in Equipment and blue text here, two colours for one
+                      // state. Slate for expected, amber for still-out, emerald
+                      // for settled, all on a 50/200/700 ladder so equal weights
+                      // read at equal strength.
+                      st.key === 'returned' ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+                        : st.key === 'in_use' ? 'bg-amber-50 border border-amber-200 text-amber-700'
+                        : 'bg-slate-50 border border-slate-200 text-slate-600'
+                    }`;
+                    return (
+                      <div key={run.key} className="bg-[#fbfcfd] border border-[#eef2f6] rounded-xl overflow-hidden">
+                        {/* The run's own header: an arrow saying which direction
+                            the van is going, the leg named as a micro-label, and
+                            the window as "leaves -> back" on one line. The leg
+                            used to be a coloured pill competing with the status
+                            pill beside it; direction is not a status, so it is
+                            drawn as an icon and a quiet label instead. */}
+                        <div className="flex items-start gap-3 px-4 pt-3.5 pb-3 border-b border-[#eef2f6]">
+                          <span className={`inline-flex items-center justify-center w-7 h-7 rounded-[9px] shrink-0 ${
+                            isCollection ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'
+                          }`}>
+                            {isCollection ? <ArrowDownLeft size={14} /> : <ArrowUpRight size={14} />}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <span className="block text-[10.5px] font-bold tracking-[0.1em] uppercase text-slate-500">
+                              {run.legLabel || 'Run'}{isCollection ? ' \u00b7 return' : ' \u00b7 outbound'}
+                            </span>
+                            <span className="block mt-0.5 text-[13.5px] font-bold text-slate-900">
+                              {run.window
+                                ? `${run.window.start.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} \u2192 back ${run.window.end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+                                : (run.dispatchAt ? new Date(run.dispatchAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Time not set')}
+                            </span>
+                          </div>
+                          {shared && <span className={`${pill(shared)} shrink-0`}>{shared.label}</span>}
+                        </div>
+
+                        {/* One row per vehicle, divided rather than boxed, so the
+                            plates line up down the left edge. */}
+                        <div className="divide-y divide-[#eef2f6]">
+                          {run.rows.map((d, i) => (
+                            <div key={d.assignment_id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                              <span className="flex items-baseline gap-2 min-w-0">
+                                <span className="text-[13.5px] font-bold text-slate-900 whitespace-nowrap">{d.vehicle?.plate_number || 'Unknown vehicle'}</span>
+                                <span className="text-[12.5px] text-slate-500 truncate">{d.vehicle?.vehicle_type || ''}</span>
+                              </span>
+                              {!shared && <span className={`${pill(stages[i])} shrink-0`}>{stages[i].label}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                </CardScrollArea>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Refund History gets the full 12: its table has five columns, and it
-            only appears on a cancelled or refunded record, so a full-width row
-            costs nothing on the common path and displaces no other card.
-
-            A refund is money going out, not a kind of payment, so it sits apart
-            from the Payment Tracking ledger above and carries the refund
-            specific numbers (total refunded, what is still refundable) and the
-            eligibility status that used to live inside Payment Tracking. */}
-        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-stretch">
+        {/* Refund History last and full width: five columns of table, and it
+            only appears on a cancelled or refunded record. Below the two
+            stacks rather than between them, so it never splits a column. */}
+        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-start">
           {refundEntries.length > 0 && (
             <div className="min-[980px]:col-span-12 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
               <div className="flex items-center gap-[11px] min-w-0 mb-4"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><RefreshCw size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Refund History</h3></div>
@@ -1816,205 +2031,6 @@ export default function BookingDetails() {
               </div>
             </div>
           )}
-        </div>
-
-        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-stretch">
-          {/* Equipment Assignment */}
-          <div className="min-[980px]:col-span-7 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><Briefcase size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Equipment Assignment</h3></div>
-              <div className="flex items-center gap-2.5">
-                {/* The count moved to the footer, where it sits beside the unit
-                    total it belongs with. What earns space in the header is the
-                    STATE: whether anything is still out. */}
-                {equipment.length > 0 && (
-                  equipment.every(i => i.returned)
-                    ? <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 whitespace-nowrap"><Check size={13} /> All returned</span>
-                    : equipment.some(i => i.returned)
-                      ? <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">{equipment.filter(i => i.returned).length} of {equipment.length} returned</span>
-                      : <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 whitespace-nowrap"><Check size={13} /> All assigned</span>
-                )}
-                <button
-                  onClick={openAssignEquipModal}
-                  className={isPaymentLedgerLocked(booking.booking_status)
-                    ? 'bg-slate-100 text-slate-400 font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors'
-                    : 'bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm'}
-                  title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be assigned once a booking is ${booking.booking_status}` : undefined}
-                >
-                  {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} Assign Equipment
-                </button>
-              </div>
-            </div>
-            {equipment.length === 0 ? (
-              <p className="text-sm text-slate-500 italic">No equipment allocated.</p>
-            ) : (
-              <CardScrollArea>
-              {/* Divided rows rather than a stack of boxes: with a dozen line
-                  items a bordered card each turns the list into corduroy. The
-                  quantity gets its own right-hand column so the numbers read
-                  DOWN as a column instead of trailing each name. */}
-              <div className="divide-y divide-slate-100">
-                {equipment.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center gap-3 px-1 py-3">
-                    <span className="text-sm font-semibold text-slate-800 min-w-0 truncate">{item.eqm_name}</span>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <span className="text-sm font-bold tabular-nums text-slate-700">× {item.quantity}</span>
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${item.returned ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-slate-50 border border-slate-200 text-slate-600'}`}>
-                        {item.returned ? 'Returned' : 'Assigned'}
-                      </span>
-                      {!item.returned && (
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => openEditEquipModal(item)}
-                            className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-blue-500 hover:text-blue-700'}
-                            title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be edited once a booking is ${booking.booking_status}` : 'Edit quantity'}
-                          >
-                            {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
-                          </button>
-                          <button
-                            onClick={() => handleRemoveEquipment(item.assignment_id)}
-                            className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-red-400 hover:text-red-600'}
-                            title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be removed once a booking is ${booking.booking_status}` : 'Remove'}
-                          >
-                            {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Trash2 size={14} />}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              </CardScrollArea>
-            )}
-            {/* Line items and units are different quantities and were never
-                both stated — the header said "3 items" of a 109-unit
-                allocation. */}
-            {equipment.length > 0 && (
-              <div className="flex justify-between items-center gap-3 mt-3.5 pt-3 border-t border-slate-100 text-[12.5px] text-slate-500">
-                <span>{equipment.length} line item{equipment.length !== 1 ? 's' : ''}</span>
-                <span className="font-semibold text-slate-700 tabular-nums">
-                  {equipment.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0)} units total
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Dispatch — blueprint-03 5.8. Until now a vehicle appeared on this
-              page only inside the delete warning, so the booking never knew
-              what was carrying it while the vehicle knew its booking. */}
-          <div className="min-[980px]:col-span-5 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900 flex items-center gap-2">
-                <span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><Truck size={17} /></span>
-                <span className="min-w-0">
-                  Dispatch
-                  <span className="block mt-0.5 text-[12.5px] font-normal text-slate-500">
-                    {dispatchRuns.length} run{dispatchRuns.length !== 1 ? 's' : ''} · {countDistinctVehicles(dispatches)} vehicle{countDistinctVehicles(dispatches) !== 1 ? 's' : ''}
-                    {dispatches.length > 0 && (dispatches.every(d => d.assignment_status === 'Completed') ? ' · all returned' : ' · all assigned')}
-                  </span>
-                </span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200">
-                  Package
-                </span>
-              </h3>
-              <div className="flex items-center gap-2">
-                {/* Always rendered and locked, the way Equipment does it — the
-                    button used to vanish entirely, so a Confirmed booking gave
-                    no hint that dispatch was deliberately closed rather than
-                    missing. */}
-                <button
-                  onClick={openAssignVehicleModal}
-                  className={isPaymentLedgerLocked(booking.booking_status)
-                    ? 'bg-slate-100 text-slate-400 font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors'
-                    : 'bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm'}
-                  title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — vehicles can't be dispatched once a booking is ${booking.booking_status}` : undefined}
-                >
-                  {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
-                </button>
-
-              </div>
-            </div>
-
-            {dispatches.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                {canDispatch
-                  ? 'No vehicle assigned yet. This event still needs transport arranged.'
-                  : booking?.booking_status === 'Pending'
-                    ? 'Vehicles are assigned when this booking is approved.'
-                    : `No vehicles — this booking is ${booking?.booking_status?.toLowerCase() || 'not active'}.`}
-              </p>
-            ) : (
-              <CardScrollArea>
-              <div className="space-y-2.5">
-                {/* One block per RUN, not per vehicle-leg. The window text was
-                    repeated once per vehicle, so a three-van event rendered
-                    six near-identical rows. Grouped on the exact departure
-                    time, so vehicles that genuinely leave at different times
-                    still get their own block rather than being folded into a
-                    tidy summary that hides the difference. */}
-                {dispatchRuns.map(run => {
-                  const isCollection = run.leg === TRIP_LEG.pickup;
-                  const stages = run.rows.map(r => getAssignmentStatus(r.assignment_status === 'Completed', booking?.event_datetime));
-                  const shared = stages.every(st => st.key === stages[0].key) ? stages[0] : null;
-                  const pill = (st) => `inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${
-                    // One meaning per colour, and the EXPECTED state is the
-                    // quiet one. "Assigned" is the normal condition of every
-                    // row, yet it was the loudest thing on the card — an amber
-                    // pill in Equipment and blue text here, two colours for one
-                    // state. Slate for expected, amber for still-out, emerald
-                    // for settled, all on a 50/200/700 ladder so equal weights
-                    // read at equal strength.
-                    st.key === 'returned' ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
-                      : st.key === 'in_use' ? 'bg-amber-50 border border-amber-200 text-amber-700'
-                      : 'bg-slate-50 border border-slate-200 text-slate-600'
-                  }`;
-                  return (
-                    <div key={run.key} className="bg-[#fbfcfd] border border-[#eef2f6] rounded-xl overflow-hidden">
-                      {/* The run's own header: an arrow saying which direction
-                          the van is going, the leg named as a micro-label, and
-                          the window as "leaves -> back" on one line. The leg
-                          used to be a coloured pill competing with the status
-                          pill beside it; direction is not a status, so it is
-                          drawn as an icon and a quiet label instead. */}
-                      <div className="flex items-start gap-3 px-4 pt-3.5 pb-3 border-b border-[#eef2f6]">
-                        <span className={`inline-flex items-center justify-center w-7 h-7 rounded-[9px] shrink-0 ${
-                          isCollection ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'
-                        }`}>
-                          {isCollection ? <ArrowDownLeft size={14} /> : <ArrowUpRight size={14} />}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <span className="block text-[10.5px] font-bold tracking-[0.1em] uppercase text-slate-500">
-                            {run.legLabel || 'Run'}{isCollection ? ' \u00b7 return' : ' \u00b7 outbound'}
-                          </span>
-                          <span className="block mt-0.5 text-[13.5px] font-bold text-slate-900">
-                            {run.window
-                              ? `${run.window.start.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} \u2192 back ${run.window.end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
-                              : (run.dispatchAt ? new Date(run.dispatchAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Time not set')}
-                          </span>
-                        </div>
-                        {shared && <span className={`${pill(shared)} shrink-0`}>{shared.label}</span>}
-                      </div>
-
-                      {/* One row per vehicle, divided rather than boxed, so the
-                          plates line up down the left edge. */}
-                      <div className="divide-y divide-[#eef2f6]">
-                        {run.rows.map((d, i) => (
-                          <div key={d.assignment_id} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                            <span className="flex items-baseline gap-2 min-w-0">
-                              <span className="text-[13.5px] font-bold text-slate-900 whitespace-nowrap">{d.vehicle?.plate_number || 'Unknown vehicle'}</span>
-                              <span className="text-[12.5px] text-slate-500 truncate">{d.vehicle?.vehicle_type || ''}</span>
-                            </span>
-                            {!shared && <span className={`${pill(stages[i])} shrink-0`}>{stages[i].label}</span>}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              </CardScrollArea>
-            )}
-          </div>
         </div>
       </div>
 

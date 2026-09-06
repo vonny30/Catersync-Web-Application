@@ -1070,7 +1070,7 @@ export default function ShortOrderDetails() {
           Full width instead of a 430px rail — same reasoning as Booking
           Details. Labels sit above their values so a venue address gets the
           whole cell rather than two thirds of a narrow column. */}
-      <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-stretch">
+      <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-start">
 
         <SectionCard className="min-[980px]:col-span-7">
           <SectionHeader icon={Calendar} title="Order" />
@@ -1167,7 +1167,7 @@ export default function ShortOrderDetails() {
             flowing grid, so a card cannot migrate between columns depending on
             whether Refund History is present. items-stretch levels the bottoms
             of a pair and moves any slack inside the card as padding. */}
-        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-stretch">
+        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-start">
           {/* Payment Tracking */}
           <div className="min-[980px]:col-span-7 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
             <div className="flex justify-between items-center mb-4">
@@ -1307,7 +1307,7 @@ export default function ShortOrderDetails() {
 
         {/* Full width — five-column table, and it only appears on a cancelled
             or refunded order. */}
-        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-stretch">
+        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-start">
           {refundEntries.length > 0 && (
             <div className="min-[980px]:col-span-12 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
               <div className="flex items-center gap-[11px] min-w-0 mb-4"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><RefreshCw size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Refund History</h3></div>
@@ -1393,7 +1393,7 @@ export default function ShortOrderDetails() {
             nothing would strand it beside an empty half — the exact thing this
             layout exists to remove. Full width keeps the page's left edge
             unbroken and gives the vehicle chips room to sit on one line. */}
-        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-stretch">
+        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-start">
           <div className="min-[980px]:col-span-12 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900 flex items-center gap-2"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><Truck size={17} /></span>

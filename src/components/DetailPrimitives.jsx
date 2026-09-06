@@ -51,6 +51,10 @@ export function SectionCard({ children, className = '' }) {
  * this is a separate element rather than a prop on SectionCard: a card that
  * scrolled as a whole would take its own title out of view.
  *
+ * 420px, not 300px: the tighter cap made a list scroll while the card beside
+ * it still had slack, hiding content and manufacturing white space in the same
+ * row. The cap is a runaway guard, not a layout device.
+ *
  * `max-h`, never a fixed `h`: a two-item list is shorter than the cap, so it
  * renders at its natural height with no scrollbar and no reserved space. The
  * cap only engages on a record long enough to run away with the page.
@@ -58,7 +62,7 @@ export function SectionCard({ children, className = '' }) {
  * `overscroll-contain` stops a scroll that reaches the end of this list from
  * continuing into the page behind it.
  */
-export function CardScrollArea({ children, className = '', max = '300px' }) {
+export function CardScrollArea({ children, className = '', max = '420px' }) {
   return (
     <div className={`overflow-y-auto overscroll-contain ${className}`} style={{ maxHeight: max }}>
       {children}
