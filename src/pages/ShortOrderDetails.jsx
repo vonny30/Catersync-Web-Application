@@ -4,7 +4,7 @@ import Select from '../components/Select';
 import AssignVehicleModal from '../components/AssignVehicleModal';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Truck, AlertTriangle, Package as PackageIcon,
-  MapPin, Calendar, User, Phone, Mail, Pencil, UtensilsCrossed, CreditCard } from 'lucide-react';
+  MapPin, Calendar, User, Phone, Mail, Pencil, UtensilsCrossed, CreditCard, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
 import { SectionHeader, SectionCard, Field, CardScrollArea } from '../components/DetailPrimitives';
 import { initialsOf, fmtDateTime, fmtShortDate, fmtTime, displayNotes } from '../utils/detailFormat';
 import { createPortal } from 'react-dom';
@@ -1187,28 +1187,32 @@ export default function ShortOrderDetails() {
                 <span className="text-xs text-slate-400 italic">Payments closed</span>
               )}
             </div>
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-2 flex justify-between items-center text-sm">
-              <span className="font-medium text-slate-700">Total Amount:</span>
-              <span className="font-bold text-slate-900">₱{order.total_amount?.toLocaleString() || '0'}</span>
-            </div>
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-2 flex justify-between items-center text-sm">
-              <span className="font-medium text-slate-700">Downpayment Paid:</span>
-              <span className="font-bold text-[#008A45]">₱{downpaymentPaid.toLocaleString()}</span>
-            </div>
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-2 flex justify-between items-center text-sm">
-              <span className="font-medium text-slate-700">Total Paid:</span>
-              <span className="font-bold text-[#008A45]">₱{netPaid.toLocaleString()}</span>
-            </div>
-            <div className={`rounded-lg p-3 flex justify-between items-center text-sm border ${
-              remainingBalance <= 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'
-            }`}>
-              <span className="font-medium text-slate-700">Remaining Balance:</span>
-              <span className={`font-bold ${remainingBalance <= 0 ? 'text-green-700' : 'text-amber-700'}`}>
-                {order.booking_status === 'Rejected' || order.booking_status === 'Cancelled'
-                  ? `N/A — ${order.booking_status}`
-                  : `₱${remainingBalance.toLocaleString()}`}
-              </span>
-            </div>
+                {/* Same balance panel as Booking Details: one figure with its
+                    proportion, instead of four equal grey bars in which the
+                    amount still owed carried no more weight than the contract
+                    total the manager already knew. */}
+                <div className="bg-[#fbfcfd] border border-[#eef2f6] rounded-[13px] px-[19px] py-[17px] mb-3.5">
+                  <span className="block text-[10.5px] font-bold tracking-[0.11em] uppercase text-slate-500">
+                    {order.booking_status === 'Rejected' || order.booking_status === 'Cancelled' ? 'Balance' : 'Balance remaining'}
+                  </span>
+                  <div className="mt-1.5 flex items-baseline gap-2.5 flex-wrap">
+                    <span className={`text-[clamp(28px,2.6vw,34px)] font-extrabold tracking-[-0.035em] tabular-nums ${
+                      remainingBalance > 0 ? 'text-[#8a5a0a]' : 'text-[#056636]'
+                    }`}>
+                      {order.booking_status === 'Rejected' || order.booking_status === 'Cancelled'
+                        ? `N/A — ${order.booking_status}`
+                        : `₱${remainingBalance.toLocaleString()}`}
+                    </span>
+                    <span className="text-[13px] font-semibold text-slate-500">of ₱{order.total_amount?.toLocaleString() || '0'}</span>
+                  </div>
+                  <div className="mt-[13px] h-2 rounded-full bg-[#e8edf3] overflow-hidden">
+                    <div className="h-full rounded-full bg-[#008A45]" style={{ width: `${pctCollected}%` }} />
+                  </div>
+                  <span className="block mt-2 text-xs font-semibold text-slate-500">
+                    {pctCollected}% collected · ₱{netPaid.toLocaleString()} of ₱{order.total_amount?.toLocaleString() || '0'}
+                    {downpaymentPaid > 0 && ` · ₱${downpaymentPaid.toLocaleString()} downpayment`}
+                  </span>
+                </div>
             {paymentEntries.length > 0 && (
               <div className="mt-4 border border-slate-300 rounded-lg overflow-hidden">
                 <CardScrollArea>
@@ -1393,7 +1397,13 @@ export default function ShortOrderDetails() {
           <div className="min-[980px]:col-span-12 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900 flex items-center gap-2"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><Truck size={17} /></span>
-                Dispatch
+                <span className="min-w-0">
+                  Dispatch
+                  <span className="block mt-0.5 text-[12.5px] font-normal text-slate-500">
+                    {dispatchRuns.length} run{dispatchRuns.length !== 1 ? 's' : ''} · {countDistinctVehicles(dispatches)} vehicle{countDistinctVehicles(dispatches) !== 1 ? 's' : ''}
+                    {dispatches.length > 0 && (dispatches.every(d => d.assignment_status === 'Completed') ? ' · all returned' : ' · all assigned')}
+                  </span>
+                </span>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 border border-sky-200">
                   Short Order
                 </span>
@@ -1418,11 +1428,7 @@ export default function ShortOrderDetails() {
                     {isPaymentLedgerLocked(order.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
                   </button>
                 )}
-                {/* Vehicles, not assignment rows. */}
-                <span className="text-xs font-medium text-slate-500">
-                  {countDistinctVehicles(dispatches)} vehicle{countDistinctVehicles(dispatches) !== 1 ? 's' : ''}
-                  {dispatchRuns.length > 0 && ` · ${dispatchRuns.length} run${dispatchRuns.length !== 1 ? 's' : ''}`}
-                </span>
+
               </div>
             </div>
 
@@ -1461,32 +1467,43 @@ export default function ShortOrderDetails() {
                       : 'bg-slate-50 border border-slate-200 text-slate-600'
                   }`;
                   return (
-                    <div key={run.key} className="bg-[#fbfcfd] border border-[#eef2f6] rounded-xl px-4 py-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-[13px] text-slate-700 flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
-                          {run.legLabel && !isCustomerPickup && (
-                            <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
-                              isCollection ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
-                            }`}>
-                              {run.legLabel}
-                            </span>
-                          )}
-                          <span className="font-semibold text-slate-900">
-                            {run.window
-                              ? `${isCollection ? 'Collects' : 'Leaves'} ${run.window.start.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · back ${run.window.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                              : `Leaves ${run.dispatchAt ? new Date(run.dispatchAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'time not set'}`}
+                    <div key={run.key} className="bg-[#fbfcfd] border border-[#eef2f6] rounded-xl overflow-hidden">
+                      {/* The run's own header: an arrow saying which direction
+                          the van is going, the leg named as a micro-label, and
+                          the window as "leaves -> back" on one line. The leg
+                          used to be a coloured pill competing with the status
+                          pill beside it; direction is not a status, so it is
+                          drawn as an icon and a quiet label instead. */}
+                      <div className="flex items-start gap-3 px-4 pt-3.5 pb-3 border-b border-[#eef2f6]">
+                        <span className={`inline-flex items-center justify-center w-7 h-7 rounded-[9px] shrink-0 ${
+                          isCollection ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'
+                        }`}>
+                          {isCollection ? <ArrowDownLeft size={14} /> : <ArrowUpRight size={14} />}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <span className="block text-[10.5px] font-bold tracking-[0.1em] uppercase text-slate-500">
+                            {run.legLabel || 'Run'}{isCollection ? ' \u00b7 return' : ' \u00b7 outbound'}
                           </span>
-                        </p>
-                        {shared && <span className={pill(shared)}>{shared.label}</span>}
+                          <span className="block mt-0.5 text-[13.5px] font-bold text-slate-900">
+                            {run.window
+                              ? `${run.window.start.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} \u2192 back ${run.window.end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+                              : (run.dispatchAt ? new Date(run.dispatchAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Time not set')}
+                          </span>
+                        </div>
+                        {shared && <span className={`${pill(shared)} shrink-0`}>{shared.label}</span>}
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-2 mt-2.5">
+                      {/* One row per vehicle, divided rather than boxed, so the
+                          plates line up down the left edge. */}
+                      <div className="divide-y divide-[#eef2f6]">
                         {run.rows.map((d, i) => (
-                          <span key={d.assignment_id} className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-white border border-slate-200">
-                            <span className="text-[13px] font-semibold text-slate-900">{d.vehicle?.plate_number || 'Unknown vehicle'}</span>
-                            <span className="text-[12px] text-slate-500">{d.vehicle?.vehicle_type || ''}</span>
-                            {!shared && <span className={pill(stages[i])}>{stages[i].label}</span>}
-                          </span>
+                          <div key={d.assignment_id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                            <span className="flex items-baseline gap-2 min-w-0">
+                              <span className="text-[13.5px] font-bold text-slate-900 whitespace-nowrap">{d.vehicle?.plate_number || 'Unknown vehicle'}</span>
+                              <span className="text-[12.5px] text-slate-500 truncate">{d.vehicle?.vehicle_type || ''}</span>
+                            </span>
+                            {!shared && <span className={`${pill(stages[i])} shrink-0`}>{stages[i].label}</span>}
+                          </div>
                         ))}
                       </div>
                     </div>
