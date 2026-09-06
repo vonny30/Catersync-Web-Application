@@ -10,12 +10,123 @@ import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
-import { sumVerifiedPositivePayments, getPaymentsAwaitingVerification, UNVERIFIED_PAY_STATUSES, describePaymentKind } from '../utils/payments';
-import { getPaymentsReceived } from '../utils/reportMetrics';
+import { sumVerifiedPositivePayments, getPaymentsAwaitingVerification, isUnverifiedPayment, UNVERIFIED_PAY_STATUSES, describePaymentKind } from '../utils/payments';
+import { getPaymentsReceived, isCancelledBooking } from '../utils/reportMetrics';
 import { getConfirmEligibility, buildConfirmDialog, applyConfirmation } from '../utils/confirmBooking';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './Reports/helpers';
+
+// ---------------------------------------------------------------------------
+// Two presentational components, deliberately at MODULE scope.
+//
+// Payments.jsx is large enough that the React Compiler sits near its analysis
+// budget: a computed value added to the Payments() body makes it silently stop
+// reporting react-hooks/set-state-in-effect for the WHOLE file — 5 problems
+// become 4 and nothing says a check was lost. That was bisected across fifteen
+// variants; see the note at the action-bar totals.
+//
+// Declaring these as their own components means their consts belong to their
+// own scope, not to Payments(), so the sums can be written normally instead of
+// being smeared inline across JSX.
+// ---------------------------------------------------------------------------
+
+// What the whole booking has actually paid, stated above a list that scrolls.
+//
+// The timeline is capped at max-h-64 and scrolls on its own, so a total placed
+// under the list would be invisible for exactly the bookings that need one —
+// the ones with enough payments to be worth adding up.
+function BookingPaymentSummary({ rows, bookingTotal, bookingStatus }) {
+  const entries = rows || [];
+  if (entries.length === 0) return null;
+
+  // Verified rows only. A Pending Verification row is a claim the manager has
+  // not ruled on, and a Proof Rejected one has been ruled against; neither is
+  // money. This is the same rule the Payments Received card uses, imported
+  // rather than restated.
+  const verified = entries.filter(p => !isUnverifiedPayment(p));
+  const received = sumVerifiedPositivePayments(entries);
+  const refunded = verified
+    .filter(p => (p.amount_paid || 0) < 0)
+    .reduce((sum, p) => sum + Math.abs(p.amount_paid || 0), 0);
+  const net = received - refunded;
+  const unverified = entries.length - verified.length;
+
+  // total_amount is nullable, and "of ₱null" is worse than saying nothing.
+  const hasTotal = typeof bookingTotal === 'number' && !Number.isNaN(bookingTotal);
+  const outstanding = hasTotal ? Math.max(0, bookingTotal - net) : null;
+  const peso = (n) => `₱${Math.round(n).toLocaleString()}`;
+
+  return (
+    <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-[13px]">
+      <p className="text-slate-800">
+        <span className="font-semibold">{entries.length} payment{entries.length === 1 ? '' : 's'}</span>
+        {' · '}{peso(received)} received
+        {/* Named only when one exists, the same way the Payments Received card
+            mentions refunds only when some were netted. With no refund, `net`
+            equals `received` and printing both would just repeat the figure. */}
+        {refunded > 0 && <>{' · '}{peso(refunded)} refunded{' · '}<span className="font-semibold">{peso(net)} net</span></>}
+      </p>
+      {hasTotal ? (
+        <p className="text-slate-600 mt-0.5">
+          of {peso(bookingTotal)} booking total —{' '}
+          {/* A cancelled or rejected booking has no receivable — reportMetrics
+              calls those statuses dead, with no future work and nothing owed.
+              Saying "₱21,000 still due" on a booking that was refunded in
+              full, or "fully paid" on one that was cancelled, would invent an
+              obligation the money model says does not exist. */}
+          {isCancelledBooking(bookingStatus)
+            ? <span className="font-semibold text-slate-500">no balance due, booking {(bookingStatus || '').toLowerCase()}</span>
+            : outstanding > 0
+              ? <span className="font-semibold text-amber-700">{peso(outstanding)} still due</span>
+              : <span className="font-semibold text-[#007038]">fully paid</span>}
+        </p>
+      ) : (
+        <p className="text-slate-500 mt-0.5">Booking total not recorded.</p>
+      )}
+      {/* The list below deliberately still shows unverified rows, so the list
+          and this total disagree by design. Saying so is the difference between
+          a deliberate exclusion and an apparent arithmetic error. */}
+      {unverified > 0 && (
+        <p className="text-slate-500 mt-1 text-[12.5px] italic">
+          {unverified} payment{unverified === 1 ? ' is' : 's are'} awaiting verification and not counted above.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Money taken against a booking that was cancelled or rejected.
+//
+// reportMetrics keeps this out of Payments Received and puts it in
+// retainedFromCancellations, but on screen the only signal was opacity-70,
+// which reads as "faded", not as "this is not in the figure above".
+//
+// The wording states the position and stops there. A cancelled booking with no
+// refund row is INDISTINGUISHABLE in this schema from one whose downpayment was
+// forfeited under the 3-day rule — BKG-105 and BKG-115 are both simply money
+// held — so the app must not call it "to be refunded". Nothing records intent.
+function RetainedFromCancellationNote({ rows, status, compact = false }) {
+  const verified = (rows || []).filter(p => !isUnverifiedPayment(p));
+  const received = sumVerifiedPositivePayments(rows);
+  const refunded = verified
+    .filter(p => (p.amount_paid || 0) < 0)
+    .reduce((sum, p) => sum + Math.abs(p.amount_paid || 0), 0);
+  const held = received - refunded;
+  const peso = (n) => `₱${Math.round(n).toLocaleString()}`;
+
+  let position;
+  if (refunded > 0 && held <= 0) position = 'Refunded in full';
+  else if (refunded > 0) position = `${peso(refunded)} refunded, ${peso(held)} still held`;
+  else position = `${peso(held)} still held — no refund recorded`;
+
+  return (
+    <p className={`text-amber-700 ${compact ? 'text-[11.5px] mt-1' : 'text-[13px] mt-2'}`}>
+      <span className="font-semibold">Not in Payments Received</span>
+      {' — booking '}{(status || 'cancelled').toLowerCase()}. {position}.
+    </p>
+  );
+}
 
 export default function Payments() {
   const navigate = useNavigate();
@@ -1478,7 +1589,10 @@ export default function Payments() {
                   sortedGroupedPayments.map((group) => {
                     const { latest } = group;
                     const orderStatus = group.booking?.booking_status || 'Unknown';
-                    const isCancelledOrRejected = orderStatus === 'Rejected' || orderStatus === 'Cancelled';
+                    // isCancelledBooking, not a fresh status check: it is the
+                    // constant the money figures use, and a second copy would drift
+                    // from the definition that decides where this money is counted.
+                    const isCancelledOrRejected = isCancelledBooking(orderStatus);
                     // Only 'Pending Verification' still needs action — a
                     // 'Proof Rejected' row is already a resolved action (the
                     // manager rejected it), not something still awaiting one,
@@ -1513,6 +1627,11 @@ export default function Payments() {
                           <span className={`inline-block px-2.5 py-[3px] rounded-full text-[12.5px] font-semibold whitespace-nowrap ${getOrderStatusBadgeSoft(orderStatus)}`}>
                             {orderStatus}
                           </span>
+                          {/* opacity-70 on the row read as "faded", not as
+                              "this money is excluded from the figure above". */}
+                          {isCancelledOrRejected && (
+                            <RetainedFromCancellationNote rows={group.entries} status={orderStatus} compact />
+                          )}
                         </td>
                         <td className="px-4 py-[15px] text-sm text-slate-800">
                           {group.booking?.booking_type === 'Short Order' ? 'Short Order' : 'Package'}
@@ -1697,6 +1816,12 @@ export default function Payments() {
                     <span className="ml-2 text-xs text-slate-500">({selectedPaymentDetail.booking?.booking_type || 'Package'})</span>
                   </p>
                   <p className="text-xs text-slate-500">{selectedPaymentDetail.booking?.venue || 'No venue'}</p>
+                  {isCancelledBooking(selectedPaymentDetail.booking?.booking_status) && (
+                    <RetainedFromCancellationNote
+                      rows={payments.filter(p => p.booking_id === selectedPaymentDetail.booking_id)}
+                      status={selectedPaymentDetail.booking?.booking_status}
+                    />
+                  )}
                   <p className="text-xs text-slate-500">Event: {selectedPaymentDetail.booking?.event_datetime ? new Date(selectedPaymentDetail.booking.event_datetime).toLocaleString() : 'N/A'}</p>
                 </div>
                 {selectedPaymentDetail.remarks && (
@@ -1722,6 +1847,11 @@ export default function Payments() {
               {selectedPaymentDetail.booking_id && (
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 mb-3">Payment Timeline</h3>
+                  <BookingPaymentSummary
+                    rows={payments.filter(p => p.booking_id === selectedPaymentDetail.booking_id)}
+                    bookingTotal={selectedPaymentDetail.booking?.total_amount}
+                    bookingStatus={selectedPaymentDetail.booking?.booking_status}
+                  />
                   <div className="space-y-2 max-h-64 overflow-y-auto">
                     {payments
                       .filter(p => p.booking_id === selectedPaymentDetail.booking_id)
