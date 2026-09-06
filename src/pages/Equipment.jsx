@@ -7,7 +7,7 @@ import {
   Plus, Edit, Trash2, X, ClipboardList, RefreshCw, Undo2,
   Calendar, MapPin, Users, Search, CalendarClock, LayoutGrid, AlertTriangle,
   ChevronRight, Wrench, CheckCircle2, History, ExternalLink, Lock,
-  ArrowUpDown, ArrowUp, ArrowDown,
+  ArrowUpDown, ArrowUp, ArrowDown, Info,
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -121,6 +121,41 @@ const canAssignEquipmentTo = (bookingStatus) =>
 const formatReturnOpensAt = (opensAt) =>
   opensAt ? opensAt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
 
+
+// The three-zone row shared by Inventory, Availability and History. Declared
+// once so the three grids cannot drift out of alignment with one another.
+const ROW_COLS = 'grid grid-cols-[minmax(0,2fr)_minmax(0,2.3fr)_minmax(0,1.5fr)] gap-5';
+
+// A dot and a label beneath a stacked bar. The bar carries the proportion; the
+// legend says what each band actually is.
+function Legend({ color, text }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-600 whitespace-nowrap">
+      <span className="w-[7px] h-[7px] rounded-sm shrink-0" style={{ background: color }} />
+      {text}
+    </span>
+  );
+}
+
+// Row actions, neutral until hover. A solid red trash and a blue pencil on
+// every row read as a column of warnings running down the page. aria-label and
+// title carry the meaning, since there is no visible text.
+function IconBtn({ label, onClick, Icon, hover, disabled }) {
+  const hoverCls = hover === 'red' ? 'hover:bg-red-50 hover:text-red-700'
+    : hover === 'amber' ? 'hover:bg-amber-50 hover:text-amber-700'
+    : 'hover:bg-slate-100 hover:text-slate-700';
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className={`inline-flex items-center justify-center w-8 h-8 rounded-[9px] text-slate-400 transition-colors cursor-pointer ${hoverCls}`}
+    >
+      <Icon size={15} />
+    </button>
+  );
+}
 
 export default function Equipment() {
   const navigate = useNavigate();
@@ -1855,7 +1890,9 @@ export default function Equipment() {
       captions. The two sidebar alert panels are folded in here too, so
       the page is a single column instead of competing for attention with
       a 320px rail. --- */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* auto-fit, not sm:grid-cols-3 — below 640px the hard jump stacked
+            three ~165px cards and buried the tabbed panel under them. */}
+        <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
         {/* "Total stock owned" used to sit here. The panel's point was that
             it isn't a number anyone acts on — owning 500 chairs says
             nothing about whether Saturday's event is ready. It moved to
@@ -1930,48 +1967,89 @@ export default function Equipment() {
             Upcoming leads because preparing for what's coming is the job this
             page exists for; the other four support it (what's free, what we
             own, what's out, what happened). */}
-        <div className="flex items-center gap-0.5 px-2 border-b border-slate-100 overflow-x-auto">
+        {/* Two labelled clusters, not five flat tabs.
+
+            Read cold, "Availability", "Inventory" and "Active Assignments" all
+            sound like "how much stock do we have" — nothing in the bar said
+            which question each answers, so a reader picked one and found out by
+            trial. They split cleanly by intent: two are about what is COMING
+            (forward-looking, date-driven), three about what we HAVE and where
+            it is.
+
+            The cluster labels are slate-500, not a lighter grey. They carry the
+            mental model this whole grouping depends on, and small uppercase at
+            wide tracking has a thin apparent stroke — it needs more contrast
+            than body text, not less. */}
+        <div className="flex items-stretch border-b border-slate-100 overflow-x-auto">
           {[
-            { key: 'upcoming', label: 'Upcoming', Icon: Calendar, count: upcomingPrep.length, alert: overCapacityDays.length > 0 },
-            { key: 'availability', label: 'Availability', Icon: CalendarClock },
-            { key: 'inventory', label: 'Inventory', Icon: LayoutGrid, count: equipmentList.length },
-            { key: 'assignments', label: 'Active Assignments', Icon: ClipboardList, count: assignmentGroups.length, alert: overdueGroups.length > 0 },
-            { key: 'history', label: 'History', Icon: History },
-          ].map(t => {
-            const isActive = activeTableTab === t.key;
-            return (
-              <button
-                key={t.key}
-                onClick={() => setActiveTableTab(t.key)}
-                className={`shrink-0 flex items-center gap-[7px] whitespace-nowrap px-[15px] py-[13px] -mb-px border-b-2 text-[14.5px] transition-colors cursor-pointer ${
-                  isActive
-                    ? 'border-[#008A45] text-[#007038] font-bold'
-                    : 'border-transparent text-slate-600 font-semibold hover:text-slate-900'
-                }`}
-              >
-                <t.Icon size={15} /> {t.label}
-                {t.count !== undefined && t.count > 0 && (
-                  <span className={`inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full text-[12.5px] font-bold tabular-nums ${
-                    t.alert ? 'bg-red-100 text-red-700' : isActive ? 'bg-[#EAF3F2] text-[#00703a]' : 'bg-slate-100 text-slate-600'
-                  }`}>
-                    {t.count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+            {
+              cluster: 'Plan',
+              tabs: [
+                { key: 'upcoming', label: 'Upcoming', Icon: Calendar, count: upcomingPrep.length, alert: overCapacityDays.length > 0 },
+                { key: 'availability', label: 'Availability', Icon: CalendarClock },
+              ],
+            },
+            {
+              cluster: 'Stock',
+              tabs: [
+                { key: 'inventory', label: 'Inventory', Icon: LayoutGrid, count: equipmentList.length },
+                // "Active", not "Active Assignments": under a Stock heading the
+                // second word is redundant, and five full-length tabs plus two
+                // cluster labels overflow on a laptop.
+                { key: 'assignments', label: 'Active', Icon: ClipboardList, count: assignmentGroups.length, alert: overdueGroups.length > 0 },
+                { key: 'history', label: 'History', Icon: History },
+              ],
+            },
+          ].map((group, gi) => (
+            <div key={group.cluster} className="flex items-center shrink-0">
+              {gi > 0 && <span className="shrink-0 w-px my-3 mx-3.5 bg-[#eef2f6]" />}
+              <span className={`${gi === 0 ? 'pl-[18px]' : ''} pr-3 text-[11px] font-bold tracking-[0.12em] uppercase text-slate-500 whitespace-nowrap`}>
+                {group.cluster}
+              </span>
+              {group.tabs.map(t => {
+                const isActive = activeTableTab === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    onClick={() => setActiveTableTab(t.key)}
+                    className={`shrink-0 flex items-center gap-[7px] whitespace-nowrap px-[15px] py-[13px] -mb-px border-b-2 text-[14.5px] transition-colors cursor-pointer ${
+                      isActive
+                        ? 'border-[#008A45] text-[#007038] font-bold'
+                        : 'border-transparent text-slate-600 font-semibold hover:text-slate-900'
+                    }`}
+                  >
+                    <t.Icon size={15} /> {t.label}
+                    {t.count !== undefined && t.count > 0 && (
+                      <span className={`inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full text-[12.5px] font-bold tabular-nums ${
+                        t.alert ? 'bg-red-100 text-red-700' : isActive ? 'bg-[#EAF3F2] text-[#00703a]' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {t.count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </div>
 
         {/* One line per tab, describing the step of the equipment process it
             covers. These explain scope, which is this page's hardest concept —
             they were 12px grey inside the tab bar and easy to miss. */}
-        <p className="px-5 py-3.5 border-b border-slate-100 text-[13.5px] text-slate-600 [text-wrap:pretty]">
-          {activeTableTab === 'upcoming' && <>Events in the next {PREP_HORIZON_DAYS} days, grouped by day — what goes out, and whether stock covers everything happening that day.</>}
-          {activeTableTab === 'availability' && <>What's free to assign on a chosen date, after subtracting what's already committed.</>}
-          {activeTableTab === 'inventory' && <>Everything we own — add stock, edit details, or flag damage and repairs.</>}
-          {activeTableTab === 'assignments' && <>Everything currently out at an event and not yet returned. {RETURN_POLICY_TEXT}</>}
-          {activeTableTab === 'history' && <>Every assignment ever made — assigned and returned — grouped by booking. Open a row to see the individual items.</>}
-        </p>
+        {/* Promoted from grey micro-copy to a real strip. These explain SCOPE,
+            which is this page's hardest concept, and the Inventory line now
+            states the subtraction outright — the single most useful sentence
+            here for someone reading the page cold. */}
+        <div className="flex items-start gap-2.5 px-5 py-3.5 border-b border-slate-100 bg-[#fbfcfd]">
+          <Info size={15} className="shrink-0 mt-0.5 text-slate-400" />
+          <p className="text-[13.5px] leading-[1.5] text-slate-600 [text-wrap:pretty]">
+            {activeTableTab === 'upcoming' && <>Events in the next {PREP_HORIZON_DAYS} days, grouped by day — what goes out, and whether stock covers everything happening that day.</>}
+            {activeTableTab === 'availability' && <>What is free to assign on a chosen date, after subtracting what is already committed to other events that day.</>}
+            {activeTableTab === 'inventory' && <>Everything we own. Owned splits into usable, damaged and under maintenance — only usable stock can be assigned.</>}
+            {activeTableTab === 'assignments' && <>Everything currently out at an event and not yet returned. {RETURN_POLICY_TEXT}</>}
+            {activeTableTab === 'history' && <>Every assignment ever made — assigned and returned — grouped by booking. Open a row to see the individual items.</>}
+          </p>
+        </div>
 
         {/* ===== UPCOMING PREP TAB ===== */}
         {/* Answers the panel's two questions in one place: which packages
@@ -2313,93 +2391,118 @@ export default function Equipment() {
               )}
             </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-[#fbfcfd] border-b border-slate-100">
-                  <th className="px-4 py-3">{renderSortHeader(availabilitySort, toggleAvailabilitySort, 'name', 'Equipment')}</th>
-                  <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Usable</th>
-                  <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">In use on this date</th>
-                  <th className="px-4 py-3 text-center">{renderSortHeader(availabilitySort, toggleAvailabilitySort, 'free', 'Available', 'justify-center mx-auto')}</th>
-                  <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Status</th>
-                  <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap w-8"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-                {isLoading || snapshotLoading ? (
-                  <tr><td colSpan="6" className="p-6 text-center text-slate-500">Calculating availability…</td></tr>
-                ) : filteredAvailabilityItems.length === 0 ? (
-                  <tr><td colSpan="6" className="p-6 text-center text-slate-500">No equipment matches your search/filter.</td></tr>
-                ) : (
-                  sortedFilteredAvailabilityItems.map((item) => {
-                    const status = getAvailabilityStatus(item);
-                    const stock = getStockBreakdown(item);
-                    const outOfService = stock.outOfService;
-                    // The bar shows how much of the USABLE stock is spoken for.
-                    // The bar reads as "how much of this item is still
-                    // available", not how much is used. Filled by usage, an
-                    // item with nothing committed drew an EMPTY bar — so the
-                    // healthiest possible row looked identical to one with
-                    // nothing in it, and the colour carried all the meaning.
-                    // Now full stock reads as a full green bar and drains as
-                    // the item gets committed, which is the direction people
-                    // read a level indicator.
-                    const availableRatio = stock.usable > 0
-                      ? Math.max(0, Math.min(1, stock.free / stock.usable))
-                      : 0;
-                    return (
-                      <tr
-                        key={item.equipment_id}
-                        onClick={() => { setAvailabilityDetailItem(item); setIsAvailabilityDetailOpen(true); }}
-                        title="Click for the list of events using this item"
-                        className={`hover:bg-[#fbfcfd] transition-colors cursor-pointer group ${status.key === 'overbooked' ? 'bg-red-50/40' : ''}`}
-                      >
-                        <td className="px-4 py-[15px]">
-                          <div className="flex items-center gap-2">
-                            <p className="font-bold text-slate-900">{item.eqm_name}</p>
-                            <span className={`inline-flex items-center px-2 py-[3px] rounded-full text-[11.5px] font-semibold ${item.equipment_type === 'Decoration' ? 'bg-[#f6edfe] text-purple-700' : 'bg-blue-50 text-blue-700'}`}>
-                              {item.equipment_type === 'Decoration' ? 'Decoration' : 'Countable'}
-                            </span>
-                          </div>
-                          {item.events.length > 0 ? (
-                            <p className="text-xs text-slate-500 mt-0.5">Used by {item.events.length} event{item.events.length !== 1 ? 's' : ''} on this date — click to see which</p>
-                          ) : (
-                            <p className="text-xs text-slate-400 mt-0.5">Not used on this date</p>
-                          )}
-                          {/* Why the usable figure is below what the business
-                              owns — only worth a line when it isn't zero. */}
-                          {outOfService > 0 && (
-                            <p className="text-xs text-red-600 mt-0.5 font-medium">
-                              {stock.total} owned · {outOfService} out of service
-                              {stock.damaged > 0 && stock.maintenance > 0
-                                ? ` (${stock.damaged} damaged, ${stock.maintenance} under maintenance)`
-                                : ''}
-                            </p>
-                          )}
-                        </td>
-                        <td className="px-4 py-[15px] text-right font-bold text-slate-900">{stock.usable}</td>
-                        <td className="px-4 py-[15px] text-right font-semibold text-slate-700">{stock.committed} <span className="text-slate-400 font-normal">units</span></td>
-                        <td className="px-4 py-[15px] text-right">
-                          <span className={`inline-flex items-center justify-center min-w-[3rem] px-3 py-1 rounded-full text-xl font-extrabold ${status.key === 'overbooked' ? 'bg-red-100 text-red-700' : status.rank === 1 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                            {stock.free}
-                          </span>
-                        </td>
-                        <td className="px-4 py-[15px]">
-                          <div className="flex items-center gap-2">
-                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${status.pillClass}`}>{status.label}</span>
-                            <div className="w-14 h-1.5 rounded-full bg-slate-200 overflow-hidden shrink-0">
-                              <div className={`h-full ${status.barColor}`} style={{ width: `${Math.round(availableRatio * 100)}%` }} />
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-[15px] text-right">
-                          <ChevronRight size={16} className="text-slate-300 group-hover:text-[#008A45] transition-colors" />
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+            {/* Same three zones as Inventory. Usable / In use / Available were
+                three separate columns hiding one subtraction; the bar states it.
+                The bar is filled by what is FREE, not by what is used — filled
+                by usage, an item with nothing committed drew an empty bar, so
+                the healthiest row looked identical to an empty one and the
+                colour carried all the meaning. */}
+            <div className={`${ROW_COLS} hidden min-[940px]:grid px-1 pb-2.5 border-b border-[#eef2f6]`}>
+              <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700">
+                {renderSortHeader(availabilitySort, toggleAvailabilitySort, 'name', 'Equipment')}
+              </span>
+              <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700">Committed on this date</span>
+              <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700 text-right">
+                {renderSortHeader(availabilitySort, toggleAvailabilitySort, 'free', 'Free to assign', 'justify-end ml-auto')}
+              </span>
+            </div>
+
+            {isLoading || snapshotLoading ? (
+              <p className="p-6 text-center text-slate-500">Calculating availability…</p>
+            ) : filteredAvailabilityItems.length === 0 ? (
+              <p className="p-6 text-center text-slate-500">No equipment matches your search/filter.</p>
+            ) : (
+              sortedFilteredAvailabilityItems.map((item) => {
+                const status = getAvailabilityStatus(item);
+                const stock = getStockBreakdown(item);
+                const outOfService = stock.outOfService;
+                // Guard: an item with no usable stock divides by zero.
+                const pctOf = (n) => (stock.usable > 0 ? Math.max(0, Math.min(100, (n / stock.usable) * 100)) : 0);
+
+                return (
+                  <div
+                    key={item.equipment_id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => { setAvailabilityDetailItem(item); setIsAvailabilityDetailOpen(true); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setAvailabilityDetailItem(item);
+                        setIsAvailabilityDetailOpen(true);
+                      }
+                    }}
+                    title="Click for the list of events using this item"
+                    className={`${ROW_COLS} items-center px-1 py-4 border-b border-[#f6f8fa] cursor-pointer group transition-colors max-[940px]:grid-cols-1 max-[940px]:gap-3.5 ${
+                      status.key === 'overbooked' ? 'bg-red-50/40 hover:bg-red-50/60' : 'hover:bg-[#fbfcfd]'
+                    }`}
+                  >
+                    {/* ZONE A — what it is */}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[15px] font-bold text-slate-900 [text-wrap:pretty]">{item.eqm_name}</span>
+                        <span className="px-2.5 py-[3px] rounded-full bg-[#f4f6f8] border border-slate-200 text-[11.5px] font-bold text-slate-600 whitespace-nowrap">
+                          {item.equipment_type === 'Decoration' ? 'Decoration' : 'Countable'}
+                        </span>
+                      </div>
+                      <p className="text-[12.5px] text-slate-500 mt-1">{stock.usable} usable in stock</p>
+                      {/* Why the usable figure is below what the business owns —
+                          only worth a line when it is not zero. */}
+                      {outOfService > 0 && (
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {stock.total} owned · {outOfService} out of service
+                          {stock.damaged > 0 && stock.maintenance > 0
+                            ? ` (${stock.damaged} damaged, ${stock.maintenance} under maintenance)`
+                            : ''}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* ZONE B — what is spoken for on this date */}
+                    <div className="min-w-0">
+                      <div className="flex items-baseline justify-between gap-2.5 mb-[7px]">
+                        <span className="text-[13px] font-bold text-slate-700 tabular-nums">{stock.committed} committed</span>
+                        <span className="text-xs text-slate-500">
+                          {item.events.length > 0
+                            ? `${item.events.length} event${item.events.length === 1 ? '' : 's'} on this date`
+                            : 'not used on this date'}
+                        </span>
+                      </div>
+                      {/* Committed is SLATE, deliberately. Stock promised to
+                          another event is normal, not a problem — colouring it
+                          red or amber is what makes a working page feel
+                          alarming. */}
+                      <div className="flex h-[9px] rounded-full overflow-hidden bg-[#eef2f6]">
+                        <div style={{ width: `${pctOf(stock.committed)}%` }} className="bg-slate-500" />
+                        <div style={{ width: `${pctOf(Math.max(0, stock.free))}%` }} className="bg-[#008A45]" />
+                      </div>
+                      <div className="flex items-center gap-3.5 flex-wrap mt-2.5">
+                        {stock.committed > 0 && <Legend color="#64748b" text={`${stock.committed} committed`} />}
+                        <Legend color="#008A45" text={`${Math.max(0, stock.free)} free`} />
+                      </div>
+                    </div>
+
+                    {/* ZONE C — what you can actually assign */}
+                    <div className="flex items-center justify-end gap-3 min-w-0 max-[940px]:justify-start">
+                      <div className="text-right min-w-0 max-[940px]:text-left">
+                        <span className={`block text-[22px] font-extrabold tracking-[-0.03em] leading-none tabular-nums ${
+                          status.key === 'overbooked' ? 'text-red-700' : 'text-slate-900'
+                        }`}>
+                          {stock.free}
+                        </span>
+                        <span className="block mt-1 text-[11.5px] font-bold tracking-[0.06em] uppercase text-slate-500">free</span>
+                        <span className={`inline-flex items-center mt-[7px] px-2.5 py-1 rounded-full text-xs font-bold border ${status.pillClass}`}>
+                          {status.label}
+                        </span>
+                      </div>
+                      {/* The row was clickable with nothing to say so — the old
+                          header had an empty w-8 cell above this. */}
+                      <ChevronRight size={16} className="shrink-0 text-slate-300 group-hover:text-[#008A45] transition-colors" />
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
           </>
         )}
@@ -2468,119 +2571,132 @@ export default function Equipment() {
                 </button>
               )}
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#fbfcfd] border-b border-slate-100">
-                    <th className="px-4 py-3">{renderSortHeader(inventorySort, toggleInventorySort, 'name', 'Equipment')}</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Owned</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Damaged</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Under Maintenance</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Usable</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Type</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Guests per Unit</th>
-                    {/* Not "Out now": this counts unreturned ASSIGNMENTS, most
-                        of which are for events that haven't happened yet, and
-                        statusLabels.js is explicit that a chair promised to a
-                        wedding three days out is not in use by any reading of
-                        the word. "Committed" is the settled term for exactly
-                        that state (RESOURCE_STATE.committed). */}
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Committed to</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-                  {isLoading ? (
-                    <tr><td colSpan="9" className="p-6 text-center text-slate-500">Loading equipment...</td></tr>
-                  ) : filteredInventory.length === 0 ? (
-                    <tr><td colSpan="9" className="p-6 text-center text-slate-500">No equipment found.</td></tr>
-                  ) : (
-                    sortedFilteredInventory.map((item) => {
-                      // Unreturned assignments for this item. Counting rows,
-                      // not units — which is the second reason "N out now"
-                      // misread: for Chairs it looked like a chair count when
-                      // it was a booking count. The label now names the unit,
-                      // and the tooltip carries both that and the
-                      // Assigned/In Use split from statusLabels.js.
-                      const activeForItem = assignments.filter(a => a.equipment_id === item.equipment_id && !a.returned);
-                      const usageCount = activeForItem.length;
-                      const inUseCount = activeForItem.filter(
-                        a => getAssignmentStatus(false, a.booking?.event_datetime).key === 'in_use'
-                      ).length;
-                      const upcomingCount = usageCount - inUseCount;
-                      const committedUnits = activeForItem.reduce((sum, a) => sum + (a.quantity || 0), 0);
-                      const stock = getStockBreakdown(item);
-                      const condition = getConditionSummary(item);
-                      return (
-                        <tr key={item.equipment_id} className="hover:bg-[#fbfcfd] transition-colors">
-                          <td className="px-4 py-[15px]">
-                            <div className="flex items-center gap-2">
-                              <p className="font-bold text-slate-900">{item.eqm_name}</p>
-                              {condition.dbValue !== 'Good Condition' && (
-                                <span className={`inline-flex items-center px-2 py-[3px] rounded-full text-[11.5px] font-semibold ${condition.className}`}>
-                                  {condition.label}
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-xs text-slate-500 mt-0.5">{item.eqm_description}</p>
-                          </td>
-                          <td className="px-4 py-[15px] text-right font-semibold text-slate-800">{stock.total}</td>
-                          <td className="px-4 py-[15px] text-right font-semibold text-red-600">{stock.damaged}</td>
-                          <td className="px-4 py-[15px] text-right font-semibold text-amber-600">{stock.maintenance}</td>
-                          <td className="px-4 py-[15px] text-right font-bold text-slate-900">{stock.usable}</td>
-                          <td className="px-4 py-[15px] text-right">
-                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${item.equipment_type === 'Decoration' ? 'bg-[#f6edfe] text-purple-700' : 'bg-blue-50 text-blue-700'}`}>
-                              {item.equipment_type === 'Decoration' ? 'Decoration' : 'Countable'}
+              <div>
+              {/* Three zones, not nine columns.
+                  Owned, Damaged, Under Maintenance and Usable were four
+                  separate numeric columns, so the one relationship that decides
+                  whether anything can be assigned —
+                  usable + damaged + maintenance = owned — was left for the
+                  reader to work out by subtraction across the row. It is drawn
+                  now: one bar, three bands, a legend naming each.
+
+                  NOTE ON THE ARITHMETIC. quantity_available IS the usable
+                  figure; owned is DERIVED as usable + damaged + maintenance.
+                  getStockBreakdown owns that identity and is used here rather
+                  than recomputed, so this page, Reports and the approval stock
+                  guard cannot disagree about what a number means. */}
+              <div className={`${ROW_COLS} hidden min-[940px]:grid px-1 pb-2.5 border-b border-[#eef2f6]`}>
+                <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700">
+                  {renderSortHeader(inventorySort, toggleInventorySort, 'name', 'Equipment')}
+                </span>
+                <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700">Stock condition</span>
+                <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700 text-right">Usable &amp; commitment</span>
+              </div>
+
+              {isLoading ? (
+                <p className="p-6 text-center text-slate-500">Loading equipment...</p>
+              ) : filteredInventory.length === 0 ? (
+                <p className="p-6 text-center text-slate-500">No equipment found.</p>
+              ) : (
+                sortedFilteredInventory.map((item) => {
+                  // Unreturned assignments for this item. Counting rows, not
+                  // units — which is why the label names the unit, and the
+                  // tooltip carries both that and the Assigned/In Use split
+                  // from statusLabels.js.
+                  const activeForItem = assignments.filter(a => a.equipment_id === item.equipment_id && !a.returned);
+                  const usageCount = activeForItem.length;
+                  const inUseCount = activeForItem.filter(
+                    a => getAssignmentStatus(false, a.booking?.event_datetime).key === 'in_use'
+                  ).length;
+                  const upcomingCount = usageCount - inUseCount;
+                  const committedUnits = activeForItem.reduce((sum, a) => sum + (a.quantity || 0), 0);
+                  const stock = getStockBreakdown(item);
+                  const condition = getConditionSummary(item);
+                  // Guard: a freshly added item with nothing recorded divides by
+                  // zero and every band renders NaN%.
+                  const pct = (n) => (stock.total > 0 ? (n / stock.total) * 100 : 0);
+
+                  return (
+                    <div
+                      key={item.equipment_id}
+                      className={`${ROW_COLS} items-center px-1 py-4 border-b border-[#f6f8fa] hover:bg-[#fbfcfd] transition-colors max-[940px]:grid-cols-1 max-[940px]:gap-3.5`}
+                    >
+                      {/* ZONE A — what it is */}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[15px] font-bold text-slate-900 [text-wrap:pretty]">{item.eqm_name}</span>
+                          {condition.dbValue !== 'Good Condition' && (
+                            <span className={`inline-flex items-center px-2 py-[3px] rounded-full text-[11.5px] font-semibold ${condition.className}`}>
+                              {condition.label}
                             </span>
-                          </td>
-                          <td className="px-4 py-[15px] text-right font-semibold text-slate-900">
-                            {item.pax_per_unit ? `${item.pax_per_unit} pax` : '—'}
-                          </td>
-                          <td className="px-4 py-[15px] text-right">
-                            <button
-                              onClick={() => handleViewUsage(item)}
-                              className="text-blue-500 hover:text-blue-700 transition-colors text-xs font-medium flex items-center gap-1 mx-auto"
-                              title={usageCount > 0
-                                ? `${committedUnits} unit${committedUnits === 1 ? '' : 's'} across ${usageCount} booking${usageCount === 1 ? '' : 's'} — ${inUseCount} in use, ${upcomingCount} still upcoming`
-                                : 'No current commitments — click to see past assignments'}
-                            >
-                              <ClipboardList size={14} />
-                              {usageCount > 0
-                                ? `${usageCount} booking${usageCount === 1 ? '' : 's'}`
-                                : 'View history'}
-                            </button>
-                          </td>
-                          <td className="px-4 py-[15px] text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                onClick={() => handleFlagIssueClick(item)}
-                                className="flex items-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-full px-3 py-1.5 transition-colors cursor-pointer"
-                                title="Mark this equipment as damaged or under maintenance"
-                              >
-                                <Wrench size={13} /> Flag issue
-                              </button>
-                              <button
-                                onClick={() => handleEditClick(item)}
-                                className="text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                                title="Edit name, description, stock, type"
-                              >
-                                <Edit size={16} />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteEquipment(item.equipment_id)}
-                                className="text-red-400 hover:text-red-600 transition-colors cursor-pointer"
-                                title="Delete Equipment"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap mt-1.5">
+                          <span className="px-2.5 py-[3px] rounded-full bg-[#f4f6f8] border border-slate-200 text-[11.5px] font-bold text-slate-600 whitespace-nowrap">
+                            {item.equipment_type === 'Decoration' ? 'Decoration' : 'Countable'}
+                          </span>
+                          <span className="text-[12.5px] text-slate-500 whitespace-nowrap">
+                            {item.pax_per_unit ? `${item.pax_per_unit} guest${item.pax_per_unit === 1 ? '' : 's'} per unit` : 'no guest capacity'}
+                          </span>
+                        </div>
+                        {item.eqm_description && (
+                          <p className="text-xs text-slate-500 mt-1 [text-wrap:pretty]">{item.eqm_description}</p>
+                        )}
+                      </div>
+
+                      {/* ZONE B — what condition it is in */}
+                      <div className="min-w-0">
+                        <div className="flex items-baseline justify-between gap-2.5 mb-[7px]">
+                          <span className="text-[13px] font-bold text-slate-700 tabular-nums">{stock.total} owned</span>
+                          <span className="text-xs text-slate-500">
+                            {stock.outOfService === 0 ? 'all usable' : `${stock.outOfService} out of service`}
+                          </span>
+                        </div>
+
+                        <div className="flex h-[9px] rounded-full overflow-hidden bg-[#eef2f6]">
+                          <div style={{ width: `${pct(stock.usable)}%` }} className="bg-[#008A45]" />
+                          <div style={{ width: `${pct(stock.damaged)}%` }} className="bg-red-600" />
+                          <div style={{ width: `${pct(stock.maintenance)}%` }} className="bg-amber-500" />
+                        </div>
+
+                        <div className="flex items-center gap-3.5 flex-wrap mt-2.5">
+                          <Legend color="#008A45" text={`${stock.usable} usable`} />
+                          {stock.damaged > 0 && <Legend color="#dc2626" text={`${stock.damaged} damaged`} />}
+                          {stock.maintenance > 0 && <Legend color="#f59e0b" text={`${stock.maintenance} maintenance`} />}
+                        </div>
+                      </div>
+
+                      {/* ZONE C — what you can actually use, and the actions */}
+                      <div className="flex items-center justify-end gap-4 min-w-0 max-[940px]:justify-start">
+                        <div className="text-right min-w-0 max-[940px]:text-left">
+                          <span className="block text-[22px] font-extrabold tracking-[-0.03em] leading-none text-slate-900 tabular-nums">{stock.usable}</span>
+                          <span className="block mt-1 text-[11.5px] font-bold tracking-[0.06em] uppercase text-slate-500">usable</span>
+                          {/* "Committed", not "out now": most of these are events
+                              that have not happened yet, and a chair promised to
+                              a wedding three days out is not in use by any
+                              reading of the word. */}
+                          <button
+                            onClick={() => handleViewUsage(item)}
+                            className="block mt-[7px] text-[12.5px] text-slate-500 hover:text-[#007038] whitespace-nowrap cursor-pointer max-[940px]:text-left ml-auto max-[940px]:ml-0"
+                            title={usageCount > 0
+                              ? `${committedUnits} unit${committedUnits === 1 ? '' : 's'} across ${usageCount} booking${usageCount === 1 ? '' : 's'} — ${inUseCount} in use, ${upcomingCount} upcoming`
+                              : 'No current commitments — click to see past assignments'}
+                          >
+                            {usageCount > 0
+                              ? `Committed to ${usageCount} booking${usageCount === 1 ? '' : 's'}`
+                              : 'Not committed'}
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          <IconBtn label="Edit name, description, stock, type" onClick={() => handleEditClick(item)} Icon={Edit} />
+                          <IconBtn label="Flag an issue — damaged or under maintenance" onClick={() => handleFlagIssueClick(item)} Icon={Wrench} hover="amber" />
+                          <IconBtn label="Delete equipment" onClick={() => handleDeleteEquipment(item.equipment_id)} Icon={Trash2} hover="red" />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </>
         )}
