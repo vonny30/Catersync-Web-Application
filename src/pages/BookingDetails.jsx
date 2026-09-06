@@ -21,7 +21,7 @@ import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
 import { allocateEquipmentForBooking } from '../utils/equipment';
-import { getDispatchWindow, TRIP_LEG } from '../utils/vehicle';
+import { TRIP_LEG, countDistinctVehicles, groupDispatchRuns } from '../utils/vehicle';
 import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind, formatPaymentDeletionWarning } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
@@ -910,6 +910,16 @@ export default function BookingDetails() {
   };
 
   // --- Equipment Assignment Handlers (unique) ---
+  // The lock is not cosmetic — styling alone leaves the modal reachable, so
+  // the handler refuses too. Same shape as openAssignEquipModal below.
+  const openAssignVehicleModal = () => {
+    if (isPaymentLedgerLocked(booking.booking_status)) {
+      toast.error(`Vehicles can't be dispatched anymore — this booking is ${booking.booking_status}.`);
+      return;
+    }
+    setIsAssignVehicleOpen(true);
+  };
+
   const openAssignEquipModal = () => {
     if (isPaymentLedgerLocked(booking.booking_status)) {
       toast.error(`Equipment can't be assigned anymore — this booking is ${booking.booking_status}.`);
@@ -1196,6 +1206,9 @@ export default function BookingDetails() {
   // How much of the contract has actually been collected, as a proportion —
   // the hero's Balance KPI states it. Guarded so a booking with no total
   // reads 0% rather than NaN, and clamped so an overpayment cannot read 110%.
+  // Runs, not rows — see groupDispatchRuns.
+  const dispatchRuns = groupDispatchRuns(dispatches, booking);
+
   const pctCollected = (booking.total_amount || 0) > 0
     ? Math.min(100, Math.round((positivePayments / booking.total_amount) * 100))
     : 0;
@@ -1821,16 +1834,24 @@ export default function BookingDetails() {
                 </span>
               </h3>
               <div className="flex items-center gap-2">
-                {canDispatch && (
+                {/* Always rendered and locked, the way Equipment does it — the
+                    button used to vanish entirely, so a Confirmed booking gave
+                    no hint that dispatch was deliberately closed rather than
+                    missing. */}
                 <button
-                  onClick={() => setIsAssignVehicleOpen(true)}
-                  className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm"
+                  onClick={openAssignVehicleModal}
+                  className={isPaymentLedgerLocked(booking.booking_status)
+                    ? 'bg-slate-100 text-slate-400 font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors'
+                    : 'bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm'}
+                  title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — vehicles can't be dispatched once a booking is ${booking.booking_status}` : undefined}
                 >
-                  <ClipboardList size={14} /> {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
+                  {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
                 </button>
-                )}
+                {/* Vehicles, not rows. Three vans across two legs is six rows;
+                    this used to read "6 vehicles". */}
                 <span className="text-xs font-medium text-slate-500">
-                  {dispatches.length} vehicle{dispatches.length !== 1 ? 's' : ''}
+                  {countDistinctVehicles(dispatches)} vehicle{countDistinctVehicles(dispatches) !== 1 ? 's' : ''}
+                  {dispatchRuns.length > 0 && ` · ${dispatchRuns.length} run${dispatchRuns.length !== 1 ? 's' : ''}`}
                 </span>
               </div>
             </div>
@@ -1844,52 +1865,53 @@ export default function BookingDetails() {
                     : `No vehicles — this booking is ${booking?.booking_status?.toLowerCase() || 'not active'}.`}
               </p>
             ) : (
-              <div className="space-y-2">
-                {/* Chronological: the setup run has to happen before the
-                    collection run, so it reads first. */}
-                {[...dispatches]
-                  .sort((x, y) => new Date(x.dispatch_datetime || 0) - new Date(y.dispatch_datetime || 0))
-                  .map(d => {
-                  const returned = d.assignment_status === 'Completed';
-                  const stage = getAssignmentStatus(returned, booking?.event_datetime);
-                  const win = getDispatchWindow(d, booking);
-                  const isCollection = win?.leg === TRIP_LEG.pickup;
+              <div className="space-y-2.5">
+                {/* One block per RUN, not per vehicle-leg. The window text was
+                    repeated once per vehicle, so a three-van event rendered
+                    six near-identical rows. Grouped on the exact departure
+                    time, so vehicles that genuinely leave at different times
+                    still get their own block rather than being folded into a
+                    tidy summary that hides the difference. */}
+                {dispatchRuns.map(run => {
+                  const isCollection = run.leg === TRIP_LEG.pickup;
+                  const stages = run.rows.map(r => getAssignmentStatus(r.assignment_status === 'Completed', booking?.event_datetime));
+                  const shared = stages.every(st => st.key === stages[0].key) ? stages[0] : null;
+                  const pill = (st) => `inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${
+                    st.key === 'returned' ? 'bg-slate-100 text-slate-600'
+                      : st.key === 'in_use' ? 'bg-emerald-50 text-emerald-700'
+                      : 'bg-blue-50 text-blue-700'
+                  }`;
                   return (
-                    <div key={d.assignment_id} className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-900">
-                          {d.vehicle?.plate_number || 'Unknown vehicle'}
-                          <span className="ml-2 text-[12.5px] font-medium text-slate-500">{d.vehicle?.vehicle_type || ''}</span>
-                        </p>
-                        <p className="text-[13px] text-slate-600 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-                          {win && (
+                    <div key={run.key} className="bg-[#fbfcfd] border border-[#eef2f6] rounded-xl px-4 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-[13px] text-slate-700 flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+                          {run.legLabel && (
                             <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
                               isCollection ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
                             }`}>
-                              {win.legLabel}
+                              {run.legLabel}
                             </span>
                           )}
-                          <span>
-                            {win
-                              ? `${isCollection ? 'Collects from' : 'Leaves'} ${win.start.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · back ${win.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                              : `Leaves ${d.dispatch_datetime ? new Date(d.dispatch_datetime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'time not set'}`}
+                          <span className="font-semibold text-slate-900">
+                            {run.window
+                              ? `${isCollection ? 'Collects' : 'Leaves'} ${run.window.start.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · back ${run.window.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                              : `Leaves ${run.dispatchAt ? new Date(run.dispatchAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'time not set'}`}
                           </span>
                         </p>
+                        {/* One pill for the run when every vehicle on it agrees;
+                            otherwise each vehicle carries its own below. */}
+                        {shared && <span className={pill(shared)}>{shared.label}</span>}
                       </div>
-                      {/* Three stages, not two. `returned ? 'Returned' :
-                          'Scheduled'` collapsed Assigned and In Use into one
-                          word, so during the event this page said Scheduled
-                          while the Vehicles page said In Use for the same row.
-                          getAssignmentStatus owns the lifecycle; both read it
-                          now. Note it takes the FINISHED flag, not a status
-                          string. */}
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${
-                        stage.key === 'returned' ? 'bg-slate-100 text-slate-600'
-                          : stage.key === 'in_use' ? 'bg-emerald-50 text-emerald-700'
-                          : 'bg-blue-50 text-blue-700'
-                      }`}>
-                        {stage.label}
-                      </span>
+
+                      <div className="flex flex-wrap items-center gap-2 mt-2.5">
+                        {run.rows.map((d, i) => (
+                          <span key={d.assignment_id} className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-white border border-slate-200">
+                            <span className="text-[13px] font-semibold text-slate-900">{d.vehicle?.plate_number || 'Unknown vehicle'}</span>
+                            <span className="text-[12px] text-slate-500">{d.vehicle?.vehicle_type || ''}</span>
+                            {!shared && <span className={pill(stages[i])}>{stages[i].label}</span>}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   );
                 })}

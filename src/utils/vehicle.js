@@ -948,7 +948,28 @@ export const findConflictingAssignment = (assignments, vehicleId, booking, dispa
     if (a.vehicle_id !== vehicleId) return false;
     if (a.assignment_status === 'Completed') return false;
     if (a.booking?.booking_status === 'Rejected' || a.booking?.booking_status === 'Cancelled') return false;
-    if (a.booking_id === booking.booking_id) return false; // its own other leg
+    if (a.booking_id === booking.booking_id) {
+      // Same booking used to be skipped outright, on the reasoning that one van
+      // legitimately does both the setup and the collection for one event and
+      // those two windows must not read as a clash. The reasoning is right; the
+      // test was not. Excluding by BOOKING rather than by LEG also skipped the
+      // same vehicle added twice to the same leg, and two same-booking runs
+      // whose windows genuinely overlap — a motorcycle was found holding two
+      // Collection runs on one booking, 2-5pm and 4-7pm, starting the second an
+      // hour before the first ended.
+      //
+      // `a.booking` is undefined for rows loaded by the detail page, whose
+      // select does not always join booking. A same-booking row can safely use
+      // the current booking for its window; without the fallback
+      // getDispatchWindow returns null and the duplicate slips through again.
+      const existing = getDispatchWindow(a, a.booking ?? booking);
+      // Same vehicle, same leg, same booking is a duplicate whatever the times.
+      if (existing?.leg === proposed.leg) return true;
+      // Genuinely the other leg: allowed, but the windows still must not
+      // overlap. A setup running to 1pm and a collection leaving at noon is the
+      // same physical impossibility as a cross-booking clash.
+      return tripsConflict(existing, proposed);
+    }
     return tripsConflict(getDispatchWindow(a, a.booking), proposed);
   }) || null;
 };
@@ -960,6 +981,70 @@ export const describeAssignment = (a) => {
   if (!w) return ref;
   const at = (d) => d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   return `${ref} (${w.legLabel.toLowerCase()}, ${at(w.start)} to ${at(w.end)})`;
+};
+
+/**
+ * How many VEHICLES an assignment list represents, not how many rows.
+ *
+ * A row is one vehicle on one leg, so three vans doing a setup and a collection
+ * is six rows. Counting rows made the Dispatch header say "6 vehicles" for a
+ * three-van event.
+ */
+export const countDistinctVehicles = (assignments) =>
+  new Set((assignments || []).map(a => a.vehicle_id).filter(Boolean)).size;
+
+/**
+ * Collapse assignment rows into the runs they actually describe.
+ *
+ * Grouped on (leg, exact dispatch_datetime) rather than on the leg alone. In
+ * the normal case every vehicle on a leg shares one departure, so this returns
+ * two groups and the window text is stated once instead of once per vehicle.
+ *
+ * The exact time matters: grouping by leg alone would fold rows with DIFFERENT
+ * departure times into one tidy block, which is precisely how a mistake hides.
+ * A stray third block is how an anomaly announces itself.
+ *
+ * Sorted chronologically, so the setup run reads before the collection run.
+ */
+export const groupDispatchRuns = (assignments, booking) => {
+  const groups = new Map();
+  for (const a of assignments || []) {
+    const window = getDispatchWindow(a, a.booking ?? booking);
+    const key = `${window?.leg || 'unknown'}|${a.dispatch_datetime || 'none'}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        leg: window?.leg || null,
+        legLabel: window?.legLabel || null,
+        window,
+        dispatchAt: a.dispatch_datetime || null,
+        rows: [],
+      });
+    }
+    groups.get(key).rows.push(a);
+  }
+  return [...groups.values()].sort(
+    (x, y) => new Date(x.dispatchAt || 0) - new Date(y.dispatchAt || 0)
+  );
+};
+
+/**
+ * Why a clash blocks this vehicle, phrased for whoever is looking at it.
+ *
+ * A clash on ANOTHER booking and a clash on THIS one are different problems and
+ * need different sentences. "Already out on BKG-124 (collection run, ...)" is
+ * right for the first and nonsense for the second, where the manager is looking
+ * at that very booking — there the useful fact is simply that this vehicle is
+ * already on this leg.
+ */
+export const describeClash = (clash, booking) => {
+  if (!clash) return '';
+  if (clash.booking_id && booking?.booking_id && clash.booking_id === booking.booking_id) {
+    const w = getDispatchWindow(clash, clash.booking ?? booking);
+    const leg = w?.legLabel ? w.legLabel.toLowerCase() : 'this run';
+    return `Already on this booking's ${leg}`;
+  }
+  return `Already out on ${describeAssignment(clash)}`;
 };
 
 /**

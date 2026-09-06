@@ -19,7 +19,7 @@ import { fetchAllRows } from '../utils/fetchAllRows';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { getCurrentManagerId } from '../utils/currentManager';
 import {
-  defaultSetupDispatch, findConflictingAssignment, describeAssignment, needsTransport,
+  defaultSetupDispatch, findConflictingAssignment, describeClash, needsTransport,
   recheckConflictsBeforeInsert, DUPLICATE_ASSIGNMENT_CODE, duplicateAssignmentMessage,
 } from '../utils/vehicle';
 
@@ -132,7 +132,7 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
       const clash = findConflictingAssignment(assignments, vehicleId, booking, dispatchValue);
       if (clash) {
         const v = vehicles.find(x => x.vehicle_id === vehicleId);
-        conflicts.push(`${v?.plate_number || vehicleId} - ${describeAssignment(clash)}`);
+        conflicts.push(`${v?.plate_number || vehicleId} - ${describeClash(clash, booking)}`);
       }
     }
     if (conflicts.length > 0) {
@@ -148,7 +148,7 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
       if (late.length > 0) {
         const names = late.map(({ vehicle_id, conflict }) => {
           const v = vehicles.find(x => x.vehicle_id === vehicle_id);
-          return `${v?.plate_number || vehicle_id} - ${describeAssignment(conflict)}`;
+          return `${v?.plate_number || vehicle_id} - ${describeClash(conflict, booking)}`;
         });
         toast.error(`Booked elsewhere while this was open: ${names.join('; ')}. Nothing was assigned — pick another vehicle or time.`, { duration: 9000 });
         setIsSubmitting(false);
@@ -262,8 +262,12 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
                         {outOfService && (
                           <span className="block text-[11px] text-slate-500 mt-0.5">{v.vehicle_status} — not available to dispatch</span>
                         )}
+                        {/* A clash on THIS booking reads differently from one
+                            on another booking — describeClash picks the right
+                            sentence, and a same-leg duplicate now lands here
+                            rather than looking selectable until submit. */}
                         {clash && (
-                          <span className="block text-[11px] text-amber-800 mt-0.5">Already out on {describeAssignment(clash)}</span>
+                          <span className="block text-[11px] text-amber-800 mt-0.5">{describeClash(clash, booking)}</span>
                         )}
                       </span>
                     </label>
