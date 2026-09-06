@@ -1628,9 +1628,23 @@ export default function Payments() {
                             {orderStatus}
                           </span>
                           {/* opacity-70 on the row read as "faded", not as
-                              "this money is excluded from the figure above". */}
+                              "this money is excluded from the figure above".
+
+                              The whole booking's payment history, NOT
+                              group.entries. This tab keeps only amount_paid >= 0
+                              (refunds are the Refunds tab) and is date-filtered,
+                              so a refund can never appear in group.entries — the
+                              note would have said "no refund recorded" for a
+                              booking that had been refunded in full, and no
+                              amount of refreshing would have corrected it. The
+                              money position is a fact about the booking, so it
+                              has to be read from the booking's own rows. */}
                           {isCancelledOrRejected && (
-                            <RetainedFromCancellationNote rows={group.entries} status={orderStatus} compact />
+                            <RetainedFromCancellationNote
+                              rows={group.bookingId ? payments.filter(p => p.booking_id === group.bookingId) : group.entries}
+                              status={orderStatus}
+                              compact
+                            />
                           )}
                         </td>
                         <td className="px-4 py-[15px] text-sm text-slate-800">
