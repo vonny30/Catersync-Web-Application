@@ -991,7 +991,15 @@ export const describeAssignment = (a) => {
  * three-van event.
  */
 export const countDistinctVehicles = (assignments) =>
-  new Set((assignments || []).map(a => a.vehicle_id).filter(Boolean)).size;
+  // `vehicle_id ?? vehicle?.plate_number`, because an embed silently removes
+  // the scalar: PostgREST's `vehicle:vehicle_id (...)` REPLACES vehicle_id with
+  // the nested object, so a.vehicle_id was undefined on every row and this
+  // returned 0 while three vans sat on screen. Both detail selects now ask for
+  // the scalar explicitly; the fallback means a caller that forgets degrades to
+  // counting plates rather than silently reporting none.
+  new Set((assignments || [])
+    .map(a => a.vehicle_id ?? a.vehicle?.plate_number)
+    .filter(Boolean)).size;
 
 /**
  * Collapse assignment rows into the runs they actually describe.

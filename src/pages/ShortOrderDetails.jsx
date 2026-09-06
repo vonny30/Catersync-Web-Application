@@ -5,8 +5,8 @@ import AssignVehicleModal from '../components/AssignVehicleModal';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Truck, AlertTriangle, Package as PackageIcon,
   MapPin, Calendar, User, Phone, Mail, Pencil, UtensilsCrossed, CreditCard } from 'lucide-react';
-import { SectionHeader, SectionCard, Field } from '../components/DetailPrimitives';
-import { initialsOf, fmtDateTime, fmtShortDate, fmtTime } from '../utils/detailFormat';
+import { SectionHeader, SectionCard, Field, CardScrollArea } from '../components/DetailPrimitives';
+import { initialsOf, fmtDateTime, fmtShortDate, fmtTime, displayNotes } from '../utils/detailFormat';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -181,7 +181,7 @@ export default function ShortOrderDetails() {
       // a van for this?".
       const { data: dispatchData } = await supabase
         .from('vehicle_assign')
-        .select('assignment_id, dispatch_datetime, assignment_status, vehicle:vehicle_id (plate_number, vehicle_type, vehicle_status)')
+        .select('assignment_id, vehicle_id, dispatch_datetime, assignment_status, vehicle:vehicle_id (plate_number, vehicle_type, vehicle_status)')
         .eq('booking_id', id)
         .order('dispatch_datetime', { ascending: true });
       setDispatches(dispatchData || []);
@@ -1070,7 +1070,7 @@ export default function ShortOrderDetails() {
           Full width instead of a 430px rail — same reasoning as Booking
           Details. Labels sit above their values so a venue address gets the
           whole cell rather than two thirds of a narrow column. */}
-      <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-start">
+      <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-stretch">
 
         <SectionCard className="min-[980px]:col-span-7">
           <SectionHeader icon={Calendar} title="Order" />
@@ -1117,7 +1117,10 @@ export default function ShortOrderDetails() {
               <Pencil size={15} className="shrink-0 mt-0.5 text-slate-400" />
               <div className="min-w-0">
                 <span className="block text-[10.5px] font-bold tracking-[0.1em] uppercase text-slate-600">Notes</span>
-                <p className="mt-1 text-[13.5px] leading-[1.5] text-slate-700 whitespace-pre-wrap [text-wrap:pretty]">{order.notes}</p>
+                {/* Machine-written "[REFUND] Amount: ..." marker stripped from
+                    DISPLAY only — the stored value is shared with the customer
+                    mobile app and is left alone. */}
+                <p className="mt-1 text-[13.5px] leading-[1.5] text-slate-700 whitespace-pre-wrap [text-wrap:pretty]">{displayNotes(order.notes)}</p>
               </div>
             </div>
           )}
@@ -1158,32 +1161,15 @@ export default function ShortOrderDetails() {
       </div>
 
       {/* ================= LISTS ================= */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          {/* Dispatch — blueprint-03 5.8. Until now a vehicle appeared on this
-              page only inside the delete warning, so the booking never knew
-              what was carrying it while the vehicle knew its booking. */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><UtensilsCrossed size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Menu Items (Trays)</h3></div>
-              <span className="text-xs font-medium text-slate-500">{menuSelections.length} item{menuSelections.length !== 1 ? 's' : ''}</span>
-            </div>
-            {menuSelections.length === 0 ? (
-              <p className="text-sm text-slate-500 italic">No menu items selected.</p>
-            ) : (
-              <div className="space-y-2">
-                {menuSelections.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
-                    <div>
-                      <span className="text-sm font-semibold text-slate-700">{item.menu_name}</span>
-                      <span className="text-xs text-slate-500 ml-2">× {item.quantity}</span>
-                    </div>
-                    <span className="text-sm font-bold text-slate-900">₱{(item.menu_price * item.quantity).toLocaleString()}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
+        {/* Same row structure as Booking Details: one 12-column grid per row,
+            every row on the same 7/5 spans, so the seam between the columns
+            sits at the same x all the way down. Explicit rows rather than one
+            flowing grid, so a card cannot migrate between columns depending on
+            whether Refund History is present. items-stretch levels the bottoms
+            of a pair and moves any slack inside the card as padding. */}
+        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-stretch">
+          {/* Payment Tracking */}
+          <div className="min-[980px]:col-span-7 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><CreditCard size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Payment Tracking</h3></div>
               {canRecordPayment && (
@@ -1225,6 +1211,7 @@ export default function ShortOrderDetails() {
             </div>
             {paymentEntries.length > 0 && (
               <div className="mt-4 border border-slate-300 rounded-lg overflow-hidden">
+                <CardScrollArea>
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="bg-[#EAF3F2] text-slate-900 font-bold border-b border-slate-300">
@@ -1283,17 +1270,42 @@ export default function ShortOrderDetails() {
                     })}
                   </tbody>
                 </table>
+                </CardScrollArea>
               </div>
             )}
           </div>
 
-          {/* Refund History — a refund is money going out, not a kind of
-              payment, so it gets its own place instead of sitting inside
-              the Payment Tracking ledger above. Carries the refund-specific
-              numbers (total refunded, what's still refundable) and the
-              eligibility status that used to live inside Payment Tracking. */}
+          {/* Menu Items */}
+          <div className="min-[980px]:col-span-5 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><UtensilsCrossed size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Menu Items (Trays)</h3></div>
+              <span className="text-xs font-medium text-slate-500">{menuSelections.length} item{menuSelections.length !== 1 ? 's' : ''}</span>
+            </div>
+            {menuSelections.length === 0 ? (
+              <p className="text-sm text-slate-500 italic">No menu items selected.</p>
+            ) : (
+              <CardScrollArea>
+              <div className="space-y-2">
+                {menuSelections.map((item, idx) => (
+                  <div key={idx} className="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
+                    <div>
+                      <span className="text-sm font-semibold text-slate-700">{item.menu_name}</span>
+                      <span className="text-xs text-slate-500 ml-2">× {item.quantity}</span>
+                    </div>
+                    <span className="text-sm font-bold text-slate-900">₱{(item.menu_price * item.quantity).toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+              </CardScrollArea>
+            )}
+          </div>
+        </div>
+
+        {/* Full width — five-column table, and it only appears on a cancelled
+            or refunded order. */}
+        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-stretch">
           {refundEntries.length > 0 && (
-            <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
+            <div className="min-[980px]:col-span-12 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
               <div className="flex items-center gap-[11px] min-w-0 mb-4"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><RefreshCw size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Refund History</h3></div>
 
               <div className="grid grid-cols-2 gap-3 mb-3">
@@ -1331,6 +1343,7 @@ export default function ShortOrderDetails() {
               </div>
 
               <div className="border border-slate-300 rounded-lg overflow-hidden">
+                <CardScrollArea>
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="bg-red-50 text-slate-900 font-bold border-b border-slate-300">
@@ -1365,12 +1378,19 @@ export default function ShortOrderDetails() {
                     </tr>
                   </tfoot>
                 </table>
+                </CardScrollArea>
               </div>
             </div>
           )}
+        </div>
 
-          {/* Menu Items List */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
+        {/* Dispatch takes the FULL 12 rather than the 5-slot of a half-empty
+            row. A short order has no Equipment card, so pairing Dispatch with
+            nothing would strand it beside an empty half — the exact thing this
+            layout exists to remove. Full width keeps the page's left edge
+            unbroken and gives the vehicle chips room to sit on one line. */}
+        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-stretch">
+          <div className="min-[980px]:col-span-12 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900 flex items-center gap-2"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><Truck size={17} /></span>
                 Dispatch
@@ -1417,6 +1437,7 @@ export default function ShortOrderDetails() {
                       : `No vehicles — this order is ${order?.booking_status?.toLowerCase() || 'not active'}.`}
               </p>
             ) : (
+              <CardScrollArea>
               <div className="space-y-2">
                 {isCustomerPickup && (
                   <p className="flex items-start gap-1.5 text-[13px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -1432,9 +1453,12 @@ export default function ShortOrderDetails() {
                   const stages = run.rows.map(r => getAssignmentStatus(r.assignment_status === 'Completed', order?.event_datetime));
                   const shared = stages.every(st => st.key === stages[0].key) ? stages[0] : null;
                   const pill = (st) => `inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${
-                    st.key === 'returned' ? 'bg-slate-100 text-slate-600'
-                      : st.key === 'in_use' ? 'bg-emerald-50 text-emerald-700'
-                      : 'bg-blue-50 text-blue-700'
+                    // Same three states, same three colours as Booking
+                    // Details: slate for the expected "Assigned", amber for
+                    // still-out, emerald for settled, on a 50/200/700 ladder.
+                    st.key === 'returned' ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+                      : st.key === 'in_use' ? 'bg-amber-50 border border-amber-200 text-amber-700'
+                      : 'bg-slate-50 border border-slate-200 text-slate-600'
                   }`;
                   return (
                     <div key={run.key} className="bg-[#fbfcfd] border border-[#eef2f6] rounded-xl px-4 py-3">
@@ -1469,10 +1493,9 @@ export default function ShortOrderDetails() {
                   );
                 })}
               </div>
+              </CardScrollArea>
             )}
           </div>
-
-          {/* Payment Tracking */}
         </div>
       </div>
 

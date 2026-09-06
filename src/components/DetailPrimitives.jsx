@@ -44,6 +44,29 @@ export function SectionCard({ children, className = '' }) {
 }
 
 /**
+ * The scrollable body of a list card.
+ *
+ * Wraps ONLY the rows — the card's header and any footer or total stay outside
+ * it, so they remain visible while the list scrolls. That is the whole reason
+ * this is a separate element rather than a prop on SectionCard: a card that
+ * scrolled as a whole would take its own title out of view.
+ *
+ * `max-h`, never a fixed `h`: a two-item list is shorter than the cap, so it
+ * renders at its natural height with no scrollbar and no reserved space. The
+ * cap only engages on a record long enough to run away with the page.
+ *
+ * `overscroll-contain` stops a scroll that reaches the end of this list from
+ * continuing into the page behind it.
+ */
+export function CardScrollArea({ children, className = '', max = '300px' }) {
+  return (
+    <div className={`overflow-y-auto overscroll-contain ${className}`} style={{ maxHeight: max }}>
+      {children}
+    </div>
+  );
+}
+
+/**
  * One label/value fact.
  *
  * `wide` spans two columns, but only from 820px up. At the two-column step a

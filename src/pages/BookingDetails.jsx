@@ -5,8 +5,8 @@ import AssignVehicleModal from '../components/AssignVehicleModal';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Search,
   MapPin, Calendar, User, Phone, Mail, Pencil, UtensilsCrossed, Briefcase, CreditCard, Truck } from 'lucide-react';
-import { SectionHeader, SectionCard, Field } from '../components/DetailPrimitives';
-import { initialsOf, fmtDateTime, fmtShortDate, fmtTime } from '../utils/detailFormat';
+import { SectionHeader, SectionCard, Field, CardScrollArea } from '../components/DetailPrimitives';
+import { initialsOf, fmtDateTime, fmtShortDate, fmtTime, displayNotes } from '../utils/detailFormat';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -202,7 +202,7 @@ export default function BookingDetails() {
       // a van for this?".
       const { data: dispatchData } = await supabase
         .from('vehicle_assign')
-        .select('assignment_id, dispatch_datetime, assignment_status, vehicle:vehicle_id (plate_number, vehicle_type, vehicle_status)')
+        .select('assignment_id, vehicle_id, dispatch_datetime, assignment_status, vehicle:vehicle_id (plate_number, vehicle_type, vehicle_status)')
         .eq('booking_id', id)
         .order('dispatch_datetime', { ascending: true });
       setDispatches(dispatchData || []);
@@ -1471,7 +1471,7 @@ export default function BookingDetails() {
           ~280px — a venue address wrapped to two lines in the width "120" was
           wasting. Labels now sit ABOVE their values, so each value gets the
           whole cell. */}
-      <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-start">
+      <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-stretch">
 
         <SectionCard className="min-[980px]:col-span-7">
           <SectionHeader icon={Calendar} title="Event">
@@ -1511,7 +1511,12 @@ export default function BookingDetails() {
               <Pencil size={15} className="shrink-0 mt-0.5 text-slate-400" />
               <div className="min-w-0">
                 <span className="block text-[10.5px] font-bold tracking-[0.1em] uppercase text-slate-600">Notes</span>
-                <p className="mt-1 text-[13.5px] leading-[1.5] text-slate-700 whitespace-pre-wrap [text-wrap:pretty]">{booking.notes}</p>
+                {/* The refund flow appends "[REFUND] Amount: PHP ..." into this
+                    user-facing field. Stripped from DISPLAY only — the stored
+                    value is untouched, because this column is shared with the
+                    customer mobile app. The refund is stated properly by the
+                    Refund History card below. */}
+                <p className="mt-1 text-[13.5px] leading-[1.5] text-slate-700 whitespace-pre-wrap [text-wrap:pretty]">{displayNotes(booking.notes)}</p>
               </div>
             </div>
           )}
@@ -1556,33 +1561,32 @@ export default function BookingDetails() {
           children, so they fill row-wise: Menu | Payments, Equipment |
           Dispatch. items-start stops the shorter column stretching to match
           the taller one, which was a second source of apparent emptiness. */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          {/* Payment Tracking */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><UtensilsCrossed size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Menu Selections</h3></div>
-              <span className="text-xs font-medium text-slate-500">{menuSelections.length} item{menuSelections.length !== 1 ? 's' : ''}</span>
-            </div>
-            {menuSelections.length === 0 ? (
-              <p className="text-sm text-slate-500 italic">No menu selections recorded.</p>
-            ) : (
-              <div className="space-y-2">
-                {menuSelections.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
-                    <span className="text-sm font-semibold text-slate-700">{item.category_name}</span>
-                    <span className="text-sm font-medium text-slate-900 bg-white px-3 py-1 rounded-full border border-slate-300">
-                      {item.menu_name}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+        {/* One 12-column grid per ROW, every row using the same 7/5 spans, so
+            the seam between the columns sits at the same x all the way down.
+            It used to be grid-cols-12 for the first row and a separate 50/50
+            grid for everything below, which moved the seam ~70px partway down.
 
-          {/* Dispatch — blueprint-03 5.8. Until now a vehicle appeared on this
-              page only inside the delete warning, so the booking never knew
-              what was carrying it while the vehicle knew its booking. */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
+            Explicit rows rather than one flowing grid: in a single grid a card
+            migrates between columns depending on what precedes it, so Equipment
+            sat in a different column on a record that had Refund History than
+            on one that did not.
+
+            The 7-column side takes the cards containing TABLES; the 5-column
+            side takes list and summary cards.
+
+            items-stretch, not items-start. The comment that used to sit here
+            defended items-start as stopping the shorter column stretching —
+            which is precisely what left a ~180px void beside Menu Selections.
+            Stretching moves that space INSIDE the card, where it reads as
+            padding rather than a hole in the page.
+
+            NOTE: the section comments in this block used to name the wrong
+            cards — "Payment Tracking" sat above Menu Selections, "Dispatch"
+            above Payment Tracking, "Menu Selections" above Equipment. Each
+            card is now labelled by what it actually renders. */}
+        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-stretch">
+          {/* Payment Tracking */}
+          <div className="min-[980px]:col-span-7 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><CreditCard size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Payment Tracking</h3></div>
               {canRecordPayment && (
@@ -1624,6 +1628,7 @@ export default function BookingDetails() {
             </div>
             {paymentEntries.length > 0 && (
               <div className="mt-4 border border-slate-300 rounded-lg overflow-hidden">
+                <CardScrollArea>
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="bg-[#EAF3F2] text-slate-900 font-bold border-b border-slate-300">
@@ -1683,17 +1688,47 @@ export default function BookingDetails() {
                     })}
                   </tbody>
                 </table>
+                </CardScrollArea>
               </div>
             )}
           </div>
 
-          {/* Refund History — a refund is money going out, not a kind of
-              payment, so it gets its own place instead of sitting inside
-              the Payment Tracking ledger above. Carries the refund-specific
-              numbers (total refunded, what's still refundable) and the
-              eligibility status that used to live inside Payment Tracking. */}
+          {/* Menu Selections */}
+          <div className="min-[980px]:col-span-5 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><UtensilsCrossed size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Menu Selections</h3></div>
+              <span className="text-xs font-medium text-slate-500">{menuSelections.length} item{menuSelections.length !== 1 ? 's' : ''}</span>
+            </div>
+            {menuSelections.length === 0 ? (
+              <p className="text-sm text-slate-500 italic">No menu selections recorded.</p>
+            ) : (
+              <CardScrollArea>
+              <div className="space-y-2">
+                {menuSelections.map((item, idx) => (
+                  <div key={idx} className="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
+                    <span className="text-sm font-semibold text-slate-700">{item.category_name}</span>
+                    <span className="text-sm font-medium text-slate-900 bg-white px-3 py-1 rounded-full border border-slate-300">
+                      {item.menu_name}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              </CardScrollArea>
+            )}
+          </div>
+        </div>
+
+        {/* Refund History gets the full 12: its table has five columns, and it
+            only appears on a cancelled or refunded record, so a full-width row
+            costs nothing on the common path and displaces no other card.
+
+            A refund is money going out, not a kind of payment, so it sits apart
+            from the Payment Tracking ledger above and carries the refund
+            specific numbers (total refunded, what is still refundable) and the
+            eligibility status that used to live inside Payment Tracking. */}
+        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-stretch">
           {refundEntries.length > 0 && (
-            <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
+            <div className="min-[980px]:col-span-12 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
               <div className="flex items-center gap-[11px] min-w-0 mb-4"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><RefreshCw size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Refund History</h3></div>
 
               <div className="grid grid-cols-2 gap-3 mb-3">
@@ -1731,6 +1766,7 @@ export default function BookingDetails() {
               </div>
 
               <div className="border border-slate-300 rounded-lg overflow-hidden">
+                <CardScrollArea>
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="bg-red-50 text-slate-900 font-bold border-b border-slate-300">
@@ -1765,12 +1801,15 @@ export default function BookingDetails() {
                     </tr>
                   </tfoot>
                 </table>
+                </CardScrollArea>
               </div>
             </div>
           )}
+        </div>
 
-          {/* Menu Selections */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
+        <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-stretch">
+          {/* Equipment Assignment */}
+          <div className="min-[980px]:col-span-7 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><Briefcase size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Equipment Assignment</h3></div>
               <div className="flex items-center gap-2">
@@ -1789,6 +1828,7 @@ export default function BookingDetails() {
             {equipment.length === 0 ? (
               <p className="text-sm text-slate-500 italic">No equipment allocated.</p>
             ) : (
+              <CardScrollArea>
               <div className="space-y-2">
                 {equipment.map((item, idx) => (
                   <div key={idx} className="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5">
@@ -1797,8 +1837,8 @@ export default function BookingDetails() {
                       <span className="text-xs text-slate-500 ml-2">× {item.quantity}</span>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${item.returned ? 'bg-green-100 border border-green-200 text-green-700' : 'bg-amber-100 border border-amber-200 text-amber-700'}`}>
-                        {item.returned ? '✅ Returned' : '📌 Assigned'}
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${item.returned ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-slate-50 border border-slate-200 text-slate-600'}`}>
+                        {item.returned ? 'Returned' : 'Assigned'}
                       </span>
                       {!item.returned && (
                         <div className="flex gap-2">
@@ -1822,9 +1862,14 @@ export default function BookingDetails() {
                   </div>
                 ))}
               </div>
+              </CardScrollArea>
             )}
           </div>
-          <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
+
+          {/* Dispatch — blueprint-03 5.8. Until now a vehicle appeared on this
+              page only inside the delete warning, so the booking never knew
+              what was carrying it while the vehicle knew its booking. */}
+          <div className="min-[980px]:col-span-5 bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900 flex items-center gap-2">
                 <span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><Truck size={17} /></span>
@@ -1865,6 +1910,7 @@ export default function BookingDetails() {
                     : `No vehicles — this booking is ${booking?.booking_status?.toLowerCase() || 'not active'}.`}
               </p>
             ) : (
+              <CardScrollArea>
               <div className="space-y-2.5">
                 {/* One block per RUN, not per vehicle-leg. The window text was
                     repeated once per vehicle, so a three-van event rendered
@@ -1877,9 +1923,16 @@ export default function BookingDetails() {
                   const stages = run.rows.map(r => getAssignmentStatus(r.assignment_status === 'Completed', booking?.event_datetime));
                   const shared = stages.every(st => st.key === stages[0].key) ? stages[0] : null;
                   const pill = (st) => `inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${
-                    st.key === 'returned' ? 'bg-slate-100 text-slate-600'
-                      : st.key === 'in_use' ? 'bg-emerald-50 text-emerald-700'
-                      : 'bg-blue-50 text-blue-700'
+                    // One meaning per colour, and the EXPECTED state is the
+                    // quiet one. "Assigned" is the normal condition of every
+                    // row, yet it was the loudest thing on the card — an amber
+                    // pill in Equipment and blue text here, two colours for one
+                    // state. Slate for expected, amber for still-out, emerald
+                    // for settled, all on a 50/200/700 ladder so equal weights
+                    // read at equal strength.
+                    st.key === 'returned' ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+                      : st.key === 'in_use' ? 'bg-amber-50 border border-amber-200 text-amber-700'
+                      : 'bg-slate-50 border border-slate-200 text-slate-600'
                   }`;
                   return (
                     <div key={run.key} className="bg-[#fbfcfd] border border-[#eef2f6] rounded-xl px-4 py-3">
@@ -1916,10 +1969,9 @@ export default function BookingDetails() {
                   );
                 })}
               </div>
+              </CardScrollArea>
             )}
           </div>
-
-          {/* Equipment Allocation */}
         </div>
       </div>
 
