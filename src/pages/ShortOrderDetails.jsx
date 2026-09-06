@@ -3,7 +3,10 @@ import { useState, useEffect, useMemo} from 'react';
 import Select from '../components/Select';
 import AssignVehicleModal from '../components/AssignVehicleModal';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Truck, AlertTriangle, Package as PackageIcon } from 'lucide-react';
+import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Truck, AlertTriangle, Package as PackageIcon,
+  MapPin, Calendar, User, Phone, Mail, Pencil, UtensilsCrossed, CreditCard } from 'lucide-react';
+import { SectionHeader, SectionCard, Field } from '../components/DetailPrimitives';
+import { initialsOf, fmtDateTime, fmtShortDate, fmtTime } from '../utils/detailFormat';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -816,6 +819,13 @@ export default function ShortOrderDetails() {
 
   const downpaymentPaid = sumVerifiedDownpayments(payments);
 
+  // Proportion of the order collected — the hero's Balance KPI states it.
+  // Guarded against a zero total and clamped so an overpayment cannot read
+  // above 100%.
+  const pctCollected = (order.total_amount || 0) > 0
+    ? Math.min(100, Math.round((positivePayments / order.total_amount) * 100))
+    : 0;
+
   const eventDate = order.event_datetime ? new Date(order.event_datetime) : null;
   const now = new Date();
   let daysUntilEvent = null;
@@ -857,23 +867,98 @@ export default function ShortOrderDetails() {
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate('/app/orders')}
-            className="w-10 h-10 bg-white border border-slate-300 rounded-lg flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
-          >
-            <ArrowLeft size={18} />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">
-              {order.customer?.first_name} {order.customer?.last_name}
-            </h1>
-            <p className="text-xs text-slate-500">Order #: {order.booking_number || order.booking_id.slice(0, 8)}</p>
+      {/* ================= HERO ================= */}
+      <div className="relative overflow-hidden rounded-[18px] bg-[#00713a] p-[clamp(22px,2.4vw,30px)] shadow-[0_10px_24px_-14px_rgba(4,47,26,0.42)]">
+        <div className="absolute -top-[150px] -right-[110px] w-[380px] h-[380px] rounded-full bg-white/[0.06]" />
+        <div className="absolute -bottom-[190px] left-[34%] w-[320px] h-[320px] rounded-full bg-white/[0.045]" />
+
+        <div className="relative flex items-start justify-between gap-5 flex-wrap">
+          <div className="min-w-0">
+            <button
+              onClick={() => navigate('/app/orders')}
+              className="inline-flex items-center gap-1.5 mb-[11px] text-[13px] font-semibold text-white/80 hover:text-white cursor-pointer"
+            >
+              <ArrowLeft size={15} /> Back to Short Orders
+            </button>
+            <div className="flex items-center gap-[11px] flex-wrap">
+              <h1 className="text-[clamp(24px,2.3vw,30px)] font-extrabold tracking-[-0.03em] text-white">
+                {order.customer?.first_name} {order.customer?.last_name} — Short Order
+              </h1>
+              <span className="px-[11px] py-[5px] rounded-full bg-white/[0.16] text-xs font-bold tracking-[0.04em] text-white whitespace-nowrap">
+                {order.booking_number || `#${order.booking_id.slice(0, 8)}`}
+              </span>
+            </div>
+            <p className="mt-2 flex items-start gap-[7px] text-sm text-white/[0.84]">
+              <MapPin size={15} className="shrink-0 mt-0.5" /> {order.venue || 'No venue set'}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3 flex-wrap">
+        <span className={`px-4 py-1.5 rounded-full text-xs font-bold border ${
+          order.booking_status === 'Pending' ? 'bg-amber-50 border-amber-200 text-amber-700' :
+          order.booking_status === 'Approved' ? 'bg-[#EAF3F2] border-[#C1DEDC] text-slate-800' :
+          order.booking_status === 'Confirmed' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
+          order.booking_status === 'Completed' ? 'bg-blue-50 border-blue-200 text-blue-700' :
+          order.booking_status === 'Cancelled' ? 'bg-slate-100 border-slate-300 text-slate-600' :
+          'bg-red-50 border-red-200 text-red-700'
+        }`}>
+          {order.booking_status}
+        </span>
+        {hasUnpaidPastEvent({ booking_status: order.booking_status, event_datetime: order.event_datetime, total_amount: order.total_amount, positivePayments }) && (
+          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
+            Past Event — ₱{remainingBalance.toLocaleString()} Remaining
+          </span>
+        )}
+        {refundStatus === 'Fully Refunded' && (
+          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-blue-50 border-blue-200 text-blue-700">
+            Fully Refunded
+          </span>
+        )}
+        {refundStatus === 'Refundable' && (
+          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-green-50 border-green-200 text-green-700">
+            Refundable
+          </span>
+        )}
+        {refundStatus === 'Non-Refundable' && (
+          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
+            Non-Refundable
+          </span>
+        )}
+
+        {/* ✅ NEW: Show balance remaining for completed orders */}
+{order.booking_status === 'Completed' && positivePayments < (order.total_amount || 0) && (
+  <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-amber-50 border-amber-200 text-amber-700">
+    ⚠️ Balance Remaining
+  </span>
+)}
           </div>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
+
+        <div className="relative grid grid-cols-2 md:grid-cols-4 gap-px mt-[26px] bg-white/[0.16] rounded-[14px] overflow-hidden">
+          <div className="px-[18px] py-4 bg-white/[0.07]">
+            <span className="block text-[10.5px] font-bold tracking-[0.12em] uppercase text-white/[0.82]">Event date</span>
+            <div className="mt-1.5 text-[21px] font-extrabold tracking-[-0.025em] text-white">{fmtShortDate(order.event_datetime)}</div>
+            <span className="block mt-[3px] text-xs text-white/70">{fmtTime(order.event_datetime) || '—'}</span>
+          </div>
+          <div className="px-[18px] py-4 bg-white/[0.07]">
+            <span className="block text-[10.5px] font-bold tracking-[0.12em] uppercase text-white/[0.82]">Trays</span>
+            <div className="mt-1.5 text-[21px] font-extrabold tracking-[-0.025em] text-white">{totalTrays}</div>
+            <span className="block mt-[3px] text-xs text-white/70">Short order</span>
+          </div>
+          <div className="px-[18px] py-4 bg-white/[0.07]">
+            <span className="block text-[10.5px] font-bold tracking-[0.12em] uppercase text-white/[0.82]">Order total</span>
+            <div className="mt-1.5 text-[21px] font-extrabold tracking-[-0.025em] text-white">₱{order.total_amount?.toLocaleString() || '0'}</div>
+            <span className="block mt-[3px] text-xs text-white/70">incl. ₱{order.delivery_fee?.toLocaleString() || '0'} delivery</span>
+          </div>
+          <div className="px-[18px] py-4 bg-white/[0.07]">
+            <span className="block text-[10.5px] font-bold tracking-[0.12em] uppercase text-white/[0.82]">Balance</span>
+            <div className={`mt-1.5 text-[21px] font-extrabold tracking-[-0.025em] ${remainingBalance > 0 ? 'text-[#ffd88a]' : 'text-white'}`}>₱{remainingBalance.toLocaleString()}</div>
+            <span className="block mt-[3px] text-xs text-white/70">{pctCollected}% collected</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 flex-wrap bg-white border border-slate-200 rounded-2xl px-[18px] py-3.5 shadow-xs">
           {order.booking_status === 'Pending' && (
             <>
               <button onClick={() => openApprovalModal(order, 'shortorder')} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm">
@@ -936,49 +1021,8 @@ export default function ShortOrderDetails() {
           <button onClick={fetchOrder} className="bg-white border border-slate-300 text-slate-700 font-bold text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 hover:bg-slate-50">
             <RefreshCw size={16} /> Refresh
           </button>
-        </div>
       </div>
 
-      {/* Status Badge + Refund Indicator */}
-      <div className="flex items-center gap-3">
-        <span className={`px-4 py-1.5 rounded-full text-xs font-bold border ${
-          order.booking_status === 'Pending' ? 'bg-amber-50 border-amber-200 text-amber-700' :
-          order.booking_status === 'Approved' ? 'bg-[#EAF3F2] border-[#C1DEDC] text-slate-800' :
-          order.booking_status === 'Confirmed' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
-          order.booking_status === 'Completed' ? 'bg-blue-50 border-blue-200 text-blue-700' :
-          order.booking_status === 'Cancelled' ? 'bg-slate-100 border-slate-300 text-slate-600' :
-          'bg-red-50 border-red-200 text-red-700'
-        }`}>
-          {order.booking_status}
-        </span>
-        {hasUnpaidPastEvent({ booking_status: order.booking_status, event_datetime: order.event_datetime, total_amount: order.total_amount, positivePayments }) && (
-          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
-            Past Event — ₱{remainingBalance.toLocaleString()} Remaining
-          </span>
-        )}
-        {refundStatus === 'Fully Refunded' && (
-          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-blue-50 border-blue-200 text-blue-700">
-            Fully Refunded
-          </span>
-        )}
-        {refundStatus === 'Refundable' && (
-          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-green-50 border-green-200 text-green-700">
-            Refundable
-          </span>
-        )}
-        {refundStatus === 'Non-Refundable' && (
-          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
-            Non-Refundable
-          </span>
-        )}
-
-        {/* ✅ NEW: Show balance remaining for completed orders */}
-{order.booking_status === 'Completed' && positivePayments < (order.total_amount || 0) && (
-  <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-amber-50 border-amber-200 text-amber-700">
-    ⚠️ Balance Remaining
-  </span>
-)}
-      </div>
 
       {/* Mobile payment(s) awaiting verification — a manually recorded
           payment is verified by definition, so this only ever fires for
@@ -1008,109 +1052,107 @@ export default function ShortOrderDetails() {
         />
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="space-y-6">
         {/* LEFT COLUMN */}
-        <div className="lg:col-span-5 space-y-6">
-          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/30 rounded-xl p-6 shadow-xs">
-            <h3 className="text-sm font-bold text-slate-900 mb-4">Order Details</h3>
-            <div className="space-y-2.5 text-sm">
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Created</span>
-                <span className="col-span-2">
-                  {order.book_datetime ? new Date(order.book_datetime).toLocaleString() : 'N/A'}
-                </span>
-              </div>
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Event Date</span>
-                <span className="col-span-2">
-                  {order.event_datetime ? new Date(order.event_datetime).toLocaleString() : 'N/A'}
-                </span>
-              </div>
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Venue / Location</span>
-                <span className="col-span-2">{order.venue || 'N/A'}</span>
-              </div>
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Total Trays</span>
-                <span className="col-span-2 font-semibold">{totalTrays}</span>
-              </div>
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Service Method</span>
-                <span className="col-span-2">
-                  {(() => {
-                    const f = getServiceMethod(order);
-                    if (!f) return <span className="text-slate-500">N/A</span>;
-                    return (
-                      <>
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12.5px] font-semibold ${
-                          f.mode === 'Pickup' ? 'bg-amber-50 text-amber-800' : 'bg-blue-50 text-blue-700'
-                        }`}>
-                          {f.mode === 'Pickup' ? <PackageIcon size={13} /> : <Truck size={13} />}
-                          {f.mode}
-                        </span>
-                        {/* The basis, always. Pickup and delivery are read from
-                            the venue the customer app writes; the fee only ever
-                            cross-checks the amount, never the mode. */}
-                        <span className="block text-[12px] text-slate-500 mt-1">{f.basis}</span>
-                        {f.feeLooksWrong && (
-                          <span className="mt-1.5 flex items-start gap-1.5 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">
-                            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
-                            <span>{f.feeLooksWrong}</span>
-                          </span>
-                        )}
-                      </>
-                    );
-                  })()}
-                </span>
-              </div>
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Delivery Fee</span>
-                <span className="col-span-2">₱{order.delivery_fee?.toLocaleString() || '0'}</span>
-              </div>
-              <div className="grid grid-cols-3 border-t border-slate-200 pt-2 mt-1">
-                <span className="text-slate-700 font-bold">Total Amount</span>
-                <span className="col-span-2 font-bold text-[#008A45]">₱{order.total_amount?.toLocaleString() || '0'}</span>
-              </div>
-            </div>
-            {order.notes && (
-              <div className="pt-4 mt-4 border-t border-slate-100">
-                <span className="text-xs font-bold text-slate-900 block mb-1">Notes</span>
-                <p className="text-xs text-slate-500 whitespace-pre-wrap">{order.notes}</p>
-              </div>
-            )}
+      {/* ================= ORDER + CUSTOMER =================
+          Full width instead of a 430px rail — same reasoning as Booking
+          Details. Labels sit above their values so a venue address gets the
+          whole cell rather than two thirds of a narrow column. */}
+      <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-start">
+
+        <SectionCard className="min-[980px]:col-span-7">
+          <SectionHeader icon={Calendar} title="Order" />
+
+          <div className="grid grid-flow-row-dense grid-cols-2 min-[820px]:grid-cols-3 gap-x-[22px] gap-y-[18px]">
+            <Field label="Event date" value={fmtDateTime(order.event_datetime)} />
+            <Field label="Total trays" value={totalTrays} />
+            <Field label="Booked on" value={fmtDateTime(order.book_datetime)} />
+            <Field label="Venue / location" value={order.venue || 'N/A'} wide />
+            <Field label="Delivery fee" value={`₱${order.delivery_fee?.toLocaleString() || '0'}`} />
+            <Field label="Total amount">
+              <span className="text-[#007038]">₱{order.total_amount?.toLocaleString() || '0'}</span>
+            </Field>
+            <Field label="Service method" wide>
+              {(() => {
+                const f = getServiceMethod(order);
+                if (!f) return <span className="text-slate-500">N/A</span>;
+                return (
+                  <>
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12.5px] font-semibold ${
+                      f.mode === 'Pickup' ? 'bg-amber-50 text-amber-800' : 'bg-blue-50 text-blue-700'
+                    }`}>
+                      {f.mode === 'Pickup' ? <PackageIcon size={13} /> : <Truck size={13} />}
+                      {f.mode}
+                    </span>
+                    {/* The basis, always. Pickup and delivery are read from
+                        the venue the customer app writes; the fee only ever
+                        cross-checks the amount, never the mode. */}
+                    <span className="block text-[12px] font-normal text-slate-500 mt-1">{f.basis}</span>
+                    {f.feeLooksWrong && (
+                      <span className="mt-1.5 flex items-start gap-1.5 text-[12px] font-normal text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">
+                        <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                        <span>{f.feeLooksWrong}</span>
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
+            </Field>
           </div>
 
-          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/30 rounded-xl p-6 shadow-xs">
-            <h3 className="text-sm font-bold text-slate-900 mb-4">Customer Details</h3>
-            <div className="space-y-2 text-sm">
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Name</span>
-                <span className="col-span-2">{order.customer?.first_name} {order.customer?.last_name}</span>
-              </div>
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Contact</span>
-                <span className="col-span-2">{order.customer?.contact_no || 'N/A'}</span>
-              </div>
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Email</span>
-                <span className="col-span-2">{order.customer?.email_address || 'N/A'}</span>
-              </div>
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Address</span>
-                <span className="col-span-2">{order.customer?.cus_address || 'N/A'}</span>
+          {order.notes && (
+            <div className="flex items-start gap-2.5 mt-[22px] px-4 py-3.5 bg-[#fbfcfd] border border-[#eef2f6] rounded-xl">
+              <Pencil size={15} className="shrink-0 mt-0.5 text-slate-400" />
+              <div className="min-w-0">
+                <span className="block text-[10.5px] font-bold tracking-[0.1em] uppercase text-slate-600">Notes</span>
+                <p className="mt-1 text-[13.5px] leading-[1.5] text-slate-700 whitespace-pre-wrap [text-wrap:pretty]">{order.notes}</p>
               </div>
             </div>
-          </div>
-        </div>
+          )}
+        </SectionCard>
 
-        {/* RIGHT COLUMN */}
-        <div className="lg:col-span-7 space-y-6">
+        <SectionCard className="min-[980px]:col-span-5">
+          <SectionHeader icon={User} title="Customer" />
+
+          <div className="flex items-center gap-[13px] pb-[18px] border-b border-slate-100">
+            <span className="inline-flex items-center justify-center w-[46px] h-[46px] rounded-full bg-[#00713a] text-base font-extrabold text-white shrink-0">
+              {initialsOf(order.customer)}
+            </span>
+            <div className="min-w-0">
+              <span className="block text-[15.5px] font-bold text-slate-900 break-words">
+                {order.customer?.first_name} {order.customer?.last_name}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-[3px] mt-2">
+            {[
+              { Icon: Phone, label: 'Contact', value: order.customer?.contact_no || 'N/A' },
+              { Icon: Mail, label: 'Email', value: order.customer?.email_address || 'N/A' },
+              { Icon: MapPin, label: 'Address', value: order.customer?.cus_address || 'N/A' },
+            ].map(({ Icon, label, value }) => (
+              <div key={label} className="flex items-start gap-[11px] px-0.5 py-2.5">
+                <span className="inline-flex items-center justify-center w-7 h-7 rounded-[9px] bg-[#f6f8fa] text-slate-500 shrink-0">
+                  <Icon size={14} />
+                </span>
+                <div className="min-w-0 pt-px">
+                  <span className="block text-[10.5px] font-bold tracking-[0.1em] uppercase text-slate-600">{label}</span>
+                  <div className="mt-[3px] text-sm font-semibold leading-[1.4] text-slate-900 break-words [text-wrap:pretty]">{value}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      </div>
+
+      {/* ================= LISTS ================= */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           {/* Dispatch — blueprint-03 5.8. Until now a vehicle appeared on this
               page only inside the delete warning, so the booking never knew
               what was carrying it while the vehicle knew its booking. */}
-          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/50 rounded-xl p-6 shadow-xs">
+          <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-slate-900">Menu Items (Trays)</h3>
+              <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><UtensilsCrossed size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Menu Items (Trays)</h3></div>
               <span className="text-xs font-medium text-slate-500">{menuSelections.length} item{menuSelections.length !== 1 ? 's' : ''}</span>
             </div>
             {menuSelections.length === 0 ? (
@@ -1129,9 +1171,9 @@ export default function ShortOrderDetails() {
               </div>
             )}
           </div>
-          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-xl p-6 shadow-xs">
+          <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-[#007038]">Payment Tracking</h3>
+              <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><CreditCard size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Payment Tracking</h3></div>
               {canRecordPayment && (
                 <button
                   onClick={openPaymentModal}
@@ -1239,8 +1281,8 @@ export default function ShortOrderDetails() {
               numbers (total refunded, what's still refundable) and the
               eligibility status that used to live inside Payment Tracking. */}
           {refundEntries.length > 0 && (
-            <div className="bg-white border border-slate-200 border-l-4 border-l-red-500 rounded-xl p-6 shadow-xs">
-              <h3 className="text-sm font-bold text-red-700 mb-4">Refund History</h3>
+            <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
+              <div className="flex items-center gap-[11px] min-w-0 mb-4"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><RefreshCw size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Refund History</h3></div>
 
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3">
@@ -1316,9 +1358,9 @@ export default function ShortOrderDetails() {
           )}
 
           {/* Menu Items List */}
-          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/50 rounded-xl p-6 shadow-xs">
+          <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900 flex items-center gap-2"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><Truck size={17} /></span>
                 Dispatch
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 border border-sky-200">
                   Short Order

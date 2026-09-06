@@ -3,7 +3,10 @@ import { useState, useEffect, useMemo} from 'react';
 import Select from '../components/Select';
 import AssignVehicleModal from '../components/AssignVehicleModal';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Search } from 'lucide-react';
+import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Search,
+  MapPin, Calendar, User, Phone, Mail, Pencil, UtensilsCrossed, Briefcase, CreditCard, Truck } from 'lucide-react';
+import { SectionHeader, SectionCard, Field } from '../components/DetailPrimitives';
+import { initialsOf, fmtDateTime, fmtShortDate, fmtTime } from '../utils/detailFormat';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -1190,6 +1193,13 @@ export default function BookingDetails() {
 
   const downpaymentPaid = sumVerifiedDownpayments(payments);
 
+  // How much of the contract has actually been collected, as a proportion —
+  // the hero's Balance KPI states it. Guarded so a booking with no total
+  // reads 0% rather than NaN, and clamped so an overpayment cannot read 110%.
+  const pctCollected = (booking.total_amount || 0) > 0
+    ? Math.min(100, Math.round((positivePayments / booking.total_amount) * 100))
+    : 0;
+
   // Vehicles are dispatched for a booking that is going ahead. Approval is
   // what allocates them, so assigning before that point would be duplicated by
   // the auto-allocation approval runs; and a Cancelled, Rejected or Completed
@@ -1238,23 +1248,110 @@ export default function BookingDetails() {
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate('/app/bookings')}
-            className="w-10 h-10 bg-white border border-slate-300 rounded-lg flex items-center justify-center text-slate-600 hover:bg-slate-50 transition-colors shadow-xs"
-          >
-            <ArrowLeft size={18} />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">
-              {booking.customer?.first_name} {booking.customer?.last_name}
-            </h1>
-            <p className="text-xs text-slate-500">Booking #: {booking.booking_number || booking.booking_id.slice(0, 8)}</p>
+      {/* ================= HERO =================
+          The old header was a back arrow, a name and a booking number, with
+          the four figures a manager actually opens this page for scattered
+          down a 430px rail. Those four are promoted here; none of them is a
+          new calculation. */}
+      <div className="relative overflow-hidden rounded-[18px] bg-[#00713a] p-[clamp(22px,2.4vw,30px)] shadow-[0_10px_24px_-14px_rgba(4,47,26,0.42)]">
+        <div className="absolute -top-[150px] -right-[110px] w-[380px] h-[380px] rounded-full bg-white/[0.06]" />
+        <div className="absolute -bottom-[190px] left-[34%] w-[320px] h-[320px] rounded-full bg-white/[0.045]" />
+
+        <div className="relative flex items-start justify-between gap-5 flex-wrap">
+          <div className="min-w-0">
+            <button
+              onClick={() => navigate('/app/bookings')}
+              className="inline-flex items-center gap-1.5 mb-[11px] text-[13px] font-semibold text-white/80 hover:text-white cursor-pointer"
+            >
+              <ArrowLeft size={15} /> Back to Bookings
+            </button>
+            <div className="flex items-center gap-[11px] flex-wrap">
+              <h1 className="text-[clamp(24px,2.3vw,30px)] font-extrabold tracking-[-0.03em] text-white">
+                {booking.customer?.first_name} {booking.customer?.last_name}
+                {booking.package?.pkg_name ? ` — ${booking.package.pkg_name}` : ''}
+              </h1>
+              {/* booking_number, not booking_id — the id is a uuid. */}
+              <span className="px-[11px] py-[5px] rounded-full bg-white/[0.16] text-xs font-bold tracking-[0.04em] text-white whitespace-nowrap">
+                {booking.booking_number || `#${booking.booking_id.slice(0, 8)}`}
+              </span>
+            </div>
+            <p className="mt-2 flex items-start gap-[7px] text-sm text-white/[0.84]">
+              <MapPin size={15} className="shrink-0 mt-0.5" /> {booking.venue || 'No venue set'}
+            </p>
+          </div>
+
+          {/* Status chips — existing logic, unchanged, moved here. */}
+          <div className="flex items-center gap-3 flex-wrap">
+        <span className={`px-4 py-1.5 rounded-full text-xs font-bold border ${(
+          booking.booking_status === 'Pending' ? 'bg-amber-50 border-amber-200 text-amber-700' :
+          booking.booking_status === 'Approved' ? 'bg-[#EAF3F2] border-[#C1DEDC] text-slate-800' :
+          booking.booking_status === 'Confirmed' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
+          booking.booking_status === 'Completed' ? 'bg-blue-50 border-blue-200 text-blue-700' :
+          booking.booking_status === 'Cancelled' ? 'bg-slate-100 border-slate-300 text-slate-600' :
+          'bg-red-50 border-red-200 text-red-700'
+        )}`}>
+          {booking.booking_status}
+        </span>
+
+        {hasUnpaidPastEvent({ booking_status: booking.booking_status, event_datetime: booking.event_datetime, total_amount: booking.total_amount, positivePayments }) && (
+          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
+            Past Event — ₱{remainingBalance.toLocaleString()} Remaining
+          </span>
+        )}
+
+        {/* Refund status indicator for rejected/cancelled bookings with payments */}
+        {refundStatus === 'Fully Refunded' && (
+          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-blue-50 border-blue-200 text-blue-700">
+            Fully Refunded
+          </span>
+        )}
+        {refundStatus === 'Refundable' && (
+          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-green-50 border-green-200 text-green-700">
+            Refundable
+          </span>
+        )}
+        {refundStatus === 'Non-Refundable' && (
+          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
+            Non-Refundable
+          </span>
+        )}
+
+        {/* ✅ NEW: Show balance remaining for completed bookings */}
+{booking.booking_status === 'Completed' && positivePayments < (booking.total_amount || 0) && (
+  <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-amber-50 border-amber-200 text-amber-700">
+    Balance Remaining
+  </span>
+)}
           </div>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
+
+        <div className="relative grid grid-cols-2 md:grid-cols-4 gap-px mt-[26px] bg-white/[0.16] rounded-[14px] overflow-hidden">
+          <div className="px-[18px] py-4 bg-white/[0.07]">
+            <span className="block text-[10.5px] font-bold tracking-[0.12em] uppercase text-white/[0.82]">Event date</span>
+            <div className="mt-1.5 text-[21px] font-extrabold tracking-[-0.025em] text-white">{fmtShortDate(booking.event_datetime)}</div>
+            <span className="block mt-[3px] text-xs text-white/70">{fmtTime(booking.event_datetime) || '—'}</span>
+          </div>
+          <div className="px-[18px] py-4 bg-white/[0.07]">
+            <span className="block text-[10.5px] font-bold tracking-[0.12em] uppercase text-white/[0.82]">Guests</span>
+            <div className="mt-1.5 text-[21px] font-extrabold tracking-[-0.025em] text-white">{booking.pax_count}</div>
+            <span className="block mt-[3px] text-xs text-white/70">{booking.package?.pkg_name || 'No package'}</span>
+          </div>
+          <div className="px-[18px] py-4 bg-white/[0.07]">
+            <span className="block text-[10.5px] font-bold tracking-[0.12em] uppercase text-white/[0.82]">Contract total</span>
+            <div className="mt-1.5 text-[21px] font-extrabold tracking-[-0.025em] text-white">₱{booking.total_amount?.toLocaleString() || '0'}</div>
+            <span className="block mt-[3px] text-xs text-white/70">{booking.package?.pricing_type === 'fixed' ? 'Fixed pricing' : 'Per pax'}</span>
+          </div>
+          <div className="px-[18px] py-4 bg-white/[0.07]">
+            <span className="block text-[10.5px] font-bold tracking-[0.12em] uppercase text-white/[0.82]">Balance</span>
+            <div className={`mt-1.5 text-[21px] font-extrabold tracking-[-0.025em] ${remainingBalance > 0 ? 'text-[#ffd88a]' : 'text-white'}`}>₱{remainingBalance.toLocaleString()}</div>
+            <span className="block mt-[3px] text-xs text-white/70">{pctCollected}% collected</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Actions — every button unchanged, lifted out of the hero so the
+          coloured states do not fight the green. */}
+      <div className="flex items-center gap-3 flex-wrap bg-white border border-slate-200 rounded-2xl px-[18px] py-3.5 shadow-xs">
           {booking.booking_status === 'Pending' && (
             <>
               <button onClick={() => openApprovalModal(booking, 'package')} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm">
@@ -1321,52 +1418,8 @@ export default function BookingDetails() {
           <button onClick={fetchBooking} className="bg-white border border-slate-300 text-slate-700 font-bold text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 hover:bg-slate-50">
             <RefreshCw size={16} /> Refresh
           </button>
-        </div>
       </div>
 
-      {/* Status Badge + Refund Indicator */}
-      <div className="flex items-center gap-3">
-        <span className={`px-4 py-1.5 rounded-full text-xs font-bold border ${(
-          booking.booking_status === 'Pending' ? 'bg-amber-50 border-amber-200 text-amber-700' :
-          booking.booking_status === 'Approved' ? 'bg-[#EAF3F2] border-[#C1DEDC] text-slate-800' :
-          booking.booking_status === 'Confirmed' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
-          booking.booking_status === 'Completed' ? 'bg-blue-50 border-blue-200 text-blue-700' :
-          booking.booking_status === 'Cancelled' ? 'bg-slate-100 border-slate-300 text-slate-600' :
-          'bg-red-50 border-red-200 text-red-700'
-        )}`}>
-          {booking.booking_status}
-        </span>
-
-        {hasUnpaidPastEvent({ booking_status: booking.booking_status, event_datetime: booking.event_datetime, total_amount: booking.total_amount, positivePayments }) && (
-          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
-            Past Event — ₱{remainingBalance.toLocaleString()} Remaining
-          </span>
-        )}
-
-        {/* Refund status indicator for rejected/cancelled bookings with payments */}
-        {refundStatus === 'Fully Refunded' && (
-          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-blue-50 border-blue-200 text-blue-700">
-            Fully Refunded
-          </span>
-        )}
-        {refundStatus === 'Refundable' && (
-          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-green-50 border-green-200 text-green-700">
-            Refundable
-          </span>
-        )}
-        {refundStatus === 'Non-Refundable' && (
-          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
-            Non-Refundable
-          </span>
-        )}
-
-        {/* ✅ NEW: Show balance remaining for completed bookings */}
-{booking.booking_status === 'Completed' && positivePayments < (booking.total_amount || 0) && (
-  <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-amber-50 border-amber-200 text-amber-700">
-    Balance Remaining
-  </span>
-)}
-      </div>
 
       {/* Mobile payment(s) awaiting verification — a manually recorded
           payment is verified by definition, so this only ever fires for
@@ -1396,104 +1449,105 @@ export default function BookingDetails() {
         />
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="space-y-6">
         {/* LEFT COLUMN */}
-        <div className="lg:col-span-5 space-y-6">
-          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/30 rounded-xl p-6 shadow-xs">
-            <h3 className="text-sm font-bold text-slate-900 mb-4">Event Details</h3>
-            <div className="space-y-2.5 text-sm">
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Created</span>
-                <span className="col-span-2">
-                  {booking.book_datetime ? new Date(booking.book_datetime).toLocaleString() : 'N/A'}
-                </span>
-              </div>
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Event Date</span>
-                <span className="col-span-2">
-                  {booking.event_datetime ? new Date(booking.event_datetime).toLocaleString() : 'N/A'}
-                </span>
-              </div>
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Venue</span>
-                <span className="col-span-2">{booking.venue || 'N/A'}</span>
-              </div>
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Pax</span>
-                <span className="col-span-2">{booking.pax_count}</span>
-              </div>
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Package</span>
-                <span className="col-span-2">{booking.package?.pkg_name || 'None'}</span>
-              </div>
-              {booking.package && (
-                <div className="grid grid-cols-3">
-                  <span className="text-slate-700 font-bold">Pricing</span>
-                  <span className="col-span-2">
-                    {booking.package.pricing_type === 'fixed' ? (
-                      <span className="inline-flex items-center gap-1">
-                        <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded-full border border-purple-200">Fixed</span>
-                        <span className="font-semibold">₱{booking.package.pkg_price?.toLocaleString()}</span>
-                        {booking.package.max_pax && (
-                          <span className="text-xs text-slate-500">(up to {booking.package.max_pax} pax)</span>
-                        )}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1">
-                        <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full border border-blue-200">Per Pax</span>
-                        <span className="font-semibold">₱{booking.package.pkg_price?.toLocaleString()}</span>
-                        <span className="text-xs text-slate-500">/pax</span>
-                      </span>
-                    )}
+      {/* ================= EVENT + CUSTOMER =================
+          Full width, not a 430px rail. The old 5/7 split put twelve
+          label/value rows against four list cards, so the left column ended a
+          third of the way down and the values inside it were squeezed to
+          ~280px — a venue address wrapped to two lines in the width "120" was
+          wasting. Labels now sit ABOVE their values, so each value gets the
+          whole cell. */}
+      <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-start">
+
+        <SectionCard className="min-[980px]:col-span-7">
+          <SectionHeader icon={Calendar} title="Event">
+            <button onClick={openEditModal} className="text-[13px] font-bold text-[#007038] hover:text-[#00532a] cursor-pointer shrink-0">Edit</button>
+          </SectionHeader>
+
+          {/* grid-flow-row-dense: without it a `wide` field that cannot fit
+              beside a single-width one leaves the neighbouring cell empty.
+              Dense flow backfills those holes at every breakpoint. */}
+          <div className="grid grid-flow-row-dense grid-cols-2 min-[820px]:grid-cols-3 gap-x-[22px] gap-y-[18px]">
+            <Field label="Event date" value={fmtDateTime(booking.event_datetime)} />
+            <Field label="Guests" value={`${booking.pax_count} pax`} />
+            <Field label="Motif" value={booking.motif_color || 'N/A'} />
+            <Field label="Venue" value={booking.venue || 'N/A'} wide />
+            <Field label="Package" value={booking.package?.pkg_name || 'None'} />
+            <Field label="Booked on" value={fmtDateTime(booking.book_datetime)} />
+            <Field label="Total amount">
+              <span className="text-[#007038]">₱{booking.total_amount?.toLocaleString() || '0'}</span>
+            </Field>
+            {booking.package && (
+              <Field label="Pricing" wide>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="px-2.5 py-[3px] rounded-full bg-[#f4f6f8] border border-slate-200 text-[11.5px] font-bold text-slate-600">
+                    {booking.package.pricing_type === 'fixed' ? 'Fixed' : 'Per pax'}
                   </span>
+                  <span className="text-[14.5px] font-bold text-slate-900">₱{booking.package.pkg_price?.toLocaleString()}</span>
+                  {booking.package.pricing_type === 'fixed'
+                    ? booking.package.max_pax && <span className="text-[12.5px] text-slate-500">up to {booking.package.max_pax} pax</span>
+                    : <span className="text-[12.5px] text-slate-500">/pax</span>}
                 </div>
-              )}
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Motif Color</span>
-                <span className="col-span-2">{booking.motif_color || 'N/A'}</span>
-              </div>
-              <div className="grid grid-cols-3 border-t border-slate-200 pt-2 mt-1">
-                <span className="text-slate-700 font-bold">Total Amount</span>
-                <span className="col-span-2 font-bold text-[#008A45]">₱{booking.total_amount?.toLocaleString() || '0'}</span>
-              </div>
-            </div>
-            {booking.notes && (
-              <div className="pt-4 mt-4 border-t border-slate-100">
-                <span className="text-xs font-bold text-slate-900 block mb-1">Notes</span>
-                <p className="text-xs text-slate-500 whitespace-pre-wrap">{booking.notes}</p>
-              </div>
+              </Field>
             )}
           </div>
 
-          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/30 rounded-xl p-6 shadow-xs">
-            <h3 className="text-sm font-bold text-slate-900 mb-4">Customer Details</h3>
-            <div className="space-y-2 text-sm">
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Name</span>
-                <span className="col-span-2">{booking.customer?.first_name} {booking.customer?.last_name}</span>
-              </div>
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Contact</span>
-                <span className="col-span-2">{booking.customer?.contact_no || 'N/A'}</span>
-              </div>
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Email</span>
-                <span className="col-span-2">{booking.customer?.email_address || 'N/A'}</span>
-              </div>
-              <div className="grid grid-cols-3">
-                <span className="text-slate-700 font-bold">Address</span>
-                <span className="col-span-2">{booking.customer?.cus_address || 'N/A'}</span>
+          {booking.notes && (
+            <div className="flex items-start gap-2.5 mt-[22px] px-4 py-3.5 bg-[#fbfcfd] border border-[#eef2f6] rounded-xl">
+              <Pencil size={15} className="shrink-0 mt-0.5 text-slate-400" />
+              <div className="min-w-0">
+                <span className="block text-[10.5px] font-bold tracking-[0.1em] uppercase text-slate-600">Notes</span>
+                <p className="mt-1 text-[13.5px] leading-[1.5] text-slate-700 whitespace-pre-wrap [text-wrap:pretty]">{booking.notes}</p>
               </div>
             </div>
-          </div>
-        </div>
+          )}
+        </SectionCard>
 
-        {/* RIGHT COLUMN */}
-        <div className="lg:col-span-7 space-y-6">
+        <SectionCard className="min-[980px]:col-span-5">
+          <SectionHeader icon={User} title="Customer" />
+
+          <div className="flex items-center gap-[13px] pb-[18px] border-b border-slate-100">
+            <span className="inline-flex items-center justify-center w-[46px] h-[46px] rounded-full bg-[#00713a] text-base font-extrabold text-white shrink-0">
+              {initialsOf(booking.customer)}
+            </span>
+            <div className="min-w-0">
+              <span className="block text-[15.5px] font-bold text-slate-900 break-words">
+                {booking.customer?.first_name} {booking.customer?.last_name}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-[3px] mt-2">
+            {[
+              { Icon: Phone, label: 'Contact', value: booking.customer?.contact_no || 'N/A' },
+              { Icon: Mail, label: 'Email', value: booking.customer?.email_address || 'N/A' },
+              { Icon: MapPin, label: 'Address', value: booking.customer?.cus_address || 'N/A' },
+            ].map(({ Icon, label, value }) => (
+              <div key={label} className="flex items-start gap-[11px] px-0.5 py-2.5">
+                <span className="inline-flex items-center justify-center w-7 h-7 rounded-[9px] bg-[#f6f8fa] text-slate-500 shrink-0">
+                  <Icon size={14} />
+                </span>
+                <div className="min-w-0 pt-px">
+                  <span className="block text-[10.5px] font-bold tracking-[0.1em] uppercase text-slate-600">{label}</span>
+                  <div className="mt-[3px] text-sm font-semibold leading-[1.4] text-slate-900 break-words [text-wrap:pretty]">{value}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      </div>
+
+      {/* ================= LISTS =================
+          The former right column, now a real 50/50. Its cards are direct grid
+          children, so they fill row-wise: Menu | Payments, Equipment |
+          Dispatch. items-start stops the shorter column stretching to match
+          the taller one, which was a second source of apparent emptiness. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           {/* Payment Tracking */}
-          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/50 rounded-xl p-6 shadow-xs">
+          <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-slate-900">Menu Selections</h3>
+              <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><UtensilsCrossed size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Menu Selections</h3></div>
               <span className="text-xs font-medium text-slate-500">{menuSelections.length} item{menuSelections.length !== 1 ? 's' : ''}</span>
             </div>
             {menuSelections.length === 0 ? (
@@ -1515,9 +1569,9 @@ export default function BookingDetails() {
           {/* Dispatch — blueprint-03 5.8. Until now a vehicle appeared on this
               page only inside the delete warning, so the booking never knew
               what was carrying it while the vehicle knew its booking. */}
-          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45] rounded-xl p-6 shadow-xs">
+          <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-[#007038]">Payment Tracking</h3>
+              <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><CreditCard size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Payment Tracking</h3></div>
               {canRecordPayment && (
                 <button
                   onClick={openPaymentModal}
@@ -1626,8 +1680,8 @@ export default function BookingDetails() {
               numbers (total refunded, what's still refundable) and the
               eligibility status that used to live inside Payment Tracking. */}
           {refundEntries.length > 0 && (
-            <div className="bg-white border border-slate-200 border-l-4 border-l-red-500 rounded-xl p-6 shadow-xs">
-              <h3 className="text-sm font-bold text-red-700 mb-4">Refund History</h3>
+            <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
+              <div className="flex items-center gap-[11px] min-w-0 mb-4"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><RefreshCw size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Refund History</h3></div>
 
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3">
@@ -1703,9 +1757,9 @@ export default function BookingDetails() {
           )}
 
           {/* Menu Selections */}
-          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/50 rounded-xl p-6 shadow-xs">
+          <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-slate-900">Equipment Assignment</h3>
+              <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><Briefcase size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Equipment Assignment</h3></div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={openAssignEquipModal}
@@ -1757,9 +1811,10 @@ export default function BookingDetails() {
               </div>
             )}
           </div>
-          <div className="bg-white border border-slate-200 border-l-4 border-l-[#008A45]/50 rounded-xl p-6 shadow-xs">
+          <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900 flex items-center gap-2">
+                <span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><Truck size={17} /></span>
                 Dispatch
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200">
                   Package
