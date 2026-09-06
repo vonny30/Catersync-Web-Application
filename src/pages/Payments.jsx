@@ -115,15 +115,53 @@ function RetainedFromCancellationNote({ rows, status, compact = false }) {
   const held = received - refunded;
   const peso = (n) => `₱${Math.round(n).toLocaleString()}`;
 
-  let position;
-  if (refunded > 0 && held <= 0) position = 'Refunded in full';
-  else if (refunded > 0) position = `${peso(refunded)} refunded, ${peso(held)} still held`;
-  else position = `${peso(held)} still held — no refund recorded`;
+  // Four positions, not two. The first version collapsed anything with a
+  // refund into "Refunded in full", which is right only when the refund
+  // actually clears what was taken.
+  let tone, position;
+  if (received === 0 && refunded === 0) {
+    // Only unverified rows on the booking: nothing has been confirmed as money.
+    // Neutral, not green — this is an absence of money, not a settled refund,
+    // and green here would read as "all resolved".
+    tone = 'none';
+    position = 'No verified payments recorded';
+  } else if (held < 0) {
+    // More refunded than was ever received. The refund form guards against
+    // this, but the mobile app and direct SQL do not, so it is reported rather
+    // than rounded away into "Refunded in full".
+    tone = 'over';
+    position = `${peso(refunded)} refunded against ${peso(received)} received — ${peso(-held)} more than was taken`;
+  } else if (refunded > 0 && held === 0) {
+    tone = 'settled';
+    position = 'Refunded in full';
+  } else if (refunded > 0) {
+    // Partial. Both halves are stated: what went back, and what is still here.
+    tone = 'held';
+    position = `${peso(refunded)} refunded, ${peso(held)} still held`;
+  } else {
+    tone = 'held';
+    position = `${peso(held)} still held — no refund recorded`;
+  }
+
+  // Green reads as "settled, nothing outstanding"; amber as "money is still
+  // sitting here"; red as "these figures do not add up". The dot carries the
+  // distinction at a glance, which is the point — the wording below it is only
+  // readable once you are already looking at the row.
+  const TONES = {
+    settled: { text: 'text-[#007038]', dot: 'bg-[#007038]' },
+    held:    { text: 'text-amber-700', dot: 'bg-amber-500' },
+    over:    { text: 'text-red-700',   dot: 'bg-red-500' },
+    none:    { text: 'text-slate-500', dot: 'bg-slate-400' },
+  };
+  const { text, dot } = TONES[tone];
 
   return (
-    <p className={`text-amber-700 ${compact ? 'text-[11.5px] mt-1' : 'text-[13px] mt-2'}`}>
-      <span className="font-semibold">Not in Payments Received</span>
-      {' — booking '}{(status || 'cancelled').toLowerCase()}. {position}.
+    <p className={`flex items-start gap-1.5 ${text} ${compact ? 'text-[11.5px] mt-1' : 'text-[13px] mt-2'}`}>
+      <span className={`${dot} rounded-full shrink-0 ${compact ? 'w-1.5 h-1.5 mt-[5px]' : 'w-2 h-2 mt-[5px]'}`} aria-hidden="true" />
+      <span>
+        <span className="font-semibold">Not in Payments Received</span>
+        {' — booking '}{(status || 'cancelled').toLowerCase()}. {position}.
+      </span>
     </p>
   );
 }
