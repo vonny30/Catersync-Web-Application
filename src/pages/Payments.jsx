@@ -62,42 +62,68 @@ function BookingPaymentSummary({ rows, bookingTotal, bookingStatus }) {
   const unverified = entries.length - verified.length;
 
   // total_amount is nullable, and "of ₱null" is worse than saying nothing.
-  const hasTotal = typeof bookingTotal === 'number' && !Number.isNaN(bookingTotal);
+  const hasTotal = typeof bookingTotal === 'number' && !Number.isNaN(bookingTotal) && bookingTotal > 0;
+  const cancelled = isCancelledBooking(bookingStatus);
   const outstanding = hasTotal ? Math.max(0, bookingTotal - net) : null;
   const peso = (n) => `₱${Math.round(n).toLocaleString()}`;
 
+  // Paid against total is a PROPORTION, so it is drawn as one. Clamped at 100%
+  // so an overpayment cannot render a bar wider than its track — the same guard
+  // FinancialTab's collected/contracted bar uses.
+  const pct = hasTotal ? Math.max(0, Math.min(100, (net / bookingTotal) * 100)) : 0;
+
+  // A cancelled booking has no receivable — reportMetrics calls those statuses
+  // dead — so it must not read "still due" or "fully paid".
+  let verdict, verdictClass, barClass;
+  if (cancelled) {
+    verdict = 'No balance due';
+    verdictClass = 'text-slate-500';
+    barClass = 'bg-slate-300';
+  } else if (!hasTotal) {
+    verdict = '';
+    verdictClass = '';
+    barClass = 'bg-slate-300';
+  } else if (outstanding > 0) {
+    verdict = `${peso(outstanding)} still due`;
+    verdictClass = 'text-amber-700';
+    barClass = 'bg-amber-500';
+  } else {
+    verdict = 'Fully paid';
+    verdictClass = 'text-[#007038]';
+    barClass = 'bg-[#007038]';
+  }
+
   return (
-    <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-[13px]">
-      <p className="text-slate-800">
-        <span className="font-semibold">{entries.length} payment{entries.length === 1 ? '' : 's'}</span>
-        {' · '}{peso(received)} received
-        {/* Named only when one exists, the same way the Payments Received card
-            mentions refunds only when some were netted. With no refund, `net`
-            equals `received` and printing both would just repeat the figure. */}
-        {refunded > 0 && <>{' · '}{peso(refunded)} refunded{' · '}<span className="font-semibold">{peso(net)} net</span></>}
-      </p>
-      {hasTotal ? (
-        <p className="text-slate-600 mt-0.5">
-          of {peso(bookingTotal)} booking total —{' '}
-          {/* A cancelled or rejected booking has no receivable — reportMetrics
-              calls those statuses dead, with no future work and nothing owed.
-              Saying "₱21,000 still due" on a booking that was refunded in
-              full, or "fully paid" on one that was cancelled, would invent an
-              obligation the money model says does not exist. */}
-          {isCancelledBooking(bookingStatus)
-            ? <span className="font-semibold text-slate-500">no balance due, booking {(bookingStatus || '').toLowerCase()}</span>
-            : outstanding > 0
-              ? <span className="font-semibold text-amber-700">{peso(outstanding)} still due</span>
-              : <span className="font-semibold text-[#007038]">fully paid</span>}
-        </p>
-      ) : (
-        <p className="text-slate-500 mt-0.5">Booking total not recorded.</p>
+    <div className="mb-3 rounded-xl border border-slate-200 bg-white px-4 pt-3 pb-3.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[13.5px] text-slate-800">
+          <span className="font-bold tabular-nums">{peso(net)}</span>
+          {hasTotal ? <> of <span className="font-semibold tabular-nums">{peso(bookingTotal)}</span> received</> : ' received'}
+        </span>
+        {verdict && <span className={`shrink-0 text-[13px] font-bold ${verdictClass}`}>{verdict}</span>}
+      </div>
+
+      {hasTotal && (
+        <div className="mt-2 h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+          <div className={`h-full rounded-full ${barClass} transition-[width]`} style={{ width: `${pct}%` }} />
+        </div>
       )}
+
+      {/* The detail the bar cannot carry. Refunds are named only when one
+          exists, matching how the Payments Received card mentions them only
+          when some were netted. */}
+      <p className="mt-2 text-[12.5px] text-slate-500">
+        {entries.length} payment{entries.length === 1 ? '' : 's'}
+        {' · '}{peso(received)} received
+        {refunded > 0 && <>{' · '}{peso(refunded)} refunded</>}
+        {!hasTotal && ' · booking total not recorded'}
+      </p>
+
       {/* The list below deliberately still shows unverified rows, so the list
           and this total disagree by design. Saying so is the difference between
           a deliberate exclusion and an apparent arithmetic error. */}
       {unverified > 0 && (
-        <p className="text-slate-500 mt-1 text-[12.5px] italic">
+        <p className="mt-1 text-[12.5px] italic text-slate-500">
           {unverified} payment{unverified === 1 ? ' is' : 's are'} awaiting verification and not counted above.
         </p>
       )}
@@ -1845,6 +1871,13 @@ export default function Payments() {
                     </p>
                   </div>
                   <span className={`shrink-0 inline-flex items-center gap-1.5 pl-3 pr-3.5 py-[7px] rounded-full text-[13px] font-bold border ${getStatusBadge(selectedPaymentDetail.pay_status)}`}>
+                    {/* The tick is what the pill's gap-1.5 and asymmetric
+                        pl-3/pr-3.5 were leaving room for. Only on verified,
+                        positive money — a refund or an unruled claim has not
+                        been confirmed as anything. */}
+                    {selectedPaymentDetail.amount_paid > 0 && !isUnverifiedPayment(selectedPaymentDetail) && (
+                      <Check size={13} strokeWidth={3} className="shrink-0" />
+                    )}
                     {selectedPaymentDetail.pay_status === 'Refunded'
                       ? 'Refunded'
                       : describePaymentKind(
