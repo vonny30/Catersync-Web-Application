@@ -17,6 +17,7 @@ import { getPaymentsReceived } from '../utils/reportMetrics';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './Reports/helpers';
+import ImageUploadField from '../components/ImageUploadField';
 
 // `date.toISOString().split('T')[0]` converts to UTC before slicing the
 // date portion — for any UTC+ timezone (PG's Catering is PHT, UTC+8),
@@ -1629,14 +1630,13 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div className="mt-2">
-                    <label className="block text-xs font-semibold text-slate-600 mb-0.5">
-                      Receipt / Proof of Refund <span className="text-red-500">*</span>
-                      <span className="font-normal text-slate-400 ml-1">(required if amount entered)</span>
-                    </label>
-                    <label className="border-2 border-dashed border-slate-300 rounded-lg p-2 flex items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center">
-                      <input type="file" onChange={(e) => setRejectionRefundFile(e.target.files[0])} accept="image/*" className="hidden" />
-                      <span className="text-xs text-slate-600">{rejectionRefundFile ? rejectionRefundFile.name : 'Upload Image (required for refund)'}</span>
-                    </label>
+                    <ImageUploadField
+                      label="Receipt / Proof of Refund"
+                      required
+                      note="(required if amount entered)"
+                      file={rejectionRefundFile}
+                      onChange={(e) => setRejectionRefundFile(e.target.files[0])}
+                    />
                   </div>
                 </div>
               )}

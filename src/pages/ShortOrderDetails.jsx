@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo} from 'react';
 import Select from '../components/Select';
 import AssignVehicleModal from '../components/AssignVehicleModal';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Truck, AlertTriangle, Package as PackageIcon, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Truck, AlertTriangle, Package as PackageIcon } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -26,6 +26,7 @@ import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
 import { getAssignmentStatus } from '../utils/statusLabels';
 import DateTimePicker from '../components/DateTimePicker';
+import ImageUploadField from '../components/ImageUploadField';
 
 export default function ShortOrderDetails() {
   const { id } = useParams();
@@ -1727,13 +1728,12 @@ export default function ShortOrderDetails() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Proof of Payment</label>
-                <label className={`border-2 border-dashed rounded-lg p-4 flex flex-col items-center justify-center transition-colors cursor-pointer text-center relative overflow-hidden h-24 ${paymentFileError ? 'border-red-400 bg-red-50/40 hover:bg-red-50' : 'border-slate-300 bg-slate-50 hover:bg-slate-100'}`}>
-                  <input type="file" onChange={handlePaymentFileChange} accept="image/*" className="hidden" />
-                  <ImageIcon size={20} className={paymentFileError ? 'text-red-400 mb-1' : 'text-slate-400 mb-1'} />
-                  <span className="text-xs font-semibold text-slate-600">{selectedFile ? selectedFile.name : 'Upload Image'}</span>
-                  <span className="text-[10px] text-slate-400 mt-0.5">PNG, JPG up to 5MB</span>
-                </label>
+                <ImageUploadField
+                  label="Proof of Payment"
+                  file={selectedFile}
+                  onChange={handlePaymentFileChange}
+                  error={paymentFileError}
+                />
                 {paymentFileError ? (
                   <p className="text-xs text-red-600 mt-1 font-semibold">{paymentFileError}</p>
                 ) : (
@@ -1839,15 +1839,13 @@ export default function ShortOrderDetails() {
         </div>
       </div>
       <div className="mt-2">
-        <label className="block text-xs font-semibold text-slate-600 mb-0.5">
-          Receipt / Proof of Refund
-          <span className="text-red-500 ml-1">*</span>
-          <span className="font-normal text-slate-400 ml-1">(required if amount entered)</span>
-        </label>
-        <label className="border-2 border-dashed border-slate-300 rounded-lg p-2 flex items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center">
-          <input type="file" onChange={(e) => setRefundFile(e.target.files[0])} accept="image/*" className="hidden" />
-          <span className="text-xs text-slate-600">{refundFile ? refundFile.name : 'Upload Image (required for refund)'}</span>
-        </label>
+        <ImageUploadField
+          label="Receipt / Proof of Refund"
+          required
+          note="(required if amount entered)"
+          file={refundFile}
+          onChange={(e) => setRefundFile(e.target.files[0])}
+        />
       </div>
     </div>
   );
@@ -1914,11 +1912,13 @@ export default function ShortOrderDetails() {
                     </div>
                   </div>
                   <div className="mt-2">
-                    <label className="block text-xs font-semibold text-slate-600 mb-0.5">Receipt / Proof of Refund <span className="text-red-500">*</span><span className="font-normal text-slate-400 ml-1">(required if amount entered)</span></label>
-                    <label className="border-2 border-dashed border-slate-300 rounded-lg p-2 flex items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center">
-                      <input type="file" onChange={(e) => setRejectionRefundFile(e.target.files[0])} accept="image/*" className="hidden" />
-                      <span className="text-xs text-slate-600">{rejectionRefundFile ? rejectionRefundFile.name : 'Upload Image (required for refund)'}</span>
-                    </label>
+                    <ImageUploadField
+                      label="Receipt / Proof of Refund"
+                      required
+                      note="(required if amount entered)"
+                      file={rejectionRefundFile}
+                      onChange={(e) => setRejectionRefundFile(e.target.files[0])}
+                    />
                   </div>
                 </div>
               )}
@@ -1960,16 +1960,13 @@ export default function ShortOrderDetails() {
                 <input type="text" value={refundModalRemarks} onChange={(e) => setRefundModalRemarks(e.target.value)} placeholder="Reason for refund" className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:border-[#008A45] outline-none" />
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Proof of Refund <span className="text-red-500">*</span></label>
-                <label className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex flex-col items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer text-center relative overflow-hidden h-24">
-                  <input type="file" onChange={(e) => setRefundModalFile(e.target.files[0])} accept="image/*" className="hidden" />
-                  <ImageIcon size={20} className="text-slate-400 mb-1" />
-                  <span className="text-xs font-semibold text-slate-600">{refundModalFile ? refundModalFile.name : 'Upload Image'}</span>
-                  <span className="text-[10px] text-slate-400 mt-0.5">PNG, JPG up to 5MB</span>
-                </label>
-                <p className="text-xs text-slate-400 mt-1">Proof image is required.</p>
-              </div>
+              <ImageUploadField
+                label="Proof of Refund"
+                required
+                file={refundModalFile}
+                onChange={(e) => setRefundModalFile(e.target.files[0])}
+                hint="PNG, JPG up to 5MB. Proof image is required."
+              />
 
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
                 <button type="button" onClick={() => setIsRefundModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors">Cancel</button>

@@ -5,7 +5,7 @@ import ModalTotal from '../components/ModalTotal';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, Upload, X, Image as ImageIcon, Check, DollarSign, RefreshCw, Eye, Filter, LayoutGrid, RotateCcw, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown, ChevronRight, MapPin, Calendar } from 'lucide-react';
+import { Search, Upload, X, Check, DollarSign, RefreshCw, Eye, Filter, LayoutGrid, RotateCcw, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown, ChevronRight, MapPin, Calendar } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -16,6 +16,7 @@ import { getConfirmEligibility, buildConfirmDialog, applyConfirmation } from '..
 import { fetchAllRows } from '../utils/fetchAllRows';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './Reports/helpers';
+import ImageUploadField from '../components/ImageUploadField';
 
 // Proof thumbnail sizes. `sm` is the table default and must stay 36px — the
 // three existing call sites pass no size. `lg` fills a wrapper that supplies
@@ -2623,14 +2624,12 @@ export default function Payments() {
                   Proof of Payment
                   <span className="text-red-500 ml-1">*</span>
                 </label>
-                <label className={`border-2 border-dashed rounded-lg p-4 flex flex-col items-center justify-center transition-colors cursor-pointer text-center relative overflow-hidden h-24 ${fileError ? 'border-red-400 bg-red-50/40 hover:bg-red-50' : 'border-slate-300 bg-slate-50 hover:bg-slate-100'}`}>
-                  <input type="file" onChange={handleFileChange} accept="image/*" className="hidden" />
-                  <ImageIcon size={20} className={fileError ? 'text-red-400 mb-1' : 'text-slate-400 mb-1'} />
-                  <span className="text-xs font-semibold text-slate-600">
-                    {selectedFile ? selectedFile.name : 'Upload Image'}
-                  </span>
-                  <span className="text-[10px] text-slate-400 mt-0.5">PNG, JPG up to 5MB</span>
-                </label>
+                <ImageUploadField
+                  file={selectedFile}
+                  onChange={handleFileChange}
+                  error={fileError}
+                  hint=""
+                />
                 {fileError ? (
                   <p className="text-xs text-red-600 mt-1 font-semibold">{fileError}</p>
                 ) : (

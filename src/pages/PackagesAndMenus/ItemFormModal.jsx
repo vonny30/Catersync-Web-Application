@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import { DEFAULT_COLORS, getSwatchColor } from './constants';
 import { requiresMaxPax } from '../../utils/packageRules';
+import ImageUploadField from '../../components/ImageUploadField';
 
 function FormSection({ title, children }) {
   return (
@@ -39,7 +40,6 @@ export default function ItemFormModal({
   onCheckDuplicateTitle,
 }) {
   const [duplicateWarning, setDuplicateWarning] = useState(false);
-  const [imagePreviewUrl, setImagePreviewUrl] = useState(null);
   const [isCategoriesExpanded, setIsCategoriesExpanded] = useState(false);
   const [isEquipmentExpanded, setIsEquipmentExpanded] = useState(false);
 
@@ -61,17 +61,6 @@ export default function ItemFormModal({
       clearTimeout(timer);
     };
   }, [formData.title, isOpen, onCheckDuplicateTitle]);
-
-  // Thumbnail preview: the newly-picked file if there is one, otherwise
-  // whatever image is already saved (when editing).
-  useEffect(() => {
-    if (formData.imageFile) {
-      const url = URL.createObjectURL(formData.imageFile);
-      setImagePreviewUrl(url);
-      return () => URL.revokeObjectURL(url);
-    }
-    setImagePreviewUrl(formData.existingImageUrl || null);
-  }, [formData.imageFile, formData.existingImageUrl]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -467,29 +456,15 @@ export default function ItemFormModal({
                   {!editingId && <span className="text-red-500 ml-1">*</span>}
                   {editingId && <span className="text-xs font-normal text-slate-400 ml-1">(leave empty to keep current)</span>}
                 </label>
-                <div className="flex gap-3 items-start">
-                  {imagePreviewUrl && (
-                    <img
-                      src={imagePreviewUrl}
-                      alt="Preview"
-                      className="w-20 h-20 rounded-lg object-cover border border-slate-200 shrink-0"
-                    />
-                  )}
-                  <label className={`flex-1 border-2 border-dashed border-slate-300 rounded-lg h-20 flex flex-col items-center justify-center text-slate-400 bg-slate-50 transition-colors relative overflow-hidden ${isSubmitting ? 'opacity-50 cursor-wait' : 'cursor-pointer hover:bg-slate-100'}`}>
-                    <input type="file" name="imageFile" accept="image/*" onChange={onInputChange}
-                      disabled={isSubmitting} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-wait" />
-                    {formData.imageFile ? (
-                      <span className="text-sm font-medium text-[#008A45] px-2 text-center">{formData.imageFile.name}</span>
-                    ) : (
-                      <>
-                        <svg className="w-6 h-6 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                        <span className="text-xs font-medium text-center px-2">{editingId ? 'Click to update image (optional)' : 'Click to upload image (required)'}</span>
-                      </>
-                    )}
-                  </label>
-                </div>
+                <ImageUploadField
+                  name="imageFile"
+                  file={formData.imageFile}
+                  existingUrl={formData.existingImageUrl}
+                  onChange={onInputChange}
+                  disabled={isSubmitting}
+                  hint=""
+                  placeholder={editingId ? 'Click to update image (optional)' : 'Click to upload image (required)'}
+                />
                 {!editingId && !formData.imageFile && <span className="text-xs text-red-400 mt-1 block">* Required for new items</span>}
               </div>
             </FormSection>
