@@ -1862,7 +1862,7 @@ export default function Payments() {
                   "Amount": the timeline below shows a booking total and other
                   rows, so a bare "Amount" never said which one. "Received",
                   not "Date", which collided with the event date below. */}
-              <div className="border border-[#dcece3] rounded-2xl overflow-hidden bg-white">
+              <div className="shrink-0 border border-[#dcece3] rounded-2xl overflow-hidden bg-white">
                 <div className="flex items-start justify-between gap-5 px-5 pt-[18px] pb-4 bg-[linear-gradient(180deg,#f2f9f5_0%,#fbfdfc_100%)]">
                   <div className="min-w-0">
                     <span className="block text-[11px] font-bold tracking-[0.1em] uppercase text-slate-500">This payment</span>
@@ -1908,7 +1908,7 @@ export default function Payments() {
                   rows. Venue and event were the palest text in the modal and
                   are the two things a manager scans for. The type becomes a
                   chip because it is a category, not a parenthetical aside. */}
-              <div className="border border-slate-200 rounded-2xl bg-white px-5 pt-4 pb-[17px]">
+              <div className="shrink-0 border border-slate-200 rounded-2xl bg-white px-5 pt-4 pb-[17px]">
                 <div className="flex items-center justify-between gap-3 mb-3">
                   <span className="text-[11px] font-bold tracking-[0.1em] uppercase text-slate-400">Order</span>
                   <button
@@ -1957,7 +1957,7 @@ export default function Payments() {
               </div>
 
               {selectedPaymentDetail.remarks && (
-                <div className="border border-slate-200 rounded-2xl bg-white px-5 pt-4 pb-[18px]">
+                <div className="shrink-0 border border-slate-200 rounded-2xl bg-white px-5 pt-4 pb-[18px]">
                   <span className="block mb-2 text-[11px] font-bold tracking-[0.1em] uppercase text-slate-400">Remarks</span>
                   <p className="text-sm leading-[1.5] text-slate-700 [text-wrap:pretty]">{selectedPaymentDetail.remarks}</p>
                 </div>
@@ -1967,7 +1967,7 @@ export default function Payments() {
                   104px, because a receipt is unreadable at 36px, and the
                   caption fills the space that made the old full-width cell
                   look broken. */}
-              <div className="border border-slate-200 rounded-2xl bg-white px-5 pt-4 pb-[18px]">
+              <div className="shrink-0 border border-slate-200 rounded-2xl bg-white px-5 pt-4 pb-[18px]">
                 <span className="block mb-3 text-[11px] font-bold tracking-[0.1em] uppercase text-slate-400">Proof of payment</span>
                 <div className="flex items-center gap-4">
                   <div className="shrink-0 w-[104px] h-[104px] rounded-xl border border-slate-200 overflow-hidden bg-slate-50 flex items-center justify-center hover:border-[#008A45] transition-colors">
@@ -1987,7 +1987,7 @@ export default function Payments() {
                   clicked to open this modal is highlighted so it's still
                   clear which one is "selected". */}
               {selectedPaymentDetail.booking_id && (
-                <div>
+                <div className="shrink-0">
                   <div className="flex items-baseline justify-between gap-3 mb-[11px]">
                     <h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Payment timeline</h3>
                     <span className="text-[13px] text-slate-500">
