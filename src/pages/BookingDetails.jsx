@@ -1855,7 +1855,7 @@ export default function BookingDetails() {
                 <X size={18} />
               </button>
             </div>
-            <form onSubmit={handleEditSubmit} className="p-6 overflow-y-auto space-y-5 text-left">
+            <form onSubmit={handleEditSubmit} className="p-6 overflow-y-auto space-y-5 bg-[#fbfcfd] text-left">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Customer *</label>
                 <Select
@@ -1896,7 +1896,7 @@ export default function BookingDetails() {
               {packageCategories.length > 0 && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-2">Menu Selections</label>
-                  <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                  <div className="space-y-3 bg-white p-4 rounded-2xl border border-slate-200">
                     {packageCategories.map(cat => {
                       const items = categoryMenuItems[cat.category_id] || [];
                       const selected = editFormData.menu_selections[cat.category_id] || '';
@@ -2029,7 +2029,7 @@ export default function BookingDetails() {
                 <X size={18} />
               </button>
             </div>
-            <form onSubmit={handleAssignEquipSubmit} className="p-6 space-y-5 text-left">
+            <form onSubmit={handleAssignEquipSubmit} className="p-6 space-y-5 bg-[#fbfcfd] text-left">
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-sm">
                 <p><span className="font-medium">Booking:</span> {booking.booking_number || `BKG-${booking.booking_id.slice(0, 8)}`} – {booking.customer?.first_name} {booking.customer?.last_name}</p>
                 <p className="text-xs text-slate-500 mt-1">Equipment will be assigned to this booking only.</p>
@@ -2127,7 +2127,7 @@ export default function BookingDetails() {
               </button>
             </div>
 
-            <form onSubmit={handlePaymentSubmit} className="p-6 overflow-y-auto space-y-6 text-left">
+            <form onSubmit={handlePaymentSubmit} className="p-6 overflow-y-auto space-y-6 bg-[#fbfcfd] text-left">
               <div className="bg-[#F8F9FA] border border-slate-200 rounded-lg p-4 space-y-2 text-sm">
                 <h4 className="font-bold text-slate-900 text-sm mb-2">Booking Details</h4>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
@@ -2271,7 +2271,7 @@ export default function BookingDetails() {
                 <X size={18} />
               </button>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 bg-[#fbfcfd]">
               <div className={`p-3 rounded-lg text-sm border ${eventDate && daysUntilEvent < 3 ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
                 <p className="font-bold">Event Date: {eventDate ? new Date(eventDate).toLocaleString() : 'N/A'}</p>
                 {eventDate && daysUntilEvent !== null && (
@@ -2396,7 +2396,7 @@ export default function BookingDetails() {
                 <X size={18} />
               </button>
             </div>
-            <form onSubmit={handleEditEquipSubmit} className="p-6 space-y-4">
+            <form onSubmit={handleEditEquipSubmit} className="p-6 space-y-4 bg-[#fbfcfd]">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Equipment</label>
                 <p className="text-sm font-medium text-slate-900">{editingAssignment.eqm_name}</p>
@@ -2428,7 +2428,7 @@ export default function BookingDetails() {
                 <X size={18} />
               </button>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 bg-[#fbfcfd]">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Reason for Rejection *</label>
                 <textarea
@@ -2517,7 +2517,7 @@ export default function BookingDetails() {
                 <X size={18} />
               </button>
             </div>
-            <form onSubmit={handleRefundSubmit} className="p-6 space-y-4">
+            <form onSubmit={handleRefundSubmit} className="p-6 space-y-4 bg-[#fbfcfd]">
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-sm">
                 <p><span className="font-medium">Booking:</span> {booking.booking_number || `BKG-${booking.booking_id.slice(0, 8)}`} – {booking.customer?.first_name} {booking.customer?.last_name}</p>
                 <p className="text-xs text-slate-500 mt-1">Refundable amount: ₱{remainingRefundableAmount.toLocaleString()}</p>
@@ -2587,8 +2587,8 @@ export default function BookingDetails() {
                 <X size={18} />
               </button>
             </div>
-            <div className="p-6 overflow-y-auto space-y-6 text-left">
-              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-sm">
+            <div className="p-6 overflow-y-auto space-y-6 bg-[#fbfcfd] text-left">
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 text-sm">
                 <div className="grid grid-cols-2 gap-2">
                   <span className="font-medium text-slate-600">Customer:</span>
                   <span className="font-bold text-slate-900">
@@ -2746,7 +2746,7 @@ export default function BookingDetails() {
                 <X size={18} />
               </button>
             </div>
-            <div className="p-6 space-y-4 text-left">
+            <div className="p-6 space-y-4 bg-[#fbfcfd] text-left">
               <p className="text-sm text-slate-600">Review the proof and confirm this payment is legitimate.</p>
 
               <div className="flex gap-4 items-center bg-slate-50 border border-slate-200 rounded-lg p-3">
@@ -2828,7 +2828,7 @@ export default function BookingDetails() {
                 <X size={18} />
               </button>
             </div>
-            <div className="p-6 space-y-4 text-left">
+            <div className="p-6 space-y-4 bg-[#fbfcfd] text-left">
               <p className="text-sm text-slate-600">
                 Rejecting the proof for the ₱{(rejectProofTarget.amount_paid || 0).toLocaleString()} payment submitted by the customer. They'll need to resubmit — let them know why.
               </p>

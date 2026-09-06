@@ -2178,7 +2178,7 @@ export default function Payments() {
               </div>
             </div>
 
-            <div className="p-6 overflow-y-auto flex-1">
+            <div className="p-6 overflow-y-auto flex-1 bg-[#fbfcfd]">
               {summaryModalData.length === 0 ? (
                 <div className="text-center py-10 text-slate-500">No records found.</div>
               ) : filteredSummaryModalData.length === 0 ? (
@@ -2189,7 +2189,7 @@ export default function Payments() {
                       not per payment record, same reasoning as the main
                       table. Click a row to see its full payment timeline. */}
                   {summaryModalType === 'collected' && (
-                    <table className="w-full text-left border-collapse">
+                    <table className="w-full text-left border-separate border-spacing-0 bg-white rounded-2xl border border-slate-200 overflow-hidden">
                       <thead>
                         <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
                           <th className="p-3">Reference</th>
@@ -2251,7 +2251,7 @@ export default function Payments() {
 
                   {/* Outstanding Balance – records with the amount still due */}
                   {summaryModalType === 'fullypaid' && (
-                    <table className="w-full text-left border-collapse">
+                    <table className="w-full text-left border-separate border-spacing-0 bg-white rounded-2xl border border-slate-200 overflow-hidden">
                       <thead>
                         <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
                           <th className="p-3">Reference</th>
@@ -2288,7 +2288,7 @@ export default function Payments() {
                   )}
 
                   {summaryModalType === 'pending' && (
-                    <table className="w-full text-left border-collapse">
+                    <table className="w-full text-left border-separate border-spacing-0 bg-white rounded-2xl border border-slate-200 overflow-hidden">
                       <thead>
                         <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
                           <th className="p-3">Reference</th>
@@ -2394,7 +2394,7 @@ export default function Payments() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-6 text-left">
+            <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-6 bg-[#fbfcfd] text-left">
               {/* Booking Selection with Search — same pattern as picking a
                   customer when adding a booking/order: search box, a
                   floating list of matches, click to pick. */}
@@ -2664,7 +2664,7 @@ export default function Payments() {
                 <X size={18} />
               </button>
             </div>
-            <div className="p-6 space-y-4 text-left">
+            <div className="p-6 space-y-4 bg-[#fbfcfd] text-left">
               <p className="text-sm text-slate-600">Review the proof and confirm this payment from {getClientName(verifyTarget)} is legitimate.</p>
 
               <div className="flex gap-4 items-center bg-slate-50 border border-slate-200 rounded-lg p-3">
@@ -2746,7 +2746,7 @@ export default function Payments() {
                 <X size={18} />
               </button>
             </div>
-            <div className="p-6 space-y-4 text-left">
+            <div className="p-6 space-y-4 bg-[#fbfcfd] text-left">
               <p className="text-sm text-slate-600">
                 Rejecting the proof for the ₱{(rejectProofTarget.amount_paid || 0).toLocaleString()} payment submitted by {getClientName(rejectProofTarget)}. They'll need to resubmit — let them know why.
               </p>

@@ -2377,7 +2377,7 @@ export default function Vehicles() {
                 <X size={18} />
               </button>
             </div>
-            <form onSubmit={handleAddVehicle} className="p-6 space-y-5 text-left">
+            <form onSubmit={handleAddVehicle} className="p-6 space-y-5 bg-[#fbfcfd] text-left">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Plate Number *</label>
                 <input
@@ -2428,7 +2428,7 @@ export default function Vehicles() {
               <h2 className="text-lg font-bold text-slate-900">Edit Vehicle</h2>
               <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors cursor-pointer"><X size={18} /></button>
             </div>
-            <form onSubmit={handleEditSubmit} className="p-6 space-y-5 text-left">
+            <form onSubmit={handleEditSubmit} className="p-6 space-y-5 bg-[#fbfcfd] text-left">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Plate Number *</label>
                 <input type="text" name="plate_number" value={editVehicleForm.plate_number} onChange={handleEditVehicleChange} className={errorInputClass(!!editFieldErrors.plate_number, 'w-full border rounded-lg p-2.5 text-sm bg-white focus:ring-2 outline-none')} required />
@@ -2487,7 +2487,7 @@ export default function Vehicles() {
               </div>
               <button onClick={() => setIsFlagIssueModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors cursor-pointer"><X size={18} /></button>
             </div>
-            <form onSubmit={handleFlagIssueSubmit} className="p-6 space-y-4 text-left">
+            <form onSubmit={handleFlagIssueSubmit} className="p-6 space-y-4 bg-[#fbfcfd] text-left">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Status</label>
                 <Select
@@ -2529,7 +2529,7 @@ export default function Vehicles() {
                 <X size={18} />
               </button>
             </div>
-            <form onSubmit={handleAssignSubmit} className="p-6 overflow-y-auto space-y-5 text-left">
+            <form onSubmit={handleAssignSubmit} className="p-6 overflow-y-auto space-y-5 bg-[#fbfcfd] text-left">
               {/* Booking Selection - Searchable Dropdown */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Select Booking</label>

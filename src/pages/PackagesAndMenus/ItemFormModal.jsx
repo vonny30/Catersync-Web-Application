@@ -98,7 +98,7 @@ export default function ItemFormModal({
           </button>
         </div>
 
-        <div className="p-6 overflow-y-auto space-y-6">
+        <div className="p-6 overflow-y-auto space-y-6 bg-[#fbfcfd]">
           <form id="item-form" onSubmit={onSubmit} className="space-y-6">
             {/* Type Toggle */}
             <div>
@@ -211,7 +211,7 @@ export default function ItemFormModal({
                     const maxPaxTooLow = maxPaxNum !== null && !isNaN(maxPaxNum) && maxPaxNum < minPaxNum;
                     const maxPaxMissing = formData.max_pax === '' || formData.max_pax === null || formData.max_pax === undefined;
                     return (
-                      <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                      <div className="bg-white p-4 rounded-2xl border border-slate-200">
                         <div>
                           <label className="block text-xs font-bold text-slate-700 mb-1.5">Max Pax Included *</label>
                           <input type="number" name="max_pax" min={minPaxNum || 1} value={formData.max_pax} onChange={onInputChange}

@@ -1230,7 +1230,7 @@ export default function Dashboard() {
               </div>
             )}
 
-            <div className="p-6 overflow-y-auto flex-1">
+            <div className="p-6 overflow-y-auto flex-1 bg-[#fbfcfd]">
               {statsModalData.length === 0 ? (
                 <div className="text-center py-10 text-slate-500">No records found for this category.</div>
               ) : filteredStatsModalData.length === 0 ? (
@@ -1239,7 +1239,7 @@ export default function Dashboard() {
                 <>
                   {/* Today's Events / Pending / Upcoming - Booking list */}
                   {(statsModalType === 'today' || statsModalType === 'pending' || statsModalType === 'upcoming') && (
-                    <table className="w-full text-left border-collapse">
+                    <table className="w-full text-left border-separate border-spacing-0 bg-white rounded-2xl border border-slate-200 overflow-hidden">
                       <thead>
                         <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
                           <th className="p-3">Reference</th>
@@ -1301,7 +1301,7 @@ export default function Dashboard() {
 
                   {/* Total Collections - payment list */}
                   {statsModalType === 'revenue' && (
-                    <table className="w-full text-left border-collapse">
+                    <table className="w-full text-left border-separate border-spacing-0 bg-white rounded-2xl border border-slate-200 overflow-hidden">
                       <thead>
                         <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
                           <th className="p-3">Reference</th>
@@ -1427,8 +1427,8 @@ export default function Dashboard() {
                 <X size={18} />
               </button>
             </div>
-            <div className="p-6 overflow-y-auto space-y-6 text-left">
-              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-sm">
+            <div className="p-6 overflow-y-auto space-y-6 bg-[#fbfcfd] text-left">
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 text-sm">
                 <div className="grid grid-cols-2 gap-2">
                   <span className="font-medium text-slate-600">Customer:</span>
                   <span className="font-bold text-slate-900">
@@ -1583,7 +1583,7 @@ export default function Dashboard() {
                 <X size={18} />
               </button>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 bg-[#fbfcfd]">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Reason for Rejection *</label>
                 <textarea

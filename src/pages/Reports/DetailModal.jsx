@@ -151,7 +151,7 @@ export default function DetailModal({ detailModal, onClose }) {
           </div>
         )}
 
-        <div className="p-6 overflow-y-auto flex-1">
+        <div className="p-6 overflow-y-auto flex-1 bg-[#fbfcfd]">
           {detailModal.data.length === 0 ? (
             <div className="text-center py-10 text-slate-500">No records found for this category.</div>
           ) : filteredData.length === 0 ? (
@@ -159,7 +159,7 @@ export default function DetailModal({ detailModal, onClose }) {
           ) : (
             <div className="space-y-4">
               {detailModal.type === 'revenue' && (
-                <table className="w-full text-left border-collapse">
+                <table className="w-full text-left border-separate border-spacing-0 bg-white rounded-2xl border border-slate-200 overflow-hidden">
                   <thead>
                     <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
                       <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Reference</th>
@@ -248,7 +248,7 @@ export default function DetailModal({ detailModal, onClose }) {
               )}
 
               {detailModal.type === 'outstanding' && (
-                <table className="w-full text-left border-collapse">
+                <table className="w-full text-left border-separate border-spacing-0 bg-white rounded-2xl border border-slate-200 overflow-hidden">
                   <thead>
                     <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
                       <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Reference</th>

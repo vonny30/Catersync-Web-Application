@@ -1788,7 +1788,7 @@ const handleMarkCompleted = async (id) => {
                 <X size={18} />
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 text-left">
+            <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5 bg-[#fbfcfd] text-left">
               {/* Customer Selection */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Customer</label>
@@ -1914,7 +1914,7 @@ const handleMarkCompleted = async (id) => {
                     )}
 
                     {customerMode === 'new' && (
-                      <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                      <div className="space-y-3 bg-white p-4 rounded-2xl border border-slate-200">
                         <div className="flex items-center justify-between">
                           <p className="text-xs font-bold text-slate-700">New Customer Details</p>
                           <button
@@ -2032,7 +2032,7 @@ const handleMarkCompleted = async (id) => {
               {packageCategories.length > 0 && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-2">Menu Selections</label>
-                  <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                  <div className="space-y-3 bg-white p-4 rounded-2xl border border-slate-200">
                     {packageCategories.map(cat => {
                       const items = categoryMenuItems[cat.category_id] || [];
                       const selected = formData.menu_selections[cat.category_id] || '';
@@ -2218,8 +2218,8 @@ const handleMarkCompleted = async (id) => {
                 <X size={18} />
               </button>
             </div>
-            <div className="p-6 overflow-y-auto space-y-6 text-left">
-              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-sm">
+            <div className="p-6 overflow-y-auto space-y-6 bg-[#fbfcfd] text-left">
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 text-sm">
                 <div className="grid grid-cols-2 gap-2">
                   <span className="font-medium text-slate-600">Customer:</span>
                   <span className="font-bold text-slate-900">
@@ -2337,7 +2337,7 @@ const handleMarkCompleted = async (id) => {
                 <X size={18} />
               </button>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 bg-[#fbfcfd]">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Reason for Rejection</label>
                 <textarea

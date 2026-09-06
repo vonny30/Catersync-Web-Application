@@ -204,7 +204,7 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
           </button>
         </div>
 
-        <div className="p-6 overflow-y-auto flex-1 space-y-4">
+        <div className="p-6 overflow-y-auto flex-1 space-y-4 bg-[#fbfcfd]">
           {/* A customer pickup should never have reached this modal — the
               button that opens it is hidden — but state can change under a
               page that is already open, so it is said rather than assumed. */}

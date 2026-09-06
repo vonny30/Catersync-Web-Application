@@ -3081,7 +3081,7 @@ export default function Equipment() {
                 <X size={18} />
               </button>
             </div>
-            <form onSubmit={handleAddEquipment} className="p-6 space-y-5 text-left">
+            <form onSubmit={handleAddEquipment} className="p-6 space-y-5 bg-[#fbfcfd] text-left">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Equipment Name *</label>
@@ -3203,7 +3203,7 @@ export default function Equipment() {
               <h2 className="text-lg font-bold text-slate-900">Edit Equipment</h2>
               <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors cursor-pointer"><X size={18} /></button>
             </div>
-            <form onSubmit={handleEditSubmit} className="p-6 space-y-5 text-left">
+            <form onSubmit={handleEditSubmit} className="p-6 space-y-5 bg-[#fbfcfd] text-left">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Equipment Name *</label>
@@ -3276,7 +3276,7 @@ export default function Equipment() {
               </div>
               <button onClick={() => setIsFlagIssueModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors cursor-pointer"><X size={18} /></button>
             </div>
-            <form onSubmit={handleFlagIssueSubmit} className="p-6 space-y-4 text-left">
+            <form onSubmit={handleFlagIssueSubmit} className="p-6 space-y-4 bg-[#fbfcfd] text-left">
               <p className="text-xs text-slate-500 -mt-1">
                 This item has <span className="font-semibold text-slate-700">{getStockBreakdown(flagIssueItem).total} units</span> in
                 total. Whatever you don't flag here stays usable and can still be assigned to events.
@@ -3342,7 +3342,7 @@ export default function Equipment() {
                 <X size={18} />
               </button>
             </div>
-            <form onSubmit={handleAssignSubmit} className="p-6 overflow-y-auto space-y-5 text-left">
+            <form onSubmit={handleAssignSubmit} className="p-6 overflow-y-auto space-y-5 bg-[#fbfcfd] text-left">
               {/* Booking Selection — a read-only chip when the modal was
                   opened for one specific event, a searchable dropdown when
                   opened from the page header with no booking decided yet. */}
