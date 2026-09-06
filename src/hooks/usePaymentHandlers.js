@@ -33,7 +33,16 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       const { data } = supabase.storage.from('images').getPublicUrl(`payments/${proofUrl}`);
       return data.publicUrl;
     }
-    return proofUrl;
+    // Anything that reached here is not a storage key and not a URL, so it
+    // cannot be resolved to an image. Returning it handed the raw value
+    // straight to <img src>, which is how 14 seeded 'seed://...' values
+    // became broken images behind a clickable thumbnail. null routes them to
+    // renderProof's "Invalid" branch instead, which says the record is broken
+    // rather than pretending no proof was ever uploaded.
+    //
+    // NOTE: this function is duplicated in pages/Payments.jsx (the Payments
+    // page has its own copy and does not import this hook). Fix both.
+    return null;
   };
 
   // --- Record Payment ---

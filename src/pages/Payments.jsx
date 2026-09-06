@@ -328,7 +328,16 @@ export default function Payments() {
       const { data } = supabase.storage.from('images').getPublicUrl(`payments/${proofUrl}`);
       return data.publicUrl;
     }
-    return proofUrl;
+    // Unresolvable: neither a storage key nor a URL. Returning it fed the raw
+    // value to <img src> — the 'seed://...' placeholders rendered as broken
+    // images inside a thumbnail that was still clickable. null sends it to
+    // renderProof's "Invalid" branch, which is the honest answer.
+    //
+    // NOTE: duplicated in hooks/usePaymentHandlers.js, used by BookingDetails
+    // and ShortOrderDetails. The two are identical apart from brace style.
+    // Fix both. Consolidating them is worthwhile but not here — this file
+    // sits near the React Compiler's analysis budget.
+    return null;
   };
 
   // --- FETCH DATA ---
