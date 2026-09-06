@@ -2397,13 +2397,13 @@ export default function Equipment() {
                 by usage, an item with nothing committed drew an empty bar, so
                 the healthiest row looked identical to an empty one and the
                 colour carried all the meaning. */}
-            <div className={`${ROW_COLS} hidden min-[940px]:grid px-1 pb-2.5 border-b border-[#eef2f6]`}>
+            <div className={`${ROW_COLS} hidden min-[940px]:grid px-4 pt-3.5 pb-2.5 border-b border-[#eef2f6]`}>
               <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700">
-                {renderSortHeader(availabilitySort, toggleAvailabilitySort, 'name', 'Equipment')}
+                {renderSortHeader(availabilitySort, toggleAvailabilitySort, 'name', 'Equipment', 'text-[12.5px] tracking-[0.05em] uppercase text-slate-700')}
               </span>
               <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700">Committed on this date</span>
               <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700 text-right">
-                {renderSortHeader(availabilitySort, toggleAvailabilitySort, 'free', 'Available to assign', 'justify-end ml-auto')}
+                {renderSortHeader(availabilitySort, toggleAvailabilitySort, 'free', 'Available to assign', 'justify-end ml-auto text-[12.5px] tracking-[0.05em] uppercase text-slate-700')}
               </span>
             </div>
 
@@ -2433,7 +2433,7 @@ export default function Equipment() {
                       }
                     }}
                     title="Click for the list of events using this item"
-                    className={`${ROW_COLS} items-center px-1 py-4 border-b border-[#f6f8fa] cursor-pointer group transition-colors max-[940px]:grid-cols-1 max-[940px]:gap-3.5 ${
+                    className={`${ROW_COLS} items-center px-4 py-4 border-b border-[#f6f8fa] cursor-pointer group transition-colors max-[940px]:grid-cols-1 max-[940px]:gap-3.5 ${
                       status.key === 'overbooked' ? 'bg-red-50/40 hover:bg-red-50/60' : 'hover:bg-[#fbfcfd]'
                     }`}
                   >
@@ -2584,9 +2584,9 @@ export default function Equipment() {
                   getStockBreakdown owns that identity and is used here rather
                   than recomputed, so this page, Reports and the approval stock
                   guard cannot disagree about what a number means. */}
-              <div className={`${ROW_COLS} hidden min-[940px]:grid px-1 pb-2.5 border-b border-[#eef2f6]`}>
+              <div className={`${ROW_COLS} hidden min-[940px]:grid px-4 pt-3.5 pb-2.5 border-b border-[#eef2f6]`}>
                 <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700">
-                  {renderSortHeader(inventorySort, toggleInventorySort, 'name', 'Equipment')}
+                  {renderSortHeader(inventorySort, toggleInventorySort, 'name', 'Equipment', 'text-[12.5px] tracking-[0.05em] uppercase text-slate-700')}
                 </span>
                 <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700">Stock condition</span>
                 <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700 text-right">Usable &amp; commitment</span>
@@ -2618,7 +2618,7 @@ export default function Equipment() {
                   return (
                     <div
                       key={item.equipment_id}
-                      className={`${ROW_COLS} items-center px-1 py-4 border-b border-[#f6f8fa] hover:bg-[#fbfcfd] transition-colors max-[940px]:grid-cols-1 max-[940px]:gap-3.5`}
+                      className={`${ROW_COLS} items-center px-4 py-4 border-b border-[#f6f8fa] hover:bg-[#fbfcfd] transition-colors max-[940px]:grid-cols-1 max-[940px]:gap-3.5`}
                     >
                       {/* ZONE A — what it is */}
                       <div className="min-w-0">
@@ -2951,9 +2951,9 @@ export default function Equipment() {
 
                   The expand/collapse for multi-item bookings is kept exactly as
                   it was — it is the only way to see the per-item breakdown. */}
-              <div className={`${ROW_COLS} hidden min-[940px]:grid px-1 pb-2.5 border-b border-[#eef2f6] sticky top-0 bg-white`}>
+              <div className={`${ROW_COLS} hidden min-[940px]:grid px-4 pt-3.5 pb-2.5 border-b border-[#eef2f6] sticky top-0 bg-white`}>
                 <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700">
-                  {renderSortHeader(historySort, toggleHistorySort, 'customer', 'Booking')}
+                  {renderSortHeader(historySort, toggleHistorySort, 'customer', 'Booking', 'text-[12.5px] tracking-[0.05em] uppercase text-slate-700')}
                 </span>
                 <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700">Equipment &amp; units</span>
                 <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700 text-right">Dates &amp; status</span>
@@ -2979,7 +2979,7 @@ export default function Equipment() {
                   return (
                     <Fragment key={g.key}>
                       <div
-                        className={`${ROW_COLS} items-start px-1 py-4 border-b border-[#f6f8fa] transition-colors max-[940px]:grid-cols-1 max-[940px]:gap-3.5 ${multi ? 'cursor-pointer hover:bg-[#fbfcfd]' : ''}`}
+                        className={`${ROW_COLS} items-start px-4 py-4 border-b border-[#f6f8fa] transition-colors max-[940px]:grid-cols-1 max-[940px]:gap-3.5 ${multi ? 'cursor-pointer hover:bg-[#fbfcfd]' : ''}`}
                         onClick={() => { if (multi) toggleHistoryGroup(g.key); }}
                       >
                         {/* ZONE A — whose booking it was */}
@@ -3043,7 +3043,7 @@ export default function Equipment() {
                       {multi && isExpanded && g.items.map((a) => {
                         const itemStatus = getAssignmentStatus(a.returned, a.booking?.event_datetime);
                         return (
-                          <div key={a.assignment_id} className={`${ROW_COLS} items-center px-1 py-2.5 border-b border-[#f6f8fa] bg-[#fbfcfd] max-[940px]:grid-cols-1 max-[940px]:gap-2`}>
+                          <div key={a.assignment_id} className={`${ROW_COLS} items-center px-4 py-2.5 border-b border-[#f6f8fa] bg-[#fbfcfd] max-[940px]:grid-cols-1 max-[940px]:gap-2`}>
                             <span className="text-[13.5px] font-medium text-slate-800 pl-[23px] max-[940px]:pl-0">{a.equipment?.eqm_name || 'Unknown'}</span>
                             <span className="text-[13.5px] text-slate-700 tabular-nums">{a.quantity} unit{a.quantity === 1 ? '' : 's'}</span>
                             <span className="flex justify-end max-[940px]:justify-start">
