@@ -1414,7 +1414,7 @@ export default function Equipment() {
     }
     setAssignmentQueue([...assignmentQueue, ...additions]);
     if (skipped.length > 0) {
-      toast.error(`Added what is free on this date. Still uncovered: ${skipped.join(', ')}.`);
+      toast.error(`Added what is available on this date. Still uncovered: ${skipped.join(', ')}.`);
     }
   };
 
@@ -1839,7 +1839,7 @@ export default function Equipment() {
         <div>
           <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Equipment</h1>
           <p className="text-[14.5px] text-slate-600 mt-1.5 max-w-[540px] [text-wrap:pretty]">
-            See what's actually free on a given date, manage inventory, and track assignments.
+            Stock, what is committed, and what is out at events.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -2044,7 +2044,7 @@ export default function Equipment() {
           <Info size={15} className="shrink-0 mt-0.5 text-slate-400" />
           <p className="text-[13.5px] leading-[1.5] text-slate-600 [text-wrap:pretty]">
             {activeTableTab === 'upcoming' && <>Events in the next {PREP_HORIZON_DAYS} days, grouped by day — what goes out, and whether stock covers everything happening that day.</>}
-            {activeTableTab === 'availability' && <>What is free to assign on a chosen date, after subtracting what is already committed to other events that day.</>}
+            {activeTableTab === 'availability' && <>What is available to assign on a chosen date, after subtracting what is already committed to other events that day.</>}
             {activeTableTab === 'inventory' && <>Everything we own. Owned splits into usable, damaged and under maintenance — only usable stock can be assigned.</>}
             {activeTableTab === 'assignments' && <>Everything currently out at an event and not yet returned. {RETURN_POLICY_TEXT}</>}
             {activeTableTab === 'history' && <>Every assignment ever made — assigned and returned — grouped by booking. Open a row to see the individual items.</>}
@@ -2390,7 +2390,7 @@ export default function Equipment() {
                 </button>
               )}
             </div>
-          <div className="overflow-x-auto">
+          <div>
             {/* Same three zones as Inventory. Usable / In use / Available were
                 three separate columns hiding one subtraction; the bar states it.
                 The bar is filled by what is FREE, not by what is used — filled
@@ -2403,7 +2403,7 @@ export default function Equipment() {
               </span>
               <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700">Committed on this date</span>
               <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700 text-right">
-                {renderSortHeader(availabilitySort, toggleAvailabilitySort, 'free', 'Free to assign', 'justify-end ml-auto')}
+                {renderSortHeader(availabilitySort, toggleAvailabilitySort, 'free', 'Available to assign', 'justify-end ml-auto')}
               </span>
             </div>
 
@@ -2478,7 +2478,7 @@ export default function Equipment() {
                       </div>
                       <div className="flex items-center gap-3.5 flex-wrap mt-2.5">
                         {stock.committed > 0 && <Legend color="#64748b" text={`${stock.committed} committed`} />}
-                        <Legend color="#008A45" text={`${Math.max(0, stock.free)} free`} />
+                        <Legend color="#008A45" text={`${Math.max(0, stock.free)} available`} />
                       </div>
                     </div>
 
@@ -2490,8 +2490,7 @@ export default function Equipment() {
                         }`}>
                           {stock.free}
                         </span>
-                        <span className="block mt-1 text-[11.5px] font-bold tracking-[0.06em] uppercase text-slate-500">free</span>
-                        <span className={`inline-flex items-center mt-[7px] px-2.5 py-1 rounded-full text-xs font-bold border ${status.pillClass}`}>
+                        <span className={`inline-flex items-center mt-2 px-2.5 py-1 rounded-full text-xs font-bold border ${status.pillClass}`}>
                           {status.label}
                         </span>
                       </div>
@@ -2636,12 +2635,17 @@ export default function Equipment() {
                             {item.equipment_type === 'Decoration' ? 'Decoration' : 'Countable'}
                           </span>
                           <span className="text-[12.5px] text-slate-500 whitespace-nowrap">
-                            {item.pax_per_unit ? `${item.pax_per_unit} guest${item.pax_per_unit === 1 ? '' : 's'} per unit` : 'no guest capacity'}
+                            {item.equipment_type === 'Decoration'
+                              ? 'per event'
+                              : item.pax_per_unit
+                                ? `${item.pax_per_unit} guest${item.pax_per_unit === 1 ? '' : 's'} per unit`
+                                : 'no guest capacity'}
                           </span>
                         </div>
-                        {item.eqm_description && (
-                          <p className="text-xs text-slate-500 mt-1 [text-wrap:pretty]">{item.eqm_description}</p>
-                        )}
+                        {/* Description is deliberately not repeated here — it is
+                            in the edit modal, and on a row whose job is the
+                            stock arithmetic it pushed the bar out of line with
+                            its neighbours. */}
                       </div>
 
                       {/* ZONE B — what condition it is in */}
@@ -2666,32 +2670,37 @@ export default function Equipment() {
                         </div>
                       </div>
 
-                      {/* ZONE C — what you can actually use, and the actions */}
-                      <div className="flex items-center justify-end gap-4 min-w-0 max-[940px]:justify-start">
-                        <div className="text-right min-w-0 max-[940px]:text-left">
-                          <span className="block text-[22px] font-extrabold tracking-[-0.03em] leading-none text-slate-900 tabular-nums">{stock.usable}</span>
-                          <span className="block mt-1 text-[11.5px] font-bold tracking-[0.06em] uppercase text-slate-500">usable</span>
-                          {/* "Committed", not "out now": most of these are events
-                              that have not happened yet, and a chair promised to
-                              a wedding three days out is not in use by any
-                              reading of the word. */}
-                          <button
-                            onClick={() => handleViewUsage(item)}
-                            className="block mt-[7px] text-[12.5px] text-slate-500 hover:text-[#007038] whitespace-nowrap cursor-pointer max-[940px]:text-left ml-auto max-[940px]:ml-0"
-                            title={usageCount > 0
-                              ? `${committedUnits} unit${committedUnits === 1 ? '' : 's'} across ${usageCount} booking${usageCount === 1 ? '' : 's'} — ${inUseCount} in use, ${upcomingCount} upcoming`
-                              : 'No current commitments — click to see past assignments'}
-                          >
-                            {usageCount > 0
-                              ? `Committed to ${usageCount} booking${usageCount === 1 ? '' : 's'}`
-                              : 'Not committed'}
-                          </button>
+                      {/* ZONE C — what you can actually use, and the actions.
+                          Icons sit beside the figure rather than after the
+                          commitment line, so the number stays the first thing
+                          the eye lands on at the end of the row. */}
+                      <div className="min-w-0">
+                        <div className="flex items-start justify-end gap-3 max-[940px]:justify-start">
+                          <div className="text-right max-[940px]:text-left">
+                            <span className="block text-[22px] font-extrabold tracking-[-0.03em] leading-none text-slate-900 tabular-nums">{stock.usable}</span>
+                            <span className="block mt-1 text-[11.5px] font-bold tracking-[0.06em] uppercase text-slate-500">usable</span>
+                          </div>
+                          <div className="flex items-center gap-0.5 shrink-0">
+                            <IconBtn label="Edit name, description, stock, type" onClick={() => handleEditClick(item)} Icon={Edit} />
+                            <IconBtn label="Flag an issue — damaged or under maintenance" onClick={() => handleFlagIssueClick(item)} Icon={Wrench} hover="amber" />
+                            <IconBtn label="Delete equipment" onClick={() => handleDeleteEquipment(item.equipment_id)} Icon={Trash2} hover="red" />
+                          </div>
                         </div>
-                        <div className="flex items-center gap-0.5 shrink-0">
-                          <IconBtn label="Edit name, description, stock, type" onClick={() => handleEditClick(item)} Icon={Edit} />
-                          <IconBtn label="Flag an issue — damaged or under maintenance" onClick={() => handleFlagIssueClick(item)} Icon={Wrench} hover="amber" />
-                          <IconBtn label="Delete equipment" onClick={() => handleDeleteEquipment(item.equipment_id)} Icon={Trash2} hover="red" />
-                        </div>
+                        {/* "Committed", not "out now": most of these are events
+                            that have not happened yet, and a chair promised to a
+                            wedding three days out is not in use by any reading
+                            of the word. */}
+                        <button
+                          onClick={() => handleViewUsage(item)}
+                          className="block ml-auto mt-2 text-[12.5px] text-slate-500 hover:text-[#007038] whitespace-nowrap cursor-pointer max-[940px]:ml-0"
+                          title={usageCount > 0
+                            ? `${committedUnits} unit${committedUnits === 1 ? '' : 's'} across ${usageCount} booking${usageCount === 1 ? '' : 's'} — ${inUseCount} in use, ${upcomingCount} upcoming`
+                            : 'No current commitments — click to see past assignments'}
+                        >
+                          {usageCount > 0
+                            ? `Committed to ${usageCount} booking${usageCount === 1 ? '' : 's'}`
+                            : 'Not committed'}
+                        </button>
                       </div>
                     </div>
                   );
@@ -2932,121 +2941,129 @@ export default function Equipment() {
                 {historyGroups.length} booking{historyGroups.length !== 1 ? 's' : ''} &#183; {filteredHistoryRows.length} of {assignments.length} assignment record{assignments.length !== 1 ? 's' : ''}{historySort.field ? '' : ', most recent first'}
               </p>
             </div>
-            <div className="overflow-x-auto max-h-[32rem] overflow-y-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#fbfcfd] border-b border-slate-100 sticky top-0">
-                    <th className="px-5 py-3">{renderSortHeader(historySort, toggleHistorySort, 'customer', 'Booking')}</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Equipment</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Units</th>
-                    <th className="px-4 py-3">{renderSortHeader(historySort, toggleHistorySort, 'eventDate', 'Event date')}</th>
-                    <th className="px-4 py-3">{renderSortHeader(historySort, toggleHistorySort, 'assignedOn', 'Assigned on')}</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-                  {isLoading ? (
-                    <tr><td colSpan="6" className="p-6 text-center text-slate-500">Loading history...</td></tr>
-                  ) : historyGroups.length === 0 ? (
-                    <tr><td colSpan="6" className="p-6 text-center text-slate-500">No assignment history matches your search or filter.</td></tr>
-                  ) : (
-                    historyGroups.map((g) => {
-                      const ref = g.booking ? getBookingRef(g.booking) : 'Unknown';
-                      const customerName = g.booking?.customer ? g.booking.customer.first_name + ' ' + g.booking.customer.last_name : 'Unknown';
-                      const isExpanded = expandedHistoryGroups.has(g.key);
-                      const multi = g.items.length > 1;
-                      const stagePill = g.stage.key === 'returned' ? 'bg-slate-100 text-slate-600'
-                        : g.stage.key === 'overdue' ? 'bg-red-50 text-red-700'
-                        : g.stage.key === 'in_use' ? 'bg-emerald-50 text-emerald-700'
-                        : 'bg-blue-50 text-blue-700';
-                      return (
-                        <Fragment key={g.key}>
-                          <tr
-                            className={'transition-colors hover:bg-[#fbfcfd] ' + (multi ? 'cursor-pointer' : '')}
-                            onClick={() => { if (multi) toggleHistoryGroup(g.key); }}
-                          >
-                            <td className="px-5 py-[15px] align-top">
-                              <div className="flex items-start gap-2">
-                                {/* Only a group hiding something gets a chevron;
-                                    a single-item booking has nothing to reveal. */}
-                                {multi ? (
-                                  <ChevronRight size={15} className={'mt-[3px] shrink-0 text-slate-400 transition-transform ' + (isExpanded ? 'rotate-90' : '')} />
-                                ) : (
-                                  <span className="w-[15px] shrink-0" />
-                                )}
-                                <div className="min-w-0">
-                                  <p className="text-[14.5px] font-semibold text-slate-900">{customerName}</p>
-                                  <p className="text-[13px] text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
-                                    {g.booking ? (
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); goToBookingDetails(g.booking.booking_id, g.booking.booking_type); }}
-                                        className="font-semibold text-[#007038] tabular-nums hover:underline inline-flex items-center gap-0.5 cursor-pointer"
-                                        title="View full booking details"
-                                      >
-                                        {ref} <ExternalLink size={11} />
-                                      </button>
-                                    ) : (
-                                      <span className="font-semibold tabular-nums">{ref}</span>
-                                    )}
-                                    {g.booking?.venue && <span className="flex items-center gap-1"><MapPin size={11} /> {g.booking.venue}</span>}
-                                  </p>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="px-4 py-[15px] align-top text-sm text-slate-800">
-                              {multi ? g.items.length + ' equipment types' : (g.items[0].equipment?.eqm_name || 'Unknown')}
-                            </td>
-                            <td className="px-4 py-[15px] align-top text-right text-sm text-slate-800 tabular-nums">{g.totalUnits}</td>
-                            <td className="px-4 py-[15px] align-top text-sm text-slate-600 tabular-nums">
-                              {g.booking?.event_datetime ? new Date(g.booking.event_datetime).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
-                            </td>
-                            <td className="px-4 py-[15px] align-top text-sm text-slate-600 tabular-nums">
-                              {g.latestAssignedAt ? g.latestAssignedAt.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}
-                            </td>
-                            <td className="px-4 py-[15px] align-top">
-                              <span className={'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ' + stagePill}>
-                                {g.stage.key === 'returned' && <CheckCircle2 size={12} />}
-                                {g.stage.label}
-                              </span>
-                              {/* A part-returned booking reads as still open, so
-                                  say how much of it is actually back. */}
-                              {multi && !g.allReturned && g.returnedCount > 0 && (
-                                <p className="text-[12.5px] text-slate-600 mt-1 tabular-nums">{g.returnedCount} of {g.items.length} returned</p>
-                              )}
-                            </td>
-                          </tr>
+            <div className="max-h-[32rem] overflow-y-auto">
+              {/* Same three zones as Inventory and Availability. History was a
+                  six-column table whose Equipment and Units columns were two
+                  halves of one fact ("Monobloc chairs, Utensil sets" and "180"),
+                  and whose Event date and Assigned on columns were two halves of
+                  another. Paired into zones they read as two facts, not four
+                  columns.
 
-                          {multi && isExpanded && g.items.map((a) => {
-                            const itemStatus = getAssignmentStatus(a.returned, a.booking?.event_datetime);
-                            return (
-                              <tr key={a.assignment_id} className="bg-[#fbfcfd]">
-                                <td className="px-5 py-2.5" />
-                                <td className="px-4 py-2.5 text-[13.5px] font-medium text-slate-800">{a.equipment?.eqm_name || 'Unknown'}</td>
-                                <td className="px-4 py-2.5 text-right text-[13.5px] text-slate-700 tabular-nums">{a.quantity}</td>
-                                <td className="px-4 py-2.5" />
-                                <td className="px-4 py-2.5 text-[13.5px] text-slate-600 tabular-nums">
-                                  {a.assigned_at ? new Date(a.assigned_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}
-                                </td>
-                                <td className="px-4 py-2.5">
-                                  {a.returned ? (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[12.5px] font-semibold bg-slate-100 text-slate-600 whitespace-nowrap">
-                                      <CheckCircle2 size={11} /> Returned {a.returned_at ? new Date(a.returned_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
-                                    </span>
-                                  ) : (
-                                    <span className={'inline-flex items-center px-2.5 py-0.5 rounded-full text-[12.5px] font-semibold whitespace-nowrap ' + (itemStatus.key === 'in_use' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700')}>
-                                      {itemStatus.label}
-                                    </span>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </Fragment>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+                  The expand/collapse for multi-item bookings is kept exactly as
+                  it was — it is the only way to see the per-item breakdown. */}
+              <div className={`${ROW_COLS} hidden min-[940px]:grid px-1 pb-2.5 border-b border-[#eef2f6] sticky top-0 bg-white`}>
+                <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700">
+                  {renderSortHeader(historySort, toggleHistorySort, 'customer', 'Booking')}
+                </span>
+                <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700">Equipment &amp; units</span>
+                <span className="text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700 text-right">Dates &amp; status</span>
+              </div>
+
+              {isLoading ? (
+                <p className="p-6 text-center text-slate-500">Loading history...</p>
+              ) : historyGroups.length === 0 ? (
+                <p className="p-6 text-center text-slate-500">No assignment history matches your search or filter.</p>
+              ) : (
+                historyGroups.map((g) => {
+                  const ref = g.booking ? getBookingRef(g.booking) : 'Unknown';
+                  const customerName = g.booking?.customer ? g.booking.customer.first_name + ' ' + g.booking.customer.last_name : 'Unknown';
+                  const isExpanded = expandedHistoryGroups.has(g.key);
+                  const multi = g.items.length > 1;
+                  const stagePill = g.stage.key === 'returned' ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+                    : g.stage.key === 'overdue' ? 'bg-red-50 border border-red-200 text-red-700'
+                    : g.stage.key === 'in_use' ? 'bg-amber-50 border border-amber-200 text-amber-700'
+                    : 'bg-slate-50 border border-slate-200 text-slate-600';
+                  const names = g.items.map(a => a.equipment?.eqm_name || 'Unknown');
+                  const uniqueNames = [...new Set(names)];
+
+                  return (
+                    <Fragment key={g.key}>
+                      <div
+                        className={`${ROW_COLS} items-start px-1 py-4 border-b border-[#f6f8fa] transition-colors max-[940px]:grid-cols-1 max-[940px]:gap-3.5 ${multi ? 'cursor-pointer hover:bg-[#fbfcfd]' : ''}`}
+                        onClick={() => { if (multi) toggleHistoryGroup(g.key); }}
+                      >
+                        {/* ZONE A — whose booking it was */}
+                        <div className="flex items-start gap-2 min-w-0">
+                          {/* Only a group hiding something gets a chevron; a
+                              single-item booking has nothing to reveal. */}
+                          {multi ? (
+                            <ChevronRight size={15} className={'mt-[5px] shrink-0 text-slate-400 transition-transform ' + (isExpanded ? 'rotate-90' : '')} />
+                          ) : (
+                            <span className="w-[15px] shrink-0" />
+                          )}
+                          <div className="min-w-0">
+                            <span className="block text-[15px] font-bold text-slate-900 [text-wrap:pretty]">{customerName}</span>
+                            <p className="text-[13px] text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1">
+                              {g.booking ? (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); goToBookingDetails(g.booking.booking_id, g.booking.booking_type); }}
+                                  className="font-semibold text-[#007038] tabular-nums hover:underline inline-flex items-center gap-0.5 cursor-pointer"
+                                  title="View full booking details"
+                                >
+                                  {ref} <ExternalLink size={11} />
+                                </button>
+                              ) : (
+                                <span className="font-semibold tabular-nums">{ref}</span>
+                              )}
+                              {g.booking?.venue && <span className="flex items-center gap-1"><MapPin size={11} /> {g.booking.venue}</span>}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* ZONE B — what went out, named and counted together */}
+                        <div className="min-w-0">
+                          <p className="text-[13.5px] text-slate-800 [text-wrap:pretty]">{uniqueNames.join(', ')}</p>
+                          <p className="text-[12.5px] font-semibold text-slate-500 mt-1 tabular-nums">
+                            {g.totalUnits} unit{g.totalUnits === 1 ? '' : 's'} · {g.items.length} type{g.items.length === 1 ? '' : 's'}
+                          </p>
+                        </div>
+
+                        {/* ZONE C — when, and where it got to */}
+                        <div className="flex items-start justify-end gap-3 min-w-0 max-[940px]:justify-start">
+                          <div className="text-right max-[940px]:text-left">
+                            <span className="block text-[13px] font-semibold text-slate-700 tabular-nums whitespace-nowrap">
+                              Event {g.booking?.event_datetime ? new Date(g.booking.event_datetime).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                            </span>
+                            <span className="block text-[12.5px] text-slate-500 tabular-nums whitespace-nowrap mt-0.5">
+                              Assigned {g.latestAssignedAt ? g.latestAssignedAt.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                            </span>
+                            {/* A part-returned booking reads as still open, so
+                                say how much of it is actually back. */}
+                            {multi && !g.allReturned && g.returnedCount > 0 && (
+                              <span className="block text-[12.5px] text-slate-600 mt-1 tabular-nums">{g.returnedCount} of {g.items.length} returned</span>
+                            )}
+                          </div>
+                          <span className={'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap shrink-0 ' + stagePill}>
+                            {g.stage.key === 'returned' && <CheckCircle2 size={12} />}
+                            {g.stage.label}
+                          </span>
+                        </div>
+                      </div>
+
+                      {multi && isExpanded && g.items.map((a) => {
+                        const itemStatus = getAssignmentStatus(a.returned, a.booking?.event_datetime);
+                        return (
+                          <div key={a.assignment_id} className={`${ROW_COLS} items-center px-1 py-2.5 border-b border-[#f6f8fa] bg-[#fbfcfd] max-[940px]:grid-cols-1 max-[940px]:gap-2`}>
+                            <span className="text-[13.5px] font-medium text-slate-800 pl-[23px] max-[940px]:pl-0">{a.equipment?.eqm_name || 'Unknown'}</span>
+                            <span className="text-[13.5px] text-slate-700 tabular-nums">{a.quantity} unit{a.quantity === 1 ? '' : 's'}</span>
+                            <span className="flex justify-end max-[940px]:justify-start">
+                              {a.returned ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[12.5px] font-semibold bg-emerald-50 border border-emerald-200 text-emerald-700 whitespace-nowrap">
+                                  <CheckCircle2 size={11} /> Returned {a.returned_at ? new Date(a.returned_at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[12.5px] font-semibold whitespace-nowrap bg-slate-50 border border-slate-200 text-slate-600">
+                                  {itemStatus.label}
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </Fragment>
+                  );
+                })
+              )}
             </div>
           </>
         )}
@@ -3657,7 +3674,7 @@ export default function Equipment() {
                           .filter(i => i.committed > 0 || i.free < i.quantity_available)
                           .map(i => (
                             <div key={i.equipment_id} className={`text-[12.5px] px-2 py-1 rounded-[7px] border ${i.free < 0 ? 'bg-red-50 border-red-200 text-red-700' : i.free === 0 ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
-                              <span className="font-semibold">{i.eqm_name}:</span> {i.free} free
+                              <span className="font-semibold">{i.eqm_name}:</span> {i.free} available
                             </div>
                           ))}
                         {assignDateSnapshot.items.every(i => i.committed === 0) && (
@@ -3755,11 +3772,11 @@ export default function Equipment() {
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Add Equipment to Assignment List</label>
                 <p className="text-[13px] text-slate-600 mb-2">
                   {assignDateSnapshotLoading
-                    ? 'Checking what is free on this event’s date…'
+                    ? 'Checking what is available on this event’s date…'
                     : !selectedBooking
                       ? 'Pick a booking first — availability is counted for that event’s date, not overall stock.'
                       : assignDateSnapshot
-                        ? <>Counts are what is free on <span className="font-semibold text-slate-700">{eventDateLabel}</span>, after other events booked that day.</>
+                        ? <>Counts are what is available on <span className="font-semibold text-slate-700">{eventDateLabel}</span>, after other events booked that day.</>
                         : 'Showing total usable stock — availability for this date could not be loaded.'}
                 </p>
                 <div className={`flex flex-col sm:flex-row gap-2 ${!selectedBooking ? 'opacity-60' : ''}`}>
@@ -3799,7 +3816,7 @@ export default function Equipment() {
                           value={eq.equipment_id}
                           disabled={scoped && shown === 0}
                         >
-                          {eq.eqm_name} — {shown} {scoped ? `free on ${eventDateLabel}` : 'usable in stock'}
+                          {eq.eqm_name} — {shown} {scoped ? `available on ${eventDateLabel}` : 'usable in stock'}
                           {scoped && shown === 0 ? ' (fully committed)' : ''}
                           {eq.equipment_type === 'Decoration' ? ' [Decoration]' : ''}
                           {eq.pax_per_unit ? ` · ${eq.pax_per_unit} pax/unit` : ''}
