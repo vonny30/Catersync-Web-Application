@@ -5,7 +5,7 @@ import ModalTotal from '../components/ModalTotal';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Search, Upload, X, Image as ImageIcon, Check, DollarSign, RefreshCw, Eye, Filter, LayoutGrid, RotateCcw, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown, ChevronRight } from 'lucide-react';
+import { Search, Upload, X, Image as ImageIcon, Check, DollarSign, RefreshCw, Eye, Filter, LayoutGrid, RotateCcw, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown, ChevronRight, MapPin, Calendar } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -16,6 +16,15 @@ import { getConfirmEligibility, buildConfirmDialog, applyConfirmation } from '..
 import { fetchAllRows } from '../utils/fetchAllRows';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './Reports/helpers';
+
+// Proof thumbnail sizes. `sm` is the table default and must stay 36px — the
+// three existing call sites pass no size. `lg` fills a wrapper that supplies
+// its own frame, so the button drops the border it would otherwise duplicate.
+const PROOF_SIZES = {
+  sm: { box: 'w-9 h-9', framed: true },
+  md: { box: 'w-14 h-14', framed: true },
+  lg: { box: 'w-full h-full', framed: false },
+};
 
 // ---------------------------------------------------------------------------
 // Two presentational components, deliberately at MODULE scope.
@@ -1093,7 +1102,8 @@ export default function Payments() {
     : [];
 
   // --- Updated renderProof: opens modal instead of new tab ---
-  const renderProof = (proofUrl) => {
+  const renderProof = (proofUrl, size = 'sm') => {
+    const { box, framed } = PROOF_SIZES[size] || PROOF_SIZES.sm;
     if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
       return <span className="text-[13px] text-slate-400">None</span>;
     }
@@ -1109,7 +1119,7 @@ export default function Payments() {
           setProofModalUrl(fullUrl);
           setIsProofModalOpen(true);
         }}
-        className="inline-flex items-center justify-center w-9 h-9 border border-slate-200 rounded-[9px] bg-slate-50 hover:border-[#c9dfd4] hover:text-[#007038] transition-all cursor-pointer"
+        className={`inline-flex items-center justify-center ${box} ${framed ? 'border border-slate-200 rounded-[9px] bg-slate-50 hover:border-[#c9dfd4]' : ''} hover:text-[#007038] transition-all cursor-pointer`}
         title="Click to view proof"
       >
         <img
@@ -1816,76 +1826,123 @@ export default function Payments() {
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto flex-1 space-y-6">
-              {/* Payment summary */}
-              <div className="grid grid-cols-2 gap-4 text-sm bg-slate-50 p-4 rounded-lg border border-slate-200">
-                <div>
-                  <span className="font-medium text-slate-500">Amount</span>
-                  <p className={`font-bold text-lg ${selectedPaymentDetail.amount_paid < 0 ? 'text-red-600' : 'text-slate-900'}`}>
-                    {selectedPaymentDetail.amount_paid < 0 ? '-' : ''}₱{Math.abs(selectedPaymentDetail.amount_paid).toLocaleString()}
-                  </p>
-                </div>
-                <div>
-                  <span className="font-medium text-slate-500">Payment Status</span>
-                  <p>
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadge(selectedPaymentDetail.pay_status)}`}>
-                      {selectedPaymentDetail.pay_status === 'Refunded'
-                        ? 'Refunded'
-                        : describePaymentKind(
-                            selectedPaymentDetail,
-                            payments.filter(p => p.booking_id === selectedPaymentDetail.booking_id
-                              && p.payment_id !== selectedPaymentDetail.payment_id
-                              && new Date(p.pay_datetime || 0) <= new Date(selectedPaymentDetail.pay_datetime || 0)),
-                            selectedPaymentDetail.booking?.total_amount,
-                          )}
-                    </span>
-                  </p>
-                </div>
-                <div>
-                  <span className="font-medium text-slate-500">Method</span>
-                  <p className="font-semibold">{selectedPaymentDetail.pay_method || 'N/A'}</p>
-                </div>
-                <div>
-                  <span className="font-medium text-slate-500">Date</span>
-                  <p>{selectedPaymentDetail.pay_datetime ? new Date(selectedPaymentDetail.pay_datetime).toLocaleString() : 'N/A'}</p>
-                </div>
-                <div className="col-span-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-slate-500">Order</span>
-                    <button
-                      onClick={() => goToBookingDetails(selectedPaymentDetail.booking_id, selectedPaymentDetail.booking?.booking_type)}
-                      className="text-xs font-semibold text-[#008A45] hover:underline inline-flex items-center gap-1 cursor-pointer"
-                      title="View full booking details"
-                    >
-                      View full details <ExternalLink size={11} />
-                    </button>
+            {/* Tinted body with white cards, so the blocks read as separate
+                things. One bg-slate-50 box made them a single mass. */}
+            <div className="p-6 overflow-y-auto flex-1 bg-[#fbfcfd] flex flex-col gap-4">
+
+              {/* --- THIS PAYMENT -----------------------------------------
+                  The amount is why the modal was opened, so it stops being the
+                  fourth equal cell in a 2-column grid. "This payment", not
+                  "Amount": the timeline below shows a booking total and other
+                  rows, so a bare "Amount" never said which one. "Received",
+                  not "Date", which collided with the event date below. */}
+              <div className="border border-[#dcece3] rounded-2xl overflow-hidden bg-white">
+                <div className="flex items-start justify-between gap-5 px-5 pt-[18px] pb-4 bg-[linear-gradient(180deg,#f2f9f5_0%,#fbfdfc_100%)]">
+                  <div className="min-w-0">
+                    <span className="block text-[11px] font-bold tracking-[0.1em] uppercase text-slate-500">This payment</span>
+                    <p className={`mt-[5px] text-[34px] leading-[1.05] font-extrabold tracking-[-0.03em] tabular-nums ${selectedPaymentDetail.amount_paid < 0 ? 'text-red-600' : 'text-slate-900'}`}>
+                      {selectedPaymentDetail.amount_paid < 0 ? '-' : ''}₱{Math.abs(selectedPaymentDetail.amount_paid).toLocaleString()}
+                    </p>
                   </div>
-                  <p>
-                    <span className="font-semibold">{getBookingRef(selectedPaymentDetail)}</span>
-                    <span className={`ml-2 inline-block px-2 py-0.5 rounded-full text-xs font-medium border ${getOrderStatusBadge(selectedPaymentDetail.booking?.booking_status)}`}>
-                      {selectedPaymentDetail.booking?.booking_status || 'Unknown'}
+                  <span className={`shrink-0 inline-flex items-center gap-1.5 pl-3 pr-3.5 py-[7px] rounded-full text-[13px] font-bold border ${getStatusBadge(selectedPaymentDetail.pay_status)}`}>
+                    {selectedPaymentDetail.pay_status === 'Refunded'
+                      ? 'Refunded'
+                      : describePaymentKind(
+                          selectedPaymentDetail,
+                          payments.filter(p => p.booking_id === selectedPaymentDetail.booking_id
+                            && p.payment_id !== selectedPaymentDetail.payment_id
+                            && new Date(p.pay_datetime || 0) <= new Date(selectedPaymentDetail.pay_datetime || 0)),
+                          selectedPaymentDetail.booking?.total_amount,
+                        )}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 border-t border-slate-100">
+                  <div className="px-5 py-[13px] border-r border-slate-100">
+                    <span className="block text-[11px] font-bold tracking-[0.08em] uppercase text-slate-400">Method</span>
+                    <p className="mt-1 text-[14.5px] font-semibold text-slate-800">{selectedPaymentDetail.pay_method || 'N/A'}</p>
+                  </div>
+                  <div className="px-5 py-[13px]">
+                    <span className="block text-[11px] font-bold tracking-[0.08em] uppercase text-slate-400">Received</span>
+                    <p className="mt-1 text-[14.5px] font-semibold text-slate-800">
+                      {selectedPaymentDetail.pay_datetime ? new Date(selectedPaymentDetail.pay_datetime).toLocaleString() : 'N/A'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* --- ORDER -------------------------------------------------
+                  Six facts in tiers: identity, then place and time as icon
+                  rows. Venue and event were the palest text in the modal and
+                  are the two things a manager scans for. The type becomes a
+                  chip because it is a category, not a parenthetical aside. */}
+              <div className="border border-slate-200 rounded-2xl bg-white px-5 pt-4 pb-[17px]">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <span className="text-[11px] font-bold tracking-[0.1em] uppercase text-slate-400">Order</span>
+                  <button
+                    onClick={() => goToBookingDetails(selectedPaymentDetail.booking_id, selectedPaymentDetail.booking?.booking_type)}
+                    className="inline-flex items-center gap-1.5 text-[13px] font-bold text-[#007038] hover:text-[#00532a] cursor-pointer"
+                    title="View full booking details"
+                  >
+                    View full details <ExternalLink size={12} />
+                  </button>
+                </div>
+
+                <div className="flex items-center flex-wrap gap-2.5">
+                  <span className="text-[17px] font-bold tracking-[-0.02em] text-slate-900">{getBookingRef(selectedPaymentDetail)}</span>
+                  <span className={`inline-flex items-center px-[11px] py-1 rounded-full text-xs font-bold border ${getOrderStatusBadge(selectedPaymentDetail.booking?.booking_status)}`}>
+                    {selectedPaymentDetail.booking?.booking_status || 'Unknown'}
+                  </span>
+                  <span className="inline-flex items-center px-[11px] py-1 rounded-full bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-600">
+                    {selectedPaymentDetail.booking?.booking_type || 'Package'}
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-[9px] mt-3.5 pt-3.5 border-t border-slate-100">
+                  <div className="flex items-start gap-2.5">
+                    <MapPin size={15} className="shrink-0 mt-0.5 text-slate-400" />
+                    <span className="text-sm leading-[1.45] text-slate-700 [text-wrap:pretty]">{selectedPaymentDetail.booking?.venue || 'No venue'}</span>
+                  </div>
+                  <div className="flex items-start gap-2.5">
+                    <Calendar size={15} className="shrink-0 mt-0.5 text-slate-400" />
+                    <span className="text-sm leading-[1.45] text-slate-700">
+                      Event · {selectedPaymentDetail.booking?.event_datetime ? new Date(selectedPaymentDetail.booking.event_datetime).toLocaleString() : 'N/A'}
                     </span>
-                    <span className="ml-2 text-xs text-slate-500">({selectedPaymentDetail.booking?.booking_type || 'Package'})</span>
-                  </p>
-                  <p className="text-xs text-slate-500">{selectedPaymentDetail.booking?.venue || 'No venue'}</p>
-                  {isCancelledBooking(selectedPaymentDetail.booking?.booking_status) && (
+                  </div>
+                </div>
+
+                {/* Below the icon rows now, in its own section. It used to sit
+                    BETWEEN venue and event date, splitting two related lines
+                    with a warning block. */}
+                {isCancelledBooking(selectedPaymentDetail.booking?.booking_status) && (
+                  <div className="mt-3.5 pt-3.5 border-t border-slate-100">
                     <RetainedFromCancellationNote
                       rows={payments.filter(p => p.booking_id === selectedPaymentDetail.booking_id)}
                       status={selectedPaymentDetail.booking?.booking_status}
                     />
-                  )}
-                  <p className="text-xs text-slate-500">Event: {selectedPaymentDetail.booking?.event_datetime ? new Date(selectedPaymentDetail.booking.event_datetime).toLocaleString() : 'N/A'}</p>
-                </div>
-                {selectedPaymentDetail.remarks && (
-                  <div className="col-span-2">
-                    <span className="font-medium text-slate-500">Remarks</span>
-                    <p className="text-slate-700">{selectedPaymentDetail.remarks}</p>
                   </div>
                 )}
-                <div className="col-span-2">
-                  <span className="font-medium text-slate-500">Proof of Payment</span>
-                  <div className="mt-2">
-                    {renderProof(selectedPaymentDetail.pay_proof)}
+              </div>
+
+              {selectedPaymentDetail.remarks && (
+                <div className="border border-slate-200 rounded-2xl bg-white px-5 pt-4 pb-[18px]">
+                  <span className="block mb-2 text-[11px] font-bold tracking-[0.1em] uppercase text-slate-400">Remarks</span>
+                  <p className="text-sm leading-[1.5] text-slate-700 [text-wrap:pretty]">{selectedPaymentDetail.remarks}</p>
+                </div>
+              )}
+
+              {/* --- PROOF -------------------------------------------------
+                  104px, because a receipt is unreadable at 36px, and the
+                  caption fills the space that made the old full-width cell
+                  look broken. */}
+              <div className="border border-slate-200 rounded-2xl bg-white px-5 pt-4 pb-[18px]">
+                <span className="block mb-3 text-[11px] font-bold tracking-[0.1em] uppercase text-slate-400">Proof of payment</span>
+                <div className="flex items-center gap-4">
+                  <div className="shrink-0 w-[104px] h-[104px] rounded-xl border border-slate-200 overflow-hidden bg-slate-50 flex items-center justify-center hover:border-[#008A45] transition-colors">
+                    {renderProof(selectedPaymentDetail.pay_proof, 'lg')}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-800">{selectedPaymentDetail.pay_method || 'Payment'} receipt</p>
+                    <p className="mt-1 text-[13px] leading-[1.45] text-slate-500 [text-wrap:pretty]">Uploaded with this payment. Click to view full size.</p>
                   </div>
                 </div>
               </div>
@@ -1898,7 +1955,12 @@ export default function Payments() {
                   clear which one is "selected". */}
               {selectedPaymentDetail.booking_id && (
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900 mb-3">Payment Timeline</h3>
+                  <div className="flex items-baseline justify-between gap-3 mb-[11px]">
+                    <h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Payment timeline</h3>
+                    <span className="text-[13px] text-slate-500">
+                      {payments.filter(p => p.booking_id === selectedPaymentDetail.booking_id).length} payments
+                    </span>
+                  </div>
                   <BookingPaymentSummary
                     rows={payments.filter(p => p.booking_id === selectedPaymentDetail.booking_id)}
                     bookingTotal={selectedPaymentDetail.booking?.total_amount}
@@ -1935,23 +1997,37 @@ export default function Payments() {
                                 setSelectedPaymentDetail(p);
                               }
                             }}
-                            className={`w-full flex justify-between items-center gap-3 rounded-lg px-4 py-2 text-sm border text-left cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#008A45]/40 ${
-                              isSelected ? 'bg-[#EAF3F2] border-[#008A45]/40 ring-1 ring-[#008A45]/20' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                            /* Three tracks rather than justify-between. The
+                               amount used to be pushed hard against its label
+                               ("Downpayment – ₱7,500") while the dates lined up
+                               on the right, so the one column worth comparing
+                               down was the one that could not align. The date
+                               moves into the meta line, freeing the right side
+                               for the amount alone. tabular-nums is what makes
+                               ₱7,500 and ₱15,000 share glyph widths — without
+                               it a right-aligned column still looks crooked. */
+                            className={`w-full grid grid-cols-[1fr_auto_56px] items-center gap-3.5 rounded-xl px-3.5 py-3 border text-left cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#008A45]/40 ${
+                              isSelected ? 'bg-[#EAF3F2] border-[#008A45]/40 ring-1 ring-[#008A45]/20' : 'bg-white border-slate-200 hover:bg-slate-50'
                             }`}
                             title="View this payment's full details"
                           >
-                            <span className="flex flex-col gap-0.5">
+                            <span className="min-w-0">
                               <span className="flex items-center gap-2">
-                                <span className="font-semibold">{kind}</span> – ₱{Math.abs(p.amount_paid).toLocaleString()}
+                                <span className="text-sm font-semibold text-slate-900 truncate">{kind}</span>
                                 {isSelected && (
-                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[#008A45] text-white">Viewing</span>
+                                  <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[#008A45] text-white">Viewing</span>
                                 )}
                               </span>
-                              <span className="text-xs text-slate-500">{p.pay_method || 'N/A'}</span>
+                              <span className="block mt-0.5 text-[12.5px] text-slate-500 truncate">
+                                {p.pay_method || 'N/A'}
+                                {p.pay_datetime ? ` · ${new Date(p.pay_datetime).toLocaleDateString()}` : ''}
+                              </span>
                             </span>
-                            <span className="flex items-center gap-3 shrink-0" onClick={(e) => e.stopPropagation()}>
-                              <span className="text-slate-500">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleDateString() : ''}</span>
-                              {renderProof(p.pay_proof)}
+                            <span className={`text-[15px] font-bold tabular-nums text-right ${p.amount_paid < 0 ? 'text-red-600' : 'text-slate-900'}`}>
+                              {p.amount_paid < 0 ? '-' : ''}₱{Math.abs(p.amount_paid).toLocaleString()}
+                            </span>
+                            <span className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+                              {renderProof(p.pay_proof, 'md')}
                             </span>
                           </div>
                         );
