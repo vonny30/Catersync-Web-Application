@@ -83,11 +83,20 @@ export default function TimelineTrack({
             const cls = `absolute ${inset} rounded-[6px] border ${b.dashed ? 'border-dashed' : ''} px-2 flex flex-col justify-center items-start overflow-hidden text-left ${
               b.clash ? 'ring-1 ring-red-400' : ''
             }`;
+            // A label only earns its place if the block is wide enough to hold
+            // it. On a compact strip a 45-minute delivery is ~7% of a 19-hour
+            // axis — about 38px — which renders "This event" as "T…". A letter
+            // and an ellipsis is worse than no label: the tint already says
+            // which leg it is, the dashed edge says it is the proposed run, and
+            // the title carries the full sentence on hover.
+            const showLabel = !compact || b.width >= 14;
             const inner = (
               <>
+                {showLabel && (
                 <span className={`${compact ? 'text-[10.5px]' : 'text-[11.5px]'} font-bold leading-tight truncate w-full`}>
                   {b.primary}
                 </span>
+                )}
                 {!compact && b.secondary && (
                   <span className="text-[10.5px] leading-tight truncate w-full opacity-80 tabular-nums">
                     {b.secondary}
