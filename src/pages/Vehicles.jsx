@@ -7,6 +7,7 @@ import { createPortal } from 'react-dom';
 import {
   Plus, Edit, Trash2, X, ClipboardList, RefreshCw, Undo2,
   Calendar, MapPin, Users, Search, CalendarClock, LayoutGrid, AlertTriangle,
+  Info,
   ChevronRight, Wrench, CheckCircle2, History, ExternalLink, Lock,
   ArrowUpDown, ArrowUp, ArrowDown, Car, Truck, Clock, Package as PackageIcon,
 } from 'lucide-react';
@@ -84,7 +85,7 @@ export default function Vehicles() {
   const [snapshotLoading, setSnapshotLoading] = useState(true);
 
   // --- Availability/Inventory/Assignments/History tab control ---
-  const [activeTableTab, setActiveTableTab] = useState('availability'); // 'availability' | 'inventory' | 'assignments' | 'history'
+  const [activeTableTab, setActiveTableTab] = useState('day'); // 'availability' | 'inventory' | 'assignments' | 'history'
 
   // --- Availability tab search/filter/sort ---
   const [availabilitySearch, setAvailabilitySearch] = useState('');
@@ -839,7 +840,7 @@ export default function Vehicles() {
   };
 
   const scrollToAssignments = () => {
-    setActiveTableTab('assignments');
+    setActiveTableTab('trips');
   };
 
   // --- Jump to the Availability tab (Vehicles deployed / free stat cards) —
@@ -848,7 +849,7 @@ export default function Vehicles() {
   // scroll + a status filter give a visible reaction every time. ---
   const availabilityPanelRef = useRef(null);
   const scrollToAvailability = (statusFilter) => {
-    setActiveTableTab('availability');
+    setActiveTableTab('day');
     setAvailabilityStatusFilter(statusFilter);
     availabilityPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
@@ -861,7 +862,9 @@ export default function Vehicles() {
   // A vehicle counts once however many trips it makes that day - these are
   // vehicle counts, not trip counts, and the card says "vehicles".
   const deployedCount = snapshot.vehicles.filter(v => v.assignments.length > 0).length;
-  const freeCount = snapshot.vehicles.filter(v => v.vehicle_status === 'Available' && v.assignments.length === 0).length;
+  // "Open", never "free". The sibling Equipment page removed that word
+  // deliberately; this one still had it in a derived name and on screen.
+  const openTodayCount = snapshot.vehicles.filter(v => v.vehicle_status === 'Available' && v.assignments.length === 0).length;
 
   // Live/always-current — not scoped to the date picker.
   const needsAttentionVehicles = vehicles
@@ -1204,7 +1207,7 @@ export default function Vehicles() {
         <div>
           <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Vehicles</h1>
           <p className="text-[14.5px] text-slate-600 mt-1.5 max-w-[540px] [text-wrap:pretty]">
-            See what's actually free on a given date, manage the fleet, and track dispatches.
+            The day's schedule, what each vehicle is committed to, and what is still out.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -1302,7 +1305,7 @@ export default function Vehicles() {
           >
             <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-teal-600" />
             <span className="block text-[13px] font-semibold text-slate-600 mb-2 whitespace-nowrap">Vehicles available</span>
-            <span className={`block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums ${freeCount === 0 ? 'text-amber-700' : 'text-slate-900'}`}>{freeCount}</span>
+            <span className={`block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums ${openTodayCount === 0 ? 'text-amber-700' : 'text-slate-900'}`}>{openTodayCount}</span>
             <span className="block text-[13px] text-slate-600 mt-2.5">Not committed · of {totalFleet} in the fleet</span>
           </button>
         </div>
@@ -1320,45 +1323,87 @@ export default function Vehicles() {
             step, and they had already drifted — icons were 14px here and 15px
             there, and the overdue badge was bg-red-50 against Equipment's
             bg-red-100. */}
-        <div className="flex items-center gap-0.5 px-2 border-b border-slate-100 overflow-x-auto">
+        {/* Two labelled clusters, the shape Equipment uses, so the sibling
+            pages read as one system.
+
+            PLAN is date-scoped; FLEET is not. That was this page's core
+            confusion — four tabs carried three different time scopes, and the
+            Assignments blurb said outright that it ignored the date picker the
+            other tabs obeyed. The clusters say which is which BEFORE you click,
+            which a per-tab sentence can only do afterwards.
+
+            Plan carries no badge: a count there would have to mean "on the
+            selected date", and beside Fleet's fleet-wide totals it reads as
+            one. */}
+        <div className="flex items-stretch border-b border-slate-100 overflow-x-auto">
           {[
-            { key: 'availability', label: 'Availability', Icon: CalendarClock },
-            { key: 'inventory', label: 'Fleet', Icon: LayoutGrid, count: totalFleet },
-            { key: 'assignments', label: 'Active Assignments', Icon: ClipboardList, count: assignmentGroups.length, alert: overdueAssignments.length > 0 },
-            { key: 'history', label: 'History', Icon: History },
-          ].map(t => {
-            const isActive = activeTableTab === t.key;
-            return (
-              <button
-                key={t.key}
-                onClick={() => setActiveTableTab(t.key)}
-                className={`shrink-0 flex items-center gap-[7px] whitespace-nowrap px-[15px] py-[13px] -mb-px border-b-2 text-[14.5px] transition-colors cursor-pointer ${
-                  isActive
-                    ? 'border-[#008A45] text-[#007038] font-bold'
-                    : 'border-transparent text-slate-600 font-semibold hover:text-slate-900'
-                }`}
-              >
-                <t.Icon size={15} /> {t.label}
-                {t.count !== undefined && t.count > 0 && (
-                  <span className={`inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full text-[12.5px] font-bold tabular-nums ${
-                    t.alert ? 'bg-red-100 text-red-700' : isActive ? 'bg-[#EAF3F2] text-[#00703a]' : 'bg-slate-100 text-slate-600'
-                  }`}>
-                    {t.count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+            {
+              cluster: 'Plan',
+              // Renamed from "Availability". The tab already renders a day
+              // timeline; calling it Availability made it sound like a stock
+              // level rather than a schedule.
+              tabs: [{ key: 'day', label: 'Day schedule', Icon: CalendarClock }],
+            },
+            {
+              cluster: 'Fleet',
+              tabs: [
+                { key: 'fleet', label: 'Vehicles', Icon: LayoutGrid, count: totalFleet },
+                { key: 'trips', label: 'Trips', Icon: ClipboardList, count: assignmentGroups.length, alert: overdueAssignments.length > 0 },
+                { key: 'history', label: 'History', Icon: History },
+              ],
+            },
+          ].map((group, gi) => (
+            <div key={group.cluster} className="flex items-center shrink-0">
+              {gi > 0 && <span className="shrink-0 w-px self-stretch my-2 mx-4 bg-slate-200" />}
+              <span className={`${gi === 0 ? 'ml-[18px]' : ''} mr-2.5 shrink-0 inline-flex items-center gap-1.5 self-center px-2.5 py-[5px] rounded-md bg-slate-100 border border-slate-200 text-[10.5px] font-bold tracking-[0.14em] uppercase text-slate-600 whitespace-nowrap`}>
+                <span className="w-1 h-1 rounded-full bg-slate-400" aria-hidden="true" />
+                {group.cluster}
+              </span>
+              {group.tabs.map(t => {
+                const isActive = activeTableTab === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    onClick={() => setActiveTableTab(t.key)}
+                    className={`shrink-0 flex items-center gap-[7px] whitespace-nowrap px-[15px] py-[13px] -mb-px border-b-2 text-[14.5px] transition-colors cursor-pointer ${
+                      isActive
+                        ? 'border-[#008A45] text-[#007038] font-bold'
+                        : 'border-transparent text-slate-600 font-semibold hover:text-slate-900'
+                    }`}
+                  >
+                    <t.Icon size={15} /> {t.label}
+                    {t.count !== undefined && t.count > 0 && (
+                      <span className={`inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full text-[12.5px] font-bold tabular-nums ${
+                        t.alert ? 'bg-red-100 text-red-700' : isActive ? 'bg-[#EAF3F2] text-[#00703a]' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {t.count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </div>
-        <p className="px-5 py-3.5 border-b border-slate-100 text-[13.5px] text-slate-600 [text-wrap:pretty]">
-          {activeTableTab === 'availability' && <>Every vehicle's committed/available status for <span className="font-semibold text-slate-700">{selectedDateLabel}</span>.</>}
-          {activeTableTab === 'inventory' && <>The full fleet list — edit details, add new vehicles, or flag maintenance/unavailable.</>}
-          {activeTableTab === 'assignments' && <>Everything currently dispatched to any event, regardless of the date selected above.</>}
-          {activeTableTab === 'history' && <>The full log of every assignment ever made — scheduled and completed — across the whole fleet.</>}
-        </p>
+        {/* Promoted from a grey sentence to a real strip, matching Equipment.
+            The Day line states the trip-window rule outright — it is the idea
+            the whole page rests on and the one a reader cannot infer from a
+            table. The Trips line drops "regardless of the date selected above",
+            which was the page admitting its own worst confusion rather than
+            fixing it; the PLAN / FLEET clusters say which tabs are date-scoped
+            before you click. */}
+        <div className="flex items-start gap-2.5 px-5 py-3.5 border-b border-slate-100 bg-[#fbfcfd]">
+          <Info size={15} className="shrink-0 mt-0.5 text-slate-400" />
+          <p className="text-[13.5px] leading-[1.5] text-slate-600 [text-wrap:pretty]">
+            {activeTableTab === 'day' && <>Every trip on the selected date, laid on a time axis. A vehicle is only committed for its trip window, so one van can serve two events in a day if the windows do not overlap.</>}
+            {activeTableTab === 'fleet' && <>The vehicles we own, their service status, and how many trips each is committed to. This tab is about the vehicles, not the schedule.</>}
+            {activeTableTab === 'trips' && <>Every trip that has not been marked back at base, grouped by event. Overdue means the window has passed and the vehicle was never returned.</>}
+            {activeTableTab === 'history' && <>Every dispatch ever recorded, committed and back at base, over the chosen date range.</>}
+          </p>
+        </div>
 
         {/* ===== AVAILABILITY TAB ===== */}
-        {activeTableTab === 'availability' && (
+        {activeTableTab === 'day' && (
           <>
             <div className={`p-4 border-b flex flex-wrap items-center gap-3 ${activeAvailabilityFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-200'}`}>
               {activeAvailabilityFilterCount > 0 && (
@@ -1509,7 +1554,7 @@ export default function Vehicles() {
                   <span className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-600">
                     <span className="w-3 h-3 rounded-[3px] bg-slate-200" /> Returned
                   </span>
-                  <span className="text-[12.5px] text-slate-500">A gap between blocks is time the vehicle is free.</span>
+                  <span className="text-[12.5px] text-slate-500">A gap between blocks is an open window.</span>
                 </div>
               </div>
             )}
@@ -1583,7 +1628,7 @@ export default function Vehicles() {
         )}
 
         {/* ===== FLEET (INVENTORY) TAB ===== */}
-        {activeTableTab === 'inventory' && (
+        {activeTableTab === 'fleet' && (
           <>
             <div className={`p-4 border-b flex flex-wrap items-center gap-3 ${activeInventoryFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-200'}`}>
               {activeInventoryFilterCount > 0 && (
@@ -1716,7 +1761,7 @@ export default function Vehicles() {
         )}
 
         {/* ===== ACTIVE ASSIGNMENTS TAB ===== */}
-        {activeTableTab === 'assignments' && (
+        {activeTableTab === 'trips' && (
         <div>
         <div className={`p-4 border-b ${activeAssignmentFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'bg-slate-50 border-slate-200'}`}>
           <div className="flex justify-between items-center flex-wrap gap-2">
@@ -2096,7 +2141,7 @@ export default function Vehicles() {
               <AlertTriangle size={14} className="text-red-500" /> Needs Attention ({needsAttentionVehicles.length})
             </span>
             <button
-              onClick={() => setActiveTableTab('inventory')}
+              onClick={() => setActiveTableTab('fleet')}
               className="text-xs font-semibold text-[#008A45] hover:underline cursor-pointer"
             >
               View all
@@ -2131,7 +2176,7 @@ export default function Vehicles() {
               <AlertTriangle size={14} className="text-red-500" /> Overdue Returns ({overdueGroups.length})
             </span>
             <button
-              onClick={() => { setAssignmentSectionFilter('Overdue'); setActiveTableTab('assignments'); }}
+              onClick={() => { setAssignmentSectionFilter('Overdue'); setActiveTableTab('trips'); }}
               className="text-xs font-semibold text-[#008A45] hover:underline cursor-pointer"
             >
               View all
@@ -2151,7 +2196,7 @@ export default function Vehicles() {
                     onClick={() => {
                       setAssignmentSectionFilter('Overdue');
                       setAssignmentSearchTerm(group.booking ? getBookingRef(group.booking) : customerName);
-                      setActiveTableTab('assignments');
+                      setActiveTableTab('trips');
                     }}
                     title="Click to jump to this event in Active Assignments"
                     className="w-full flex items-center justify-between px-4 py-2.5 gap-2 text-left hover:bg-[#fbfcfd] transition-colors cursor-pointer"
@@ -2352,7 +2397,7 @@ export default function Vehicles() {
                 </div>
               ) : (
                 <p className="text-sm text-slate-500 italic text-center py-6">
-                  {availabilityDetailVehicle.vehicle_status === 'Available' ? 'Free on this date — nothing assigned.' : `Currently marked ${availabilityDetailVehicle.vehicle_status}.`}
+                  {availabilityDetailVehicle.vehicle_status === 'Available' ? 'Open all day — nothing committed.' : `Currently marked ${availabilityDetailVehicle.vehicle_status}.`}
                 </p>
               )}
             </div>
