@@ -163,8 +163,14 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
       // checks and `activeAssignmentsFor` both skip Completed assignments, and
       // the stock queries in utils/equipment all filter `returned = false`, so
       // retained rows hold neither a vehicle nor any stock.
-      await supabase.from('booking_equipment').delete().eq('booking_id', id).eq('returned', false);
-      await supabase.from('vehicle_assign').delete().eq('booking_id', id).neq('assignment_status', 'Completed');
+      // Both deletes were awaited with the result thrown away. A failure —
+      // RLS, a dropped connection — left the rows behind silently, and an
+      // unreturned row on a rejected booking is then counted as equipment that
+      // is out. That is exactly how BKG-105 came to hold 59 phantom units.
+      const { error: equipReleaseError } = await supabase.from('booking_equipment').delete().eq('booking_id', id).eq('returned', false);
+      if (equipReleaseError) toast.error('Booking updated, but its equipment could not be released. Release it from the Equipment page.');
+      const { error: vehicleReleaseError } = await supabase.from('vehicle_assign').delete().eq('booking_id', id).neq('assignment_status', 'Completed');
+      if (vehicleReleaseError) toast.error('Booking updated, but its vehicles could not be released. Release them from the Vehicles page.');
 
       if (showRejectionRefund && enteredAmount > 0) {
         const { error: refundError } = await supabase

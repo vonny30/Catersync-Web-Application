@@ -339,6 +339,28 @@ export default function Equipment() {
   // --- Shared sortable-column-header renderer, used across every tab's
   // table. A plain function call (not a JSX component) so it doesn't get
   // redefined as a fresh component identity on every render. ---
+  // Is this row equipment that is actually out?
+  //
+  // `returned === false` alone is not that question. On a Cancelled or Rejected
+  // booking it means the row was never cleaned up — BKG-105 sat Cancelled with
+  // two unreturned rows and 59 units, and the page presented it as a live event
+  // with a Return button and the word "cancelled" nowhere on screen.
+  //
+  // ACTIVE_BOOKING_STATUSES is ['Approved','Confirmed'] and deliberately
+  // excludes Completed — but a completed booking whose equipment has NOT come
+  // back is genuinely still out, so it counts here. Hence the explicit third
+  // status rather than the constant alone.
+  //
+  // Defined once and used at all four call sites: four inline copies of a
+  // status check is how "free" and "in use" drifted across this file already.
+  //
+  // NOTE both booking_equipment selects now ask for booking_status. Without it
+  // the embed returns no such field, this predicate rejects every row, and the
+  // Active tab renders empty.
+  const LIVE_COMMITMENT_STATUSES = [...ACTIVE_BOOKING_STATUSES, 'Completed'];
+  const isLiveCommitment = (a) =>
+    !a.returned && LIVE_COMMITMENT_STATUSES.includes(a.booking?.booking_status);
+
   const renderSortHeader = (sortState, toggleFn, field, label, extraClass = '') => (
     <button
       onClick={() => toggleFn(field)}
@@ -408,7 +430,7 @@ export default function Equipment() {
         .select(`
           *,
           booking:booking_id (
-            booking_id, booking_number, booking_type, venue, event_datetime,
+            booking_id, booking_number, booking_type, booking_status, venue, event_datetime,
             customer:customer_id (first_name, last_name)
           ),
           equipment:equipment_id (eqm_name)
@@ -519,7 +541,7 @@ export default function Equipment() {
         .select(`
           *,
           booking:booking_id (
-            booking_id, booking_number, venue, event_datetime,
+            booking_id, booking_number, booking_status, venue, event_datetime,
             customer:customer_id (first_name, last_name)
           )
         `)
@@ -1016,7 +1038,7 @@ export default function Equipment() {
       const alreadyAssigned = assignments.some(a =>
         a.booking_id === selectedBooking.booking_id &&
         a.equipment_id === tempEquipId &&
-        !a.returned
+        isLiveCommitment(a)
       );
       if (alreadyAssigned) {
         toast.error(`"${equip.eqm_name}" is already assigned to this booking. Return it first.`);
@@ -1346,7 +1368,7 @@ export default function Equipment() {
     // already returned is history, not preparation.
     const assignedByEquipment = {};
     assignments
-      .filter(a => a.booking_id === b.booking_id && !a.returned)
+      .filter(a => a.booking_id === b.booking_id && isLiveCommitment(a))
       .forEach(a => {
         assignedByEquipment[a.equipment_id] = (assignedByEquipment[a.equipment_id] || 0) + (a.quantity || 0);
       });
@@ -1638,7 +1660,7 @@ export default function Equipment() {
   // ============================================================
   // --- ACTIVE ASSIGNMENTS: group by event ---
   // ============================================================
-  const activeAssignmentRows = assignments.filter(a => !a.returned);
+  const activeAssignmentRows = assignments.filter(isLiveCommitment);
   const assignmentGroupsMap = {};
   activeAssignmentRows.forEach(a => {
     const bId = a.booking_id;
@@ -2046,7 +2068,7 @@ export default function Equipment() {
             {activeTableTab === 'upcoming' && <>Events in the next {PREP_HORIZON_DAYS} days, grouped by day — what goes out, and whether stock covers everything happening that day.</>}
             {activeTableTab === 'availability' && <>What is available to assign on a chosen date, after subtracting what is already committed to other events that day.</>}
             {activeTableTab === 'inventory' && <>Everything we own. Owned splits into usable, damaged and under maintenance — only usable stock can be assigned.</>}
-            {activeTableTab === 'assignments' && <>Everything currently out at an event and not yet returned. {RETURN_POLICY_TEXT}</>}
+            {activeTableTab === 'assignments' && <>Everything committed to an event and not yet returned. {RETURN_POLICY_TEXT}</>}
             {activeTableTab === 'history' && <>Every assignment ever made — assigned and returned — grouped by booking. Open a row to see the individual items.</>}
           </p>
         </div>
@@ -2328,11 +2350,11 @@ export default function Equipment() {
                   <ChevronRight size={12} />
                 </button>
                 <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-600">
-                  <span className="text-blue-700 font-extrabold">{unitsCommitted}</span> units in use
+                  <span className="text-blue-700 font-extrabold">{unitsCommitted}</span> units committed
                 </span>
                 <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-600">
                   <span className={`font-extrabold ${unitsFree < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{unitsFree}</span> still available
-                  <span className="text-slate-400 font-normal">({usableStockAll} usable − {unitsCommitted} in use)</span>
+                  <span className="text-slate-400 font-normal">({usableStockAll} usable − {unitsCommitted} committed)</span>
                 </span>
               </div>
             </div>
@@ -2465,7 +2487,7 @@ export default function Equipment() {
                         <span className="text-xs text-slate-500">
                           {item.events.length > 0
                             ? `${item.events.length} event${item.events.length === 1 ? '' : 's'} on this date`
-                            : 'not used on this date'}
+                            : 'nothing committed on this date'}
                         </span>
                       </div>
                       {/* Committed is SLATE, deliberately. Stock promised to
@@ -2602,7 +2624,7 @@ export default function Equipment() {
                   // units — which is why the label names the unit, and the
                   // tooltip carries both that and the Assigned/In Use split
                   // from statusLabels.js.
-                  const activeForItem = assignments.filter(a => a.equipment_id === item.equipment_id && !a.returned);
+                  const activeForItem = assignments.filter(a => a.equipment_id === item.equipment_id && isLiveCommitment(a));
                   const usageCount = activeForItem.length;
                   const inUseCount = activeForItem.filter(
                     a => getAssignmentStatus(false, a.booking?.event_datetime).key === 'in_use'
@@ -2730,7 +2752,16 @@ export default function Equipment() {
                 </button>
               )}
             </div>
-            <span className="text-xs font-semibold text-slate-500 shrink-0">{filteredAssignmentGroups.length} of {assignmentGroups.length} event{assignmentGroups.length !== 1 ? 's' : ''} · {activeAssignmentRows.length} item{activeAssignmentRows.length !== 1 ? 's' : ''} total</span>
+              {/* Both halves paired. The event count respected the date
+                  filter and the item count did not, so "5 of 7 events · 20
+                  items" read as though those 5 events held 20 items when
+                  they held 14. History one tab over already says "14 of 26
+                  assignment records"; this now matches it. */}
+              <span className="text-xs font-semibold text-slate-500 shrink-0">
+                {filteredAssignmentGroups.length} of {assignmentGroups.length} event{assignmentGroups.length !== 1 ? 's' : ''}
+                {' · '}
+                {filteredAssignmentGroups.reduce((n, g) => n + g.items.length, 0)} of {activeAssignmentRows.length} item{activeAssignmentRows.length !== 1 ? 's' : ''}
+              </span>
           </div>
 
           {/* Search + section filter, so a long list stays navigable instead of cramped */}
