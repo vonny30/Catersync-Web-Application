@@ -214,7 +214,9 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
   const fleetAxis = booking?.event_datetime
     ? (() => {
         const ev = new Date(booking.event_datetime);
-        return makeAxis(new Date(ev.getFullYear(), ev.getMonth(), ev.getDate()), 4, 23, 4);
+        // Whole day, and four-hourly ticks because this is a modal column, not
+        // the full-width page.
+        return makeAxis(new Date(ev.getFullYear(), ev.getMonth(), ev.getDate()), 0, 24, 4);
       })()
     : null;
 
@@ -439,8 +441,13 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
                 <p className="text-slate-500 text-xs">No vehicle can make this event as scheduled.</p>
               ) : (
                 <>
+                  {/* Same shape as the Vehicles page day schedule: a fixed
+                      label column, then one shared ruler over the tracks. The
+                      plate sat ABOVE its own track before, so no two rows lined
+                      up and the ruler belonged to none of them. */}
                   {fleetAxis && (
-                  <div className="flex items-center gap-2 pl-6 mb-1">
+                  <div className="flex items-end gap-2 mb-1">
+                    <span className="w-[92px] shrink-0 text-[10px] font-bold tracking-[0.08em] uppercase text-slate-500">Vehicle</span>
                     <div className="relative flex-1 h-3">
                       {fleetAxis.ticks.map(t => (
                         <span
@@ -498,37 +505,45 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
                                 : 'border-slate-200 bg-white/70'
                           }`}
                         >
-                          <label className={`flex items-start gap-2 ${o.selectable ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              disabled={!o.selectable}
-                              onChange={() => toggleVehicle(o.vehicle_id)}
-                              className="mt-0.5 w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
-                            />
-                            <span className="min-w-0 flex-1">
-                              <span className="flex items-center justify-between gap-2">
-                                <span className="font-semibold text-slate-800">{o.plate_number}</span>
-                                <span className="text-slate-500">{o.reason}</span>
+                          <label className={`flex items-center gap-2 ${o.selectable ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
+                            {/* Label column, then track — the page's layout,
+                                narrowed to fit the modal. */}
+                            <span className="w-[92px] shrink-0 flex items-start gap-1.5 min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={!o.selectable}
+                                onChange={() => toggleVehicle(o.vehicle_id)}
+                                className="mt-[3px] w-4 h-4 shrink-0 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
+                              />
+                              <span className="min-w-0">
+                                <span className="block font-semibold text-slate-800 truncate">{o.plate_number}</span>
+                                <span className="block text-[10.5px] text-slate-500 truncate">{o.vehicle_type}</span>
                               </span>
-                              {o.selectable && (
-                                <span className="block text-[11px] text-slate-500 mt-0.5">
-                                  Leaves {atTime(o.setupDispatch)}, {completionVerbFor(fleet.tripType)} {atTime(o.setupEnds)}
-                                  {o.pickupDispatch && ` · collects from ${atTime(o.pickupDispatch)}`}
-                                </span>
-                              )}
                             </span>
-                          </label>
-                          {blocks.length > 0 && (
-                            <div className="flex items-center mt-1.5 pl-6">
+                            {blocks.length > 0 && fleetAxis ? (
                               <TimelineTrack compact clash={!o.selectable} ticks={fleetAxis.ticks} blocks={blocks} />
-                            </div>
-                          )}
+                            ) : (
+                              <span className="flex-1" />
+                            )}
+                          </label>
+                          {/* The verdict and the departure read as sentences and
+                              cannot share a row with the track, so they sit under
+                              it, aligned to the track's left edge. */}
+                          <span className="block pl-[100px] mt-1">
+                            <span className="block text-slate-500 [text-wrap:pretty]">{o.reason}</span>
+                            {o.selectable && (
+                              <span className="block text-[11px] text-slate-500 mt-0.5">
+                                Leaves {atTime(o.setupDispatch)}, {completionVerbFor(fleet.tripType)} {atTime(o.setupEnds)}
+                                {o.pickupDispatch && ` · collects from ${atTime(o.pickupDispatch)}`}
+                              </span>
+                            )}
+                          </span>
                         </li>
                       );
                     })}
                   </ul>
-                  <p className="text-[11px] text-slate-500 mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <p className="text-[11px] text-slate-500 mt-2 pl-[100px] flex flex-wrap items-center gap-x-3 gap-y-1">
                     <span className="inline-flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-[3px] border border-dashed" style={{ background: PROPOSED_TONE.bg, borderColor: PROPOSED_TONE.bd }} />
                       this booking

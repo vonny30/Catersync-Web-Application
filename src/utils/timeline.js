@@ -66,15 +66,23 @@ export const fmtHourTick = (h) => {
  *
  * Fixed, not fitted to the widest trip of the day, so a block sits in the same
  * place from one date to the next — a bar that rescales itself cannot be
- * compared against yesterday's. It runs late because real collection runs do; a
- * 10 PM departure is normal here.
+ * compared against yesterday's.
+ *
+ * Callers pass 0..24. An earlier 4..23 window was chosen as "the hours anything
+ * actually happens in", and it quietly dropped work: a collection run leaving
+ * 10 PM is back at 1 AM the NEXT day, and on that next day its whole 00:00-01:00
+ * span fell before the axis, so blockGeometry returned null and the trip
+ * vanished from a schedule that had already decided to show it.
  */
 export const makeAxis = (dayStart, startHour, endHour, tickEvery = 3) => {
   const start = new Date(dayStart.getTime() + startHour * 3600 * 1000);
   const end = new Date(dayStart.getTime() + endHour * 3600 * 1000);
   const ms = end - start;
   const ticks = [];
-  for (let h = startHour; h <= endHour; h += tickEvery) {
+  // Strictly less than endHour: on a 0..24 axis a tick exactly at 24 renders a
+  // second "12 AM" jammed against the right edge, reading as a second midnight
+  // rather than the end of this one.
+  for (let h = startHour; h < endHour; h += tickEvery) {
     ticks.push({ hour: h, label: fmtHourTick(h), pct: ((h - startHour) / (endHour - startHour)) * 100 });
   }
   return {

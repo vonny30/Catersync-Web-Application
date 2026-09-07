@@ -1146,8 +1146,12 @@ export default function Vehicles() {
   // blocks sit in the same place from one date to the next. A bar that rescales
   // itself cannot be compared against yesterday's. It runs to 23:00 because
   // real collection runs finish late - a 22:00 run is normal here.
-  const TIMELINE_START_HOUR = 4;
-  const TIMELINE_END_HOUR = 23;
+  // The WHOLE day, midnight to midnight. It was 4..23 — "the hours anything
+  // actually happens in" — which clipped both ends of the real schedule: a
+  // collection run leaving 10 PM is back at 1 AM, and on the following day that
+  // trip disappeared entirely rather than showing as an early-morning block.
+  const TIMELINE_START_HOUR = 0;
+  const TIMELINE_END_HOUR = 24;
   const AXIS_SPAN_HOURS = TIMELINE_END_HOUR - TIMELINE_START_HOUR;
   const axis = makeAxis(selectedDateObj, TIMELINE_START_HOUR, TIMELINE_END_HOUR);
   const timelineTicks = axis.ticks;
@@ -1175,6 +1179,7 @@ export default function Vehicles() {
           left,
           width,
           span: fmtSpan(a.window),
+          clippedStart: geo.clippedStart,
           clippedEnd: geo.clippedEnd,
           tone: toneFor(a.window.legLabel, a.completed),
         };
@@ -1730,7 +1735,10 @@ export default function Vehicles() {
                             onClick: () => goToBookingDetails(t.booking_id, t.booking_type),
                             title: `${t.legLabel} · ${t.ref} · ${t.customerName} · ${t.span}${t.completed ? ' · back at base' : ''}${t.clash ? ' · OVERLAPS another trip on this vehicle' : ''}`,
                             primary: `${t.legLabel}${t.completed ? ' ✓' : ''}`,
-                            secondary: `${t.span}${t.clippedEnd ? '→' : ''} · ${t.ref}`,
+                            // Arrows both ways. A run that began yesterday and a
+                            // run that ends tomorrow are both real, and a block
+                            // that just stops at the edge says neither.
+                            secondary: `${t.clippedStart ? '←' : ''}${t.span}${t.clippedEnd ? '→' : ''} · ${t.ref}`,
                           }))}
                         />
                       </div>
