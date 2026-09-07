@@ -2024,8 +2024,20 @@ export default function Equipment() {
             },
           ].map((group, gi) => (
             <div key={group.cluster} className="flex items-center shrink-0">
-              {gi > 0 && <span className="shrink-0 w-px my-3 mx-3.5 bg-[#eef2f6]" />}
-              <span className={`${gi === 0 ? 'pl-[18px]' : ''} pr-3 text-[11px] font-bold tracking-[0.12em] uppercase text-slate-500 whitespace-nowrap`}>
+              {/* The divider was #eef2f6 hairline — invisible against a white
+                  bar, so the two clusters ran together. Full-height and
+                  slate-200 now, with real space either side, so the split is
+                  structural rather than something you have to look for. */}
+              {gi > 0 && <span className="shrink-0 w-px self-stretch my-2 mx-4 bg-slate-200" />}
+              {/* A CHIP, not more uppercase text. Plain small caps on the same
+                  baseline as the tabs read as two more tabs — the one thing
+                  these must not look like. A filled, un-underlined pill with a
+                  leading glyph reads as a label for what follows: it never
+                  takes the active underline, and it is visibly not a control.
+                  aria-hidden on the glyph so a screen reader hears the word,
+                  not the decoration. */}
+              <span className={`${gi === 0 ? 'ml-[18px]' : ''} mr-2.5 shrink-0 inline-flex items-center gap-1.5 self-center px-2.5 py-[5px] rounded-md bg-slate-100 border border-slate-200 text-[10.5px] font-bold tracking-[0.14em] uppercase text-slate-600 whitespace-nowrap`}>
+                <span className="w-1 h-1 rounded-full bg-slate-400" aria-hidden="true" />
                 {group.cluster}
               </span>
               {group.tabs.map(t => {
