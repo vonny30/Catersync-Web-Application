@@ -30,6 +30,8 @@ import {
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { getAssignmentStatus, RESOURCE_STATE } from '../utils/statusLabels';
 import DateRangeFilter from './Reports/DateRangeFilter';
+import TimelineTrack from '../components/DayTimeline';
+import { LEG_TONE, BACK_TONE, OPEN_FILL, toneFor, makeAxis, blockGeometry } from '../utils/timeline';
 import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './Reports/helpers';
 import { getCurrentManagerId } from '../utils/currentManager';
 
@@ -71,11 +73,6 @@ const formatReturnOpensAt = (opensAt) =>
 
 const fmtClock = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const fmtDay = (d) => d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-const fmtHourTick = (h) => {
-  const ampm = h >= 12 && h < 24 ? 'PM' : 'AM';
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return h12 + ' ' + ampm;
-};
 // A window that runs past midnight has to say so. Times alone would render a
 // 10 PM collection run ending at 1 AM as "10:00 PM - 1:00 AM", which reads as a
 // trip that finished fifteen hours before it started.
@@ -85,29 +82,9 @@ const fmtSpan = (w) =>
       ? fmtClock(w.start) + ' - ' + fmtClock(w.end)
       : fmtClock(w.start) + ' - ' + fmtDay(w.end) + ', ' + fmtClock(w.end);
 
-// ---------------------------------------------------------------------------
-// COLOUR
-//
-// Three legs need telling apart on the timeline, but every block already
-// carries its leg NAME, so hue is the second cue and never the first. These
-// tints are deliberately near-grey: the only saturated colours on this page are
-// the ones that mean something - brand green for what is ours and running,
-// amber for a vehicle out of service, red for a return that is late. A leg is
-// not a status and must not compete with them.
-// ---------------------------------------------------------------------------
-const LEG_TONE = {
-  'Setup run':      { bg: '#eef3f9', bd: '#cfdcea', fg: '#33506e' },
-  'Collection run': { bg: '#faf5ec', bd: '#e6dabf', fg: '#6a5426' },
-  Delivery:         { bg: '#f2f0f8', bd: '#d7d2e8', fg: '#474070' },
-};
-const BACK_TONE = { bg: '#f1f4f7', bd: '#dde3ea', fg: '#64748b' };
-const toneFor = (legLabel, completed) =>
-  completed ? BACK_TONE : (LEG_TONE[legLabel] || LEG_TONE['Setup run']);
-
-// Diagonal hatching, not a flat fill. An open window is the ABSENCE of a
-// commitment; a solid band beside the solid trip blocks reads as one more thing
-// booked into the day.
-const OPEN_FILL = 'repeating-linear-gradient(135deg, #f8fafc 0px, #f8fafc 5px, #eef2f7 5px, #eef2f7 10px)';
+// Leg tints, the hatch fill and the axis maths now live in utils/timeline.js
+// and components/DayTimeline.jsx, so the approval panel draws the same picture
+// instead of a lookalike. Imported above.
 
 const TRIP_STATE_CHIP = {
   back:        'bg-white border-slate-200 text-slate-500',
@@ -1172,31 +1149,23 @@ export default function Vehicles() {
   const TIMELINE_START_HOUR = 4;
   const TIMELINE_END_HOUR = 23;
   const AXIS_SPAN_HOURS = TIMELINE_END_HOUR - TIMELINE_START_HOUR;
-  const timelineTicks = [];
-  for (let h = TIMELINE_START_HOUR; h <= TIMELINE_END_HOUR; h += 3) {
-    timelineTicks.push({ hour: h, label: fmtHourTick(h), pct: ((h - TIMELINE_START_HOUR) / AXIS_SPAN_HOURS) * 100 });
-  }
-
-  const axisStart = new Date(selectedDateObj.getTime() + TIMELINE_START_HOUR * 3600 * 1000);
-  const axisEnd = new Date(selectedDateObj.getTime() + TIMELINE_END_HOUR * 3600 * 1000);
-  const axisMs = axisEnd - axisStart;
-  const pctOf = (ms) => ((ms - axisStart.getTime()) / axisMs) * 100;
+  const axis = makeAxis(selectedDateObj, TIMELINE_START_HOUR, TIMELINE_END_HOUR);
+  const timelineTicks = axis.ticks;
+  const axisStart = axis.start;
+  const axisEnd = axis.end;
+  const axisMs = axis.ms;
+  const pctOf = axis.pctOf;
 
   const timelineRows = snapshot.vehicles
     .map(v => {
       const outOfService = v.vehicle_status !== 'Available';
 
       const trips = (v.assignments || []).map(a => {
-        // Clamp, never drop. A collection run finishing after the scale must
-        // still render - a trip that silently vanishes off the axis is worse
-        // than one drawn short.
-        const from = Math.max(a.window.start.getTime(), axisStart.getTime());
-        const to = Math.min(a.window.end.getTime(), axisEnd.getTime());
-        if (to <= from) return null;
-        const left = pctOf(from);
-        // A floor, so a 90-minute delivery is not an invisible sliver that
-        // reads as an open day; never allowed to run past the axis.
-        const width = Math.min(100 - left, Math.max(6, pctOf(to) - left));
+        // Clamping, the width floor and the right-edge guard all live in
+        // blockGeometry now, shared with the approval strip.
+        const geo = blockGeometry(axis, a.window.start.getTime(), a.window.end.getTime());
+        if (!geo) return null;
+        const { left, width } = geo;
         return {
           ...a,
           // Always the window's own label. A hardcoded leg name makes every
@@ -1206,7 +1175,7 @@ export default function Vehicles() {
           left,
           width,
           span: fmtSpan(a.window),
-          clippedEnd: a.window.end.getTime() > axisEnd.getTime(),
+          clippedEnd: geo.clippedEnd,
           tone: toneFor(a.window.legLabel, a.completed),
         };
       }).filter(Boolean).sort((x, y) => x.window.start - y.window.start);
@@ -1741,60 +1710,29 @@ export default function Vehicles() {
                           </span>
                         </button>
 
-                        <div className={`relative flex-1 h-[52px] rounded-[9px] border ${row.hasClash ? 'border-red-200 bg-red-50/40' : row.outOfService ? 'border-slate-200 bg-slate-50' : 'border-slate-200 bg-white'}`}>
-                          {timelineTicks.map(t => (
-                            <span key={t.hour} className="absolute top-0 bottom-0 w-px bg-slate-100" style={{ left: `${t.pct}%` }} aria-hidden="true" />
-                          ))}
-
-                          {row.outOfService ? (
-                            <span className="absolute inset-0 flex items-center justify-center text-[12.5px] font-semibold text-amber-700">
-                              Out of service — no windows offered
-                            </span>
-                          ) : (
-                            <>
-                              {row.openWindows.map((w, i) => (
-                                <span
-                                  key={`open-${i}`}
-                                  title={`Open window · ${w.label} · ${w.hours.toFixed(1)} h`}
-                                  className="absolute top-[7px] bottom-[7px] rounded-[6px] border border-[#e7edf3] flex items-center justify-center overflow-hidden"
-                                  style={{ left: `${w.left}%`, width: `${w.width}%`, background: OPEN_FILL }}
-                                >
-                                  {/* Suppressed when the vehicle has no trips
-                                      at all: the hatch then spans the whole
-                                      row and its label would print underneath
-                                      the "open all day" line below. */}
-                                  {w.width > 11 && row.trips.length > 0 && (
-                                    <span className="text-[11px] text-slate-400 tabular-nums whitespace-nowrap px-1">{w.label}</span>
-                                  )}
-                                </span>
-                              ))}
-
-                              {row.trips.length === 0 && (
-                                <span className="absolute inset-0 flex items-center justify-center text-[12.5px] font-semibold text-slate-500 pointer-events-none">
-                                  No trips — open all day
-                                </span>
-                              )}
-
-                              {row.trips.map(t => (
-                                <button
-                                  key={t.assignment_id}
-                                  type="button"
-                                  onClick={() => goToBookingDetails(t.booking_id, t.booking_type)}
-                                  title={`${t.legLabel} · ${t.ref} · ${t.customerName} · ${t.span}${t.completed ? ' · back at base' : ''}${t.clash ? ' · OVERLAPS another trip on this vehicle' : ''}`}
-                                  className={`absolute top-[5px] bottom-[5px] rounded-[6px] border px-2 flex flex-col justify-center items-start overflow-hidden text-left cursor-pointer transition-shadow hover:shadow-[0_2px_8px_rgba(15,23,42,0.12)] ${t.clash ? 'ring-1 ring-red-400' : ''}`}
-                                  style={{ left: `${t.left}%`, width: `${t.width}%`, background: t.tone.bg, borderColor: t.tone.bd, color: t.tone.fg }}
-                                >
-                                  <span className="text-[11.5px] font-bold leading-tight truncate w-full">
-                                    {t.legLabel}{t.completed && ' ✓'}
-                                  </span>
-                                  <span className="text-[10.5px] leading-tight truncate w-full opacity-80 tabular-nums">
-                                    {t.span}{t.clippedEnd ? '→' : ''} · {t.ref}
-                                  </span>
-                                </button>
-                              ))}
-                            </>
-                          )}
-                        </div>
+                        <TimelineTrack
+                          clash={row.hasClash}
+                          ticks={timelineTicks}
+                          overlay={row.outOfService
+                            ? { text: 'Out of service — no windows offered', className: 'text-amber-700' }
+                            : null}
+                          openWindows={row.openWindows.map(w => ({
+                            ...w,
+                            title: `Open window · ${w.label} · ${w.hours.toFixed(1)} h`,
+                          }))}
+                          emptyLabel="No trips — open all day"
+                          blocks={row.trips.map(t => ({
+                            key: t.assignment_id,
+                            left: t.left,
+                            width: t.width,
+                            tone: t.tone,
+                            clash: t.clash,
+                            onClick: () => goToBookingDetails(t.booking_id, t.booking_type),
+                            title: `${t.legLabel} · ${t.ref} · ${t.customerName} · ${t.span}${t.completed ? ' · back at base' : ''}${t.clash ? ' · OVERLAPS another trip on this vehicle' : ''}`,
+                            primary: `${t.legLabel}${t.completed ? ' ✓' : ''}`,
+                            secondary: `${t.span}${t.clippedEnd ? '→' : ''} · ${t.ref}`,
+                          }))}
+                        />
                       </div>
                     );
                   })}

@@ -309,6 +309,22 @@ export const TRIP_LEG_LABELS = {
 export const legLabelFor = (type, leg) =>
   (TRIP_LEG_LABELS[type] || TRIP_LEG_LABELS[TRIP_TYPE.eventSetup])[leg] || leg;
 
+// What the outbound run has FINISHED doing by its deadline.
+//
+// TRIP_LEG_LABELS names the run; this names the verb the sentence around it
+// needs, and the two live together so they cannot drift. The approval panel
+// hardcoded "set up by" for every trip type, so a short order — correctly
+// badged Delivery, with correct arithmetic — still read "Leaves 02:15 PM, set
+// up by 03:00 PM". Nobody sets up a tray delivery; it is handed over and that
+// is the end of it.
+export const LEG_COMPLETION_VERB = {
+  [TRIP_TYPE.eventSetup]: 'set up by',
+  [TRIP_TYPE.delivery]:   'delivered by',
+};
+
+export const completionVerbFor = (type) =>
+  LEG_COMPLETION_VERB[type] || LEG_COMPLETION_VERB[TRIP_TYPE.eventSetup];
+
 const HOUR_MS = 60 * 60 * 1000;
 
 // Every date in this module arrives as either a Date or a Postgres timestamp
@@ -968,6 +984,11 @@ export function vehiclesNeededFor(booking, allocatedUnits = 0, serviceableFleetS
  * then the preferred vehicle type, then fewest trips in the last 7 days (which
  * spreads wear instead of always sending the same van), then plate number.
  */
+const fmtWhen = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+// Same fallback describeAssignment uses, so an unnumbered booking reads the
+// same way wherever it turns up.
+const refOf = (b) => b?.booking_number || 'an earlier booking';
+
 export function suggestDispatchPlan(booking, fleet, tripsByVehicle = {}, allocatedUnits = 0) {
   const tripType = getTripType(booking);
   // Sized against vehicles that are actually in service — a van in the
@@ -1011,7 +1032,11 @@ export function suggestDispatchPlan(booking, fleet, tripsByVehicle = {}, allocat
       const clash = existing.find(t => tripsConflict(t.window, proposed));
       const recentTrips = existing.filter(t => t.window.start >= weekAgo && t.window.start <= event).length;
 
-      return { vehicle: v, proposed, chain, clash, recentTrips, chainLength: sameDaySetups.length };
+      // The run this booking would queue behind. Carried out so the reason
+      // can NAME it instead of counting it.
+      const priorTrip = sameDaySetups[sameDaySetups.length - 1] || null;
+
+      return { vehicle: v, proposed, chain, clash, recentTrips, priorTrip, chainLength: sameDaySetups.length };
     });
 
   // Every serviceable vehicle stays visible, because the approval panel lets
@@ -1036,6 +1061,43 @@ export function suggestDispatchPlan(booking, fleet, tripsByVehicle = {}, allocat
     return a.vehicle.plate_number.localeCompare(b.vehicle.plate_number);
   });
 
+  // ONE definition of the reason, used by picks and by options below. It was
+  // written out twice, identically, which is how two lists that must agree
+  // start disagreeing.
+  //
+  // A count is not actionable. "Set up after 1 earlier booking on this vehicle"
+  // tells a manager there is something in the way but not what, so the only way
+  // to find out was to leave the approval screen. Naming the booking and the
+  // moment the van is back at base lets them judge it where they are.
+  const availableReason = (c) => {
+    if (c.chainLength === 0) return 'Free all day';
+    const w = c.priorTrip?.window;
+    if (!w) {
+      return `Set up after ${c.chainLength} earlier booking${c.chainLength === 1 ? '' : 's'} on this vehicle`;
+    }
+    const back = `back at base ${fmtWhen(w.end)}`;
+    const named = `${refOf(c.priorTrip.booking)} ${w.legLabel.toLowerCase()}`;
+    return c.chainLength === 1
+      ? `After ${named}, ${back}`
+      : `After ${c.chainLength} earlier bookings, last ${named}, ${back}`;
+  };
+
+  // A manager told "at that time" cannot act on it. Told WHICH booking and
+  // WHICH window, they can decide whether to move this event, move that one, or
+  // hire in. describeClash already renders that sentence and is what both
+  // assign modals use, so this is the same wording everywhere rather than a
+  // second phrasing of the same fact.
+  const blockedReason = (c) => {
+    if (c.clash) return describeClash(c.clash, booking);
+    if (!c.chain.feasible) {
+      const earliest = c.chain.earliestStart;
+      return earliest
+        ? `Would have to leave at ${fmtWhen(earliest)} to chain with its other trips`
+        : 'Would have to leave too early to chain with its other trips';
+    }
+    return 'Cannot make this event as scheduled';
+  };
+
   const picks = usable.slice(0, needed).map(c => ({
     vehicle_id: c.vehicle.vehicle_id,
     plate_number: c.vehicle.plate_number,
@@ -1043,9 +1105,7 @@ export function suggestDispatchPlan(booking, fleet, tripsByVehicle = {}, allocat
     setupDispatch: c.proposed.start,
     setupEnds: c.proposed.end,
     pickupDispatch: profile.hasPickup ? defaultPickupDispatch(booking) : null,
-    reason: c.chainLength === 0
-      ? 'Free all day'
-      : `Set up after ${c.chainLength} earlier booking${c.chainLength === 1 ? '' : 's'} on this vehicle`,
+    reason: availableReason(c),
   }));
 
   const options = [
@@ -1057,9 +1117,11 @@ export function suggestDispatchPlan(booking, fleet, tripsByVehicle = {}, allocat
       setupDispatch: c.proposed.start,
       setupEnds: c.proposed.end,
       pickupDispatch: profile.hasPickup ? defaultPickupDispatch(booking) : null,
-      reason: c.chainLength === 0
-        ? 'Free all day'
-        : `Set up after ${c.chainLength} earlier booking${c.chainLength === 1 ? '' : 's'} on this vehicle`,
+      reason: availableReason(c),
+      // The day, for the strip the approval panel draws: what this vehicle is
+      // already committed to, plus the run being proposed.
+      committed: (tripsByVehicle[c.vehicle.vehicle_id] || []).filter(t => t.window),
+      proposedWindow: c.proposed,
     })),
     ...blocked.map(c => ({
       vehicle_id: c.vehicle.vehicle_id,
@@ -1069,11 +1131,13 @@ export function suggestDispatchPlan(booking, fleet, tripsByVehicle = {}, allocat
       setupDispatch: null,
       setupEnds: null,
       pickupDispatch: null,
-      reason: c.clash
-        ? 'Already out on another booking at that time'
-        : !c.chain.feasible
-          ? 'Would have to leave too early to chain with its other trips'
-          : 'Cannot make this event as scheduled',
+      reason: blockedReason(c),
+      // Drawn even when blocked - especially when blocked. The overlap IS the
+      // explanation, and a strip showing the proposed block sitting on top of a
+      // committed one says it faster than any sentence.
+      committed: (tripsByVehicle[c.vehicle.vehicle_id] || []).filter(t => t.window),
+      proposedWindow: c.proposed,
+      clashesWith: c.clash ? getDispatchWindow(c.clash, c.clash.booking ?? booking) : null,
     })),
   ];
 

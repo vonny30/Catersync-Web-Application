@@ -22,7 +22,9 @@ import { useState, useEffect, useRef } from 'react';
 import { Calendar, Clock, Users, PackageCheck, MapPin, Loader2, AlertTriangle, Check, Truck, Package as PackageIcon } from 'lucide-react';
 import { getBookingsOnDate } from '../utils/availability';
 import { getEquipmentAvailabilityPreview } from '../utils/equipment';
-import { getVehicleAvailabilityPreview } from '../utils/vehicle';
+import { getVehicleAvailabilityPreview, completionVerbFor } from '../utils/vehicle';
+import TimelineTrack from './DayTimeline';
+import { makeAxis, blockGeometry, toneFor, PROPOSED_TONE } from '../utils/timeline';
 import { MAX_SHORT_ORDERS_PER_DAY } from '../utils/bookingStatus';
 
 export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, onEquipmentStatusChange, onVehicleSelectionChange }) {
@@ -200,6 +202,21 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
   }[fleetStatus];
 
   const atTime = (d) => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  // The scale the per-vehicle strips are drawn on: the booking's OWN event
+  // date, 4:00-23:00, the same window the Vehicles page day schedule uses so
+  // the two screens read alike. Four-hour ticks rather than three, because this
+  // sits inside a modal that already scrolls.
+  //
+  // Derived straight from the prop, with no `new Date()` fallback — a clock
+  // call during render is impure, and a booking with no event date has no day
+  // to draw, so the strip is simply omitted.
+  const fleetAxis = booking?.event_datetime
+    ? (() => {
+        const ev = new Date(booking.event_datetime);
+        return makeAxis(new Date(ev.getFullYear(), ev.getMonth(), ev.getDate()), 4, 23, 4);
+      })()
+    : null;
 
   return (
     <div className="space-y-3">
@@ -402,13 +419,74 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
                 </p>
               )}
 
+              {/* THE DAY, PER VEHICLE.
+                  Day Availability (other events) and Fleet Availability
+                  (vehicles) were two separate panels, so the two facts a
+                  manager needs to judge "short by 1" never met: they were told
+                  a vehicle was unavailable but not what it was doing. Each
+                  strip lays that vehicle's committed windows and the proposed
+                  run on one axis, and a blocked vehicle then explains itself —
+                  the proposed block sits visibly on top of a committed one.
+
+                  Drawn with the SAME primitive and the same leg tints as the
+                  Vehicles page day schedule (components/DayTimeline.jsx), not a
+                  lookalike.
+
+                  The proposed block is drawn as the planner's own window — the
+                  exact span tripsConflict compared — so the picture can never
+                  show an overlap the verdict disagrees with. */}
               {(fleet.options || []).length === 0 ? (
                 <p className="text-slate-500 text-xs">No vehicle can make this event as scheduled.</p>
               ) : (
                 <>
+                  {fleetAxis && (
+                  <div className="flex items-center gap-2 pl-6 mb-1">
+                    <div className="relative flex-1 h-3">
+                      {fleetAxis.ticks.map(t => (
+                        <span
+                          key={t.hour}
+                          className="absolute bottom-0 -translate-x-1/2 text-[10px] text-slate-400 tabular-nums whitespace-nowrap"
+                          style={{ left: `${t.pct}%` }}
+                        >
+                          {t.label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  )}
                   <ul className="space-y-1.5">
                     {fleet.options.map(o => {
                       const checked = (selectedVehicleIds || []).includes(o.vehicle_id);
+                      const blocks = [];
+                      if (fleetAxis) {
+                      (o.committed || []).forEach((t, i) => {
+                        const geo = blockGeometry(fleetAxis, t.window.start.getTime(), t.window.end.getTime(), 7);
+                        if (!geo) return;
+                        blocks.push({
+                          key: `c${i}`,
+                          left: geo.left,
+                          width: geo.width,
+                          tone: toneFor(t.window.legLabel, false),
+                          primary: t.booking?.booking_number || 'Committed',
+                          title: `${t.booking?.booking_number || 'Committed'} · ${t.window.legLabel} · ${atTime(t.window.start)} - ${atTime(t.window.end)}`,
+                        });
+                      });
+                      if (o.proposedWindow) {
+                        const geo = blockGeometry(fleetAxis, o.proposedWindow.start.getTime(), o.proposedWindow.end.getTime(), 7);
+                        if (geo) {
+                          blocks.push({
+                            key: 'proposed',
+                            left: geo.left,
+                            width: geo.width,
+                            tone: PROPOSED_TONE,
+                            dashed: true,
+                            clash: !o.selectable,
+                            primary: 'This event',
+                            title: `This booking · ${atTime(o.proposedWindow.start)} - ${atTime(o.proposedWindow.end)}${o.selectable ? '' : ' · overlaps a committed run'}`,
+                          });
+                        }
+                      }
+                      }
                       return (
                         <li
                           key={o.vehicle_id}
@@ -435,17 +513,29 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
                               </span>
                               {o.selectable && (
                                 <span className="block text-[11px] text-slate-500 mt-0.5">
-                                  Leaves {atTime(o.setupDispatch)}, set up by {atTime(o.setupEnds)}
+                                  Leaves {atTime(o.setupDispatch)}, {completionVerbFor(fleet.tripType)} {atTime(o.setupEnds)}
                                   {o.pickupDispatch && ` · collects from ${atTime(o.pickupDispatch)}`}
                                 </span>
                               )}
                             </span>
                           </label>
+                          {blocks.length > 0 && (
+                            <div className="flex items-center mt-1.5 pl-6">
+                              <TimelineTrack compact clash={!o.selectable} ticks={fleetAxis.ticks} blocks={blocks} />
+                            </div>
+                          )}
                         </li>
                       );
                     })}
                   </ul>
-                  <p className="text-[11px] text-slate-500 mt-2">
+                  <p className="text-[11px] text-slate-500 mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-[3px] border border-dashed" style={{ background: PROPOSED_TONE.bg, borderColor: PROPOSED_TONE.bd }} />
+                      this booking
+                    </span>
+                    <span>solid blocks are runs already committed on this date</span>
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-1">
                     {(selectedVehicleIds || []).length === 0
                       ? 'No vehicle selected — approving will leave this booking without transport.'
                       : `${(selectedVehicleIds || []).length} vehicle${(selectedVehicleIds || []).length === 1 ? '' : 's'} will be dispatched.`}
