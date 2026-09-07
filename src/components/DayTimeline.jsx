@@ -15,7 +15,12 @@ import { OPEN_FILL } from '../utils/timeline';
 /**
  *  ticks         [{ hour, pct }] from makeAxis
  *  blocks        [{ key, left, width, tone, title, primary, secondary,
- *                   onClick, clash, dashed }]
+ *                   onClick, clash, dashed, lane, compactLabel }]
+ *                `lane` is 'top' | 'bottom' — two bands inside one track. On a
+ *                compact strip a proposed run drawn at full height simply
+ *                covers the committed run it overlaps, hiding the very fact the
+ *                strip exists to show, and clipping that block's label to
+ *                "BK". In separate bands the two cross visibly instead.
  *  openWindows   [{ left, width, label, title }] — omit for a read-only strip
  *  emptyLabel    shown centred when there are no blocks at all
  *  overlay       { text, className } — replaces the contents entirely
@@ -32,9 +37,14 @@ export default function TimelineTrack({
   compact = false,
   clash = false,
 }) {
-  const height = compact ? 'h-[34px]' : 'h-[52px]';
+  const laned = compact && blocks.some(b => b.lane);
+  const height = laned ? 'h-[40px]' : compact ? 'h-[34px]' : 'h-[52px]';
   const inset = compact ? 'top-[3px] bottom-[3px]' : 'top-[5px] bottom-[5px]';
   const openInset = compact ? 'top-[5px] bottom-[5px]' : 'top-[7px] bottom-[7px]';
+  const insetFor = (lane) =>
+    lane === 'top' ? 'top-[3px] h-[16px]'
+      : lane === 'bottom' ? 'bottom-[3px] h-[16px]'
+        : inset;
 
   return (
     <div className={`relative flex-1 ${height} rounded-[9px] border ${
@@ -80,21 +90,25 @@ export default function TimelineTrack({
               borderColor: b.tone.bd,
               color: b.tone.fg,
             };
-            const cls = `absolute ${inset} rounded-[6px] border ${b.dashed ? 'border-dashed' : ''} px-2 flex flex-col justify-center items-start overflow-hidden text-left ${
-              b.clash ? 'ring-1 ring-red-400' : ''
-            }`;
+            const cls = `absolute ${insetFor(b.lane)} rounded-[5px] border ${b.dashed ? 'border-dashed' : ''} ${compact ? 'px-1' : 'px-2'} flex ${
+              compact ? 'items-center' : 'flex-col justify-center items-start'
+            } overflow-hidden text-left ${b.clash ? 'ring-1 ring-red-400' : ''}`;
             // A label only earns its place if the block is wide enough to hold
-            // it. On a compact strip a 45-minute delivery is ~7% of a 19-hour
-            // axis — about 38px — which renders "This event" as "T…". A letter
-            // and an ellipsis is worse than no label: the tint already says
-            // which leg it is, the dashed edge says it is the proposed run, and
-            // the title carries the full sentence on hover.
-            const showLabel = !compact || b.width >= 14;
+            // it. Below that, the tint carries the leg (the legend names the
+            // colours), the band carries whether it is committed or proposed,
+            // and the title carries the full sentence on hover — all of which
+            // beat a truncated "BK".
+            // Checked against undefined, not truthiness: a block that sets
+            // compactLabel to '' is asking for NO label (its band already
+            // identifies it), and `|| b.primary` would hand it back the long
+            // one it just declined.
+            const label = compact && b.compactLabel !== undefined ? b.compactLabel : b.primary;
+            const showLabel = (!compact || b.width >= 9) && !!label;
             const inner = (
               <>
                 {showLabel && (
-                <span className={`${compact ? 'text-[10.5px]' : 'text-[11.5px]'} font-bold leading-tight truncate w-full`}>
-                  {b.primary}
+                <span className={`${compact ? 'text-[9px]' : 'text-[11.5px]'} font-bold leading-none truncate w-full`}>
+                  {label}
                 </span>
                 )}
                 {!compact && b.secondary && (

@@ -24,7 +24,7 @@ import { getBookingsOnDate } from '../utils/availability';
 import { getEquipmentAvailabilityPreview } from '../utils/equipment';
 import { getVehicleAvailabilityPreview, completionVerbFor } from '../utils/vehicle';
 import TimelineTrack from './DayTimeline';
-import { makeAxis, blockGeometry, toneFor, PROPOSED_TONE } from '../utils/timeline';
+import { makeAxis, blockGeometry, toneFor, PROPOSED_TONE, LEG_TONE } from '../utils/timeline';
 import { MAX_SHORT_ORDERS_PER_DAY } from '../utils/bookingStatus';
 
 export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, onEquipmentStatusChange, onVehicleSelectionChange }) {
@@ -445,8 +445,12 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
                       label column, then one shared ruler over the tracks. The
                       plate sat ABOVE its own track before, so no two rows lined
                       up and the ruler belonged to none of them. */}
+                  {/* px-2.5 and a transparent border, because each row below is
+                      an <li> carrying exactly those — without them the ruler's
+                      track starts 11px left of every track it labels, and every
+                      tick reads against the wrong hour. */}
                   {fleetAxis && (
-                  <div className="flex items-end gap-2 mb-1">
+                  <div className="flex items-end gap-2 mb-1 px-2.5 border border-transparent">
                     <span className="w-[92px] shrink-0 text-[10px] font-bold tracking-[0.08em] uppercase text-slate-500">Vehicle</span>
                     <div className="relative flex-1 h-3">
                       {fleetAxis.ticks.map(t => (
@@ -473,6 +477,7 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
                           key: `c${i}`,
                           left: geo.left,
                           width: geo.width,
+                          lane: 'top',
                           tone: toneFor(t.window.legLabel, false),
                           primary: t.booking?.booking_number || 'Committed',
                           title: `${t.booking?.booking_number || 'Committed'} · ${t.window.legLabel} · ${atTime(t.window.start)} - ${atTime(t.window.end)}`,
@@ -485,10 +490,15 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
                             key: 'proposed',
                             left: geo.left,
                             width: geo.width,
+                            lane: 'bottom',
                             tone: PROPOSED_TONE,
                             dashed: true,
                             clash: !o.selectable,
                             primary: 'This event',
+                            // Its own band means it never needs a label to be
+                            // identifiable, and never covers the run it clashes
+                            // with. The legend below names the band.
+                            compactLabel: '',
                             title: `This booking · ${atTime(o.proposedWindow.start)} - ${atTime(o.proposedWindow.end)}${o.selectable ? '' : ' · overlaps a committed run'}`,
                           });
                         }
@@ -530,7 +540,7 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
                           {/* The verdict and the departure read as sentences and
                               cannot share a row with the track, so they sit under
                               it, aligned to the track's left edge. */}
-                          <span className="block pl-[100px] mt-1">
+                          <span className="block pl-[100px] mt-1.5">
                             <span className="block text-slate-500 [text-wrap:pretty]">{o.reason}</span>
                             {o.selectable && (
                               <span className="block text-[11px] text-slate-500 mt-0.5">
@@ -543,12 +553,20 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
                       );
                     })}
                   </ul>
-                  <p className="text-[11px] text-slate-500 mt-2 pl-[100px] flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <span className="inline-flex items-center gap-1.5">
+                  {/* The colours were doing the work and nothing named them,
+                      so an amber box on a blocked row said nothing. Same leg
+                      names and same tints as the Vehicles page legend. */}
+                  <p className="text-[11px] text-slate-500 mt-2 pl-[103px] flex flex-wrap items-center gap-x-3 gap-y-1">
+                    {['Setup run', 'Collection run', 'Delivery'].map(leg => (
+                      <span key={leg} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                        <span className="w-2.5 h-2.5 rounded-[3px] border" style={{ background: LEG_TONE[leg].bg, borderColor: LEG_TONE[leg].bd }} />
+                        {leg}
+                      </span>
+                    ))}
+                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
                       <span className="w-2.5 h-2.5 rounded-[3px] border border-dashed" style={{ background: PROPOSED_TONE.bg, borderColor: PROPOSED_TONE.bd }} />
-                      this booking
+                      this booking (lower band)
                     </span>
-                    <span>solid blocks are runs already committed on this date</span>
                   </p>
                   <p className="text-[11px] text-slate-500 mt-1">
                     {(selectedVehicleIds || []).length === 0
