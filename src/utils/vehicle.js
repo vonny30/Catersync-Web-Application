@@ -317,6 +317,100 @@ export function getDispatchWindow(assignment, booking) {
 }
 
 /**
+ * What one trip is doing right now.
+ *
+ * Deliberately NOT getAssignmentStatus from utils/statusLabels. That function
+ * answers "has the event started yet", which is the right question to ask of a
+ * crate of chairs sitting at a venue for the whole booking. A vehicle is a
+ * single unit that leaves and comes back inside the event, so the same three
+ * stages read wrong on it: a van that finished its setup run at noon would show
+ * "In Use" all afternoon while it sat at base.
+ *
+ * Overdue is measured from the EVENT, not from the end of the window, and that
+ * is not an oversight. A return cannot even be recorded until PICKUP_GRACE_HOURS
+ * after the event (getReturnAvailability locks the button), so flagging a trip
+ * overdue when its window closed would mark it late for hours during which the
+ * UI itself refuses to let anyone close it. It also keeps this agreeing with the
+ * overdue counts the Vehicles page has always shown.
+ */
+export const TRIP_STATE = {
+  committed: 'Committed',
+  onRoad: 'On the road',
+  back: 'Back at base',
+  overdue: 'Overdue',
+  cancelled: 'Booking cancelled',
+  unscheduled: 'No event date',
+};
+
+export function getTripState(assignment, booking, now = new Date()) {
+  if (assignment?.assignment_status === 'Completed') return { key: 'back', label: TRIP_STATE.back };
+
+  // A cancelled or rejected booking is not a commitment, so its unreturned rows
+  // are leftovers - not a van anyone is waiting on. Reporting them as overdue
+  // would send a manager chasing a return for an event that never happened, and
+  // would disagree with the overdue COUNTS on this page, which have always
+  // excluded these two statuses. Same trap the Equipment page's live-commitment
+  // guard was fixed for.
+  if (booking?.booking_status === 'Cancelled' || booking?.booking_status === 'Rejected') {
+    return { key: 'cancelled', label: TRIP_STATE.cancelled };
+  }
+
+  const event = asDate(booking?.event_datetime);
+  if (!event) return { key: 'unscheduled', label: TRIP_STATE.unscheduled };
+  if (event < now) return { key: 'overdue', label: TRIP_STATE.overdue };
+
+  const w = getDispatchWindow(assignment, booking);
+  if (w && now < w.start) return { key: 'committed', label: TRIP_STATE.committed };
+  // Inside the window, or past a setup run's window with the event still ahead:
+  // either way the vehicle has left and has not been signed back in.
+  return { key: 'on_road', label: TRIP_STATE.onRoad };
+}
+
+// Below this, a gap is not a slot anyone can plan a trip into — it is just the
+// turnaround between two runs. Two hours is the shortest round trip any profile
+// in TRIP_PROFILE produces.
+export const OPEN_WINDOW_MIN_HOURS = 2;
+
+/**
+ * The gaps a vehicle actually has on one day, given the trips it is already
+ * committed to.
+ *
+ * Busy spans are MERGED before the gaps are taken. Two overlapping trips on one
+ * vehicle is a double-booking, and subtracting them one at a time would invent
+ * a gap between them that does not exist — the page would offer a window inside
+ * a period the van is already double-promised for.
+ *
+ * A vehicle with no trips returns one gap covering the whole day, which is what
+ * "open all day" means; the caller decides whether that vehicle is bookable at
+ * all (an out-of-service van has empty hours that nobody may use).
+ */
+export function openWindowsBetween(spans, dayStart, dayEnd, minHours = OPEN_WINDOW_MIN_HOURS) {
+  const minMs = minHours * HOUR_MS;
+  const from = +dayStart;
+  const to = +dayEnd;
+
+  const merged = [];
+  spans
+    .map(s => ({ start: Math.max(+s.start, from), end: Math.min(+s.end, to) }))
+    .filter(s => s.end > s.start)
+    .sort((a, b) => a.start - b.start)
+    .forEach(s => {
+      const last = merged[merged.length - 1];
+      if (last && s.start <= last.end) last.end = Math.max(last.end, s.end);
+      else merged.push({ ...s });
+    });
+
+  const gaps = [];
+  let cursor = from;
+  merged.forEach(s => {
+    if (s.start - cursor >= minMs) gaps.push({ start: new Date(cursor), end: new Date(s.start) });
+    cursor = Math.max(cursor, s.end);
+  });
+  if (to - cursor >= minMs) gaps.push({ start: new Date(cursor), end: new Date(to) });
+  return gaps;
+}
+
+/**
  * When a vehicle should leave base so its setup finishes exactly as the event
  * starts - the default the planner and the Assign modal both suggest.
  */

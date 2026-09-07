@@ -1,15 +1,15 @@
 // src/pages/Vehicles.jsx
-import { useState, useEffect, useRef, Fragment, useMemo} from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import Select from '../components/Select';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import {
   Plus, Edit, Trash2, X, ClipboardList, RefreshCw, Undo2,
-  Calendar, MapPin, Users, Search, CalendarClock, LayoutGrid, AlertTriangle,
-  Info,
+  Calendar, MapPin, Users, Search, LayoutGrid, AlertTriangle,
+  Info, ChevronLeft,
   ChevronRight, Wrench, CheckCircle2, History, ExternalLink, Lock,
-  ArrowUpDown, ArrowUp, ArrowDown, Car, Truck, Clock, Package as PackageIcon,
+  Car, Truck, Clock, Package as PackageIcon,
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -19,8 +19,9 @@ import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { errorInputClass } from '../utils/formErrors';
 import {
   getDailyVehicleSnapshot, getDispatchWindow, defaultSetupDispatch,
-  PICKUP_GRACE_HOURS, needsTransport, TRIP_LEG, findConflictingAssignment, describeAssignment,
+  PICKUP_GRACE_HOURS, needsTransport, findConflictingAssignment, describeAssignment,
   recheckConflictsBeforeInsert, DUPLICATE_ASSIGNMENT_CODE, duplicateAssignmentMessage,
+  getTripState, TRIP_STATE, openWindowsBetween, OPEN_WINDOW_MIN_HOURS,
 } from '../utils/vehicle';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { getAssignmentStatus, RESOURCE_STATE } from '../utils/statusLabels';
@@ -64,6 +65,113 @@ const getReturnAvailability = (eventDatetimeStr) => {
 const formatReturnOpensAt = (opensAt) =>
   opensAt ? opensAt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
 
+const fmtClock = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const fmtDay = (d) => d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+const fmtHourTick = (h) => {
+  const ampm = h >= 12 && h < 24 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return h12 + ' ' + ampm;
+};
+// A window that runs past midnight has to say so. Times alone would render a
+// 10 PM collection run ending at 1 AM as "10:00 PM - 1:00 AM", which reads as a
+// trip that finished fifteen hours before it started.
+const fmtSpan = (w) =>
+  !w ? 'Time not set'
+    : w.start.toDateString() === w.end.toDateString()
+      ? fmtClock(w.start) + ' - ' + fmtClock(w.end)
+      : fmtClock(w.start) + ' - ' + fmtDay(w.end) + ', ' + fmtClock(w.end);
+
+// ---------------------------------------------------------------------------
+// COLOUR
+//
+// Three legs need telling apart on the timeline, but every block already
+// carries its leg NAME, so hue is the second cue and never the first. These
+// tints are deliberately near-grey: the only saturated colours on this page are
+// the ones that mean something - brand green for what is ours and running,
+// amber for a vehicle out of service, red for a return that is late. A leg is
+// not a status and must not compete with them.
+// ---------------------------------------------------------------------------
+const LEG_TONE = {
+  'Setup run':      { bg: '#eef3f9', bd: '#cfdcea', fg: '#33506e' },
+  'Collection run': { bg: '#faf5ec', bd: '#e6dabf', fg: '#6a5426' },
+  Delivery:         { bg: '#f2f0f8', bd: '#d7d2e8', fg: '#474070' },
+};
+const BACK_TONE = { bg: '#f1f4f7', bd: '#dde3ea', fg: '#64748b' };
+const toneFor = (legLabel, completed) =>
+  completed ? BACK_TONE : (LEG_TONE[legLabel] || LEG_TONE['Setup run']);
+
+// Diagonal hatching, not a flat fill. An open window is the ABSENCE of a
+// commitment; a solid band beside the solid trip blocks reads as one more thing
+// booked into the day.
+const OPEN_FILL = 'repeating-linear-gradient(135deg, #f8fafc 0px, #f8fafc 5px, #eef2f7 5px, #eef2f7 10px)';
+
+const TRIP_STATE_CHIP = {
+  back:        'bg-white border-slate-200 text-slate-500',
+  on_road:     'bg-[#EAF3F2] border-[#c2dccf] text-[#00703a]',
+  committed:   'bg-slate-100 border-slate-200 text-slate-600',
+  overdue:     'bg-red-50 border-red-200 text-red-700',
+  cancelled:   'bg-slate-50 border-slate-200 text-slate-500 line-through decoration-slate-300',
+  unscheduled: 'bg-amber-50 border-amber-200 text-amber-700',
+};
+
+function StateChip({ state, children }) {
+  return (
+    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full border text-[12.5px] font-semibold whitespace-nowrap ${TRIP_STATE_CHIP[state.key] || TRIP_STATE_CHIP.committed}`}>
+      {state.key === 'back' && <CheckCircle2 size={12} />}
+      {state.key === 'overdue' && <AlertTriangle size={12} />}
+      {children || state.label}
+    </span>
+  );
+}
+
+// The leg is the one fact a dispatch row cannot do without: the same van on the
+// same booking twice in a day is normal, and only the leg says which run this
+// is. Tinted to match its block on the timeline so the two read as one thing.
+function LegChip({ legLabel, completed }) {
+  const t = toneFor(legLabel, completed);
+  return (
+    <span
+      className="inline-flex items-center px-2.5 py-1 rounded-full border text-[12.5px] font-semibold whitespace-nowrap"
+      style={{ background: t.bg, borderColor: t.bd, color: t.fg }}
+    >
+      {legLabel}
+    </span>
+  );
+}
+
+function TypeTag({ type }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-500 whitespace-nowrap">
+      {type === 'Car' ? <Car size={13} /> : <Truck size={13} />} {type}
+    </span>
+  );
+}
+
+// Row actions, neutral until hover - the same control Equipment uses. A red
+// trash and a blue pencil on every row read as a column of warnings running
+// down the page.
+function IconBtn({ label, onClick, Icon, hover }) {
+  const hoverCls = hover === 'red' ? 'hover:bg-red-50 hover:text-red-700'
+    : hover === 'amber' ? 'hover:bg-amber-50 hover:text-amber-700'
+    : 'hover:bg-slate-100 hover:text-slate-700';
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className={`inline-flex items-center justify-center w-8 h-8 rounded-[9px] text-slate-400 transition-colors cursor-pointer ${hoverCls}`}
+    >
+      <Icon size={15} />
+    </button>
+  );
+}
+
+// Shared column tracks, declared once so the zone grids cannot drift out of
+// alignment with one another - the same reason Equipment has ROW_COLS.
+const FLEET_COLS = 'grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,2.2fr)_minmax(0,1.3fr)] gap-5';
+const HIST_COLS = 'grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,2.2fr)_minmax(0,1fr)] gap-5';
+const ZONE_HEAD = 'text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700';
+
 
 export default function Vehicles() {
   const navigate = useNavigate();
@@ -84,19 +192,21 @@ export default function Vehicles() {
   const [snapshot, setSnapshot] = useState({ vehicles: [], eventsOnDate: [] });
   const [snapshotLoading, setSnapshotLoading] = useState(true);
 
-  // --- Availability/Inventory/Assignments/History tab control ---
-  const [activeTableTab, setActiveTableTab] = useState('day'); // 'availability' | 'inventory' | 'assignments' | 'history'
+  // --- Tab control. PLAN is date-scoped (Day schedule, Find a window),
+  // FLEET is not (Vehicles, Trips, History). ---
+  const [activeTableTab, setActiveTableTab] = useState('day'); // 'day' | 'window' | 'fleet' | 'trips' | 'history'
 
-  // --- Availability tab search/filter/sort ---
-  const [availabilitySearch, setAvailabilitySearch] = useState('');
-  const [availabilityTypeFilter, setAvailabilityTypeFilter] = useState('All'); // 'All' | 'Car' | 'Motorcycle'
-  const [availabilityStatusFilter, setAvailabilityStatusFilter] = useState('All'); // 'All' | 'free' | 'deployed' | 'outofservice'
-  const [availabilitySort, setAvailabilitySort] = useState({ field: null, direction: 'asc' });
+  // --- Find a window: the planning inverse of the day schedule. Deliberately
+  // NO date of its own - it reads the same selectedDate the timeline does.
+  // Two date pickers inside one PLAN cluster is exactly the confusion the
+  // cluster labels were added to remove, and it would need a second snapshot
+  // fetch to answer a question the first one already has the data for. ---
+  const [windowMinHours, setWindowMinHours] = useState(4); // 2 | 4 | 6 | 'day'
+  const [windowTypeFilter, setWindowTypeFilter] = useState('All'); // 'All' | 'Car' | 'Motorcycle'
 
-  // --- Inventory tab search/filter/sort ---
+  // --- Vehicles tab search/filter ---
   const [inventorySearch, setInventorySearch] = useState('');
   const [inventoryTypeFilter, setInventoryTypeFilter] = useState('All');
-  const [inventorySort, setInventorySort] = useState({ field: null, direction: 'asc' });
 
   // --- Active Assignments search/filter/sort — spans every active event
   // regardless of the date picker above, so it can grow long. ---
@@ -109,25 +219,14 @@ export default function Vehicles() {
 
   // --- History tab — full assignment log (Scheduled + Completed) ---
   const [historySearch, setHistorySearch] = useState('');
-  const [historyStatusFilter, setHistoryStatusFilter] = useState('All'); // 'All' | 'Assigned' | 'In Use' | 'Returned' — the LABELS
-  // from ASSIGNMENT_STAGES, not the stored assignment_status values. This said
-  // Scheduled/Completed, which are the stored ones, directly above the warning
-  // that mixing the two emptied this table once already.
+  // 'All' or a KEY from getTripState (committed | on_road | back | overdue).
+  // Never a stored vehicle_assign.assignment_status value: those are
+  // 'Scheduled' / 'Completed' and match none of these, which silently empties
+  // the table. That regression has happened once already.
+  const [historyStatusFilter, setHistoryStatusFilter] = useState('All');
   const [historyDatePreset, setHistoryDatePreset] = useState(DEFAULT_DATE_PRESET);
   const [historyDateCustomStart, setHistoryDateCustomStart] = useState('');
   const [historyDateCustomEnd, setHistoryDateCustomEnd] = useState('');
-  const [historySort, setHistorySort] = useState({ field: null, direction: 'desc' });
-  // Which grouped history rows are expanded. A Set of booking ids.
-  const [expandedHistoryGroups, setExpandedHistoryGroups] = useState(() => new Set());
-
-  const makeToggleSort = (setter, defaultDirection = 'asc') => (field) => {
-    setter(prev => prev.field === field
-      ? { field, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
-      : { field, direction: defaultDirection });
-  };
-  const toggleAvailabilitySort = makeToggleSort(setAvailabilitySort);
-  const toggleInventorySort = makeToggleSort(setInventorySort);
-  const toggleHistorySort = makeToggleSort(setHistorySort, 'desc');
 
   // --- Events-on-date modal ---
   const [isEventsModalOpen, setIsEventsModalOpen] = useState(false);
@@ -176,21 +275,6 @@ export default function Vehicles() {
     if (!id) return;
     navigate(`/app/${type === 'Short Order' ? 'orders' : 'bookings'}/${id}`);
   };
-
-  // --- Shared sortable-column-header renderer ---
-  const renderSortHeader = (sortState, toggleFn, field, label, extraClass = '') => (
-    <button
-      onClick={() => toggleFn(field)}
-      className={`flex items-center gap-1 font-bold hover:text-[#008A45] transition-colors cursor-pointer ${extraClass}`}
-    >
-      {label}
-      {sortState.field === field ? (
-        sortState.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
-      ) : (
-        <ArrowUpDown size={12} className="text-slate-400" />
-      )}
-    </button>
-  );
 
   // --- Error handler ---
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
@@ -839,50 +923,70 @@ export default function Vehicles() {
     setIsAssignModalOpen(true);
   };
 
-  const scrollToAssignments = () => {
-    setActiveTableTab('trips');
+  const panelRef = useRef(null);
+  // Switching tab alone is invisible when the target tab is already the active
+  // one, which is why the cards used to read as "not clickable".
+  const goToTab = (key) => {
+    setActiveTableTab(key);
+    panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  // --- Jump to the Availability tab (Vehicles deployed / free stat cards) —
-  // switching the tab alone is invisible when it's already the active tab
-  // (the default), which is why those cards read as "not clickable"; the
-  // scroll + a status filter give a visible reaction every time. ---
-  const availabilityPanelRef = useRef(null);
-  const scrollToAvailability = (statusFilter) => {
-    setActiveTableTab('day');
-    setAvailabilityStatusFilter(statusFilter);
-    availabilityPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
-  // ============================================================
-  // --- DATE-SCOPED STATS ---
-  // ============================================================
+  const now = new Date();
   const totalFleet = vehicles.length;
-  const eventsOnDateCount = snapshot.eventsOnDate.length;
-  // A vehicle counts once however many trips it makes that day - these are
-  // vehicle counts, not trip counts, and the card says "vehicles".
-  const deployedCount = snapshot.vehicles.filter(v => v.assignments.length > 0).length;
-  // "Open", never "free". The sibling Equipment page removed that word
-  // deliberately; this one still had it in a derived name and on screen.
-  const openTodayCount = snapshot.vehicles.filter(v => v.vehicle_status === 'Available' && v.assignments.length === 0).length;
 
-  // Live/always-current — not scoped to the date picker.
-  const needsAttentionVehicles = vehicles
+  // ============================================================
+  // --- THE THREE CARDS: live figures, no date scope ---
+  // ============================================================
+  // These used to be date-scoped (events on date / committed / available) and
+  // sat above a date picker, with a caption underneath explaining that the date
+  // drove them and the Availability tab but not Active Assignments or History.
+  // A layout needing a caption to say which of its own regions a control
+  // reaches is the problem, not a caption that is too long. Equipment fixed the
+  // same overload the same way: one scope per region. Everything date-scoped
+  // now lives inside the PLAN tabs, next to the date picker that drives it, and
+  // these three answer only "what is true right now".
+  const startOfToday = new Date(now); startOfToday.setHours(0, 0, 0, 0);
+  const endOfToday = new Date(now); endOfToday.setHours(23, 59, 59, 999);
+
+  // Trips, not vehicles: a van doing a setup run and a collection run for the
+  // same wedding is one vehicle and two trips, and the card says trips.
+  // Cancelled and rejected bookings are not commitments and never count - the
+  // same trap the Equipment page's live-commitment guard was fixed for.
+  const tripsToday = assignments
+    .filter(a => a.booking?.booking_status !== 'Rejected' && a.booking?.booking_status !== 'Cancelled')
+    .map(a => ({ a, w: getDispatchWindow(a, a.booking) }))
+    .filter(({ w }) => w && w.start <= endOfToday && w.end >= startOfToday)
+    .sort((x, y) => x.w.start - y.w.start);
+
+  const nextDepartureToday = tripsToday.find(({ a, w }) => w.start >= now && a.assignment_status !== 'Completed');
+  const vehiclesCommittedToday = new Set(tripsToday.map(({ a }) => a.vehicle_id)).size;
+
+  const outOfServiceVehicles = vehicles
     .filter(v => v.vehicle_status === 'Maintenance' || v.vehicle_status === 'Unavailable')
     .sort((a, b) => a.plate_number.localeCompare(b.plate_number));
 
-  const now = new Date();
+  // Unchanged rule, deliberately: overdue is measured from the EVENT, because a
+  // return cannot be recorded until PICKUP_GRACE_HOURS after it. See getTripState.
   const overdueAssignments = assignments.filter(a =>
     a.assignment_status !== 'Completed' &&
     a.booking?.event_datetime && new Date(a.booking.event_datetime) < now &&
     a.booking?.booking_status !== 'Rejected' && a.booking?.booking_status !== 'Cancelled'
   );
 
+  // ============================================================
+  // --- SELECTED DATE (the PLAN cluster) ---
+  // ============================================================
   const selectedDateObj = new Date(`${selectedDate}T00:00:00`);
   const isSelectedToday = selectedDate === todayISO();
   const isSelectedTomorrow = selectedDate === tomorrowISO();
   const selectedDateLabel = selectedDateObj.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })
     + (isSelectedToday ? ' (Today)' : isSelectedTomorrow ? ' (Tomorrow)' : '');
+  const selectedDateShort = selectedDateObj.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+
+  const shiftSelectedDate = (delta) => {
+    const [y, m, d] = selectedDate.split('-').map(Number);
+    setSelectedDate(toDateInputValue(new Date(y, m - 1, d + delta)));
+  };
 
   // Full vehicle list per event on the selected date, including returned
   // ones — powers the "Events on this date" modal.
@@ -898,133 +1002,188 @@ export default function Vehicles() {
       }));
   });
 
-  // ============================================================
-  // --- AVAILABILITY TAB: status + sort ---
-  // ============================================================
+  // Kept for the vehicle detail modal: the date-scoped reading of one vehicle.
   const getVehicleAvailabilityStatus = (v) => {
-    if (v.vehicle_status === 'Maintenance') return { key: 'maintenance', label: RESOURCE_STATE.underMaintenance, rank: 0, pillClass: 'bg-orange-100 border-orange-300 text-orange-700' };
-    if (v.vehicle_status === 'Unavailable') return { key: 'unavailable', label: RESOURCE_STATE.unavailable, rank: 0, pillClass: 'bg-slate-200 border-slate-300 text-slate-600' };
-    if (v.assignments.length > 0) return { key: 'deployed', label: RESOURCE_STATE.committed, rank: 1, pillClass: 'bg-amber-100 border-amber-300 text-amber-700' };
-    return { key: 'free', label: RESOURCE_STATE.available, rank: 2, pillClass: 'bg-emerald-100 border-emerald-300 text-emerald-700' };
+    if (v.vehicle_status === 'Maintenance') return { key: 'maintenance', label: RESOURCE_STATE.underMaintenance, pillClass: 'bg-amber-50 border-amber-200 text-amber-700' };
+    if (v.vehicle_status === 'Unavailable') return { key: 'unavailable', label: RESOURCE_STATE.unavailable, pillClass: 'bg-slate-100 border-slate-300 text-slate-600' };
+    if (v.assignments.length > 0) return { key: 'deployed', label: RESOURCE_STATE.committed, pillClass: 'bg-slate-100 border-slate-200 text-slate-600' };
+    return { key: 'free', label: RESOURCE_STATE.available, pillClass: 'bg-[#EAF3F2] border-[#c2dccf] text-[#00703a]' };
   };
 
-  const sortedAvailabilityVehicles = [...snapshot.vehicles].sort((a, b) => {
-    const rankA = getVehicleAvailabilityStatus(a).rank;
-    const rankB = getVehicleAvailabilityStatus(b).rank;
-    if (rankA !== rankB) return rankA - rankB;
-    return a.plate_number.localeCompare(b.plate_number);
-  });
-
-  const availabilityStatusCounts = {
-    outofservice: sortedAvailabilityVehicles.filter(v => ['maintenance', 'unavailable'].includes(getVehicleAvailabilityStatus(v).key)).length,
-    deployed: sortedAvailabilityVehicles.filter(v => getVehicleAvailabilityStatus(v).key === 'deployed').length,
-    free: sortedAvailabilityVehicles.filter(v => getVehicleAvailabilityStatus(v).key === 'free').length,
-  };
-
-  const filteredAvailabilityVehicles = sortedAvailabilityVehicles.filter(v => {
-    if (availabilityTypeFilter !== 'All' && v.vehicle_type !== availabilityTypeFilter) return false;
-    const statusKey = getVehicleAvailabilityStatus(v).key;
-    if (availabilityStatusFilter === 'outofservice' && !['maintenance', 'unavailable'].includes(statusKey)) return false;
-    if (availabilityStatusFilter !== 'All' && availabilityStatusFilter !== 'outofservice' && statusKey !== availabilityStatusFilter) return false;
-    if (availabilitySearch) {
-      const term = availabilitySearch.toLowerCase();
-      if (!v.plate_number.toLowerCase().includes(term)) return false;
-    }
-    return true;
-  });
-
-  const activeAvailabilityFilterCount = (availabilitySearch.trim() ? 1 : 0) + (availabilityTypeFilter !== 'All' ? 1 : 0) + (availabilityStatusFilter !== 'All' ? 1 : 0);
-
-  const sortedFilteredAvailabilityVehicles = availabilitySort.field === 'plate'
-    ? [...filteredAvailabilityVehicles].sort((a, b) => {
-        const result = a.plate_number.localeCompare(b.plate_number);
-        return availabilitySort.direction === 'asc' ? result : -result;
-      })
-    : filteredAvailabilityVehicles;
-
   // ============================================================
-  // --- DAY TIMELINE (Availability tab) ---
+  // --- DAY SCHEDULE ---
   // ============================================================
-  // The table can express one trip per vehicle; the window model allows
-  // several. Positioning each dispatch as a block on a fixed day scale is what
-  // makes "busy twice, free in between" visible without arithmetic.
+  // The table this replaced could express exactly ONE trip per vehicle, which
+  // is the shape the window model breaks: a van that runs a 06:00 wedding setup
+  // is back by early afternoon and can still take a 14:00 delivery. Drawn as
+  // blocks on a fixed day scale that reads at a glance - busy twice, open in
+  // between - instead of leaving the manager to do the arithmetic.
   //
-  // The scale is a fixed working window rather than the widest trip of the
-  // day, so blocks sit in the same place from one date to the next — a bar
-  // that rescales itself cannot be compared against yesterday's.
+  // The scale is a fixed working window, not the widest trip of the day, so
+  // blocks sit in the same place from one date to the next. A bar that rescales
+  // itself cannot be compared against yesterday's. It runs to 23:00 because
+  // real collection runs finish late - a 22:00 run is normal here.
   const TIMELINE_START_HOUR = 4;
   const TIMELINE_END_HOUR = 23;
-  const timelineTicks = (() => {
-    const ticks = [];
-    const span = TIMELINE_END_HOUR - TIMELINE_START_HOUR;
-    for (let h = TIMELINE_START_HOUR; h <= TIMELINE_END_HOUR; h += 3) {
-      ticks.push({ hour: h, label: String(h).padStart(2, '0'), pct: ((h - TIMELINE_START_HOUR) / span) * 100 });
-    }
-    return ticks;
-  })();
+  const AXIS_SPAN_HOURS = TIMELINE_END_HOUR - TIMELINE_START_HOUR;
+  const timelineTicks = [];
+  for (let h = TIMELINE_START_HOUR; h <= TIMELINE_END_HOUR; h += 3) {
+    timelineTicks.push({ hour: h, label: fmtHourTick(h), pct: ((h - TIMELINE_START_HOUR) / AXIS_SPAN_HOURS) * 100 });
+  }
 
-  const timelineRows = sortedFilteredAvailabilityVehicles.map(v => {
-    const dayStart = new Date(`${selectedDate}T00:00:00`);
-    const scaleStart = new Date(dayStart.getTime() + TIMELINE_START_HOUR * 60 * 60 * 1000);
-    const scaleEnd = new Date(dayStart.getTime() + TIMELINE_END_HOUR * 60 * 60 * 1000);
-    const scaleMs = scaleEnd - scaleStart;
-    const statusKey = getVehicleAvailabilityStatus(v).key;
+  const axisStart = new Date(selectedDateObj.getTime() + TIMELINE_START_HOUR * 3600 * 1000);
+  const axisEnd = new Date(selectedDateObj.getTime() + TIMELINE_END_HOUR * 3600 * 1000);
+  const axisMs = axisEnd - axisStart;
+  const pctOf = (ms) => ((ms - axisStart.getTime()) / axisMs) * 100;
 
-    const blocks = (v.assignments || []).map(a => {
-      // A trip can start before the scale or end after it; clamp so the block
-      // stays inside its row rather than overflowing, while still showing that
-      // the vehicle is busy at the edge.
-      const from = Math.max(a.window.start.getTime(), scaleStart.getTime());
-      const to = Math.min(a.window.end.getTime(), scaleEnd.getTime());
-      if (to <= from) return null;
-      const fmt = (d) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const timelineRows = snapshot.vehicles
+    .map(v => {
+      const outOfService = v.vehicle_status !== 'Available';
+
+      const trips = (v.assignments || []).map(a => {
+        // Clamp, never drop. A collection run finishing after the scale must
+        // still render - a trip that silently vanishes off the axis is worse
+        // than one drawn short.
+        const from = Math.max(a.window.start.getTime(), axisStart.getTime());
+        const to = Math.min(a.window.end.getTime(), axisEnd.getTime());
+        if (to <= from) return null;
+        const left = pctOf(from);
+        // A floor, so a 90-minute delivery is not an invisible sliver that
+        // reads as an open day; never allowed to run past the axis.
+        const width = Math.min(100 - left, Math.max(6, pctOf(to) - left));
+        return {
+          ...a,
+          // Always the window's own label. A hardcoded leg name makes every
+          // short order read "Setup run"; legLabelFor already resolves
+          // Delivery vs Setup run per trip type.
+          legLabel: a.window.legLabel,
+          left,
+          width,
+          span: fmtSpan(a.window),
+          clippedEnd: a.window.end.getTime() > axisEnd.getTime(),
+          tone: toneFor(a.window.legLabel, a.completed),
+        };
+      }).filter(Boolean).sort((x, y) => x.window.start - y.window.start);
+
+      // Overlap on ONE vehicle is a double-booking, not a layout problem.
+      // Measured on the real times, never on the rendered widths - the width
+      // floor above would report two short back-to-back runs as a clash.
+      trips.forEach((t, i) => {
+        const prev = trips[i - 1];
+        if (prev && t.window.start < prev.window.end) { t.clash = true; prev.clash = true; }
+      });
+
+      // An out-of-service vehicle gets NO open windows. Its empty hours are
+      // real but nobody may book them - the same error as counting damaged
+      // stock as available on the Equipment page.
+      const openWindows = outOfService ? [] : openWindowsBetween(trips.map(t => t.window), axisStart, axisEnd)
+        .map(g => {
+          const left = pctOf(+g.start);
+          return {
+            left,
+            width: pctOf(+g.end) - left,
+            label: `${fmtClock(g.start)} – ${fmtClock(g.end)}`,
+            hours: (g.end - g.start) / 3600 / 1000,
+          };
+        });
+
       return {
-        assignment_id: a.assignment_id,
-        booking_id: a.booking_id,
-        booking_type: a.booking_type,
-        ref: a.ref,
-        tripType: a.tripType,
-        completed: a.completed,
-        label: `${fmt(a.window.start)}–${fmt(a.window.end)}`,
-        leftPct: ((from - scaleStart.getTime()) / scaleMs) * 100,
-        // A floor keeps a very short delivery from rendering as an invisible
-        // sliver that reads as "free".
-        widthPct: Math.max(4, ((to - from) / scaleMs) * 100),
+        raw: v,
+        vehicle_id: v.vehicle_id,
+        plate_number: v.plate_number,
+        vehicle_type: v.vehicle_type,
+        vehicle_status: v.vehicle_status,
+        outOfService,
+        trips,
+        openWindows,
+        hasClash: trips.some(t => t.clash),
       };
-    }).filter(Boolean);
+    })
+    // Vehicles with work first, then open ones, then anything out of service —
+    // the order a manager reads the day in.
+    .sort((a, b) => {
+      const rank = (r) => r.outOfService ? 2 : r.trips.length ? 0 : 1;
+      return rank(a) - rank(b) || a.plate_number.localeCompare(b.plate_number);
+    });
 
-    return {
-      vehicle_id: v.vehicle_id,
-      plate_number: v.plate_number,
-      vehicle_status: v.vehicle_status,
-      outOfService: ['maintenance', 'unavailable'].includes(statusKey),
-      blocks,
-    };
-  });
+  const dayTripCount = timelineRows.reduce((n, r) => n + r.trips.length, 0);
+  const dayCommittedVehicles = timelineRows.filter(r => r.trips.length > 0).length;
+  const dayClashRows = timelineRows.filter(r => r.hasClash);
+  const nowPct = isSelectedToday && now >= axisStart && now <= axisEnd ? pctOf(now.getTime()) : null;
+
+  // Assignments with no event date produce no window at all. Reported, never
+  // drawn as a zero-width block at the axis origin.
+  const unscheduledTrips = assignments.filter(a =>
+    a.assignment_status !== 'Completed' &&
+    a.booking?.booking_status !== 'Rejected' && a.booking?.booking_status !== 'Cancelled' &&
+    !getDispatchWindow(a, a.booking)
+  );
+
+  const needsVehicleOnDate = needsVehicleBookings.filter(b =>
+    new Date(b.event_datetime).toDateString() === selectedDateObj.toDateString()
+  );
 
   // ============================================================
-  // --- INVENTORY TAB: search + type filter ---
+  // --- FIND A WINDOW: the planning inverse ---
+  // ============================================================
+  // The day schedule answers "what is this vehicle doing"; this answers "which
+  // vehicle could take a four-hour job on Friday". Same date, same derivation -
+  // openWindowsBetween with a longer minimum - so the two tabs can never
+  // disagree about whether a gap exists.
+  const windowMinHoursValue = windowMinHours === 'day' ? AXIS_SPAN_HOURS : windowMinHours;
+  const windowResults = timelineRows
+    .filter(r => windowTypeFilter === 'All' || r.vehicle_type === windowTypeFilter)
+    .map(r => {
+      const gaps = r.outOfService ? [] : openWindowsBetween(
+        r.trips.map(t => t.window), axisStart, axisEnd, windowMinHoursValue
+      );
+      const busyFrom = r.trips.length ? r.trips[0].window.start : null;
+      const busyTo = r.trips.length ? new Date(Math.max(...r.trips.map(t => +t.window.end))) : null;
+      return {
+        ...r,
+        gaps: gaps.map(g => ({
+          label: g.end - g.start >= axisMs ? 'Open all day' : `${fmtClock(g.start)} – ${fmtClock(g.end)}`,
+        })),
+        busyFrom,
+        busyTo,
+      };
+    })
+    .sort((a, b) => (b.gaps.length > 0) - (a.gaps.length > 0) || a.plate_number.localeCompare(b.plate_number));
+
+  const windowMatchCount = windowResults.filter(r => r.gaps.length > 0).length;
+  const windowLengthLabel = windowMinHours === 'day' ? 'the whole day' : `${windowMinHours} hours`;
+
+  // ============================================================
+  // --- VEHICLES TAB: the fleet itself, no date scope ---
   // ============================================================
   const filteredInventory = vehicles.filter(v => {
     if (inventoryTypeFilter !== 'All' && v.vehicle_type !== inventoryTypeFilter) return false;
-    if (inventorySearch) {
-      const term = inventorySearch.toLowerCase();
-      if (!v.plate_number.toLowerCase().includes(term)) return false;
-    }
+    if (inventorySearch && !v.plate_number.toLowerCase().includes(inventorySearch.toLowerCase())) return false;
     return true;
   });
-
   const activeInventoryFilterCount = (inventorySearch.trim() ? 1 : 0) + (inventoryTypeFilter !== 'All' ? 1 : 0);
 
-  const sortedFilteredInventory = inventorySort.field === 'plate'
-    ? [...filteredInventory].sort((a, b) => {
-        const result = a.plate_number.localeCompare(b.plate_number);
-        return inventorySort.direction === 'asc' ? result : -result;
-      })
-    : filteredInventory;
+  const fleetRows = filteredInventory.map(v => {
+    // "Committed" counted every open assignment and called it "in use", so a
+    // van booked for a wedding three weeks out read as being on the road right
+    // now. Committed and on the road are different states, and they are counted
+    // and labelled separately.
+    const openTrips = assignments.filter(a =>
+      a.vehicle_id === v.vehicle_id &&
+      a.assignment_status !== 'Completed' &&
+      a.booking?.booking_status !== 'Rejected' && a.booking?.booking_status !== 'Cancelled'
+    );
+    const scheduled = openTrips
+      .map(a => ({ a, w: getDispatchWindow(a, a.booking) }))
+      .filter(x => x.w)
+      .sort((x, y) => x.w.start - y.w.start);
+    const onRoad = scheduled.find(x => x.w.start <= now && now <= x.w.end) || null;
+    const next = scheduled.find(x => x.w.start > now) || null;
+    return { v, committedCount: openTrips.length, onRoad, next };
+  });
 
   // ============================================================
-  // --- ACTIVE ASSIGNMENTS: group by event ---
+  // --- TRIPS TAB: open dispatches, grouped by event ---
   // ============================================================
   const activeAssignmentRows = assignments.filter(a =>
     a.assignment_status !== 'Completed' &&
@@ -1096,24 +1255,24 @@ export default function Vehicles() {
       })
     : filteredAssignmentGroups;
 
+  const filteredTripCount = filteredAssignmentGroups.reduce((n, g) => n + g.items.length, 0);
+
   // ============================================================
-  // --- HISTORY TAB: full assignment log, filter + sort ---
+  // --- HISTORY TAB: every dispatch ever recorded ---
   // ============================================================
+  // One row per DISPATCH, not per booking. These rows were grouped by booking
+  // because a two-vehicle dispatch produced two rows carrying the same
+  // reference, customer and date, and read as a duplicate. Naming the leg is
+  // what actually fixes that: a setup run and a collection run on one booking
+  // are two different facts, and a log that hides one of them behind a
+  // disclosure triangle is not a log. Equipment still groups, correctly - there
+  // a group is one booking's many item types, which is a different shape.
   const { start: historyRangeStart, end: historyRangeEnd } = getRangeBounds(historyDatePreset, historyDateCustomStart, historyDateCustomEnd);
 
-  const filteredHistoryRows = assignments
-    .filter(a => {
-      if (historyStatusFilter !== 'All') {
-        const status = getAssignmentStatus(a.assignment_status === 'Completed', a.booking?.event_datetime);
-        // Keys come from getAssignmentStatus (assigned / in_use / returned).
-        // They are NOT the stored vehicle_assign.assignment_status values —
-        // mapping these to 'scheduled'/'completed' matches nothing at all and
-        // silently empties the table for two of the three filters. This has
-        // now regressed once via a stale-copy overwrite; if you are changing
-        // this line, check getAssignmentStatus first.
-        const filterKey = historyStatusFilter === 'Assigned' ? 'assigned' : historyStatusFilter === 'In Use' ? 'in_use' : 'returned';
-        if (status.key !== filterKey) return false;
-      }
+  const historyRows = assignments
+    .map(a => ({ a, w: getDispatchWindow(a, a.booking), state: getTripState(a, a.booking, now) }))
+    .filter(({ a, state }) => {
+      if (historyStatusFilter !== 'All' && state.key !== historyStatusFilter) return false;
       if (historyDatePreset !== 'All Time' && !isWithinRange(a.booking?.event_datetime, historyRangeStart, historyRangeEnd)) return false;
       if (historySearch.trim()) {
         const term = historySearch.toLowerCase();
@@ -1125,81 +1284,56 @@ export default function Vehicles() {
       }
       return true;
     })
-    .sort((a, b) => new Date(b.dispatch_datetime || 0) - new Date(a.dispatch_datetime || 0));
+    .sort((x, y) => new Date(y.a.dispatch_datetime || 0) - new Date(x.a.dispatch_datetime || 0));
 
   const activeHistoryFilterCount = (historySearch.trim() ? 1 : 0) + (historyStatusFilter !== 'All' ? 1 : 0) + (historyDatePreset !== DEFAULT_DATE_PRESET ? 1 : 0);
 
-  const sortedFilteredHistoryRows = historySort.field
-    ? [...filteredHistoryRows].sort((a, b) => {
-        let result = 0;
-        if (historySort.field === 'customer') {
-          const nameOf = (x) => (x.booking?.customer ? `${x.booking.customer.first_name} ${x.booking.customer.last_name}` : '');
-          result = nameOf(a).localeCompare(nameOf(b));
-        }
-        else if (historySort.field === 'eventDate') result = new Date(a.booking?.event_datetime || 0) - new Date(b.booking?.event_datetime || 0);
-        else if (historySort.field === 'dispatchedOn') result = new Date(a.dispatch_datetime || 0) - new Date(b.dispatch_datetime || 0);
-        return historySort.direction === 'asc' ? result : -result;
-      })
-    : filteredHistoryRows;
-
-  // ============================================================
-  // --- HISTORY: one row per booking, not per vehicle ---
-  // ============================================================
-  // vehicle_assign stores a row per vehicle, so a booking that took two
-  // vehicles produced two history rows carrying the same reference, customer
-  // and event date. Grouped by booking the way the Active Assignments tab
-  // already groups, and expandable to the individual vehicles — the same shape
-  // the Equipment page's history uses.
-  //
-  // Grouping happens AFTER filtering, so a group summarises what matched: a
-  // search for one plate shows that booking with the one vehicle that matched,
-  // not the whole dispatch. Group order follows the row order above, so
-  // whichever sort is active still drives the list.
-  const historyGroups = (() => {
-    const map = new Map();
-    sortedFilteredHistoryRows.forEach(a => {
-      const key = a.booking_id || `orphan-${a.assignment_id}`;
-      if (!map.has(key)) {
-        map.set(key, { key, booking_id: a.booking_id, booking: a.booking, items: [] });
-      }
-      map.get(key).items.push(a);
-    });
-
-    return Array.from(map.values()).map(g => {
-      const returnedCount = g.items.filter(i => i.assignment_status === 'Completed').length;
-      const allReturned = returnedCount === g.items.length;
-      const open = g.items.filter(i => i.assignment_status !== 'Completed');
-      // The group takes the least-finished stage among its vehicles, from the
-      // same getAssignmentStatus the other tabs use, so a group can never
-      // report a stage its own rows disagree with.
-      const anyInUse = open.some(i => getAssignmentStatus(false, i.booking?.event_datetime).key === 'in_use');
-      const stage = allReturned
-        ? { key: 'returned', label: 'Returned' }
-        : anyInUse
-          ? { key: 'in_use', label: 'In Use' }
-          : { key: 'assigned', label: 'Assigned' };
-      const dispatchTimes = g.items.map(i => new Date(i.dispatch_datetime || 0).getTime()).filter(Boolean);
-      return {
-        ...g,
-        returnedCount,
-        allReturned,
-        stage,
-        // Earliest departure in the group — the moment the event's transport
-        // actually started.
-        firstDispatchAt: dispatchTimes.length ? new Date(Math.min(...dispatchTimes)) : null,
-      };
-    });
-  })();
-
-  const toggleHistoryGroup = (key) => {
-    setExpandedHistoryGroups(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  };
-
   // --- RENDER ---
+  // The PLAN cluster's date control. One definition, rendered by both plan
+  // tabs, so Day schedule and Find a window can never drift into showing
+  // different dates for the same selection.
+  const dateNav = (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center rounded-[10px] border border-slate-300 bg-white overflow-hidden">
+        <button
+          onClick={() => shiftSelectedDate(-1)}
+          aria-label="Previous day"
+          className="px-2 py-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-800 transition-colors cursor-pointer"
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <span className="px-3 text-[14.5px] font-bold text-slate-900 whitespace-nowrap tabular-nums">{selectedDateShort}</span>
+        <button
+          onClick={() => shiftSelectedDate(1)}
+          aria-label="Next day"
+          className="px-2 py-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-800 transition-colors cursor-pointer"
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
+      <button
+        onClick={() => setSelectedDate(todayISO())}
+        className={`px-3 py-[7px] rounded-[10px] text-[13px] font-semibold border transition-colors cursor-pointer ${isSelectedToday ? 'bg-[#EAF3F2] border-[#c2dccf] text-[#00703a]' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+      >
+        Today
+      </button>
+      <button
+        onClick={() => setSelectedDate(tomorrowISO())}
+        className={`px-3 py-[7px] rounded-[10px] text-[13px] font-semibold border transition-colors cursor-pointer ${isSelectedTomorrow ? 'bg-[#EAF3F2] border-[#c2dccf] text-[#00703a]' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+      >
+        Tomorrow
+      </button>
+      <input
+        type="date"
+        value={selectedDate}
+        onChange={(e) => setSelectedDate(e.target.value)}
+        aria-label="Pick a date"
+        className="border border-slate-300 rounded-[10px] px-3 py-[6px] text-[13px] font-semibold text-slate-700 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+      />
+      {snapshotLoading && <span className="text-[12.5px] text-slate-400">recalculating…</span>}
+    </div>
+  );
+
   return (
     <div className="space-y-[18px] relative pb-12">
       {/* Header */}
@@ -1207,7 +1341,7 @@ export default function Vehicles() {
         <div>
           <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Vehicles</h1>
           <p className="text-[14.5px] text-slate-600 mt-1.5 max-w-[540px] [text-wrap:pretty]">
-            The day's schedule, what each vehicle is committed to, and what is still out.
+            The fleet, the trips it is committed to, and what is on the road.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -1216,7 +1350,7 @@ export default function Vehicles() {
               onClick={() => setIsNeedsVehicleModalOpen(true)}
               className="bg-[#fef4f4] border border-[#f3c9c9] text-red-700 px-4 py-2.5 rounded-[10px] font-semibold transition-colors flex items-center gap-2 text-sm whitespace-nowrap cursor-pointer hover:bg-[#fdeaea] focus:outline-none focus:ring-2 focus:ring-red-400/40"
             >
-              <AlertTriangle size={16} /> Awaiting Vehicle ({needsVehicleBookings.length})
+              <AlertTriangle size={16} /> Awaiting vehicle ({needsVehicleBookings.length})
             </button>
           )}
           <button
@@ -1233,101 +1367,76 @@ export default function Vehicles() {
           </button>
           <button
             onClick={fetchData}
-            className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 px-3 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-xs"
+            aria-label="Refresh"
+            className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 px-3 py-2.5 rounded-lg font-semibold transition-colors flex items-center gap-2 text-sm shadow-xs cursor-pointer"
           >
             <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
 
-      {/* --- DATE CONTEXT BAR --- */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-sm">
-          <CalendarClock size={16} className="text-[#008A45] shrink-0" />
-          <span className="font-semibold text-slate-600">Showing availability for:</span>
-          <span className="font-bold text-slate-900">{selectedDateLabel}</span>
-          {snapshotLoading && <span className="text-xs text-slate-400">(recalculating…)</span>}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setSelectedDate(todayISO())}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${isSelectedToday ? 'bg-[#008A45] border-[#008A45] text-white' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}
-          >
-            Today
-          </button>
-          <button
-            onClick={() => setSelectedDate(tomorrowISO())}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${isSelectedTomorrow ? 'bg-[#008A45] border-[#008A45] text-white' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}
-          >
-            Tomorrow
-          </button>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-          />
-        </div>
-      </div>
-      <p className="text-xs text-slate-400 -mt-3 px-1">This date only affects the stat cards above and the Availability tab below — Active Assignments and History have their own independent date filters.</p>
+      {/* --- AT A GLANCE — live figures only.
+      The date-scoped cards that used to sit here (events on date / committed /
+      available) moved into the PLAN tabs, next to the date picker that drives
+      them, and the two alert panels from the 320px sidebar are folded in as the
+      second and third cards. That rail's "View all" buttons went to exactly the
+      places these cards now go to, so nothing is lost and the page is one
+      column instead of two competing for attention. Same fix Equipment had:
+      one scope per region, which is what removes the three captions that used
+      to explain the layout to the reader. --- */}
+      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
+        <button
+          onClick={() => { setSelectedDate(todayISO()); goToTab('day'); }}
+          className="relative overflow-hidden rounded-[15px] border border-slate-200/70 bg-white px-5 py-[18px] text-left cursor-pointer transition-all hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
+        >
+          <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
+          {/* Trips, not vehicles. One van doing a setup run and a collection
+              run is one vehicle and two trips, and the label says trips. */}
+          <span className="block text-[13px] font-semibold text-slate-600 mb-2 whitespace-nowrap">Trips today</span>
+          <span className={`block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums ${tripsToday.length > 0 ? 'text-slate-900' : 'text-slate-400'}`}>{tripsToday.length}</span>
+          <span className="block text-[13px] text-slate-600 mt-2.5">
+            {tripsToday.length === 0
+              ? 'Nothing dispatched today'
+              : `${nextDepartureToday ? `Next leaves ${fmtClock(nextDepartureToday.w.start)}` : 'All of today’s trips have left'} · ${vehiclesCommittedToday} of ${totalFleet} vehicles committed`}
+          </span>
+        </button>
 
-      {/* --- STAT CARDS — date-scoped only. "Needs attention" and "Overdue
-      returns" are live/always-current, so they live in the sidebar. --- */}
-      <div>
-        {/* The date these three describe is the one thing a reader can get
-            wrong here, so it is stated once above them rather than as a
-            centred 11px caption underneath. */}
-        <p className="text-[13px] font-semibold text-slate-600 mb-2.5">
-          For <span className="text-slate-900">{selectedDateLabel}</span> — follows the date selected above
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <button
-            onClick={() => setIsEventsModalOpen(true)}
-            className="relative overflow-hidden rounded-[15px] border border-slate-200/70 bg-white px-5 py-[18px] text-left cursor-pointer transition-all hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
-          >
-            <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-slate-400" />
-            <span className="block text-[13px] font-semibold text-slate-600 mb-2 whitespace-nowrap">Events on this date</span>
-            <span className="block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{eventsOnDateCount}</span>
-            <span className="block text-[13px] text-slate-600 mt-2.5">Bookings needing transport</span>
-          </button>
-          <button
-            onClick={() => scrollToAvailability('deployed')}
-            className="relative overflow-hidden rounded-[15px] border border-slate-200/70 bg-white px-5 py-[18px] text-left cursor-pointer transition-all hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
-          >
-            <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
-            <span className="block text-[13px] font-semibold text-slate-600 mb-2 whitespace-nowrap">Vehicles committed</span>
-            <span className="block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{deployedCount}</span>
-            <span className="block text-[13px] text-slate-600 mt-2.5">Promised to a booking on this date</span>
-          </button>
-          <button
-            onClick={() => scrollToAvailability('free')}
-            className="relative overflow-hidden rounded-[15px] border border-slate-200/70 bg-white px-5 py-[18px] text-left cursor-pointer transition-all hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
-          >
-            <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-teal-600" />
-            <span className="block text-[13px] font-semibold text-slate-600 mb-2 whitespace-nowrap">Vehicles available</span>
-            <span className={`block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums ${openTodayCount === 0 ? 'text-amber-700' : 'text-slate-900'}`}>{openTodayCount}</span>
-            <span className="block text-[13px] text-slate-600 mt-2.5">Not committed · of {totalFleet} in the fleet</span>
-          </button>
-        </div>
+        <button
+          onClick={() => goToTab('fleet')}
+          className="relative overflow-hidden rounded-[15px] border border-slate-200/70 bg-white px-5 py-[18px] text-left cursor-pointer transition-all hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
+        >
+          <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${outOfServiceVehicles.length > 0 ? 'bg-amber-500' : 'bg-slate-400'}`} />
+          <span className="block text-[13px] font-semibold text-slate-600 mb-2 whitespace-nowrap">Out of service</span>
+          <span className={`block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums ${outOfServiceVehicles.length > 0 ? 'text-slate-900' : 'text-slate-400'}`}>{outOfServiceVehicles.length}</span>
+          <span className="block text-[13px] text-slate-600 mt-2.5 truncate">
+            {outOfServiceVehicles.length === 0
+              ? `All ${totalFleet} vehicle${totalFleet === 1 ? '' : 's'} in service`
+              : `${outOfServiceVehicles.slice(0, 3).map(v => v.plate_number).join(', ')}${outOfServiceVehicles.length > 3 ? ` +${outOfServiceVehicles.length - 3}` : ''} · never offered a window`}
+          </span>
+        </button>
+
+        <button
+          onClick={() => { setAssignmentSectionFilter('Overdue'); goToTab('trips'); }}
+          className="relative overflow-hidden rounded-[15px] border border-slate-200/70 bg-white px-5 py-[18px] text-left cursor-pointer transition-all hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
+        >
+          <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${overdueGroups.length > 0 ? 'bg-red-500' : 'bg-slate-400'}`} />
+          <span className="block text-[13px] font-semibold text-slate-600 mb-2 whitespace-nowrap">Overdue returns</span>
+          <span className={`block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums ${overdueGroups.length > 0 ? 'text-red-700' : 'text-slate-400'}`}>{overdueGroups.length}</span>
+          <span className="block text-[13px] text-slate-600 mt-2.5">
+            {overdueGroups.length > 0
+              ? `${overdueAssignments.length} trip${overdueAssignments.length === 1 ? '' : 's'} past the event with no return recorded`
+              : 'All returns up to date'}
+          </span>
+        </button>
       </div>
 
-      {/* --- MAIN WORKSPACE: tabbed panel on the left, live operational
-      alerts on the right --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6 items-start">
-
-      {/* --- TAB CONTROL --- */}
-      <div ref={availabilityPanelRef} className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden">
-        {/* Underline tabs, matching Equipment and every other page. Built
-            from an array for the same reason Equipment's is: four hand-written
-            buttons meant four places to keep the active/hover/badge styling in
-            step, and they had already drifted — icons were 14px here and 15px
-            there, and the overdue badge was bg-red-50 against Equipment's
-            bg-red-100. */}
+      {/* --- ONE FULL-WIDTH TABBED PANEL --- */}
+      <div ref={panelRef} className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden">
         {/* Two labelled clusters, the shape Equipment uses, so the sibling
             pages read as one system.
 
             PLAN is date-scoped; FLEET is not. That was this page's core
-            confusion — four tabs carried three different time scopes, and the
+            confusion — its tabs carried three different time scopes, and the
             Assignments blurb said outright that it ignored the date picker the
             other tabs obeyed. The clusters say which is which BEFORE you click,
             which a per-tab sentence can only do afterwards.
@@ -1339,16 +1448,16 @@ export default function Vehicles() {
           {[
             {
               cluster: 'Plan',
-              // Renamed from "Availability". The tab already renders a day
-              // timeline; calling it Availability made it sound like a stock
-              // level rather than a schedule.
-              tabs: [{ key: 'day', label: 'Day schedule', Icon: CalendarClock }],
+              tabs: [
+                { key: 'day', label: 'Day schedule', Icon: Calendar },
+                { key: 'window', label: 'Find a window', Icon: Clock },
+              ],
             },
             {
               cluster: 'Fleet',
               tabs: [
                 { key: 'fleet', label: 'Vehicles', Icon: LayoutGrid, count: totalFleet },
-                { key: 'trips', label: 'Trips', Icon: ClipboardList, count: assignmentGroups.length, alert: overdueAssignments.length > 0 },
+                { key: 'trips', label: 'Trips', Icon: ClipboardList, count: activeAssignmentRows.length, alert: overdueGroups.length > 0 },
                 { key: 'history', label: 'History', Icon: History },
               ],
             },
@@ -1385,106 +1494,66 @@ export default function Vehicles() {
             </div>
           ))}
         </div>
-        {/* Promoted from a grey sentence to a real strip, matching Equipment.
-            The Day line states the trip-window rule outright — it is the idea
+
+        {/* The Day line states the trip-window rule outright — it is the idea
             the whole page rests on and the one a reader cannot infer from a
-            table. The Trips line drops "regardless of the date selected above",
-            which was the page admitting its own worst confusion rather than
-            fixing it; the PLAN / FLEET clusters say which tabs are date-scoped
-            before you click. */}
+            schedule. */}
         <div className="flex items-start gap-2.5 px-5 py-3.5 border-b border-slate-100 bg-[#fbfcfd]">
           <Info size={15} className="shrink-0 mt-0.5 text-slate-400" />
           <p className="text-[13.5px] leading-[1.5] text-slate-600 [text-wrap:pretty]">
-            {activeTableTab === 'day' && <>Every trip on the selected date, laid on a time axis. A vehicle is only committed for its trip window, so one van can serve two events in a day if the windows do not overlap.</>}
+            {activeTableTab === 'day' && <>Every trip on the selected date, laid on a time axis. A vehicle is only committed for its trip window, so one van can serve two events in a day as long as the windows do not overlap.</>}
+            {activeTableTab === 'window' && <>The planning inverse of the day schedule: pick how long the job takes and see which vehicles still have a gap that long on the selected date.</>}
             {activeTableTab === 'fleet' && <>The vehicles we own, their service status, and how many trips each is committed to. This tab is about the vehicles, not the schedule.</>}
-            {activeTableTab === 'trips' && <>Every trip that has not been marked back at base, grouped by event. Overdue means the window has passed and the vehicle was never returned.</>}
-            {activeTableTab === 'history' && <>Every dispatch ever recorded, committed and back at base, over the chosen date range.</>}
+            {activeTableTab === 'trips' && <>Every trip not yet marked back at base, grouped by event. Overdue means the event has passed with no return recorded.</>}
+            {activeTableTab === 'history' && <>Every dispatch ever recorded, one row per run, over the chosen date range.</>}
           </p>
         </div>
 
-        {/* ===== AVAILABILITY TAB ===== */}
+        {/* ================= DAY SCHEDULE ================= */}
         {activeTableTab === 'day' && (
           <>
-            <div className={`p-4 border-b flex flex-wrap items-center gap-3 ${activeAvailabilityFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-200'}`}>
-              {activeAvailabilityFilterCount > 0 && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shrink-0">
-                  {activeAvailabilityFilterCount} active
-                </span>
-              )}
-              <div className="relative flex-1 min-w-[220px]">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                <input
-                  type="text"
-                  placeholder="Search plate number..."
-                  value={availabilitySearch}
-                  onChange={(e) => setAvailabilitySearch(e.target.value)}
-                  className={`w-full pl-9 pr-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${availabilitySearch.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
-                />
-              </div>
-              <Select
-                value={availabilityTypeFilter}
-                onChange={(e) => setAvailabilityTypeFilter(e.target.value)}
-                className={`border rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${availabilityTypeFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
-              >
-                <option value="All">All types</option>
-                <option value="Car">Car</option>
-                <option value="Motorcycle">Motorcycle</option>
-              </Select>
-              <div className="flex items-center gap-1">
-                {[
-                  { key: 'All', label: 'All' },
-                  { key: 'outofservice', label: `Out of service (${availabilityStatusCounts.outofservice})` },
-                  { key: 'deployed', label: `Committed (${availabilityStatusCounts.deployed})` },
-                  { key: 'free', label: `Available (${availabilityStatusCounts.free})` },
-                ].map(opt => (
-                  <button
-                    key={opt.key}
-                    onClick={() => setAvailabilityStatusFilter(opt.key)}
-                    className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer whitespace-nowrap ${
-                      availabilityStatusFilter === opt.key
-                        ? (opt.key === 'outofservice' ? 'bg-orange-500 border-orange-500 text-white' : 'bg-[#008A45] border-[#008A45] text-white')
-                        : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-              {activeAvailabilityFilterCount > 0 && (
+            <div className="px-5 py-4 border-b border-slate-100">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                {dateNav}
                 <button
-                  onClick={() => { setAvailabilitySearch(''); setAvailabilityTypeFilter('All'); setAvailabilityStatusFilter('All'); }}
-                  className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors cursor-pointer"
+                  onClick={() => setIsEventsModalOpen(true)}
+                  className="text-[13px] font-semibold text-[#007038] hover:underline cursor-pointer whitespace-nowrap"
                 >
-                  Clear filters
+                  See the events on this date
                 </button>
-              )}
+              </div>
+              <p className="text-[13px] text-slate-600 mt-2.5 tabular-nums">
+                {snapshot.eventsOnDate.length} event{snapshot.eventsOnDate.length === 1 ? '' : 's'} · {dayTripCount} trip{dayTripCount === 1 ? '' : 's'} · {dayCommittedVehicles} of {totalFleet} vehicle{totalFleet === 1 ? '' : 's'} committed
+              </p>
             </div>
-            {/* ---- DAY TIMELINE ----
-                 The table below can only ever express ONE trip per vehicle,
-                 which is the shape the window model breaks: a van that runs a
-                 06:00 wedding setup is free again by early afternoon and can
-                 take a 14:00 delivery. Drawn as blocks on a day, that reads at
-                 a glance — busy twice, free in between — instead of leaving
-                 the manager to do the arithmetic. */}
-            {snapshotLoading ? (
-              <div className="px-5 py-8 text-center text-slate-500 text-sm border-b border-slate-100">Working out the day…</div>
-            ) : timelineRows.length === 0 ? (
-              <div className="px-5 py-8 text-center text-slate-500 text-sm border-b border-slate-100">No vehicles match this filter.</div>
-            ) : (
-              <div className="px-5 py-4 border-b border-slate-100">
-                <div className="flex items-baseline justify-between gap-3 mb-3">
-                  <p className="text-[13px] font-bold text-slate-600 tracking-[0.04em]">Day timeline</p>
-                  <p className="text-[12.5px] text-slate-600">{TIMELINE_START_HOUR}:00 – {TIMELINE_END_HOUR}:00</p>
-                </div>
 
+            {/* Double-booking is a correctness problem, not a drawing problem,
+                so it is stated in words above the chart rather than left to be
+                spotted in the overlap. */}
+            {dayClashRows.length > 0 && (
+              <div className="flex items-start gap-2.5 px-5 py-3 border-b border-red-100 bg-red-50/50">
+                <AlertTriangle size={15} className="shrink-0 mt-0.5 text-red-500" />
+                <p className="text-[13.5px] text-red-800 [text-wrap:pretty]">
+                  <span className="font-bold">Double-booked:</span>{' '}
+                  {dayClashRows.map(r => r.plate_number).join(', ')} {dayClashRows.length === 1 ? 'has' : 'have'} overlapping trip windows on this date. One vehicle cannot be in two places, so one of these has to move.
+                </p>
+              </div>
+            )}
+
+            {snapshotLoading ? (
+              <div className="px-5 py-10 text-center text-slate-500 text-sm">Working out the day…</div>
+            ) : timelineRows.length === 0 ? (
+              <div className="px-5 py-10 text-center text-slate-500 text-sm">No vehicles in the fleet yet.</div>
+            ) : (
+              <div className="px-5 py-4">
                 {/* hour ruler */}
-                <div className="flex items-center gap-3 mb-1.5">
-                  <span className="w-[104px] shrink-0" />
+                <div className="flex items-end gap-3 pb-1.5 border-b border-slate-100">
+                  <span className="w-[132px] shrink-0 text-[11px] font-bold tracking-[0.08em] uppercase text-slate-500">Vehicle</span>
                   <div className="relative flex-1 h-4">
                     {timelineTicks.map(t => (
                       <span
                         key={t.hour}
-                        className="absolute top-0 -translate-x-1/2 text-[11.5px] text-slate-400 tabular-nums"
+                        className="absolute bottom-0 -translate-x-1/2 text-[11px] text-slate-400 tabular-nums whitespace-nowrap"
                         style={{ left: `${t.pct}%` }}
                       >
                         {t.label}
@@ -1493,149 +1562,249 @@ export default function Vehicles() {
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  {timelineRows.map(row => (
-                    <div key={row.vehicle_id} className="flex items-center gap-3">
-                      <div className="w-[104px] shrink-0 min-w-0">
-                        <p className="text-[13.5px] font-semibold text-slate-900 truncate">{row.plate_number}</p>
-                        {row.outOfService && (
-                          <p className="text-[11.5px] text-amber-700 truncate">{row.vehicle_status}</p>
-                        )}
+                <div className="divide-y divide-slate-100">
+                  {timelineRows.map(row => {
+                    const onRoadNow = isSelectedToday && row.trips.some(t => !t.completed && t.window.start <= now && now <= t.window.end);
+                    const dot = row.outOfService ? '#f59e0b' : onRoadNow ? '#008A45' : row.trips.length ? '#475569' : '#cbd5e1';
+                    return (
+                      <div key={row.vehicle_id} className="flex items-center gap-3 py-2.5">
+                        <button
+                          type="button"
+                          onClick={() => { setAvailabilityDetailVehicle(row.raw); setIsAvailabilityDetailOpen(true); }}
+                          title="See this vehicle's day in full"
+                          className="w-[132px] shrink-0 min-w-0 text-left cursor-pointer group"
+                        >
+                          <span className="flex items-center gap-2 min-w-0">
+                            <span className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: dot }} aria-hidden="true" />
+                            <span className="text-[14px] font-bold text-slate-900 truncate group-hover:text-[#007038] transition-colors">{row.plate_number}</span>
+                          </span>
+                          <span className="block pl-[15px]">
+                            {row.outOfService
+                              ? <span className="text-[12.5px] font-semibold text-amber-700">{row.vehicle_status}</span>
+                              : <TypeTag type={row.vehicle_type} />}
+                          </span>
+                        </button>
+
+                        <div className={`relative flex-1 h-[52px] rounded-[9px] border ${row.hasClash ? 'border-red-200 bg-red-50/40' : row.outOfService ? 'border-slate-200 bg-slate-50' : 'border-slate-200 bg-white'}`}>
+                          {timelineTicks.map(t => (
+                            <span key={t.hour} className="absolute top-0 bottom-0 w-px bg-slate-100" style={{ left: `${t.pct}%` }} aria-hidden="true" />
+                          ))}
+
+                          {row.outOfService ? (
+                            <span className="absolute inset-0 flex items-center justify-center text-[12.5px] font-semibold text-amber-700">
+                              Out of service — no windows offered
+                            </span>
+                          ) : (
+                            <>
+                              {row.openWindows.map((w, i) => (
+                                <span
+                                  key={`open-${i}`}
+                                  title={`Open window · ${w.label} · ${w.hours.toFixed(1)} h`}
+                                  className="absolute top-[7px] bottom-[7px] rounded-[6px] border border-[#e7edf3] flex items-center justify-center overflow-hidden"
+                                  style={{ left: `${w.left}%`, width: `${w.width}%`, background: OPEN_FILL }}
+                                >
+                                  {/* Suppressed when the vehicle has no trips
+                                      at all: the hatch then spans the whole
+                                      row and its label would print underneath
+                                      the "open all day" line below. */}
+                                  {w.width > 11 && row.trips.length > 0 && (
+                                    <span className="text-[11px] text-slate-400 tabular-nums whitespace-nowrap px-1">{w.label}</span>
+                                  )}
+                                </span>
+                              ))}
+
+                              {row.trips.length === 0 && (
+                                <span className="absolute inset-0 flex items-center justify-center text-[12.5px] font-semibold text-slate-500 pointer-events-none">
+                                  No trips — open all day
+                                </span>
+                              )}
+
+                              {row.trips.map(t => (
+                                <button
+                                  key={t.assignment_id}
+                                  type="button"
+                                  onClick={() => goToBookingDetails(t.booking_id, t.booking_type)}
+                                  title={`${t.legLabel} · ${t.ref} · ${t.customerName} · ${t.span}${t.completed ? ' · back at base' : ''}${t.clash ? ' · OVERLAPS another trip on this vehicle' : ''}`}
+                                  className={`absolute top-[5px] bottom-[5px] rounded-[6px] border px-2 flex flex-col justify-center items-start overflow-hidden text-left cursor-pointer transition-shadow hover:shadow-[0_2px_8px_rgba(15,23,42,0.12)] ${t.clash ? 'ring-1 ring-red-400' : ''}`}
+                                  style={{ left: `${t.left}%`, width: `${t.width}%`, background: t.tone.bg, borderColor: t.tone.bd, color: t.tone.fg }}
+                                >
+                                  <span className="text-[11.5px] font-bold leading-tight truncate w-full">
+                                    {t.legLabel}{t.completed && ' ✓'}
+                                  </span>
+                                  <span className="text-[10.5px] leading-tight truncate w-full opacity-80 tabular-nums">
+                                    {t.span}{t.clippedEnd ? '→' : ''} · {t.ref}
+                                  </span>
+                                </button>
+                              ))}
+                            </>
+                          )}
+                        </div>
                       </div>
-                      <div className={`relative flex-1 h-8 rounded-[7px] border ${
-                        row.outOfService
-                          ? 'bg-slate-100 border-slate-200'
-                          : row.blocks.length === 0
-                            ? 'bg-[#f4f9f6] border-[#dcece3]'
-                            : 'bg-slate-50 border-slate-200'
-                      }`}>
-                        {/* faint hour gridlines, so a block's position is readable */}
-                        {timelineTicks.map(t => (
-                          <span key={t.hour} className="absolute top-0 bottom-0 w-px bg-slate-200/70" style={{ left: `${t.pct}%` }} />
-                        ))}
-                        {row.outOfService ? (
-                          <span className="absolute inset-0 flex items-center justify-center text-[12px] font-semibold text-slate-500">
-                            Out of service
-                          </span>
-                        ) : row.blocks.length === 0 ? (
-                          <span className="absolute inset-0 flex items-center justify-center text-[12px] font-semibold text-[#00703a]">
-                            Available all day
-                          </span>
-                        ) : row.blocks.map(b => (
-                          <button
-                            key={b.assignment_id}
-                            type="button"
-                            onClick={() => goToBookingDetails(b.booking_id, b.booking_type)}
-                            title={`${b.ref} · ${b.tripType} · ${b.label}${b.completed ? ' · returned' : ''}`}
-                            className={`absolute top-1 bottom-1 rounded-[5px] px-1.5 flex items-center overflow-hidden text-[11.5px] font-semibold whitespace-nowrap cursor-pointer transition-colors ${
-                              b.completed
-                                ? 'bg-slate-200 text-slate-600 hover:bg-slate-300'
-                                : b.tripType === 'Delivery'
-                                  ? 'bg-[#e7d8fb] text-purple-800 hover:bg-[#dcc7f8]'
-                                  : 'bg-[#bfe3cf] text-[#00532a] hover:bg-[#a9d9bd]'
-                            }`}
-                            style={{ left: `${b.leftPct}%`, width: `${b.widthPct}%` }}
-                          >
-                            {b.ref}
-                          </button>
-                        ))}
+                    );
+                  })}
+                </div>
+
+                {/* now line, only on today — a marker on a date the reader is
+                    only browsing would point at nothing. */}
+                {nowPct !== null && (
+                  <div className="flex items-center gap-3 mt-1">
+                    <span className="w-[132px] shrink-0 text-[11.5px] font-semibold text-slate-500 text-right pr-1 tabular-nums">Now {fmtClock(now)}</span>
+                    <div className="relative flex-1 h-3">
+                      <span className="absolute top-0 bottom-0 w-px bg-slate-800" style={{ left: `${nowPct}%` }} />
+                      <span className="absolute top-0 w-[7px] h-[7px] rounded-full bg-slate-800 -translate-x-1/2" style={{ left: `${nowPct}%` }} />
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3.5 pt-3 border-t border-slate-100">
+                  {['Setup run', 'Collection run', 'Delivery'].map(leg => (
+                    <span key={leg} className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-600 whitespace-nowrap">
+                      <span className="w-3 h-3 rounded-[3px] border" style={{ background: LEG_TONE[leg].bg, borderColor: LEG_TONE[leg].bd }} />
+                      {leg}
+                    </span>
+                  ))}
+                  <span className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-600 whitespace-nowrap">
+                    <span className="w-3 h-3 rounded-[3px] border border-[#e7edf3]" style={{ background: OPEN_FILL }} />
+                    Open window ({OPEN_WINDOW_MIN_HOURS} h or more)
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-600 whitespace-nowrap">
+                    <span className="w-3 h-3 rounded-[3px] border" style={{ background: BACK_TONE.bg, borderColor: BACK_TONE.bd }} />
+                    Back at base
+                  </span>
+                </div>
+
+                {unscheduledTrips.length > 0 && (
+                  <p className="text-[12.5px] text-amber-700 mt-3">
+                    {unscheduledTrips.length} open trip{unscheduledTrips.length === 1 ? ' has' : 's have'} no event date and cannot be placed on any day. Nothing is drawn for {unscheduledTrips.length === 1 ? 'it' : 'them'}.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* The thread that used to be missing between approving a booking
+                and dispatching for it. Only appears when there is something in
+                it — a permanently empty panel teaches a reader to skip it. */}
+            {needsVehicleOnDate.length > 0 && (
+              <div className="px-5 py-4 border-t border-slate-100 bg-[#fffaf7]">
+                <p className="text-[14.5px] font-bold text-slate-900">Events on this date still needing a vehicle</p>
+                <p className="text-[13px] text-slate-600 mt-0.5 mb-3">
+                  {needsVehicleOnDate.length} approved event{needsVehicleOnDate.length === 1 ? '' : 's'} on {fmtDay(selectedDateObj)} with nothing dispatched to carry {needsVehicleOnDate.length === 1 ? 'it' : 'them'}
+                </p>
+                <div className="space-y-2">
+                  {needsVehicleOnDate.map(b => (
+                    <div key={b.booking_id} className="flex flex-wrap items-center justify-between gap-3 bg-white border border-[#f0dfd2] rounded-[11px] px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="text-[14.5px] font-bold text-slate-900">{b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown'}</p>
+                        <p className="text-[13px] text-slate-600 mt-0.5 flex flex-wrap items-center gap-x-2 tabular-nums">
+                          <span>{fmtClock(new Date(b.event_datetime))}</span>
+                          {b.pax_count ? <span>· {b.pax_count} pax</span> : null}
+                          {b.venue && <span className="flex items-center gap-1">· <MapPin size={11} /> {b.venue}</span>}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="text-[13px] font-semibold text-[#007038] tabular-nums">{getBookingRef(b)}</span>
+                        <button
+                          onClick={() => planDispatchFor(b.booking_id)}
+                          className="bg-[#008A45] hover:bg-[#007038] text-white text-[13px] font-semibold px-3.5 py-2 rounded-[9px] transition-colors cursor-pointer"
+                        >
+                          Assign
+                        </button>
                       </div>
                     </div>
                   ))}
                 </div>
-
-                <div className="flex flex-wrap items-center gap-4 mt-3.5 pt-3 border-t border-slate-100">
-                  <span className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-600">
-                    <span className="w-3 h-3 rounded-[3px] bg-[#bfe3cf]" /> Event setup
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-600">
-                    <span className="w-3 h-3 rounded-[3px] bg-[#e7d8fb]" /> Delivery
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-600">
-                    <span className="w-3 h-3 rounded-[3px] bg-slate-200" /> Returned
-                  </span>
-                  <span className="text-[12.5px] text-slate-500">A gap between blocks is an open window.</span>
-                </div>
               </div>
             )}
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#fbfcfd] border-b border-slate-100">
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">{renderSortHeader(availabilitySort, toggleAvailabilitySort, 'plate', 'Vehicle')}</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Type</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Status</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Assigned to</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap w-8"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-                  {isLoading || snapshotLoading ? (
-                    <tr><td colSpan="5" className="p-6 text-center text-slate-500">Calculating availability…</td></tr>
-                  ) : sortedFilteredAvailabilityVehicles.length === 0 ? (
-                    <tr><td colSpan="5" className="p-6 text-center text-slate-500">No vehicles match your search/filter.</td></tr>
-                  ) : (
-                    sortedFilteredAvailabilityVehicles.map((v) => {
-                      const status = getVehicleAvailabilityStatus(v);
-                      return (
-                        <tr
-                          key={v.vehicle_id}
-                          onClick={() => { setAvailabilityDetailVehicle(v); setIsAvailabilityDetailOpen(true); }}
-                          title="Click for details"
-                          className={`hover:bg-[#fbfcfd] transition-colors cursor-pointer group ${status.key === 'maintenance' || status.key === 'unavailable' ? 'bg-orange-50/40' : ''}`}
-                        >
-                          <td className="px-4 py-[15px]">
-                            <p className="font-bold text-slate-900">{v.plate_number}</p>
-                          </td>
-                          <td className="px-4 py-[15px]">
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#CBDEDD]/60 border border-[#a3c7c4] text-slate-800">
-                              {v.vehicle_type === 'Car' ? <Car size={14} /> : <Truck size={14} />}
-                              {v.vehicle_type}
-                            </span>
-                          </td>
-                          <td className="px-4 py-[15px]">
-                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${status.pillClass}`}>{status.label}</span>
-                          </td>
-                          <td className="px-4 py-[15px]">
-                            {v.assignments.length > 0 ? (
-                              <div className="space-y-1.5">
-                                {v.assignments.map((trip) => (
-                                  <div key={trip.assignment_id}>
-                                    <p className={`font-semibold ${trip.completed ? 'text-slate-500' : 'text-slate-800'}`}>
-                                      {trip.customerName}
-                                      {trip.completed && <span className="ml-1.5 text-[10px] font-bold text-slate-400 uppercase">returned</span>}
-                                    </p>
-                                    <p className="text-xs text-slate-500">{trip.ref} · {trip.tripType} · {formatTripWindow(trip.window)}</p>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 text-xs">—</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-[15px] text-right">
-                            <ChevronRight size={16} className="text-slate-300 group-hover:text-[#008A45] transition-colors" />
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
           </>
         )}
 
-        {/* ===== FLEET (INVENTORY) TAB ===== */}
+        {/* ================= FIND A WINDOW ================= */}
+        {activeTableTab === 'window' && (
+          <>
+            <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center gap-x-6 gap-y-3">
+              {dateNav}
+              <div className="flex items-center gap-2">
+                <span className="text-[12.5px] font-semibold text-slate-500 whitespace-nowrap">Trip length</span>
+                <div className="flex items-center gap-1">
+                  {[{ v: 2, l: '2 h' }, { v: 4, l: '4 h' }, { v: 6, l: '6 h' }, { v: 'day', l: 'All day' }].map(opt => (
+                    <button
+                      key={opt.l}
+                      onClick={() => setWindowMinHours(opt.v)}
+                      className={`px-2.5 py-1.5 rounded-lg text-[13px] font-semibold border transition-colors cursor-pointer whitespace-nowrap ${
+                        windowMinHours === opt.v ? 'bg-[#EAF3F2] border-[#c2dccf] text-[#00703a]' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      {opt.l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[12.5px] font-semibold text-slate-500 whitespace-nowrap">Vehicle</span>
+                <div className="flex items-center gap-1">
+                  {['All', 'Car', 'Motorcycle'].map(opt => (
+                    <button
+                      key={opt}
+                      onClick={() => setWindowTypeFilter(opt)}
+                      className={`px-2.5 py-1.5 rounded-lg text-[13px] font-semibold border transition-colors cursor-pointer whitespace-nowrap ${
+                        windowTypeFilter === opt ? 'bg-[#EAF3F2] border-[#c2dccf] text-[#00703a]' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {snapshotLoading ? (
+              <div className="px-5 py-10 text-center text-slate-500 text-sm">Working out the day…</div>
+            ) : (
+              <div className="px-5 py-4">
+                <p className="text-[13px] text-slate-600 mb-3 tabular-nums">
+                  {windowMatchCount} of {windowResults.length} vehicle{windowResults.length === 1 ? '' : 's'} {windowMatchCount === 1 ? 'has' : 'have'} an open window of at least {windowLengthLabel} on {selectedDateShort}
+                </p>
+                <div className="divide-y divide-slate-100 border border-slate-200 rounded-[12px] overflow-hidden">
+                  {windowResults.length === 0 ? (
+                    <p className="px-4 py-6 text-center text-slate-500 text-sm">No vehicles of this type.</p>
+                  ) : windowResults.map(r => (
+                    <div key={r.vehicle_id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5">
+                      <div className="min-w-0">
+                        <p className="text-[14.5px] font-bold text-slate-900">{r.plate_number}</p>
+                        <TypeTag type={r.vehicle_type} />
+                      </div>
+                      <div className="flex flex-wrap items-center justify-end gap-2 min-w-0">
+                        {r.outOfService ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-amber-200 bg-amber-50 text-amber-700 text-[12.5px] font-semibold">
+                            <Wrench size={12} /> {r.vehicle_status} — not bookable
+                          </span>
+                        ) : r.gaps.length > 0 ? (
+                          r.gaps.map((g, i) => (
+                            <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-[#c2dccf] bg-[#EAF3F2] text-[#00703a] text-[12.5px] font-semibold tabular-nums whitespace-nowrap">
+                              <CheckCircle2 size={12} /> {g.label}
+                            </span>
+                          ))
+                        ) : (
+                          // Says WHY, not just "no". A row that only reports a
+                          // negative leaves the manager to open another tab to
+                          // find out what is in the way.
+                          <span className="text-[13px] text-slate-600 text-right [text-wrap:pretty]">
+                            Committed {r.busyFrom ? fmtClock(r.busyFrom) : ''} – {r.busyTo ? fmtClock(r.busyTo) : ''} across {r.trips.length} trip{r.trips.length === 1 ? '' : 's'} — no gap of {windowLengthLabel}.
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ================= VEHICLES (FLEET) ================= */}
         {activeTableTab === 'fleet' && (
           <>
-            <div className={`p-4 border-b flex flex-wrap items-center gap-3 ${activeInventoryFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-200'}`}>
-              {activeInventoryFilterCount > 0 && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shrink-0">
-                  {activeInventoryFilterCount} active
-                </span>
-              )}
+            <div className={`px-5 py-3.5 border-b flex flex-wrap items-center gap-3 ${activeInventoryFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-100'}`}>
               <div className="relative flex-1 min-w-[220px]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                 <input
@@ -1664,311 +1833,275 @@ export default function Vehicles() {
                 </button>
               )}
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#fbfcfd] border-b border-slate-100">
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">{renderSortHeader(inventorySort, toggleInventorySort, 'plate', 'Vehicle')}</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Type</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Base status</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-center">Trips booked</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-                  {isLoading ? (
-                    <tr><td colSpan="5" className="p-6 text-center text-slate-500">Loading fleet...</td></tr>
-                  ) : sortedFilteredInventory.length === 0 ? (
-                    <tr><td colSpan="5" className="p-6 text-center text-slate-500">No vehicles found.</td></tr>
-                  ) : (
-                    sortedFilteredInventory.map((v) => {
-                      // "Usage" counted every open assignment and called it
-                      // "in use", so a van booked for a wedding three weeks out
-                      // read as being out on the road right now. Committed and
-                      // in use are different states — blueprint-02 settles both
-                      // words — so they are counted and labelled separately.
-                      const openTrips = assignments.filter(a => a.vehicle_id === v.vehicle_id && a.assignment_status !== 'Completed');
-                      const usageCount = openTrips.length;
-                      const onTheRoadNow = openTrips.some(a => {
-                        const w = getDispatchWindow(a, a.booking);
-                        return w ? (w.start <= now && now <= w.end) : false;
-                      });
-                      return (
-                        <tr key={v.vehicle_id} className="hover:bg-[#fbfcfd] transition-colors">
-                          <td className="px-4 py-[15px]">
-                            <div className="flex items-center gap-2">
-                              <p className="font-bold text-slate-900">{v.plate_number}</p>
-                              {v.vehicle_status !== 'Available' && (
-                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold border ${v.vehicle_status === 'Maintenance' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-slate-100 border-slate-300 text-slate-600'}`}>
-                                  {v.vehicle_status}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-[15px]">
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#CBDEDD]/60 border border-[#a3c7c4] text-slate-800">
-                              {v.vehicle_type === 'Car' ? <Car size={14} /> : <Truck size={14} />}
-                              {v.vehicle_type}
-                            </span>
-                          </td>
-                          <td className="px-4 py-[15px] text-slate-700 font-semibold">{v.vehicle_status}</td>
-                          <td className="px-4 py-[15px] text-center">
-                            <button
-                              onClick={() => handleViewUsage(v)}
-                              className="text-blue-500 hover:text-blue-700 transition-colors text-xs font-medium flex items-center gap-1 mx-auto"
-                            >
-                              <ClipboardList size={14} />
-                              {usageCount === 0
-                                ? 'None booked'
-                                : onTheRoadNow
-                                  ? `In use · ${usageCount} booked`
-                                  : `${usageCount} booked`}
-                            </button>
-                          </td>
-                          <td className="px-4 py-[15px] text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                onClick={() => handleFlagIssueClick(v)}
-                                className="flex items-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-full px-3 py-1.5 transition-colors cursor-pointer"
-                                title="Mark this vehicle as under maintenance or unavailable"
-                              >
-                                <Wrench size={13} /> Flag issue
-                              </button>
-                              <button
-                                onClick={() => handleEditClick(v)}
-                                className="text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                                title="Edit plate, type, status"
-                              >
-                                <Edit size={16} />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteVehicle(v.vehicle_id)}
-                                className="text-red-400 hover:text-red-600 transition-colors cursor-pointer"
-                                title="Delete vehicle"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+
+            <div className="px-5 pb-2">
+              <div className={`${FLEET_COLS} hidden min-[940px]:grid px-1 pt-3.5 pb-2.5 border-b border-[#eef2f6]`}>
+                <span className={ZONE_HEAD}>Vehicle</span>
+                <span className={ZONE_HEAD}>Status</span>
+                <span className={ZONE_HEAD}>Next trip</span>
+                <span className={`${ZONE_HEAD} text-right`}>Committed trips</span>
+              </div>
+
+              {isLoading ? (
+                <p className="py-8 text-center text-slate-500 text-sm">Loading fleet…</p>
+              ) : fleetRows.length === 0 ? (
+                <p className="py-8 text-center text-slate-500 text-sm">No vehicles match your search or filter.</p>
+              ) : fleetRows.map(({ v, committedCount, onRoad, next }) => {
+                const outOfService = v.vehicle_status !== 'Available';
+                return (
+                  <div key={v.vehicle_id} className={`${FLEET_COLS} items-center px-1 py-3.5 border-b border-[#f6f8fa] transition-colors hover:bg-[#fbfcfd] max-[940px]:grid-cols-1 max-[940px]:gap-3`}>
+                    {/* ZONE A — which vehicle */}
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-slate-100 text-slate-500 shrink-0">
+                        {v.vehicle_type === 'Car' ? <Car size={15} /> : <Truck size={15} />}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-[15px] font-bold text-slate-900 truncate">{v.plate_number}</p>
+                        <TypeTag type={v.vehicle_type} />
+                      </div>
+                    </div>
+
+                    {/* ZONE B — is it in service, and is it out right now */}
+                    <div className="min-w-0">
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full border text-[12.5px] font-semibold whitespace-nowrap ${
+                        outOfService
+                          ? (v.vehicle_status === 'Maintenance' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-slate-100 border-slate-300 text-slate-600')
+                          : 'bg-[#EAF3F2] border-[#c2dccf] text-[#00703a]'
+                      }`}>
+                        {v.vehicle_status === 'Maintenance' ? RESOURCE_STATE.underMaintenance : v.vehicle_status}
+                      </span>
+                      {onRoad && (
+                        <p className="text-[12.5px] font-semibold text-slate-600 mt-1">On the road now</p>
+                      )}
+                    </div>
+
+                    {/* ZONE C — what it is doing next */}
+                    <div className="min-w-0">
+                      {onRoad ? (
+                        <>
+                          <p className="text-[13.5px] text-slate-800 truncate">
+                            {onRoad.w.legLabel} · {onRoad.a.booking?.customer ? `${onRoad.a.booking.customer.first_name} ${onRoad.a.booking.customer.last_name}` : 'Unknown'}
+                          </p>
+                          <p className="text-[12.5px] text-slate-500 mt-0.5 tabular-nums">Out now · back {fmtClock(onRoad.w.end)}</p>
+                        </>
+                      ) : next ? (
+                        <>
+                          <p className="text-[13.5px] text-slate-800 truncate">
+                            {next.w.legLabel} · {next.a.booking?.customer ? `${next.a.booking.customer.first_name} ${next.a.booking.customer.last_name}` : 'Unknown'}
+                          </p>
+                          <p className="text-[12.5px] text-slate-500 mt-0.5 tabular-nums">
+                            Leaves {next.w.start.toDateString() === now.toDateString() ? 'today' : fmtDay(next.w.start)} {fmtClock(next.w.start)}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-[13.5px] text-slate-500">Nothing scheduled</p>
+                      )}
+                    </div>
+
+                    {/* ZONE D — how much is on it, and the row's actions */}
+                    <div className="flex items-center justify-end gap-3 min-w-0 max-[940px]:justify-start">
+                      <button
+                        onClick={() => handleViewUsage(v)}
+                        title="See every trip this vehicle has made"
+                        className="text-right cursor-pointer group max-[940px]:text-left"
+                      >
+                        <span className={`block text-[19px] font-semibold leading-none tabular-nums ${committedCount > 0 ? 'text-slate-900' : 'text-slate-400'} group-hover:text-[#007038] transition-colors`}>{committedCount}</span>
+                        <span className="block text-[11px] font-bold tracking-[0.06em] uppercase text-slate-500 mt-1">Committed</span>
+                      </button>
+                      <span className="flex items-center gap-0.5 shrink-0">
+                        <IconBtn label="Edit plate, type or status" onClick={() => handleEditClick(v)} Icon={Edit} />
+                        <IconBtn label="Flag as under maintenance or unavailable" onClick={() => handleFlagIssueClick(v)} Icon={Wrench} hover="amber" />
+                        <IconBtn label="Delete vehicle" onClick={() => handleDeleteVehicle(v.vehicle_id)} Icon={Trash2} hover="red" />
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </>
         )}
 
-        {/* ===== ACTIVE ASSIGNMENTS TAB ===== */}
+        {/* ================= TRIPS ================= */}
         {activeTableTab === 'trips' && (
-        <div>
-        <div className={`p-4 border-b ${activeAssignmentFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'bg-slate-50 border-slate-200'}`}>
-          <div className="flex justify-between items-center flex-wrap gap-2">
-            <div className="flex items-center gap-2">
-              {activeAssignmentFilterCount > 0 && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shrink-0">
-                  {activeAssignmentFilterCount} active
+          <>
+            <div className={`px-5 py-3.5 border-b space-y-3 ${activeAssignmentFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-100'}`}>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="relative flex-1 min-w-[220px]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <input
+                    type="text"
+                    placeholder="Search by customer, booking ref, venue, or plate..."
+                    value={assignmentSearchTerm}
+                    onChange={(e) => setAssignmentSearchTerm(e.target.value)}
+                    className={`w-full pl-9 pr-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${assignmentSearchTerm.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
+                  />
+                </div>
+                <div className="flex items-center gap-1">
+                  {['All', 'Overdue', 'Today', 'Upcoming'].map(section => (
+                    <button
+                      key={section}
+                      onClick={() => setAssignmentSectionFilter(section)}
+                      className={`px-2.5 py-1.5 rounded-lg text-[13px] font-semibold border transition-colors cursor-pointer whitespace-nowrap ${
+                        assignmentSectionFilter === section
+                          ? (section === 'Overdue' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-[#EAF3F2] border-[#c2dccf] text-[#00703a]')
+                          : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      {section}{section !== 'All' && ` (${assignmentSectionCounts[section]})`}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-[13px] font-semibold text-slate-500 shrink-0 tabular-nums">
+                  {filteredTripCount} of {activeAssignmentRows.length} trip{activeAssignmentRows.length === 1 ? '' : 's'}
                 </span>
-              )}
-              {activeAssignmentFilterCount > 0 && (
-                <button
-                  onClick={() => { setAssignmentSearchTerm(''); setAssignmentSectionFilter('All'); setAssignmentDatePreset(DEFAULT_DATE_PRESET); setAssignmentDateCustomStart(''); setAssignmentDateCustomEnd(''); }}
-                  className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors cursor-pointer"
-                >
-                  Clear filters
-                </button>
-              )}
+              </div>
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <DateRangeFilter
+                  preset={assignmentDatePreset}
+                  customStart={assignmentDateCustomStart}
+                  customEnd={assignmentDateCustomEnd}
+                  rangeStart={assignmentRangeStart}
+                  rangeEnd={assignmentRangeEnd}
+                  onPresetChange={setAssignmentDatePreset}
+                  onCustomStartChange={setAssignmentDateCustomStart}
+                  onCustomEndChange={setAssignmentDateCustomEnd}
+                  onClear={() => { setAssignmentDatePreset(DEFAULT_DATE_PRESET); setAssignmentDateCustomStart(''); setAssignmentDateCustomEnd(''); }}
+                />
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={`${assignmentSort.field}:${assignmentSort.direction}`}
+                    onChange={(e) => { const [field, direction] = e.target.value.split(':'); setAssignmentSort({ field, direction }); }}
+                    className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                    title="Sort order"
+                  >
+                    <option value="priority:asc">Sort: Overdue first (default)</option>
+                    <option value="date:asc">Sort: Event date, oldest first</option>
+                    <option value="date:desc">Sort: Event date, newest first</option>
+                    <option value="customer:asc">Sort: Customer, A-Z</option>
+                    <option value="customer:desc">Sort: Customer, Z-A</option>
+                  </Select>
+                  {activeAssignmentFilterCount > 0 && (
+                    <button
+                      onClick={() => { setAssignmentSearchTerm(''); setAssignmentSectionFilter('All'); setAssignmentDatePreset(DEFAULT_DATE_PRESET); setAssignmentDateCustomStart(''); setAssignmentDateCustomEnd(''); }}
+                      className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors cursor-pointer"
+                    >
+                      Clear filters
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
-            <span className="text-xs font-semibold text-slate-500 shrink-0">{filteredAssignmentGroups.length} of {assignmentGroups.length} event{assignmentGroups.length !== 1 ? 's' : ''} · {activeAssignmentRows.length} vehicle{activeAssignmentRows.length !== 1 ? 's' : ''} total</span>
-          </div>
 
-          <div className="flex flex-wrap items-center gap-2 mt-2">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-              <input
-                type="text"
-                placeholder="Search by customer, booking ref, venue, or plate..."
-                value={assignmentSearchTerm}
-                onChange={(e) => setAssignmentSearchTerm(e.target.value)}
-                className={`w-full pl-8 pr-3 py-1.5 border rounded-lg text-xs focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${assignmentSearchTerm.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
-              />
-            </div>
-            <div className="flex items-center gap-1">
-              {['All', 'Overdue', 'Today', 'Upcoming'].map(section => (
-                <button
-                  key={section}
-                  onClick={() => setAssignmentSectionFilter(section)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-                    assignmentSectionFilter === section
-                      ? (section === 'Overdue' ? 'bg-red-600 border-red-600 text-white' : 'bg-[#008A45] border-[#008A45] text-white')
-                      : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  {section}{section !== 'All' && ` (${assignmentSectionCounts[section]})`}
-                </button>
-              ))}
-            </div>
-            <Select
-              value={`${assignmentSort.field}:${assignmentSort.direction}`}
-              onChange={(e) => { const [field, direction] = e.target.value.split(':'); setAssignmentSort({ field, direction }); }}
-              className="border border-slate-300 rounded-lg px-2 py-1.5 text-xs bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-              title="Sort order"
-            >
-              <option value="priority:asc">Sort: Overdue first (default)</option>
-              <option value="date:asc">Sort: Event date, oldest first</option>
-              <option value="date:desc">Sort: Event date, newest first</option>
-              <option value="customer:asc">Sort: Customer, A-Z</option>
-              <option value="customer:desc">Sort: Customer, Z-A</option>
-            </Select>
-          </div>
-
-          <div className="mt-3 flex flex-col items-start gap-1">
-            <p className="text-xs font-semibold text-slate-600">Or look up a specific event date / range <span className="font-normal text-slate-400">(independent of the date picker above)</span>:</p>
-            <DateRangeFilter
-              preset={assignmentDatePreset}
-              customStart={assignmentDateCustomStart}
-              customEnd={assignmentDateCustomEnd}
-              rangeStart={assignmentRangeStart}
-              rangeEnd={assignmentRangeEnd}
-              onPresetChange={setAssignmentDatePreset}
-              onCustomStartChange={setAssignmentDateCustomStart}
-              onCustomEndChange={setAssignmentDateCustomEnd}
-              onClear={() => { setAssignmentDatePreset(DEFAULT_DATE_PRESET); setAssignmentDateCustomStart(''); setAssignmentDateCustomEnd(''); }}
-            />
-          </div>
-        </div>
-
-        <div className="max-h-[32rem] overflow-y-auto divide-y divide-slate-100">
-          {isLoading ? (
-            <p className="p-6 text-center text-slate-500 text-sm">Loading assignments...</p>
-          ) : assignmentGroups.length === 0 ? (
-            <p className="p-6 text-center text-slate-500 text-sm">No active assignments.</p>
-          ) : sortedFilteredAssignmentGroups.length === 0 ? (
-            <p className="p-6 text-center text-slate-500 text-sm">No assignments match your search/filter.</p>
-          ) : (
-            sortedFilteredAssignmentGroups.map((group) => {
-              const ref = group.booking ? getBookingRef(group.booking) : 'Unknown';
-              const customerName = group.booking?.customer ? `${group.booking.customer.first_name} ${group.booking.customer.last_name}` : 'Unknown';
-              return (
-                <details key={group.booking_id} open={group.isOverdue || group.isToday} className="group/details">
-                  <summary className={`p-4 cursor-pointer list-none flex items-center justify-between gap-3 flex-wrap hover:bg-[#fbfcfd] transition-colors ${group.isOverdue ? 'bg-red-50/40' : ''}`}>
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <span className="text-slate-400 group-open/details:rotate-90 transition-transform inline-block">▸</span>
-                      {group.isOverdue && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 border border-red-300">
-                          <AlertTriangle size={10} /> OVERDUE
-                        </span>
-                      )}
-                      {!group.isOverdue && group.isToday && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">TODAY</span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); goToBookingDetails(group.booking_id, group.booking?.booking_type); }}
-                        className="font-mono text-xs font-bold text-[#008A45] hover:underline inline-flex items-center gap-0.5 cursor-pointer"
-                        title="View full booking details"
-                      >
-                        {ref} <ExternalLink size={10} />
-                      </button>
-                      <span className="font-bold text-slate-900 text-sm">{customerName}</span>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        group.booking?.booking_type === 'Short Order'
-                          ? 'bg-sky-100 text-sky-700 border border-sky-200'
-                          : 'bg-blue-100 text-blue-700 border border-blue-200'
-                      }`}>
-                        {group.booking?.booking_type === 'Short Order' ? 'Short Order' : 'Package'}
-                      </span>
-                      <span className="text-xs text-slate-500 flex items-center gap-1">
-                        <Calendar size={11} /> {group.eventDate ? group.eventDate.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
-                      </span>
-                      {group.booking?.venue && (
-                        <span className="text-xs text-slate-500 flex items-center gap-1">
-                          <MapPin size={11} /> {group.booking.venue}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-semibold text-slate-500">{countDistinct(group.items, 'vehicle_id')} vehicle{countDistinct(group.items, 'vehicle_id') !== 1 ? 's' : ''}{group.items.length > countDistinct(group.items, 'vehicle_id') ? `, ${group.items.length} runs` : ''}</span>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.preventDefault(); handleReturnAllForBooking(group.booking_id, group.items.length); }}
-                        className={group.canReturn
-                          ? 'text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 border border-blue-200 rounded-lg px-2.5 py-1 hover:bg-blue-50 transition-colors'
-                          : 'text-xs font-semibold text-slate-400 flex items-center gap-1 border border-slate-200 rounded-lg px-2.5 py-1 transition-colors'}
-                        title={group.canReturn ? undefined : `Locked — returns open ${PICKUP_GRACE_HOURS} hours after the event, at ${formatReturnOpensAt(group.returnOpensAt)}`}
-                      >
-                        {group.canReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return all
-                      </button>
-                    </div>
-                  </summary>
-                  <div className="px-4 pb-4 pl-11 space-y-1.5">
-                    {/* Two runs on one booking used to read as two identical
-                        "Dispatch:" lines for the same plate — the same van
-                        listed twice with nothing to say why. They are the two
-                        halves of the job: out with the equipment, back for it
-                        afterwards. getDispatchWindow already knows which is
-                        which, so name it.
-
-                        Sorted ascending here on purpose. The query orders
-                        dispatch_datetime DESCENDING (newest first, right for
-                        the History tab), which listed the collection run above
-                        the setup run that has to happen first. */}
-                    {[...group.items]
-                      .sort((x, y) => new Date(x.dispatch_datetime || 0) - new Date(y.dispatch_datetime || 0))
-                      .map((a) => {
-                      const win = getDispatchWindow(a, group.booking);
-                      const isCollection = win?.leg === TRIP_LEG.pickup;
-                      return (
-                      <div key={a.assignment_id} className="flex items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm">
-                        <span className="font-medium text-slate-700 min-w-0">
-                          <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span>{a.vehicle?.plate_number || 'Unknown'}</span>
-                            {win && (
-                              <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
-                                isCollection ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
-                              }`}>
-                                {isCollection ? <Undo2 size={10} /> : <Truck size={10} />} {win.legLabel}
-                              </span>
-                            )}
-                            <span className="text-xs text-slate-500">
-                              {win
-                                ? `${isCollection ? 'Collects from' : 'Leaves'} ${win.start.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · back ${win.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                                : `Leaves ${a.dispatch_datetime ? new Date(a.dispatch_datetime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}`}
-                            </span>
+            <div className="px-5 py-4 space-y-3 max-h-[36rem] overflow-y-auto">
+              {isLoading ? (
+                <p className="py-6 text-center text-slate-500 text-sm">Loading trips…</p>
+              ) : assignmentGroups.length === 0 ? (
+                <p className="py-6 text-center text-slate-500 text-sm">Nothing is out. Every trip has been marked back at base.</p>
+              ) : sortedFilteredAssignmentGroups.length === 0 ? (
+                <p className="py-6 text-center text-slate-500 text-sm">No trips match your search or filter.</p>
+              ) : sortedFilteredAssignmentGroups.map(group => {
+                const ref = group.booking ? getBookingRef(group.booking) : 'Unknown';
+                const customerName = group.booking?.customer ? `${group.booking.customer.first_name} ${group.booking.customer.last_name}` : 'Unknown';
+                const vehicleCount = countDistinct(group.items, 'vehicle_id');
+                return (
+                  <div key={group.booking_id} className={`rounded-[12px] border overflow-hidden ${group.isOverdue ? 'border-red-200 bg-red-50/40' : 'border-slate-200 bg-white'}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-slate-100">
+                      <div className="flex flex-wrap items-center gap-2.5 min-w-0">
+                        <span className="text-[15px] font-bold text-slate-900">{customerName}</span>
+                        {group.isOverdue ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-red-200 bg-red-50 text-red-700 text-[12.5px] font-semibold">
+                            <AlertTriangle size={12} /> Overdue
                           </span>
-                        </span>
-                        <button
-                          onClick={() => handleReturnVehicle(a.assignment_id)}
-                          className={group.canReturn
-                            ? 'text-blue-500 hover:text-blue-700 transition-colors flex items-center gap-1 text-xs font-medium'
-                            : 'text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-1 text-xs font-medium'}
-                          title={group.canReturn ? undefined : `Locked — returns open ${PICKUP_GRACE_HOURS} hours after the event, at ${formatReturnOpensAt(group.returnOpensAt)}`}
-                        >
-                          {group.canReturn ? <Undo2 size={13} /> : <Lock size={13} />} Return
-                        </button>
+                        ) : group.isToday ? (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full border border-[#c2dccf] bg-[#EAF3F2] text-[#00703a] text-[12.5px] font-semibold">Today</span>
+                        ) : (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full border border-slate-200 bg-slate-100 text-slate-600 text-[12.5px] font-semibold">Upcoming</span>
+                        )}
+                        <span className="text-[12.5px] text-slate-500">{group.booking?.booking_type === 'Short Order' ? 'Short order' : 'Package'}</span>
+                        {group.booking?.venue && (
+                          <span className="text-[12.5px] text-slate-500 flex items-center gap-1 min-w-0"><MapPin size={11} className="shrink-0" /> <span className="truncate">{group.booking.venue}</span></span>
+                        )}
                       </div>
-                      );
-                    })}
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="text-[13px] text-slate-500 tabular-nums whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => goToBookingDetails(group.booking_id, group.booking?.booking_type)}
+                            className="font-semibold text-[#007038] hover:underline inline-flex items-center gap-0.5 cursor-pointer"
+                            title="View full booking details"
+                          >
+                            {ref} <ExternalLink size={11} />
+                          </button>
+                          {group.eventDate && ` · event ${fmtDay(group.eventDate)}, ${fmtClock(group.eventDate)}`}
+                        </span>
+                        {vehicleCount > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleReturnAllForBooking(group.booking_id, group.items.length)}
+                            className={group.canReturn
+                              ? 'text-[13px] font-semibold text-slate-600 hover:text-[#007038] flex items-center gap-1.5 border border-slate-300 hover:border-[#c9dfd4] rounded-[9px] px-3 py-1.5 transition-colors cursor-pointer'
+                              : 'text-[13px] font-semibold text-slate-400 flex items-center gap-1.5 border border-slate-200 rounded-[9px] px-3 py-1.5 cursor-not-allowed'}
+                            title={group.canReturn ? undefined : `Locked — returns open ${PICKUP_GRACE_HOURS} hours after the event, at ${formatReturnOpensAt(group.returnOpensAt)}`}
+                          >
+                            {group.canReturn ? <Undo2 size={13} /> : <Lock size={13} />} All back at base
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Sorted ascending on purpose. The query orders
+                        dispatch_datetime DESCENDING, which listed the
+                        collection run above the setup run that has to happen
+                        first. */}
+                    <div className="divide-y divide-slate-100">
+                      {[...group.items]
+                        .sort((x, y) => new Date(x.dispatch_datetime || 0) - new Date(y.dispatch_datetime || 0))
+                        .map(a => {
+                          const win = getDispatchWindow(a, group.booking);
+                          const state = getTripState(a, group.booking, now);
+                          return (
+                            <div key={a.assignment_id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
+                              <div className="flex flex-wrap items-center gap-2.5 min-w-0">
+                                {win ? <LegChip legLabel={win.legLabel} /> : (
+                                  <span className="inline-flex items-center px-2.5 py-1 rounded-full border border-amber-200 bg-amber-50 text-amber-700 text-[12.5px] font-semibold">No event date</span>
+                                )}
+                                <span className="text-[14px] font-bold text-slate-900">{a.vehicle?.plate_number || 'Unknown'}</span>
+                                <span className="text-[13px] text-slate-600 tabular-nums">
+                                  {win ? `${fmtDay(win.start)}, ${fmtSpan(win)}` : (a.dispatch_datetime ? `Leaves ${fmtDay(new Date(a.dispatch_datetime))}, ${fmtClock(new Date(a.dispatch_datetime))}` : 'Not scheduled')}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2.5 shrink-0">
+                                <StateChip state={state}>
+                                  {state.key === 'overdue' && group.eventDate
+                                    ? `Overdue ${daysOverdue(group.eventDate) === 0 ? 'today' : `${daysOverdue(group.eventDate)} day${daysOverdue(group.eventDate) === 1 ? '' : 's'}`}`
+                                    : null}
+                                </StateChip>
+                                <button
+                                  onClick={() => handleReturnVehicle(a.assignment_id)}
+                                  className={group.canReturn
+                                    ? 'text-[13px] font-semibold text-slate-600 hover:text-[#007038] flex items-center gap-1.5 border border-slate-300 hover:border-[#c9dfd4] rounded-[9px] px-3 py-1.5 transition-colors cursor-pointer'
+                                    : 'text-[13px] font-semibold text-slate-400 flex items-center gap-1.5 border border-slate-200 rounded-[9px] px-3 py-1.5 cursor-not-allowed'}
+                                  title={group.canReturn ? 'Mark this vehicle back at base' : `Locked — returns open ${PICKUP_GRACE_HOURS} hours after the event, at ${formatReturnOpensAt(group.returnOpensAt)}`}
+                                >
+                                  {group.canReturn ? <Undo2 size={13} /> : <Lock size={13} />} Back at base
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
                   </div>
-                </details>
-              );
-            })
-          )}
-        </div>
-        </div>
+                );
+              })}
+            </div>
+          </>
         )}
 
-        {/* ===== HISTORY TAB ===== */}
+        {/* ================= HISTORY ================= */}
         {activeTableTab === 'history' && (
           <>
-            <div className={`p-4 border-b space-y-3 ${activeHistoryFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-200'}`}>
+            <div className={`px-5 py-3.5 border-b space-y-3 ${activeHistoryFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-100'}`}>
               <div className="flex flex-wrap items-center gap-3">
-                {activeHistoryFilterCount > 0 && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shrink-0">
-                    {activeHistoryFilterCount} active
-                  </span>
-                )}
                 <div className="relative flex-1 min-w-[220px]">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                   <input
@@ -1980,29 +2113,28 @@ export default function Vehicles() {
                   />
                 </div>
                 <div className="flex items-center gap-1">
-                  {['All', 'Assigned', 'In Use', 'Returned'].map(opt => (
+                  {[
+                    { key: 'All', label: 'All' },
+                    { key: 'committed', label: TRIP_STATE.committed },
+                    { key: 'on_road', label: TRIP_STATE.onRoad },
+                    { key: 'overdue', label: TRIP_STATE.overdue },
+                    { key: 'back', label: TRIP_STATE.back },
+                  ].map(opt => (
                     <button
-                      key={opt}
-                      onClick={() => setHistoryStatusFilter(opt)}
-                      className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-                        historyStatusFilter === opt ? 'bg-[#008A45] border-[#008A45] text-white' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
+                      key={opt.key}
+                      onClick={() => setHistoryStatusFilter(opt.key)}
+                      className={`px-2.5 py-1.5 rounded-lg text-[13px] font-semibold border transition-colors cursor-pointer whitespace-nowrap ${
+                        historyStatusFilter === opt.key
+                          ? (opt.key === 'overdue' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-[#EAF3F2] border-[#c2dccf] text-[#00703a]')
+                          : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
                       }`}
                     >
-                      {opt}
+                      {opt.label}
                     </button>
                   ))}
                 </div>
-                {activeHistoryFilterCount > 0 && (
-                  <button
-                    onClick={() => { setHistorySearch(''); setHistoryStatusFilter('All'); setHistoryDatePreset(DEFAULT_DATE_PRESET); setHistoryDateCustomStart(''); setHistoryDateCustomEnd(''); }}
-                    className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors cursor-pointer"
-                  >
-                    Clear filters
-                  </button>
-                )}
               </div>
-              <div className="flex flex-col items-start gap-1">
-                <p className="text-xs font-semibold text-slate-600">Filter by event date / range <span className="font-normal text-slate-400">(independent of the date picker above)</span>:</p>
+              <div className="flex flex-wrap items-end justify-between gap-3">
                 <DateRangeFilter
                   preset={historyDatePreset}
                   customStart={historyDateCustomStart}
@@ -2014,215 +2146,89 @@ export default function Vehicles() {
                   onCustomEndChange={setHistoryDateCustomEnd}
                   onClear={() => { setHistoryDatePreset(DEFAULT_DATE_PRESET); setHistoryDateCustomStart(''); setHistoryDateCustomEnd(''); }}
                 />
-              </div>
-              <p className="text-[13px] text-slate-600 tabular-nums">
-                {historyGroups.length} booking{historyGroups.length !== 1 ? 's' : ''} &#183; {filteredHistoryRows.length} of {assignments.length} dispatch record{assignments.length !== 1 ? 's' : ''}{historySort.field ? '' : ', most recently dispatched first'}
-              </p>
-            </div>
-            <div className="overflow-x-auto max-h-[32rem] overflow-y-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-[#fbfcfd] border-b border-slate-100 sticky top-0">
-                    <th className="px-5 py-3">{renderSortHeader(historySort, toggleHistorySort, 'customer', 'Booking')}</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Vehicles</th>
-                    <th className="px-4 py-3">{renderSortHeader(historySort, toggleHistorySort, 'eventDate', 'Event date')}</th>
-                    <th className="px-4 py-3">{renderSortHeader(historySort, toggleHistorySort, 'dispatchedOn', 'Dispatch')}</th>
-                    <th className="px-4 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-                  {isLoading ? (
-                    <tr><td colSpan="5" className="p-6 text-center text-slate-500">Loading history...</td></tr>
-                  ) : historyGroups.length === 0 ? (
-                    <tr><td colSpan="5" className="p-6 text-center text-slate-500">No dispatch history matches your search or filter.</td></tr>
-                  ) : (
-                    historyGroups.map((g) => {
-                      const ref = g.booking ? getBookingRef(g.booking) : 'Unknown';
-                      const customerName = g.booking?.customer ? g.booking.customer.first_name + ' ' + g.booking.customer.last_name : 'Unknown';
-                      const isExpanded = expandedHistoryGroups.has(g.key);
-                      const multi = g.items.length > 1;
-                      const stagePill = g.stage.key === 'returned' ? 'bg-slate-100 text-slate-600'
-                        : g.stage.key === 'in_use' ? 'bg-emerald-50 text-emerald-700'
-                        : 'bg-blue-50 text-blue-700';
-                      return (
-                        <Fragment key={g.key}>
-                          <tr
-                            className={'transition-colors hover:bg-[#fbfcfd] ' + (multi ? 'cursor-pointer' : '')}
-                            onClick={() => { if (multi) toggleHistoryGroup(g.key); }}
-                          >
-                            <td className="px-5 py-[15px] align-top">
-                              <div className="flex items-start gap-2">
-                                {multi ? (
-                                  <ChevronRight size={15} className={'mt-[3px] shrink-0 text-slate-400 transition-transform ' + (isExpanded ? 'rotate-90' : '')} />
-                                ) : (
-                                  <span className="w-[15px] shrink-0" />
-                                )}
-                                <div className="min-w-0">
-                                  <p className="text-[14.5px] font-semibold text-slate-900">{customerName}</p>
-                                  <p className="text-[13px] text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
-                                    {g.booking ? (
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); goToBookingDetails(g.booking.booking_id, g.booking.booking_type); }}
-                                        className="font-semibold text-[#007038] tabular-nums hover:underline inline-flex items-center gap-0.5 cursor-pointer"
-                                        title="View full booking details"
-                                      >
-                                        {ref} <ExternalLink size={11} />
-                                      </button>
-                                    ) : (
-                                      <span className="font-semibold tabular-nums">{ref}</span>
-                                    )}
-                                    {g.booking?.venue && <span className="flex items-center gap-1"><MapPin size={11} /> {g.booking.venue}</span>}
-                                  </p>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="px-4 py-[15px] align-top text-sm text-slate-800">
-                              {multi ? g.items.length + ' vehicles' : (g.items[0].vehicle?.plate_number || 'Unknown')}
-                            </td>
-                            <td className="px-4 py-[15px] align-top text-sm text-slate-600 tabular-nums">
-                              {g.booking?.event_datetime ? new Date(g.booking.event_datetime).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
-                            </td>
-                            <td className="px-4 py-[15px] align-top text-sm text-slate-600 tabular-nums">
-                              {g.firstDispatchAt ? g.firstDispatchAt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
-                            </td>
-                            <td className="px-4 py-[15px] align-top">
-                              <span className={'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ' + stagePill}>
-                                {g.stage.key === 'returned' && <CheckCircle2 size={12} />}
-                                {g.stage.label}
-                              </span>
-                              {/* A part-returned dispatch reads as still out, so
-                                  say how much of it is actually back. */}
-                              {multi && !g.allReturned && g.returnedCount > 0 && (
-                                <p className="text-[12.5px] text-slate-600 mt-1 tabular-nums">{g.returnedCount} of {g.items.length} returned</p>
-                              )}
-                            </td>
-                          </tr>
-
-                          {multi && isExpanded && g.items.map((a) => {
-                            const itemStatus = getAssignmentStatus(false, a.booking?.event_datetime);
-                            return (
-                              <tr key={a.assignment_id} className="bg-[#fbfcfd]">
-                                <td className="px-5 py-2.5" />
-                                <td className="px-4 py-2.5 text-[13.5px] font-medium text-slate-800">{a.vehicle?.plate_number || 'Unknown'}</td>
-                                <td className="px-4 py-2.5" />
-                                <td className="px-4 py-2.5 text-[13.5px] text-slate-600 tabular-nums">
-                                  {a.dispatch_datetime ? new Date(a.dispatch_datetime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
-                                </td>
-                                <td className="px-4 py-2.5">
-                                  {a.assignment_status === 'Completed' ? (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[12.5px] font-semibold bg-slate-100 text-slate-600 whitespace-nowrap">
-                                      <CheckCircle2 size={11} /> Returned
-                                    </span>
-                                  ) : (
-                                    <span className={'inline-flex items-center px-2.5 py-0.5 rounded-full text-[12.5px] font-semibold whitespace-nowrap ' + (itemStatus.key === 'in_use' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700')}>
-                                      {itemStatus.label}
-                                    </span>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </Fragment>
-                      );
-                    })
+                <div className="flex items-center gap-3">
+                  <span className="text-[13px] font-semibold text-slate-500 tabular-nums whitespace-nowrap">
+                    {historyRows.length} of {assignments.length} dispatch record{assignments.length === 1 ? '' : 's'}
+                  </span>
+                  {activeHistoryFilterCount > 0 && (
+                    <button
+                      onClick={() => { setHistorySearch(''); setHistoryStatusFilter('All'); setHistoryDatePreset(DEFAULT_DATE_PRESET); setHistoryDateCustomStart(''); setHistoryDateCustomEnd(''); }}
+                      className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors cursor-pointer"
+                    >
+                      Clear filters
+                    </button>
                   )}
-                </tbody>
-              </table>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-5 pb-2 max-h-[36rem] overflow-y-auto">
+              <div className={`${HIST_COLS} hidden min-[940px]:grid px-1 pt-3.5 pb-2.5 border-b border-[#eef2f6] sticky top-0 bg-white z-10`}>
+                <span className={ZONE_HEAD}>Booking</span>
+                <span className={ZONE_HEAD}>Vehicle</span>
+                <span className={ZONE_HEAD}>Leg &amp; window</span>
+                <span className={`${ZONE_HEAD} text-right`}>State</span>
+              </div>
+
+              {isLoading ? (
+                <p className="py-8 text-center text-slate-500 text-sm">Loading history…</p>
+              ) : historyRows.length === 0 ? (
+                <p className="py-8 text-center text-slate-500 text-sm">No dispatch records match your search or filter.</p>
+              ) : historyRows.map(({ a, w, state }) => {
+                const ref = a.booking ? getBookingRef(a.booking) : 'Unknown';
+                const customerName = a.booking?.customer ? `${a.booking.customer.first_name} ${a.booking.customer.last_name}` : 'Unknown';
+                return (
+                  <div key={a.assignment_id} className={`${HIST_COLS} items-start px-1 py-3.5 border-b border-[#f6f8fa] transition-colors hover:bg-[#fbfcfd] max-[940px]:grid-cols-1 max-[940px]:gap-3`}>
+                    {/* ZONE A — whose booking */}
+                    <div className="min-w-0">
+                      <p className="text-[14.5px] font-bold text-slate-900 [text-wrap:pretty]">{customerName}</p>
+                      <p className="text-[13px] text-slate-600 mt-0.5 flex flex-wrap items-center gap-x-2 tabular-nums">
+                        {a.booking ? (
+                          <button
+                            onClick={() => goToBookingDetails(a.booking.booking_id, a.booking.booking_type)}
+                            className="font-semibold text-[#007038] hover:underline inline-flex items-center gap-0.5 cursor-pointer"
+                            title="View full booking details"
+                          >
+                            {ref} <ExternalLink size={11} />
+                          </button>
+                        ) : (
+                          <span className="font-semibold">{ref}</span>
+                        )}
+                        {a.booking?.event_datetime && <span>· event {fmtDay(new Date(a.booking.event_datetime))}</span>}
+                      </p>
+                    </div>
+
+                    {/* ZONE B — which vehicle */}
+                    <div className="min-w-0">
+                      <p className="text-[14px] font-semibold text-slate-800 truncate">{a.vehicle?.plate_number || 'Unknown'}</p>
+                      {a.vehicle?.vehicle_type && <TypeTag type={a.vehicle.vehicle_type} />}
+                    </div>
+
+                    {/* ZONE C — which run, and when. The leg is what stops
+                        two rows on one booking reading as a duplicate. */}
+                    <div className="min-w-0">
+                      {w ? (
+                        <>
+                          <LegChip legLabel={w.legLabel} completed={a.assignment_status === 'Completed'} />
+                          <p className="text-[13px] text-slate-600 mt-1.5 tabular-nums">{fmtDay(w.start)}, {fmtSpan(w)}</p>
+                        </>
+                      ) : (
+                        <p className="text-[13px] text-slate-500">
+                          No event date{a.dispatch_datetime ? ` · dispatched ${fmtDay(new Date(a.dispatch_datetime))}` : ''}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* ZONE D — where it ended up */}
+                    <div className="flex justify-end max-[940px]:justify-start">
+                      <StateChip state={state} />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </>
         )}
-      </div>
-
-      {/* --- SIDEBAR: live operational alerts, always-current --- */}
-      <div className="space-y-4">
-        <div className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-            <span className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
-              <AlertTriangle size={14} className="text-red-500" /> Needs Attention ({needsAttentionVehicles.length})
-            </span>
-            <button
-              onClick={() => setActiveTableTab('fleet')}
-              className="text-xs font-semibold text-[#008A45] hover:underline cursor-pointer"
-            >
-              View all
-            </button>
-          </div>
-          <div className="divide-y divide-slate-100">
-            {needsAttentionVehicles.length === 0 ? (
-              <p className="p-4 text-[13px] text-slate-500">Nothing needs attention right now.</p>
-            ) : (
-              needsAttentionVehicles.slice(0, 4).map(v => (
-                <button
-                  key={v.vehicle_id}
-                  type="button"
-                  onClick={() => handleFlagIssueClick(v)}
-                  title="Click to update this vehicle's status"
-                  className="w-full flex items-center justify-between px-4 py-2.5 gap-2 text-left hover:bg-[#fbfcfd] transition-colors cursor-pointer"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-800 truncate">{v.plate_number}</p>
-                    <p className="text-xs text-slate-500">{v.vehicle_type}</p>
-                  </div>
-                  <span className={`shrink-0 inline-flex items-center px-2 py-1 rounded-full text-[11px] font-bold ${v.vehicle_status === 'Maintenance' ? 'bg-orange-100 text-orange-700' : 'bg-slate-200 text-slate-600'}`}>{v.vehicle_status}</span>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-            <span className="font-bold text-sm text-slate-800 flex items-center gap-1.5">
-              <AlertTriangle size={14} className="text-red-500" /> Overdue Returns ({overdueGroups.length})
-            </span>
-            <button
-              onClick={() => { setAssignmentSectionFilter('Overdue'); setActiveTableTab('trips'); }}
-              className="text-xs font-semibold text-[#008A45] hover:underline cursor-pointer"
-            >
-              View all
-            </button>
-          </div>
-          <div className="divide-y divide-slate-100">
-            {overdueGroups.length === 0 ? (
-              <p className="p-4 text-[13px] text-slate-500">No overdue returns.</p>
-            ) : (
-              overdueGroups.slice(0, 4).map(group => {
-                const customerName = group.booking?.customer ? `${group.booking.customer.first_name} ${group.booking.customer.last_name}` : 'Unknown';
-                const days = daysOverdue(group.eventDate);
-                return (
-                  <button
-                    key={group.booking_id}
-                    type="button"
-                    onClick={() => {
-                      setAssignmentSectionFilter('Overdue');
-                      setAssignmentSearchTerm(group.booking ? getBookingRef(group.booking) : customerName);
-                      setActiveTableTab('trips');
-                    }}
-                    title="Click to jump to this event in Active Assignments"
-                    className="w-full flex items-center justify-between px-4 py-2.5 gap-2 text-left hover:bg-[#fbfcfd] transition-colors cursor-pointer"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-red-700 truncate">{customerName}</p>
-                      <p className="text-xs text-slate-500">{countDistinct(group.items, 'vehicle_id')} vehicle{countDistinct(group.items, 'vehicle_id') !== 1 ? 's' : ''} overdue</p>
-                    </div>
-                    <span className="shrink-0 text-xs font-bold text-red-600">{days === 0 ? 'Today' : `${days} day${days !== 1 ? 's' : ''}`}</span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-          <div className="p-3 border-t border-slate-200">
-            <button
-              onClick={scrollToAssignments}
-              className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-[#008A45] border border-slate-300 hover:border-[#008A45] rounded-lg px-3 py-2 transition-colors cursor-pointer"
-            >
-              Go to Active Assignments <ChevronRight size={13} />
-            </button>
-          </div>
-        </div>
-
-        <p className="text-center text-[11px] font-semibold text-red-500">Live status — always current</p>
-      </div>
       </div>
 
       {/* ========================================================= */}
