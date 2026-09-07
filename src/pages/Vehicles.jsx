@@ -9,7 +9,7 @@ import {
   Calendar, MapPin, Users, Search, LayoutGrid, AlertTriangle,
   Info, ChevronLeft,
   ChevronRight, Wrench, CheckCircle2, History, ExternalLink, Lock,
-  Car, Truck, Clock, Package as PackageIcon,
+  Car, Truck, Bike, Clock, Package as PackageIcon,
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -18,10 +18,14 @@ import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { errorInputClass } from '../utils/formErrors';
 import {
-  getDailyVehicleSnapshot, getDispatchWindow, defaultSetupDispatch,
+  getDailyVehicleSnapshot, getDispatchWindow, TRIP_LEG,
   PICKUP_GRACE_HOURS, needsTransport, findConflictingAssignment, describeAssignment,
   recheckConflictsBeforeInsert, DUPLICATE_ASSIGNMENT_CODE, duplicateAssignmentMessage,
   getTripState, TRIP_STATE, openWindowsBetween, OPEN_WINDOW_MIN_HOURS,
+  vehicleTypeOptions, normaliseVehicleType, VEHICLE_TYPE_MAX_LENGTH,
+  isAssignmentOutsideBounds, getDispatchBounds, defaultDispatchFor,
+  isDispatchInBounds, describeDispatchBounds, toDateTimeLocalValue,
+  legLabelFor, getTripType,
 } from '../utils/vehicle';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { getAssignmentStatus, RESOURCE_STATE } from '../utils/statusLabels';
@@ -139,11 +143,82 @@ function LegChip({ legLabel, completed }) {
   );
 }
 
+// Vehicle types are free text now, so the icon is matched on the word rather
+// than switched on a closed pair. Truck is the fallback because an unknown type
+// is far more likely to be something van-shaped than something car-shaped, and
+// because it is the neutral "a vehicle" glyph here.
+// Returns the element rather than the component. Picking a component into a
+// capitalised local and rendering <Icon /> reads as creating a component during
+// render, which the React Compiler rejects outright.
+function VehicleTypeIcon({ type, size = 13 }) {
+  const t = (type || '').toLowerCase();
+  if (t.includes('motor') || t.includes('bike') || t.includes('scooter')) return <Bike size={size} />;
+  if (t.includes('car') || t.includes('sedan')) return <Car size={size} />;
+  return <Truck size={size} />;
+}
+
+// The same flag the Dispatch card carries, for the same reason: a run stored
+// outside the bounds for its own leg is wrong, and drawing it as an ordinary
+// run is how it stays wrong. Display only.
+function OutOfBoundsChip() {
+  return (
+    <span
+      title="This dispatch time is outside the window its leg allows. Reassign it to correct it."
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-800 text-[11.5px] font-semibold whitespace-nowrap"
+    >
+      <AlertTriangle size={10} /> Outside the expected window
+    </span>
+  );
+}
+
 function TypeTag({ type }) {
   return (
     <span className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-500 whitespace-nowrap">
-      {type === 'Car' ? <Car size={13} /> : <Truck size={13} />} {type}
+      <VehicleTypeIcon type={type} /> {type}
     </span>
+  );
+}
+
+// A dropdown of every type the fleet already uses, plus a way to name a new
+// one. The list is not a closed set - see DEFAULT_VEHICLE_TYPES - so the form
+// must let a manager add "Van" or "Tricycle" without a code change, while still
+// steering them to reuse an existing spelling rather than inventing a second
+// one that splits every type filter on the page.
+const OTHER_TYPE = '__other__';
+
+function VehicleTypeField({ value, options, isCustom, onSelect, onCustomChange, error, required }) {
+  return (
+    <div>
+      <label className="block text-xs font-bold text-slate-700 mb-1.5">Vehicle Type{required ? ' *' : ''}</label>
+      <Select
+        value={isCustom ? OTHER_TYPE : value}
+        onChange={(e) => onSelect(e.target.value)}
+        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+      >
+        {options.map(t => <option key={t} value={t}>{t}</option>)}
+        <option value={OTHER_TYPE}>Other — add a new type…</option>
+      </Select>
+      {isCustom && (
+        <div className="mt-2">
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => onCustomChange(e.target.value)}
+            placeholder="e.g. Van, Tricycle, Truck"
+            maxLength={VEHICLE_TYPE_MAX_LENGTH}
+            autoFocus
+            className={errorInputClass(!!error, 'w-full border rounded-lg p-2.5 text-sm bg-white focus:ring-2 outline-none')}
+          />
+          {error ? (
+            <p className="text-xs text-red-600 font-semibold mt-1">{error}</p>
+          ) : (
+            <p className="text-xs text-slate-400 mt-1">
+              Used across the fleet from now on. If it already exists under a different capitalisation, the existing spelling is kept.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -202,7 +277,7 @@ export default function Vehicles() {
   // cluster labels were added to remove, and it would need a second snapshot
   // fetch to answer a question the first one already has the data for. ---
   const [windowMinHours, setWindowMinHours] = useState(4); // 2 | 4 | 6 | 'day'
-  const [windowTypeFilter, setWindowTypeFilter] = useState('All'); // 'All' | 'Car' | 'Motorcycle'
+  const [windowTypeFilter, setWindowTypeFilter] = useState('All'); // 'All' or any vehicle_type in the fleet
 
   // --- Vehicles tab search/filter ---
   const [inventorySearch, setInventorySearch] = useState('');
@@ -252,8 +327,18 @@ export default function Vehicles() {
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
 
   const [newVehicleForm, setNewVehicleForm] = useState({ plate_number: '', vehicle_type: 'Car' });
+  // Whether the type field is showing its free-text box. Held explicitly rather
+  // than derived from "is the value a known type", because while a new type is
+  // being typed the half-finished word matches nothing, and the moment it did
+  // match the field would snap back to the dropdown mid-keystroke.
+  const [addTypeIsCustom, setAddTypeIsCustom] = useState(false);
+  const [editTypeIsCustom, setEditTypeIsCustom] = useState(false);
   const [editVehicleForm, setEditVehicleForm] = useState({ vehicle_id: '', plate_number: '', vehicle_type: 'Car', vehicle_status: 'Available' });
   const [assignForm, setAssignForm] = useState({ booking_id: '', dispatch_datetime: '' });
+  // Which run is being created. Same explicit choice the detail pages' modal
+  // asks for — this page has its OWN insert path, and bounding only the other
+  // one would leave the door BKG-110 came through wide open.
+  const [assignLeg, setAssignLeg] = useState(TRIP_LEG.setup);
   const [selectedVehicleIds, setSelectedVehicleIds] = useState([]);
   const [vehiclePickerSearch, setVehiclePickerSearch] = useState('');
 
@@ -392,25 +477,36 @@ export default function Vehicles() {
   const selectedBooking = bookings.find(b => b.booking_id === assignForm.booking_id);
 
   // --- When a booking is selected in the Assign modal ---
-  const handleBookingSelect = (bookingId) => {
+  // `leg` is a parameter, not read from state: setAssignLeg is asynchronous, so
+  // a caller that sets the leg and then calls this would compute the default
+  // departure from the PREVIOUS leg while the selector already showed the new
+  // one — a collection-run time filed under a setup run.
+  const handleBookingSelect = (bookingId, leg = assignLeg) => {
     const selected = bookings.find(b => b.booking_id === bookingId);
     if (!selected) return;
     setAssignForm(prev => ({ ...prev, booking_id: bookingId }));
     setBookingSearchTerm(`${getBookingRef(selected)} - ${selected.customer?.first_name || ''} ${selected.customer?.last_name || ''}`);
     setShowBookingDropdown(false);
 
-    // Auto-suggest dispatch time: 2 hours before the event, clamped to now
-    // if that would already be in the past.
-    // Leave late enough to be efficient, early enough that the setup FINISHES
-    // as the event starts - travel plus setup, from the trip profile. A flat
-    // two hours was the same guess for a 40-minute delivery and a wedding.
-    const suggested = defaultSetupDispatch(selected);
-    if (suggested) {
-      if (suggested < new Date()) suggested.setTime(Date.now());
-      const offsetMs = suggested.getTime() - suggested.getTimezoneOffset() * 60 * 1000;
-      setAssignForm(prev => ({ ...prev, dispatch_datetime: new Date(offsetMs).toISOString().slice(0, 16) }));
-    }
+    // Departure for the chosen leg, already clamped inside that leg's bounds.
+    // It used to be clamped to "now" instead, which is what let a collection run
+    // be filed three days after its event: nothing downstream had an opinion
+    // about the result.
+    setAssignForm(prev => ({
+      ...prev,
+      dispatch_datetime: toDateTimeLocalValue(defaultDispatchFor(selected, leg)),
+    }));
     setSelectedVehicleIds([]);
+  };
+
+  const chooseAssignLeg = (nextLeg) => {
+    setAssignLeg(nextLeg);
+    if (selectedBooking) {
+      setAssignForm(prev => ({
+        ...prev,
+        dispatch_datetime: toDateTimeLocalValue(defaultDispatchFor(selectedBooking, nextLeg)),
+      }));
+    }
   };
 
   const toggleVehicleSelection = (vehicleId) => {
@@ -458,6 +554,28 @@ export default function Vehicles() {
     setAddFieldErrors(prev => (prev[name] ? { ...prev, [name]: undefined } : prev));
   };
 
+  // Type pickers. Choosing "Other" empties the value on purpose: the field is
+  // required, so an empty box fails validation rather than silently saving
+  // whatever type happened to be selected before.
+  const makeTypeSelectHandler = (setForm, setIsCustom, setErrors) => (val) => {
+    if (val === OTHER_TYPE) {
+      setIsCustom(true);
+      setForm(prev => ({ ...prev, vehicle_type: '' }));
+    } else {
+      setIsCustom(false);
+      setForm(prev => ({ ...prev, vehicle_type: val }));
+    }
+    setErrors(prev => ({ ...prev, vehicle_type: undefined }));
+  };
+  const makeTypeTextHandler = (setForm, setErrors) => (val) => {
+    setForm(prev => ({ ...prev, vehicle_type: val }));
+    setErrors(prev => ({ ...prev, vehicle_type: undefined }));
+  };
+  const handleAddTypeSelect = makeTypeSelectHandler(setNewVehicleForm, setAddTypeIsCustom, setAddFieldErrors);
+  const handleAddTypeText = makeTypeTextHandler(setNewVehicleForm, setAddFieldErrors);
+  const handleEditTypeSelect = makeTypeSelectHandler(setEditVehicleForm, setEditTypeIsCustom, setEditFieldErrors);
+  const handleEditTypeText = makeTypeTextHandler(setEditVehicleForm, setEditFieldErrors);
+
   const handleEditVehicleChange = (e) => {
     const { name, value } = e.target;
     setEditVehicleForm(prev => ({ ...prev, [name]: value }));
@@ -488,8 +606,13 @@ export default function Vehicles() {
       setIsSubmitting(false);
       return;
     }
-    if (!newVehicleForm.vehicle_type) {
-      toast.error('Please select a vehicle type.');
+    // Reuses an existing spelling when one matches case-insensitively, so
+    // typing "van" next to an existing "Van" does not create a second type that
+    // splits every type filter on this page.
+    const vehicleType = normaliseVehicleType(newVehicleForm.vehicle_type, fleetTypeOptions);
+    if (!vehicleType) {
+      toast.error('Please choose or name a vehicle type.');
+      setAddFieldErrors({ vehicle_type: 'Name the vehicle type.' });
       setIsSubmitting(false);
       return;
     }
@@ -499,13 +622,14 @@ export default function Vehicles() {
         .from('vehicle')
         .insert([{
           plate_number: plate,
-          vehicle_type: newVehicleForm.vehicle_type,
+          vehicle_type: vehicleType,
           vehicle_status: 'Available',
         }]);
       if (error) throw error;
 
       setIsAddModalOpen(false);
       setNewVehicleForm({ plate_number: '', vehicle_type: 'Car' });
+      setAddTypeIsCustom(false);
       toast.success('Vehicle added.');
       await fetchData();
     } catch (error) {
@@ -517,6 +641,7 @@ export default function Vehicles() {
 
   // --- EDIT VEHICLE ---
   const handleEditClick = (vehicle) => {
+    setEditTypeIsCustom(false);
     setEditVehicleForm({
       vehicle_id: vehicle.vehicle_id,
       plate_number: vehicle.plate_number,
@@ -540,8 +665,8 @@ export default function Vehicles() {
   // events. This single helper answers "is this van free for that run", and
   // both the Assign submit guard and the picker's disabled state call it, so
   // the checkbox the manager sees can never disagree with what submit accepts.
-  const conflictingTripFor = (vehicleId, booking, dispatchValue) =>
-    findConflictingAssignment(assignments, vehicleId, booking, dispatchValue);
+  const conflictingTripFor = (vehicleId, booking, dispatchValue, leg = null) =>
+    findConflictingAssignment(assignments, vehicleId, booking, dispatchValue, leg);
 
   const describeTrip = describeAssignment;
 
@@ -602,13 +727,20 @@ export default function Vehicles() {
       }
     }
 
+    const editedType = normaliseVehicleType(editVehicleForm.vehicle_type, fleetTypeOptions);
+    if (!editedType) {
+      toast.error('Please choose or name a vehicle type.');
+      setEditFieldErrors({ vehicle_type: 'Name the vehicle type.' });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const { error } = await supabase
         .from('vehicle')
         .update({
           plate_number: editVehicleForm.plate_number.trim(),
-          vehicle_type: editVehicleForm.vehicle_type,
+          vehicle_type: editedType,
           vehicle_status: editVehicleForm.vehicle_status,
         })
         .eq('vehicle_id', editVehicleForm.vehicle_id);
@@ -760,11 +892,18 @@ export default function Vehicles() {
       return;
     }
 
+    // The input's min/max only steers; it is bypassable by typing and ignored
+    // by some browsers. This is the refusal that actually holds.
+    if (!isDispatchInBounds(new Date(assignForm.dispatch_datetime), selectedBooking, assignLeg)) {
+      toast.error(describeDispatchBounds(selectedBooking, assignLeg), { duration: 9000 });
+      return;
+    }
+
     // Overlapping RUNS block an assignment; another booking on the same day
     // does not. Same helper the picker uses.
     const conflicts = [];
     for (const vehicleId of selectedVehicleIds) {
-      const clash = conflictingTripFor(vehicleId, selectedBooking, assignForm.dispatch_datetime);
+      const clash = conflictingTripFor(vehicleId, selectedBooking, assignForm.dispatch_datetime, assignLeg);
       if (clash) {
         const vehicle = vehicles.find(v => v.vehicle_id === vehicleId);
         conflicts.push(`${vehicle?.plate_number || vehicleId} - ${describeTrip(clash)}`);
@@ -779,7 +918,7 @@ export default function Vehicles() {
     try {
       // Same re-check as the detail pages' modal, for the same reason: the
       // conflict list is only as fresh as the last fetch.
-      const late = await recheckConflictsBeforeInsert(selectedVehicleIds, selectedBooking, assignForm.dispatch_datetime);
+      const late = await recheckConflictsBeforeInsert(selectedVehicleIds, selectedBooking, assignForm.dispatch_datetime, assignLeg);
       if (late.length > 0) {
         const names = late.map(({ vehicle_id, conflict }) => {
           const v = vehicles.find(x => x.vehicle_id === vehicle_id);
@@ -917,7 +1056,10 @@ export default function Vehicles() {
 
   const planDispatchFor = (bookingId) => {
     setIsNeedsVehicleModalOpen(false);
-    handleBookingSelect(bookingId);
+    // Setup first, always. A reopened modal inheriting "Collection run" from
+    // last time would quietly file the next run as the wrong leg.
+    setAssignLeg(TRIP_LEG.setup);
+    handleBookingSelect(bookingId, TRIP_LEG.setup);
     setSelectedVehicleIds([]);
     setVehiclePickerSearch('');
     setIsAssignModalOpen(true);
@@ -933,6 +1075,10 @@ export default function Vehicles() {
 
   const now = new Date();
   const totalFleet = vehicles.length;
+  // Every type the fleet actually contains, plus the two seeds. Drives the
+  // Add/Edit dropdowns AND both type filters, so a newly added type is
+  // filterable the moment it exists.
+  const fleetTypeOptions = vehicleTypeOptions(vehicles);
 
   // ============================================================
   // --- THE THREE CARDS: live figures, no date scope ---
@@ -1105,6 +1251,16 @@ export default function Vehicles() {
       const rank = (r) => r.outOfService ? 2 : r.trips.length ? 0 : 1;
       return rank(a) - rank(b) || a.plate_number.localeCompare(b.plate_number);
     });
+
+  // Assign modal: the bounds for the leg being created, and the window the
+  // chosen time actually produces.
+  const assignBounds = selectedBooking ? getDispatchBounds(selectedBooking, assignLeg) : null;
+  const assignChosenAt = assignForm.dispatch_datetime ? new Date(assignForm.dispatch_datetime) : null;
+  const assignInBounds = !selectedBooking || !assignChosenAt || isNaN(assignChosenAt)
+    || isDispatchInBounds(assignChosenAt, selectedBooking, assignLeg);
+  const assignPreviewWindow = selectedBooking && assignChosenAt && !isNaN(assignChosenAt)
+    ? getDispatchWindow({ dispatch_datetime: assignChosenAt.toISOString() }, selectedBooking)
+    : null;
 
   const dayTripCount = timelineRows.reduce((n, r) => n + r.trips.length, 0);
   const dayCommittedVehicles = timelineRows.filter(r => r.trips.length > 0).length;
@@ -1354,13 +1510,13 @@ export default function Vehicles() {
             </button>
           )}
           <button
-            onClick={() => { setAddFieldErrors({}); setIsAddModalOpen(true); }}
+            onClick={() => { setAddFieldErrors({}); setAddTypeIsCustom(false); setNewVehicleForm({ plate_number: '', vehicle_type: 'Car' }); setIsAddModalOpen(true); }}
             className="bg-white border border-slate-300 text-slate-700 px-4 py-2.5 rounded-[10px] font-semibold transition-colors flex items-center gap-2 text-sm whitespace-nowrap shadow-sm cursor-pointer hover:bg-[#f4f9f6] hover:border-[#c9dfd4] hover:text-[#007038] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
           >
             <Plus size={16} /> Add vehicle
           </button>
           <button
-            onClick={() => { setSelectedVehicleIds([]); setBookingSearchTerm(''); setShowBookingDropdown(false); setVehiclePickerSearch(''); setIsAssignModalOpen(true); }}
+            onClick={() => { setSelectedVehicleIds([]); setBookingSearchTerm(''); setShowBookingDropdown(false); setVehiclePickerSearch(''); setAssignLeg(TRIP_LEG.setup); setIsAssignModalOpen(true); }}
             className="bg-[#008A45] hover:bg-[#007038] text-white px-[17px] py-2.5 rounded-[10px] font-bold transition-all flex items-center gap-2 text-sm whitespace-nowrap shadow-sm hover:shadow-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 focus:ring-offset-1"
           >
             <ClipboardList size={16} /> Assign vehicles
@@ -1741,8 +1897,10 @@ export default function Vehicles() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-[12.5px] font-semibold text-slate-500 whitespace-nowrap">Vehicle</span>
-                <div className="flex items-center gap-1">
-                  {['All', 'Car', 'Motorcycle'].map(opt => (
+                {/* Wraps: the type list is open-ended now, so this row cannot
+                    assume it fits on one line. */}
+                <div className="flex flex-wrap items-center gap-1">
+                  {['All', ...fleetTypeOptions].map(opt => (
                     <button
                       key={opt}
                       onClick={() => setWindowTypeFilter(opt)}
@@ -1821,8 +1979,7 @@ export default function Vehicles() {
                 className={`border rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${inventoryTypeFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
               >
                 <option value="All">All types</option>
-                <option value="Car">Car</option>
-                <option value="Motorcycle">Motorcycle</option>
+                {fleetTypeOptions.map(t => <option key={t} value={t}>{t}</option>)}
               </Select>
               {activeInventoryFilterCount > 0 && (
                 <button
@@ -1853,7 +2010,7 @@ export default function Vehicles() {
                     {/* ZONE A — which vehicle */}
                     <div className="flex items-center gap-2.5 min-w-0">
                       <span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-slate-100 text-slate-500 shrink-0">
-                        {v.vehicle_type === 'Car' ? <Car size={15} /> : <Truck size={15} />}
+                        <VehicleTypeIcon type={v.vehicle_type} size={15} />
                       </span>
                       <div className="min-w-0">
                         <p className="text-[15px] font-bold text-slate-900 truncate">{v.plate_number}</p>
@@ -2069,6 +2226,7 @@ export default function Vehicles() {
                                 <span className="text-[13px] text-slate-600 tabular-nums">
                                   {win ? `${fmtDay(win.start)}, ${fmtSpan(win)}` : (a.dispatch_datetime ? `Leaves ${fmtDay(new Date(a.dispatch_datetime))}, ${fmtClock(new Date(a.dispatch_datetime))}` : 'Not scheduled')}
                                 </span>
+                                {isAssignmentOutsideBounds(a, group.booking) && <OutOfBoundsChip />}
                               </div>
                               <div className="flex items-center gap-2.5 shrink-0">
                                 <StateChip state={state}>
@@ -2211,6 +2369,9 @@ export default function Vehicles() {
                         <>
                           <LegChip legLabel={w.legLabel} completed={a.assignment_status === 'Completed'} />
                           <p className="text-[13px] text-slate-600 mt-1.5 tabular-nums">{fmtDay(w.start)}, {fmtSpan(w)}</p>
+                          {isAssignmentOutsideBounds(a, a.booking) && (
+                            <p className="mt-1.5"><OutOfBoundsChip /></p>
+                          )}
                         </>
                       ) : (
                         <p className="text-[13px] text-slate-500">
@@ -2446,19 +2607,15 @@ export default function Vehicles() {
                   <p className="text-xs text-slate-400 mt-1">Minimum 3 characters, no leading/trailing spaces.</p>
                 )}
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Vehicle Type *</label>
-                <Select
-                  name="vehicle_type"
-                  value={newVehicleForm.vehicle_type}
-                  onChange={handleNewVehicleChange}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                  required
-                >
-                  <option value="Car">Car</option>
-                  <option value="Motorcycle">Motorcycle</option>
-                </Select>
-              </div>
+              <VehicleTypeField
+                required
+                value={newVehicleForm.vehicle_type}
+                options={fleetTypeOptions}
+                isCustom={addTypeIsCustom}
+                onSelect={handleAddTypeSelect}
+                onCustomChange={handleAddTypeText}
+                error={addFieldErrors.vehicle_type}
+              />
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
                 <button type="button" onClick={() => setIsAddModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors cursor-pointer">Cancel</button>
                 <button type="submit" disabled={isSubmitting} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2 rounded-lg transition-colors shadow-sm cursor-pointer disabled:opacity-50">
@@ -2485,13 +2642,14 @@ export default function Vehicles() {
                 <input type="text" name="plate_number" value={editVehicleForm.plate_number} onChange={handleEditVehicleChange} className={errorInputClass(!!editFieldErrors.plate_number, 'w-full border rounded-lg p-2.5 text-sm bg-white focus:ring-2 outline-none')} required />
                 {editFieldErrors.plate_number && <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.plate_number}</p>}
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Vehicle Type</label>
-                <Select name="vehicle_type" value={editVehicleForm.vehicle_type} onChange={handleEditVehicleChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none">
-                  <option value="Car">Car</option>
-                  <option value="Motorcycle">Motorcycle</option>
-                </Select>
-              </div>
+              <VehicleTypeField
+                value={editVehicleForm.vehicle_type}
+                options={fleetTypeOptions}
+                isCustom={editTypeIsCustom}
+                onSelect={handleEditTypeSelect}
+                onCustomChange={handleEditTypeText}
+                error={editFieldErrors.vehicle_type}
+              />
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Base Status</label>
                 <Select
@@ -2726,7 +2884,7 @@ export default function Vehicles() {
                     vehicles
                       .filter(v => v.vehicle_status === 'Available' && v.plate_number.toLowerCase().includes(vehiclePickerSearch.toLowerCase()))
                       .map((v) => {
-                        const clashingTrip = conflictingTripFor(v.vehicle_id, selectedBooking, assignForm.dispatch_datetime);
+                        const clashingTrip = conflictingTripFor(v.vehicle_id, selectedBooking, assignForm.dispatch_datetime, assignLeg);
                         const alreadyAssigned = !!clashingTrip;
                         return (
                           <label key={v.vehicle_id} className={`flex items-center gap-2 p-2 hover:bg-slate-100 rounded cursor-pointer ${alreadyAssigned ? 'opacity-50 cursor-not-allowed' : ''}`}>
@@ -2750,21 +2908,73 @@ export default function Vehicles() {
                 </p>
               </div>
 
+              {/* WHICH RUN — asked before the time, because it sets the
+                  suggestion, the allowed range, and which vehicles count as
+                  already taken. The leg is still DERIVED on read from
+                  `dispatch >= event`; nothing new is stored. What this buys is
+                  that getDispatchBounds then constrains the time so it can only
+                  derive back to the leg that was picked. */}
+              {selectedBooking && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Which run is this?</label>
+                  <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 border border-slate-200 rounded-[10px]">
+                    {[TRIP_LEG.setup, TRIP_LEG.pickup].map(legKey => (
+                      <button
+                        key={legKey}
+                        type="button"
+                        onClick={() => chooseAssignLeg(legKey)}
+                        className={`px-3 py-2 rounded-[7px] text-[13.5px] font-semibold transition-colors cursor-pointer ${
+                          assignLeg === legKey
+                            ? 'bg-white text-[#007038] shadow-sm border border-[#c2dccf]'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        {/* legLabelFor, never a hardcoded word — a short
+                            order's outbound leg is a Delivery, not a setup. */}
+                        {legLabelFor(getTripType(selectedBooking), legKey)}
+                      </button>
+                    ))}
+                  </div>
+                  {assignPreviewWindow && (
+                    <p className="text-xs text-slate-600 mt-1.5 tabular-nums">
+                      Leaves {fmtClock(assignPreviewWindow.start)} → back {fmtClock(assignPreviewWindow.end)}
+                      {assignPreviewWindow.start.toDateString() !== assignPreviewWindow.end.toDateString() && ' the next day'}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Dispatch Date/Time */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">Dispatch Date/Time (for all selected vehicles)</label>
+                {/* min/max are LOCAL wall-clock strings, never ISO/UTC: the
+                    insert below already warns that a zoneless value is read as
+                    UTC and lands eight hours out, and getting the BOUNDS wrong
+                    that way is the same bug in reverse. */}
                 <input
                   type="datetime-local"
                   name="dispatch_datetime"
                   value={assignForm.dispatch_datetime}
+                  min={assignBounds ? toDateTimeLocalValue(assignBounds.min) : undefined}
+                  max={assignBounds ? toDateTimeLocalValue(assignBounds.max) : undefined}
                   onChange={handleAssignChange}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm font-medium text-slate-800 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                  className={`w-full border rounded-lg p-2.5 text-sm font-medium text-slate-800 focus:ring-2 outline-none ${
+                    assignInBounds
+                      ? 'border-slate-300 focus:ring-[#008A45]/20 focus:border-[#008A45]'
+                      : 'border-amber-400 bg-amber-50/50 focus:ring-amber-400/20 focus:border-amber-500'
+                  }`}
                   required
                 />
+                {!assignInBounds && selectedBooking && (
+                  <p className="flex items-start gap-1.5 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-1.5">
+                    <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                    <span>{describeDispatchBounds(selectedBooking, assignLeg)}</span>
+                  </p>
+                )}
                 {selectedBooking && selectedBooking.event_datetime && (() => {
                   const eventAt = new Date(selectedBooking.event_datetime);
                   const chosen = assignForm.dispatch_datetime ? new Date(assignForm.dispatch_datetime) : null;
-                  const suggested = defaultSetupDispatch(selectedBooking);
+                  const suggested = defaultDispatchFor(selectedBooking, assignLeg);
                   // Same minute as the suggestion (the field is minute-precision).
                   const isSuggested = !!(chosen && suggested)
                     && Math.abs(chosen.getTime() - suggested.getTime()) < 60 * 1000;
@@ -2781,11 +2991,19 @@ export default function Vehicles() {
                       {chosen && !isNaN(chosen) && (
                         <>
                           <span>•</span>
-                          <span className={isSuggested ? 'text-[#008A45] font-medium' : 'text-slate-600 font-medium'}>
+                          {/* Was identical whether the time made sense or not:
+                              it described BKG-110's +68h as placidly as a
+                              correct +4h. */}
+                          <span className={
+                            !assignInBounds ? 'text-amber-700 font-semibold'
+                              : isSuggested ? 'text-[#008A45] font-medium'
+                              : 'text-slate-600 font-medium'
+                          }>
                             {chosen <= eventAt
                               ? `Leaves ${describeGap(chosen, eventAt)} before the event`
                               : `Leaves ${describeGap(eventAt, chosen)} after the event starts`}
                             {isSuggested && ' (suggested)'}
+                            {!assignInBounds && ' — outside the allowed window'}
                           </span>
                         </>
                       )}

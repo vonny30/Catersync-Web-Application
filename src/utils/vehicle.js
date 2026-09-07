@@ -155,6 +155,55 @@ export const needsTransport = (booking) =>
 export const getTripType = (booking) =>
   booking?.booking_type === 'Short Order' ? TRIP_TYPE.delivery : TRIP_TYPE.eventSetup;
 
+// ============================================================================
+// VEHICLE TYPES
+// ============================================================================
+//
+// `vehicle.vehicle_type` is a plain varchar with NO check constraint and no
+// enum (verified against the live schema, 7 Sep 2026) - the Car/Motorcycle
+// limit was only ever a hardcoded pair of <option> tags in the Add Vehicle
+// form. So a manager can be given a free-text type without touching the
+// schema, which matters: the database is shared with the customer mobile app
+// and a migration is not ours alone to make.
+//
+// These two are seeds, not a closed set. Everything the fleet actually
+// contains is offered alongside them, so a type added once is reusable from
+// the dropdown instead of being retyped (and misspelled) next time.
+export const DEFAULT_VEHICLE_TYPES = ['Car', 'Motorcycle'];
+
+/** Every type worth offering: the seeds, plus whatever the fleet really has. */
+export const vehicleTypeOptions = (vehicles = []) => {
+  const seen = new Map();
+  [...DEFAULT_VEHICLE_TYPES, ...vehicles.map(v => v?.vehicle_type)].forEach(t => {
+    const clean = typeof t === 'string' ? t.trim() : '';
+    if (!clean) return;
+    // Case-insensitive key, first spelling wins. Otherwise "Van" and "van"
+    // become two types, and every type filter on the page silently splits the
+    // fleet in half.
+    const key = clean.toLowerCase();
+    if (!seen.has(key)) seen.set(key, clean);
+  });
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+};
+
+/**
+ * Clean up a typed-in type, reusing an existing spelling when one matches.
+ *
+ * Returns '' for anything blank, which the caller must treat as invalid -
+ * vehicle_type is NOT NULL.
+ */
+export const normaliseVehicleType = (raw, known = []) => {
+  const clean = (raw || '').trim().replace(/\s+/g, ' ');
+  if (!clean) return '';
+  const match = known.find(k => k.toLowerCase() === clean.toLowerCase());
+  return match || clean;
+};
+
+// Longest type the form accepts. The column is unbounded varchar, so this is a
+// UI sanity limit, not a database one: a type long enough to break every row
+// layout on the page is not a type.
+export const VEHICLE_TYPE_MAX_LENGTH = 24;
+
 // --- How long a vehicle is actually tied up ---------------------------------
 //
 // CORRECTED 28 Aug 2026, by Vaughn: a vehicle does NOT sit at the venue through
@@ -315,6 +364,155 @@ export function getDispatchWindow(assignment, booking) {
   const end = new Date(start.getTime() + (workHours + profile.travelHours) * HOUR_MS);
   return { start, end, type, leg: TRIP_LEG.setup, legLabel: legLabelFor(type, TRIP_LEG.setup) };
 }
+
+// ============================================================================
+// DISPATCH BOUNDS — when a run of a given leg is allowed to leave
+// ============================================================================
+//
+// Until now nothing bounded the dispatch time at all. The assign modal
+// validated booking status, vehicle count, presence of a date and vehicle
+// conflicts, then DESCRIBED whatever gap it was given ("Leaves 2 days after the
+// event starts") and let it through. BKG-110 is the proof: an Oct 3 event whose
+// three collection runs are dispatched Oct 5-6, +68 hours, 44 hours past the
+// point its equipment is already flagged Overdue. Every other row in the table
+// sits at -4h or +4/+5h.
+//
+// Every number below is DERIVED from TRIP_PROFILE and the published policy
+// constants, except the two "sane floor" leads, which are named here rather
+// than buried in a component.
+
+// Equipment is due back within 24 hours of the event start. This is not a new
+// rule invented here — it is the policy Equipment.jsx already enforces and
+// already states to the user in RETURN_POLICY_TEXT. It lives here so the
+// collection-run ceiling and the overdue flag cannot drift apart.
+export const RETURN_DUE_AFTER_HOURS = 24;
+
+// How early a run may leave. Local catering does not dispatch a setup a day
+// ahead; 12 hours still allows a pre-dawn departure for an early event, and 6
+// is the equivalent for a short order that only travels half an hour.
+const SETUP_EARLIEST_LEAD_HOURS = 12;
+const DELIVERY_EARLIEST_LEAD_HOURS = 6;
+
+// A short order is a tray handover, not an event teardown, so PICKUP_GRACE_HOURS
+// (4h, calibrated for packing down a function) does NOT apply to it — that
+// grace would retroactively invalidate SO-039, whose collection sits at +2h.
+const DELIVERY_COLLECT_MIN_HOURS = 1;
+const DELIVERY_COLLECT_MAX_HOURS = 12;
+
+/**
+ * The window a dispatch time must fall in, for one booking and one leg.
+ *
+ * Returns { min, max } as Dates, or null when the booking has no event to
+ * anchor to. Pure: no clock, no I/O, so the modal and the pages can all ask the
+ * same question and get the same answer.
+ *
+ * THE BOUNDS ARE WHAT KEEPS THE LEG HONEST. `vehicle_assign` has no run_type
+ * column and the schema is shared with the customer mobile app, so the leg is
+ * still DERIVED on read, by getDispatchWindow, from `dispatch >= event`. A leg
+ * the manager picks is therefore only a promise unless the time it produces
+ * derives back to the same leg. These bounds guarantee it by construction:
+ * a collection's minimum is always strictly after the event and a setup's
+ * maximum always strictly before it, so the two can never disagree. That is the
+ * thing to re-check if you ever change a number here.
+ */
+export function getDispatchBounds(booking, leg) {
+  const event = asDate(booking?.event_datetime);
+  if (!event) return null;
+
+  const type = getTripType(booking);
+  const profile = TRIP_PROFILE[type] || TRIP_PROFILE[TRIP_TYPE.eventSetup];
+  const isDelivery = type === TRIP_TYPE.delivery;
+  const at = (hours) => new Date(event.getTime() + hours * HOUR_MS);
+
+  if (leg === TRIP_LEG.pickup) {
+    // Cannot collect while the event is still running; must leave early enough
+    // that its own load is back inside the 24-hour return deadline.
+    const roundTrip = profile.travelHours + profile.teardownHours + profile.travelHours;
+    return {
+      min: at(isDelivery ? DELIVERY_COLLECT_MIN_HOURS : PICKUP_GRACE_HOURS),
+      max: at(isDelivery ? DELIVERY_COLLECT_MAX_HOURS : RETURN_DUE_AFTER_HOURS - roundTrip),
+    };
+  }
+
+  // Out and set up: has to FINISH by the time the event starts.
+  const workHours = profile.travelHours + profile.setupHours;
+  return {
+    min: at(-(isDelivery ? DELIVERY_EARLIEST_LEAD_HOURS : SETUP_EARLIEST_LEAD_HOURS)),
+    max: at(-workHours),
+  };
+}
+
+/** The default departure for a leg, never outside that leg's own bounds. */
+export function defaultDispatchFor(booking, leg) {
+  const bounds = getDispatchBounds(booking, leg);
+  if (!bounds) return null;
+  // defaultPickupDispatch returns null for a short order, because
+  // TRIP_PROFILE.delivery says hasPickup: false. Real data disagrees — SO-039
+  // has a collection run — so the earliest permitted time stands in rather than
+  // leaving the field empty.
+  const suggested = leg === TRIP_LEG.pickup
+    ? (defaultPickupDispatch(booking) || bounds.min)
+    : (defaultSetupDispatch(booking) || bounds.max);
+  if (suggested < bounds.min) return bounds.min;
+  if (suggested > bounds.max) return bounds.max;
+  return suggested;
+}
+
+/** Is this instant an allowed departure for that leg? */
+export const isDispatchInBounds = (dispatch, booking, leg) => {
+  const when = asDate(dispatch);
+  const bounds = getDispatchBounds(booking, leg);
+  if (!when || !bounds) return true; // nothing to check against — not a breach
+  return when >= bounds.min && when <= bounds.max;
+};
+
+/**
+ * An already-stored run whose time falls outside the bounds for its OWN derived
+ * leg. Display only — BKG-110's rows are wrong but they are Vaughn's to fix by
+ * reassigning, not something to silently rewrite.
+ */
+export const isAssignmentOutsideBounds = (assignment, booking) => {
+  const ref = assignment?.booking ?? booking;
+  const w = getDispatchWindow(assignment, ref);
+  if (!w) return false;
+  return !isDispatchInBounds(assignment?.dispatch_datetime, ref, w.leg);
+};
+
+const boundsAt = (d) =>
+  d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+/**
+ * The refusal sentence. Says the window AND the reason: "invalid date" tells a
+ * manager nothing about what to type instead.
+ */
+export function describeDispatchBounds(booking, leg) {
+  const bounds = getDispatchBounds(booking, leg);
+  if (!bounds) return '';
+  const type = getTripType(booking);
+  const isDelivery = type === TRIP_TYPE.delivery;
+  const label = legLabelFor(type, leg);
+
+  const reason = leg === TRIP_LEG.pickup
+    ? (isDelivery
+        ? 'A short order is collected soon after handover, not packed down like an event.'
+        : `Equipment is due back ${RETURN_DUE_AFTER_HOURS} hours after the event starts.`)
+    : 'The run has to finish setting up by the time the event starts.';
+
+  return `A ${label.toLowerCase()} for this event must leave between ${boundsAt(bounds.min)} and ${boundsAt(bounds.max)}. ${reason}`;
+}
+
+/**
+ * A Date as the local wall-clock string a datetime-local input expects.
+ *
+ * NOT toISOString(): that is UTC, and feeding it to min/max would shift the
+ * allowed window by the timezone offset — the same eight-hour bug the insert
+ * path already carries a warning about, in reverse.
+ */
+export const toDateTimeLocalValue = (d) => {
+  if (!d) return '';
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60 * 1000);
+  return local.toISOString().slice(0, 16);
+};
 
 /**
  * What one trip is doing right now.
@@ -1031,13 +1229,18 @@ export const duplicateAssignmentMessage =
  *
  * @returns the conflicting assignment, or null.
  */
-export const findConflictingAssignment = (assignments, vehicleId, booking, dispatchValue) => {
+export const findConflictingAssignment = (assignments, vehicleId, booking, dispatchValue, leg = null) => {
   if (!booking?.event_datetime) return null;
   const proposed = getDispatchWindow(
     { dispatch_datetime: dispatchValue || defaultSetupDispatch(booking)?.toISOString() },
     booking
   );
   if (!proposed) return null;
+  // The caller may now KNOW the leg — the assign modal asks for it outright —
+  // so take it rather than re-deriving. getDispatchBounds keeps the two in
+  // agreement, so this is the same answer arrived at more directly; deriving it
+  // twice is how two copies of one rule start drifting apart.
+  const proposedLeg = leg || proposed.leg;
   return (assignments || []).find(a => {
     if (a.vehicle_id !== vehicleId) return false;
     if (a.assignment_status === 'Completed') return false;
@@ -1058,7 +1261,7 @@ export const findConflictingAssignment = (assignments, vehicleId, booking, dispa
       // getDispatchWindow returns null and the duplicate slips through again.
       const existing = getDispatchWindow(a, a.booking ?? booking);
       // Same vehicle, same leg, same booking is a duplicate whatever the times.
-      if (existing?.leg === proposed.leg) return true;
+      if (existing?.leg === proposedLeg) return true;
       // Genuinely the other leg: allowed, but the windows still must not
       // overlap. A setup running to 1pm and a collection leaving at noon is the
       // same physical impossibility as a cross-booking clash.
@@ -1120,6 +1323,11 @@ export const groupDispatchRuns = (assignments, booking) => {
         legLabel: window?.legLabel || null,
         window,
         dispatchAt: a.dispatch_datetime || null,
+        // Display only. A run already stored outside the bounds for its own leg
+        // (BKG-110's collections sit at +68h) is flagged rather than corrected —
+        // rewriting rows on a database shared with the customer mobile app is
+        // not something to do as a side effect of adding a validation rule.
+        outsideBounds: isAssignmentOutsideBounds(a, a.booking ?? booking),
         rows: [],
       });
     }
@@ -1167,7 +1375,7 @@ export const describeClash = (clash, booking) => {
  *
  * @returns array of { vehicle_id, conflict } — empty when it is safe to insert.
  */
-export const recheckConflictsBeforeInsert = async (vehicleIds, booking, dispatchValue) => {
+export const recheckConflictsBeforeInsert = async (vehicleIds, booking, dispatchValue, leg = null) => {
   const fresh = await fetchAllRows(
     () => supabase
       .from('vehicle_assign')
@@ -1179,7 +1387,7 @@ export const recheckConflictsBeforeInsert = async (vehicleIds, booking, dispatch
     'assignments for pre-insert conflict re-check'
   );
   return (vehicleIds || [])
-    .map(vehicle_id => ({ vehicle_id, conflict: findConflictingAssignment(fresh, vehicle_id, booking, dispatchValue) }))
+    .map(vehicle_id => ({ vehicle_id, conflict: findConflictingAssignment(fresh, vehicle_id, booking, dispatchValue, leg) }))
     .filter(x => x.conflict);
 };
 

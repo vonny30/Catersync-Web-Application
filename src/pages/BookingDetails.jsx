@@ -4,7 +4,7 @@ import Select from '../components/Select';
 import AssignVehicleModal from '../components/AssignVehicleModal';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Search,
-  MapPin, Calendar, User, Phone, Mail, Pencil, UtensilsCrossed, Briefcase, CreditCard, Truck, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+  MapPin, Calendar, User, Phone, Mail, Pencil, UtensilsCrossed, Briefcase, CreditCard, Truck, ArrowUpRight, ArrowDownLeft, AlertTriangle } from 'lucide-react';
 import { SectionHeader, SectionCard, Field, CardScrollArea } from '../components/DetailPrimitives';
 import { initialsOf, fmtDateTime, fmtShortDate, fmtTime, displayNotes } from '../utils/detailFormat';
 import { createPortal } from 'react-dom';
@@ -1922,6 +1922,18 @@ export default function BookingDetails() {
                                 ? `${run.window.start.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} \u2192 back ${run.window.end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
                                 : (run.dispatchAt ? new Date(run.dispatchAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Time not set')}
                             </span>
+                            {/* Display only, never a correction. BKG-110's three
+                                collection runs sit at +68h, which is 44 hours
+                                past the point its equipment is already flagged
+                                Overdue; rendering them as ordinary runs is how
+                                they stayed wrong. Fixing one means reassigning
+                                it, which is Vaughn's call, not a silent write to
+                                a database the customer mobile app shares. */}
+                            {run.outsideBounds && (
+                              <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-800 text-[11.5px] font-semibold">
+                                <AlertTriangle size={10} /> Outside the expected window
+                              </span>
+                            )}
                           </div>
                           {shared && <span className={`${pill(shared)} shrink-0`}>{shared.label}</span>}
                         </div>

@@ -19,8 +19,11 @@ import { fetchAllRows } from '../utils/fetchAllRows';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { getCurrentManagerId } from '../utils/currentManager';
 import {
-  defaultSetupDispatch, findConflictingAssignment, describeClash, needsTransport,
+  findConflictingAssignment, describeClash, needsTransport,
   recheckConflictsBeforeInsert, DUPLICATE_ASSIGNMENT_CODE, duplicateAssignmentMessage,
+  TRIP_LEG, legLabelFor, getTripType, getDispatchWindow,
+  getDispatchBounds, defaultDispatchFor, isDispatchInBounds, describeDispatchBounds,
+  toDateTimeLocalValue,
 } from '../utils/vehicle';
 
 export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigned }) {
@@ -32,16 +35,26 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedVehicleIds, setSelectedVehicleIds] = useState([]);
   const [search, setSearch] = useState('');
-  // Suggested departure: travel plus setup, so setup finishes as the event
-  // starts. Clamped to now, because a suggestion in the past is not one.
+  // WHICH RUN this is. An explicit choice, not something inferred afterwards.
+  //
+  // Nothing new is stored: `vehicle_assign` has no run_type column and the
+  // schema is shared with the customer mobile app. The leg is still derived on
+  // read from `dispatch >= event`. What this selector buys is that the manager
+  // says which run they mean BEFORE picking a time, and getDispatchBounds then
+  // constrains the time so it can only derive back to that same leg — see the
+  // note on getDispatchBounds. Selector and derivation cannot disagree.
+  const [leg, setLeg] = useState(TRIP_LEG.setup);
+
+  // Departure for the chosen leg, already clamped into that leg's bounds.
   // Computed at mount, which is exactly when the modal opens.
-  const [dispatchValue, setDispatchValue] = useState(() => {
-    const suggested = defaultSetupDispatch(booking);
-    if (!suggested) return '';
-    if (suggested < new Date()) suggested.setTime(Date.now());
-    const offsetMs = suggested.getTime() - suggested.getTimezoneOffset() * 60 * 1000;
-    return new Date(offsetMs).toISOString().slice(0, 16);
-  });
+  const [dispatchValue, setDispatchValue] = useState(
+    () => toDateTimeLocalValue(defaultDispatchFor(booking, TRIP_LEG.setup))
+  );
+
+  const chooseLeg = (nextLeg) => {
+    setLeg(nextLeg);
+    setDispatchValue(toDateTimeLocalValue(defaultDispatchFor(booking, nextLeg)));
+  };
 
   // The fleet and every live assignment: the second is what makes a conflict
   // answerable at all, so it is fetched even though nothing displays it.
@@ -92,8 +105,26 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
 
   const eventAt = booking?.event_datetime ? new Date(booking.event_datetime) : null;
   const chosen = dispatchValue ? new Date(dispatchValue) : null;
-  const suggested = defaultSetupDispatch(booking);
+  const suggested = defaultDispatchFor(booking, leg);
   const isSuggested = !!(chosen && suggested) && Math.abs(chosen - suggested) < 60 * 1000;
+
+  const tripType = getTripType(booking);
+  // legLabelFor, never a hardcoded word: a short order's outbound leg is a
+  // Delivery, not a Setup run, and hardcoding makes every short order read
+  // wrong.
+  const legChoices = [TRIP_LEG.setup, TRIP_LEG.pickup].map(key => ({
+    key,
+    label: legLabelFor(tripType, key),
+  }));
+
+  const bounds = getDispatchBounds(booking, leg);
+  const inBounds = !chosen || isNaN(chosen) || isDispatchInBounds(chosen, booking, leg);
+  const boundsSentence = describeDispatchBounds(booking, leg);
+  // The window this dispatch time actually produces, in the same words the
+  // Dispatch card uses.
+  const previewWindow = chosen && !isNaN(chosen)
+    ? getDispatchWindow({ dispatch_datetime: chosen.toISOString() }, booking)
+    : null;
 
   const describeGap = (from, to) => {
     const mins = Math.round(Math.abs(to - from) / 60000);
@@ -124,12 +155,19 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
     if (!dispatchValue) { toast.error('Please set a dispatch date/time.'); return; }
     if (!eventAt) { toast.error('This booking has no event date.'); return; }
 
+    // An input's min/max is advisory: it is bypassable by typing and ignored
+    // outright by some browsers. The real refusal is here.
+    if (!isDispatchInBounds(new Date(dispatchValue), booking, leg)) {
+      toast.error(boundsSentence, { duration: 9000 });
+      return;
+    }
+
     // Same guard the Vehicles page applies, via the same helper: an
     // overlapping RUN blocks the assignment, another booking on the same day
     // does not.
     const conflicts = [];
     for (const vehicleId of selectedVehicleIds) {
-      const clash = findConflictingAssignment(assignments, vehicleId, booking, dispatchValue);
+      const clash = findConflictingAssignment(assignments, vehicleId, booking, dispatchValue, leg);
       if (clash) {
         const v = vehicles.find(x => x.vehicle_id === vehicleId);
         conflicts.push(`${v?.plate_number || vehicleId} - ${describeClash(clash, booking)}`);
@@ -144,7 +182,7 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
     try {
       // The list above was loaded when the modal opened. Ask again, against
       // fresh rows, before writing — nothing in the database enforces this.
-      const late = await recheckConflictsBeforeInsert(selectedVehicleIds, booking, dispatchValue);
+      const late = await recheckConflictsBeforeInsert(selectedVehicleIds, booking, dispatchValue, leg);
       if (late.length > 0) {
         const names = late.map(({ vehicle_id, conflict }) => {
           const v = vehicles.find(x => x.vehicle_id === vehicle_id);
@@ -215,6 +253,37 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
             </p>
           )}
 
+          {/* WHICH RUN — first, because it changes the suggested time, the
+              allowed range, and which vehicles are already taken. Asking it
+              after the vehicle list would mean answering it twice. */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">Which run is this?</label>
+            <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 border border-slate-200 rounded-[10px]">
+              {legChoices.map(choice => (
+                <button
+                  key={choice.key}
+                  type="button"
+                  onClick={() => chooseLeg(choice.key)}
+                  className={`px-3 py-2 rounded-[7px] text-[13.5px] font-semibold transition-colors cursor-pointer ${
+                    leg === choice.key
+                      ? 'bg-white text-[#007038] shadow-sm border border-[#c2dccf]'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {choice.label}
+                </button>
+              ))}
+            </div>
+            {previewWindow && (
+              <p className="text-xs text-slate-600 mt-1.5 tabular-nums">
+                Leaves {previewWindow.start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                {' → back '}
+                {previewWindow.end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                {previewWindow.start.toDateString() !== previewWindow.end.toDateString() && ' the next day'}
+              </p>
+            )}
+          </div>
+
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">Select Vehicles</label>
             <div className="relative mb-2">
@@ -238,7 +307,7 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
               <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-56 overflow-y-auto">
                 {visible.map(v => {
                   const outOfService = v.vehicle_status !== 'Available';
-                  const clash = outOfService ? null : findConflictingAssignment(assignments, v.vehicle_id, booking, dispatchValue);
+                  const clash = outOfService ? null : findConflictingAssignment(assignments, v.vehicle_id, booking, dispatchValue, leg);
                   const disabled = outOfService || !!clash;
                   const checked = selectedVehicleIds.includes(v.vehicle_id);
                   return (
@@ -280,11 +349,18 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
 
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">Dispatch Date/Time (for all selected vehicles)</label>
+            {/* min/max are LOCAL wall-clock strings. An ISO/UTC value here
+                would shift the allowed range by the timezone offset — the same
+                eight-hour trap the insert path warns about, in reverse. */}
             <input
               type="datetime-local"
               value={dispatchValue}
+              min={bounds ? toDateTimeLocalValue(bounds.min) : undefined}
+              max={bounds ? toDateTimeLocalValue(bounds.max) : undefined}
               onChange={(e) => setDispatchValue(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]"
+              className={`w-full border rounded-lg p-2.5 text-sm outline-none ${
+                inBounds ? 'border-slate-300 focus:border-[#008A45]' : 'border-amber-400 bg-amber-50/50 focus:border-amber-500'
+              }`}
             />
             {eventAt && (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-xs text-slate-500">
@@ -293,18 +369,33 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
                 {chosen && !isNaN(chosen) && (
                   <>
                     <span>•</span>
-                    <span className={isSuggested ? 'text-[#008A45] font-medium' : 'text-slate-600 font-medium'}>
+                    {/* This line was the ONLY feedback, and it read exactly the
+                        same whether the time made sense or not — it described
+                        BKG-110's +68h as placidly as a correct +4h. It now
+                        changes colour and names the breach. */}
+                    <span className={
+                      !inBounds ? 'text-amber-700 font-semibold'
+                        : isSuggested ? 'text-[#008A45] font-medium'
+                        : 'text-slate-600 font-medium'
+                    }>
                       {chosen <= eventAt
                         ? `Leaves ${describeGap(chosen, eventAt)} before the event`
                         : `Leaves ${describeGap(eventAt, chosen)} after the event starts`}
                       {isSuggested && ' (suggested)'}
+                      {!inBounds && ' — outside the allowed window'}
                     </span>
                   </>
                 )}
               </div>
             )}
+            {!inBounds && boundsSentence && (
+              <p className="flex items-start gap-1.5 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-1.5">
+                <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                <span>{boundsSentence}</span>
+              </p>
+            )}
             <p className="text-xs text-slate-400 mt-1">
-              All selected vehicles will have the same dispatch time. The suggestion allows travel plus setup, so setup finishes as the event starts.
+              All selected vehicles will have the same dispatch time. {boundsSentence}
             </p>
           </div>
         </div>

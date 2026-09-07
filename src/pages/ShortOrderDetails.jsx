@@ -1411,6 +1411,18 @@ export default function ShortOrderDetails() {
                                 ? `${run.window.start.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} \u2192 back ${run.window.end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
                                 : (run.dispatchAt ? new Date(run.dispatchAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Time not set')}
                             </span>
+                            {/* Display only, never a correction. BKG-110's three
+                                collection runs sit at +68h, which is 44 hours
+                                past the point its equipment is already flagged
+                                Overdue; rendering them as ordinary runs is how
+                                they stayed wrong. Fixing one means reassigning
+                                it, which is Vaughn's call, not a silent write to
+                                a database the customer mobile app shares. */}
+                            {run.outsideBounds && (
+                              <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-800 text-[11.5px] font-semibold">
+                                <AlertTriangle size={10} /> Outside the expected window
+                              </span>
+                            )}
                           </div>
                           {shared && <span className={`${pill(shared)} shrink-0`}>{shared.label}</span>}
                         </div>
