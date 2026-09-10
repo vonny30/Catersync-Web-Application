@@ -157,3 +157,90 @@ export function cardAccentClass(color = 'green') {
 export function cardValueClass(color = 'green') {
   return color === 'red' ? 'text-red-700' : 'text-slate-900';
 }
+
+
+// ---------------------------------------------------------------------------
+// MONTHLY GROUPING
+//
+// Months are grouped by a NUMERIC key and sorted on it, never by re-parsing the
+// display string. `new Date("Aug 2026")` is implementation-defined, and under a
+// non-English locale toLocaleString emits "ago 2026" / "8月 2026", which parses
+// to Invalid Date and sorts the chart into arbitrary order.
+// ---------------------------------------------------------------------------
+export const monthSortKey = (date) => date.getFullYear() * 12 + date.getMonth();
+export const monthLabel = (date) => date.toLocaleString('default', { month: 'short', year: 'numeric' });
+
+/**
+ * The Financial tab's three-line trend: estimated gross revenue, what has been
+ * paid against it, and what is left — per EVENT month.
+ *
+ * Anchored on the EVENT date, matching the three cards above the chart. That is
+ * a different question from the cash-by-payment-month series, and reusing that
+ * one here would quietly answer the wrong one.
+ *
+ * DELIBERATELY IGNORES THE PERIOD FILTER, which is why it takes the full
+ * booking and payment lists rather than range-scoped copies. A trend scoped to
+ * one month is a single point — which is exactly what the bar chart this
+ * replaced rendered under the default "This Month" preset. The window is the
+ * last six months plus anything already scheduled ahead.
+ *
+ * Pending bookings are INCLUDED, which keeps it consistent with the Estimated
+ * Gross Revenue card, and is what makes "estimated" the honest word: a pending
+ * request may never convert.
+ *
+ * Pure — `now` is a parameter, so this is testable and never reads the clock.
+ */
+export const buildMonthlyFinancialTrend = (
+  bookings = [],
+  verifiedPayments = [],
+  now = new Date(),
+  { monthsBack = 5, excludeStatuses = ['Rejected', 'Cancelled'] } = {}
+) => {
+  const floor = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
+
+  // Every verified payment against a booking, whenever it was taken: it is
+  // credited to the month of the EVENT it pays for, not the month it landed.
+  const paidByBooking = {};
+  verifiedPayments.forEach(p => {
+    paidByBooking[p.booking_id] = (paidByBooking[p.booking_id] || 0) + (p.amount_paid || 0);
+  });
+
+  const byMonth = {};
+  bookings.forEach(b => {
+    if (!b.event_datetime) return;
+    if (excludeStatuses.includes(b.booking_status)) return;
+    const when = new Date(b.event_datetime);
+    if (Number.isNaN(when.getTime()) || when < floor) return; // no upper bound
+    const key = monthSortKey(when);
+    if (!byMonth[key]) byMonth[key] = { month: monthLabel(when), estimatedGrossRevenue: 0, paidToDate: 0 };
+    byMonth[key].estimatedGrossRevenue += b.total_amount || 0;
+    byMonth[key].paidToDate += paidByBooking[b.booking_id] || 0;
+  });
+
+  // A month with no events is a GAP, not a zero. Zero would draw the line down
+  // to the axis and claim there was nothing to earn, when the truth is there
+  // was nothing booked. The span is filled in so the axis stays continuous and
+  // the chart can break each line across the empty month.
+  const keys = Object.keys(byMonth).map(Number);
+  const first = monthSortKey(floor);
+  const last = keys.length ? Math.max(...keys) : first;
+
+  const series = [];
+  for (let key = first; key <= last; key++) {
+    const hit = byMonth[key];
+    series.push(hit
+      ? {
+          month: hit.month,
+          estimatedGrossRevenue: hit.estimatedGrossRevenue,
+          paidToDate: hit.paidToDate,
+          unpaid: hit.estimatedGrossRevenue - hit.paidToDate,
+        }
+      : {
+          month: monthLabel(new Date(Math.floor(key / 12), key % 12, 1)),
+          estimatedGrossRevenue: null,
+          paidToDate: null,
+          unpaid: null,
+        });
+  }
+  return series;
+};

@@ -1,6 +1,6 @@
 // src/pages/Reports/FinancialTab.jsx
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LabelList,
 } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 import { ExternalLink } from 'lucide-react';
@@ -8,14 +8,15 @@ import { formatCurrency, formatPercent, formatDate } from './helpers';
 
 export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
   const navigate = useNavigate();
-  const { financialSummary, monthlyRevenueData, paymentMethodData, refunds, totalRefunded, bookingSummaryData } = derived;
+  const { financialSummary, monthlyFinancialTrend, paymentMethodData, refunds, totalRefunded, bookingSummaryData } = derived;
 
-  // Share of contracted value that has been paid. BOTH sides are event-anchored
-  // (contract value and payments against those same events), so the ratio is
-  // like-for-like. It deliberately does NOT use paymentsReceived: that figure
-  // is anchored on payment date and counts cash from events outside this
-  // period, so dividing it by this period's contract value would compare two
-  // different populations and produce a number that means nothing.
+  // Share of estimated gross revenue that has been paid. BOTH sides are
+  // event-anchored (the estimate and the payments against those same events),
+  // so the ratio is like-for-like. It deliberately does NOT use
+  // paymentsReceived: that figure is anchored on payment date and counts cash
+  // from events outside this period, so dividing it by this period's estimate
+  // would compare two different populations and produce a number that means
+  // nothing.
   const collectedPct = financialSummary.contractValue > 0
     ? (financialSummary.paidAgainstEvents / financialSummary.contractValue) * 100
     : 0;
@@ -73,7 +74,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
           </span>
           <div className="flex flex-wrap gap-8">
             <button onClick={() => onCardClick('revenue')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
-              <span className="block text-[13px] text-slate-600 mb-1.5">Contract Value</span>
+              <span className="block text-[13px] text-slate-600 mb-1.5">Estimated Gross Revenue</span>
               <span className={`${FIG} text-slate-900`}>{formatCurrency(financialSummary.contractValue)}</span>
             </button>
             <button onClick={() => onCardClick('collected')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
@@ -99,47 +100,108 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
           {financialSummary.contractValue > 0 ? (
             <>
               <span className="block text-[13px] text-slate-600 tabular-nums">
-                {formatPercent(collectedPct)} of contract value paid for these events
+                {formatPercent(collectedPct)} of estimated gross revenue paid for these events
               </span>
               <span className="block text-[12.5px] text-slate-500 mt-1 tabular-nums">
-                {formatCurrency(financialSummary.paidAgainstEvents)} paid ÷ {formatCurrency(financialSummary.contractValue)} contract value
+                {formatCurrency(financialSummary.paidAgainstEvents)} paid ÷ {formatCurrency(financialSummary.contractValue)} estimated gross revenue
               </span>
             </>
           ) : (
             <span className="block text-[13px] text-slate-600">
-              No events fall in this period, so there is no contract value to measure against.
+              No events fall in this period, so there is no estimated gross revenue to measure against.
             </span>
           )}
         </div>
       </section>
 
       <div className="bg-white border border-slate-200/70 rounded-2xl p-6">
-        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
-          <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Payments received by month</h3>
-          <span className="text-[13px] text-slate-600">Refunds already subtracted</span>
+        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
+          <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Money by event month</h3>
+          <span className="text-[13px] text-slate-600">Same three figures as the cards above</span>
         </div>
-        {monthlyRevenueData.length === 0 ? (
-          <div className="h-64 flex items-center justify-center text-slate-400 text-sm">No payment data available.</div>
+        {/* REQUIRED SENTENCE. This chart deliberately ignores the period filter
+            sitting above it, and a chart that ignores a nearby control reads as
+            a bug unless it says so. It replaced a bar chart of cash-by-payment-
+            month which, under the default "This Month" preset, rendered exactly
+            one bar — a time series with no time in it. */}
+        <p className="text-[13px] text-slate-600 mb-4">
+          Last 6 months and scheduled ahead — not affected by the period filter above.
+        </p>
+        {monthlyFinancialTrend.length === 0 ? (
+          <div className="h-64 flex items-center justify-center text-slate-400 text-sm">No events to chart.</div>
         ) : (
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={monthlyRevenueData} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" />
+          <ResponsiveContainer width="100%" height={320}>
+            <LineChart data={monthlyFinancialTrend} margin={{ top: 10, right: 96, left: 20, bottom: 20 }}>
+              {/* Horizontal rules only. Vertical grid lines add nothing to a
+                  categorical month axis and compete with the lines. */}
+              <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="month" tick={{ fontSize: 13, fill: '#475569' }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} />
-              <YAxis tickFormatter={(value) => `₱${value.toLocaleString()}`} tick={{ fontSize: 13, fill: '#475569' }} tickLine={false} axisLine={false} width={90} />
-              <Tooltip formatter={(value) => [`₱${value.toLocaleString()}`, 'Collected']} labelFormatter={(label) => `Month: ${label}`} />
-              {/* Six rotating greens carried no meaning -- adjacent months were
-                  different colours for no reason. One neutral fill for history
-                  and brand green for the most recent month, so "now" is the
-                  only thing the colour marks. */}
-              <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
-                {monthlyRevenueData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={index === monthlyRevenueData.length - 1 ? '#008A45' : '#cbd5e1'} />
-                ))}
-              </Bar>
-            </BarChart>
+              {/* One shared axis. All three series are pesos, and a second
+                  y-scale would let two lines cross at a point where the
+                  underlying amounts are nowhere near each other. */}
+              <YAxis
+                domain={[0, 'auto']}
+                tickFormatter={(value) => `₱${Number(value).toLocaleString()}`}
+                tick={{ fontSize: 13, fill: '#475569' }}
+                tickLine={false}
+                axisLine={false}
+                width={100}
+              />
+              <Tooltip
+                cursor={{ stroke: '#94a3b8', strokeWidth: 1 }}
+                formatter={(value, name) => [value === null ? 'No events' : `₱${Number(value).toLocaleString()}`, name]}
+                labelFormatter={(label) => label}
+                contentStyle={{ fontSize: 13, borderRadius: 10, border: '1px solid #e2e8f0' }}
+                labelStyle={{ color: '#0f172a', fontWeight: 700 }}
+                itemStyle={{ color: '#475569' }}
+              />
+              <Legend wrapperStyle={{ fontSize: 13, color: '#475569' }} />
+              {/* Okabe-Ito. NOT the app's brand green and amber, which sit at
+                  dE 4.6 under protanopia — a red-green colourblind manager
+                  could not tell Paid from Unpaid, which is the one comparison
+                  this chart exists to make. */}
+              {[
+                { key: 'estimatedGrossRevenue', name: 'Estimated Gross Revenue', color: '#0072B2' },
+                { key: 'paidToDate', name: 'Paid to Date', color: '#009E73' },
+                { key: 'unpaid', name: 'Unpaid on These Events', color: '#D55E00' },
+              ].map((series, i) => (
+                <Line
+                  key={series.key}
+                  type="monotone"
+                  dataKey={series.key}
+                  name={series.name}
+                  stroke={series.color}
+                  strokeWidth={2}
+                  dot={{ r: 4, fill: series.color, strokeWidth: 0 }}
+                  activeDot={{ r: 5 }}
+                  /* A month with no events is a gap, not a zero: zero would draw
+                     the line to the axis and claim there was nothing to earn. */
+                  connectNulls={false}
+                >
+                  {/* Identity is never colour-alone — each line is also named at
+                      its own right end, so the legend is a convenience rather
+                      than the only key. */}
+                  <LabelList
+                    dataKey={series.key}
+                    position="right"
+                    content={({ x, y, index }) =>
+                      index === monthlyFinancialTrend.length - 1 && x != null && y != null ? (
+                        <text x={x + 8} y={y + (i - 1) * 2} dy={4} fontSize={11} fontWeight={700} fill={series.color}>
+                          {series.name.split(' ')[0]}
+                        </text>
+                      ) : null
+                    }
+                  />
+                </Line>
+              ))}
+            </LineChart>
           </ResponsiveContainer>
         )}
-        <p className="mt-2 text-[13px] text-slate-600">Each bar is the verified payments taken that month, net of any refunds issued in the same month — so a month can read lower than the payments alone, or go negative.</p>
+        <p className="mt-2 text-[13px] text-slate-600">
+          Each month is the events happening THAT month — not the cash taken that month. Estimated Gross Revenue
+          includes bookings not yet approved, exactly as the card above does, so a month can carry an estimate for
+          work PG&#39;s has not accepted yet. Unpaid is the estimate minus what has been paid against those same events.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

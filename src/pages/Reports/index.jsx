@@ -2,7 +2,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabase';
 import toast from 'react-hot-toast';
-import { getBookingRef, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './helpers';
+import {
+  getBookingRef, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET,
+  monthSortKey, monthLabel, buildMonthlyFinancialTrend,
+} from './helpers';
 import { isUnverifiedPayment } from '../../utils/payments';
 import { getPaymentsReceived } from '../../utils/reportMetrics';
 import { fetchAllRows } from '../../utils/fetchAllRows';
@@ -31,8 +34,6 @@ const CANCELLED_STATUSES = ['Rejected', 'Cancelled'];
 // parsed back into a Date. Keeping those two jobs in separate values is the
 // whole point — a localized string like "Aug 2026" is not a reliable sort
 // key, and is not reliably parseable at all outside an English locale.
-const monthSortKey = (date) => date.getFullYear() * 12 + date.getMonth();
-const monthLabel = (date) => date.toLocaleString('default', { month: 'short', year: 'numeric' });
 
 export default function Reports() {
   const [activeTab, setActiveTab] = useState('Overview');
@@ -160,8 +161,9 @@ export default function Reports() {
     const activeBookingsInRange = bookingsInEventRange.filter(b => !CANCELLED_STATUSES.includes(b.booking_status));
     const activeBookingIds = new Set(activeBookingsInRange.map(b => b.booking_id));
     // A Pending row is an enquiry PG's has not accepted, but it still carries a
-    // total_amount and so still lands in Contract Value. The figure stays as it
-    // is — these three cards are a tied set, contractValue - paidAgainstEvents
+    // total_amount and so still lands in Estimated Gross Revenue — which is
+    // exactly why that figure is called an estimate. It stays as it is: these
+    // three cards are a tied set, contractValue - paidAgainstEvents
     // = outstandingBalance, and FinancialTab prints that division on screen —
     // so the count is disclosed in the sub-line instead of being subtracted.
     const pendingInRangeCount = activeBookingsInRange.filter(b => b.booking_status === 'Pending').length;
@@ -662,8 +664,15 @@ export default function Reports() {
         return { id: `RPT-${index + 1}`, month: data.month, bookings: data.bookings, revenue: data.revenue, topPackage };
       });
 
+    // The Financial tab's three-line trend. Built by a pure helper, given the
+    // FULL booking and payment lists rather than the range-scoped copies —
+    // this series ignores the period filter by design, and the chart says so.
+    const monthlyFinancialTrend = buildMonthlyFinancialTrend(
+      bookings, verifiedPayments, nowInstant, { excludeStatuses: CANCELLED_STATUSES }
+    );
+
     return {
-      financialSummary, monthlyRevenueData, paymentMethodData, refunds, totalRefunded,
+      financialSummary, monthlyRevenueData, monthlyFinancialTrend, paymentMethodData, refunds, totalRefunded,
       totalSubmitted, cancellationRate, rejectedCount, customerCancelledCount, pendingInRangeCount,
       committedVehicles, fleetUtilization, serviceableVehicles,
       productLineMix, packageMix, menuItemMix, categoryDemandData,
@@ -679,7 +688,7 @@ export default function Reports() {
   const handleCardClick = (type) => {
     if (!derived) return;
     const breakdowns = {
-      revenue: { data: derived.financialSummary._revenueBreakdown, title: 'Contract Value — events in this period' },
+      revenue: { data: derived.financialSummary._revenueBreakdown, title: 'Estimated Gross Revenue — events in this period' },
       collected: { data: derived.financialSummary._collectedBreakdown, title: 'Paid against these events' },
       outstanding: { data: derived.financialSummary._outstandingBreakdown, title: 'Unpaid on These Events' },
     };

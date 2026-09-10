@@ -18,13 +18,19 @@ function StatCard({ label, value, sub, color, onClick, count = false }) {
 }
 
 const SECTION_GRID = 'grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))]';
+// auto-FILL, not auto-fit. Operations is down to two cards, and auto-fit
+// collapses the empty tracks so those two stretch across the whole width —
+// which reads as a row that lost two cards rather than a row that has two.
+// auto-fill keeps the tracks, so the cards sit at the same width as the
+// Financial row above and the leftover space stays empty.
+const SECTION_GRID_FIXED = 'grid gap-3.5 [grid-template-columns:repeat(auto-fill,minmax(min(100%,210px),1fr))]';
 const SECTION_HEAD = 'text-[13px] font-bold text-slate-600 tracking-[0.04em] mb-3';
 
 export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
   const {
-    financialSummary, totalSubmitted, cancellationRate, rejectedCount, customerCancelledCount, pendingInRangeCount,
+    financialSummary, totalSubmitted, pendingInRangeCount,
     packageMix, menuItemMix, topSellingItem,
-    equipmentUtilizationData, totalVehicles, dispatchedVehicles, totalCustomers, repeatCustomers, oneTimeCustomers,
+    totalVehicles, dispatchedVehicles, totalCustomers, repeatCustomers, oneTimeCustomers,
     bookingSummaryData,
   } = derived;
 
@@ -33,14 +39,6 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
   const topPackage = packageMix[0] || null;
   const topItem = menuItemMix[0] || null;
   const hasTopSellers = Boolean(topPackage || topItem);
-  const totalEquipmentDeployed = equipmentUtilizationData.reduce((sum, e) => sum + e.deployed, 0);
-  const totalEquipmentUnits = equipmentUtilizationData.reduce((sum, e) => sum + e.total, 0);
-  const totalEquipmentUsable = equipmentUtilizationData.reduce((sum, e) => sum + e.usable, 0);
-  // Usable stock, not units owned — the same denominator EquipmentUtilizationTab
-  // uses. Dividing by everything owned counts damaged and under-maintenance gear
-  // as spare capacity, which reports a lower utilization than is real. The two
-  // pages showed different percentages for the same fleet until this matched.
-  const equipmentUsageRate = totalEquipmentUsable > 0 ? Math.round((totalEquipmentDeployed / totalEquipmentUsable) * 100) : 0;
   const totalCompletedBookings = bookingSummaryData.reduce((sum, r) => sum + r.bookings, 0);
 
   return (
@@ -55,7 +53,11 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
       <section>
         <h2 className={SECTION_HEAD}>Financial</h2>
         <div className={SECTION_GRID}>
-        <StatCard label="Contract Value" value={formatCurrency(financialSummary.contractValue)} sub={`Events in this period${pendingInRangeCount > 0 ? ` · includes ${pendingInRangeCount} not yet approved` : ''}`} color="green" onClick={() => onCardClick('revenue')} />
+        {/* "Estimated", because the figure deliberately includes bookings that
+            have not been approved yet — the sub-line says how many. A pending
+            request may never convert, which is what makes this an estimate
+            rather than a contracted amount. The computation is unchanged. */}
+        <StatCard label="Estimated Gross Revenue" value={formatCurrency(financialSummary.contractValue)} sub={`Events in this period${pendingInRangeCount > 0 ? ` · includes ${pendingInRangeCount} not yet approved` : ''}`} color="green" onClick={() => onCardClick('revenue')} />
         <StatCard label="Paid to Date" value={formatCurrency(financialSummary.paidAgainstEvents)} sub="Against those events" color="teal" onClick={() => onCardClick('collected')} />
         <StatCard label="Unpaid on These Events" value={formatCurrency(financialSummary.outstanding)} sub="Of the events in this period" color="amber" onClick={() => onCardClick('outstanding')} />
         <StatCard
@@ -75,7 +77,7 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
 
       <section>
         <h2 className={SECTION_HEAD}>Operations</h2>
-        <div className={SECTION_GRID}>
+        <div className={SECTION_GRID_FIXED}>
         <StatCard
           label="Bookings & Orders Submitted"
           count
@@ -86,39 +88,6 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
             title: 'Bookings & Orders Submitted',
             description: 'From the booking table: every row submitted in the selected period, counted by its submission date — regardless of what status it ended up with.',
             fields: [{ label: 'Total submitted', value: totalSubmitted, emphasis: true }],
-          })}
-        />
-        <StatCard
-          label="Rejected & Cancelled"
-          value={`${cancellationRate}%`}
-          sub="of all bookings & orders submitted"
-          color="red"
-          onClick={() => onOpenDetail({
-            title: 'Rejected & Cancelled',
-            description: 'From the booking table: bookings and orders whose status is Rejected or Cancelled, divided by all submitted in this period. Rejected means PG’s declined the work; Cancelled means the customer withdrew.',
-            badge: { label: cancellationRate > 20 ? 'Needs attention' : 'Healthy', variant: cancellationRate > 20 ? 'warning' : 'good' },
-            fields: [
-              { label: 'Rate', value: `${cancellationRate}%`, emphasis: true },
-              { label: 'Rejected by PG’s', value: rejectedCount },
-              { label: 'Cancelled by customer', value: customerCancelledCount },
-              { label: 'Bookings & orders submitted', value: totalSubmitted },
-            ],
-          })}
-        />
-        <StatCard
-          label="Equipment Committed"
-          value={`${equipmentUsageRate}%`}
-          sub={`${totalEquipmentDeployed} of ${totalEquipmentUsable} usable units committed`}
-          color="blue"
-          onClick={() => onOpenDetail({
-            title: 'Equipment Committed',
-            description: `Live snapshot from the equipment table (stock counts) and booking_equipment table (items not yet marked returned), across ${equipmentUtilizationData.length} equipment type(s).`,
-            fields: [
-              { label: 'Utilization', value: `${equipmentUsageRate}%`, emphasis: true },
-              { label: 'Committed', value: totalEquipmentDeployed },
-              { label: 'Usable stock', value: totalEquipmentUsable },
-              { label: 'Units owned', value: totalEquipmentUnits },
-            ],
           })}
         />
         <StatCard
