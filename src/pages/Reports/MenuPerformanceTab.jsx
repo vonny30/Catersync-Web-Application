@@ -98,8 +98,8 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                     onClick={() => onOpenDetail({
                       title: line.name,
                       description: line.key === 'Package'
-                        ? 'From the booking table: active package bookings with an event date in the selected period, at their contract value.'
-                        : 'From the booking table: active short orders with an event date in the selected period, at their contract value including delivery fees.',
+                        ? 'From the booking table: active package bookings with an event date in the selected period, at their estimated gross revenue.'
+                        : 'From the booking table: active short orders with an event date in the selected period, at their estimated gross revenue including delivery fees.',
                       fields: [
                         { label: 'Revenue', value: formatCurrency(line.revenue), emphasis: true },
                         { label: 'Share of total revenue', value: formatPercent(line.revenueShare) },
@@ -334,10 +334,22 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
         </div>
       </Panel>
 
+      {/* This tab reads the same population the renamed cards do:
+          packageBookings and shortOrderBookings both derive from
+          activeBookingsInRange, which filters out CANCELLED_STATUSES and
+          nothing else — so a booking awaiting approval is counted here exactly
+          as it is there.
+
+          The note used to state only what was EXCLUDED, which let a reader
+          assume the rest were accepted work. They are not: at the time of
+          writing two pending packages and one pending short order sit in these
+          figures. Saying so is the same disclosure the Financial tab's chart
+          caption makes, in the same words, because it is the same rule. */}
       <p className={`text-xs text-slate-500 rounded-xl border p-4 ${cardColorClasses('green')}`}>
-        Revenue here is contract value — what each booking is worth in total, whether or not it has been paid.
-        Rejected and cancelled bookings are excluded throughout. Every share column is measured against its own
-        product line's total, which is why each one adds up to 100%.
+        Revenue here is estimated gross revenue — what each booking is worth in total, whether or not it has been
+        paid. Rejected and cancelled bookings are excluded, and bookings not yet approved ARE included, the same
+        basis the Financial tab uses. Every share column is measured against its own product line's total, which
+        is why each one adds up to 100%.
       </p>
     </div>
   );
