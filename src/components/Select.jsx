@@ -41,6 +41,12 @@ export default function Select({ value, onChange, className = '', disabled, name
 
   const MENU_MAX_HEIGHT = 256; // matches max-h-64 on the panel
   const GAP = 4;
+  // How wide the panel may grow beyond its trigger. This ceiling is the whole
+  // reason the panel is allowed to grow at all — see the note on the panel's
+  // style block. 320px comfortably holds the longest option in the app while
+  // staying narrower than every modal that contains a Select.
+  const MENU_MAX_WIDTH = 320;
+  const VIEWPORT_MARGIN = 16;
 
   const computePosition = () => {
     const rect = triggerRef.current.getBoundingClientRect();
@@ -56,6 +62,9 @@ export default function Select({ value, onChange, className = '', disabled, name
       left: rect.left,
       width: rect.width,
       maxHeight: Math.max(120, (flipUp ? rect.top : spaceBelow) - GAP * 2),
+      // Recomputed here, alongside every other measurement, so it stays right
+      // through scroll and resize rather than being a one-shot guess.
+      maxWidth: Math.min(MENU_MAX_WIDTH, window.innerWidth - rect.left - VIEWPORT_MARGIN),
     };
   };
 
@@ -117,28 +126,49 @@ export default function Select({ value, onChange, className = '', disabled, name
             top: menuPos.top,
             bottom: menuPos.bottom,
             left: menuPos.left,
-            // Exactly the trigger's width, as a native <select> does. This was
-            // `minWidth`, which combined with whitespace-nowrap on the options
-            // let one long label stretch the panel far past the trigger — the
-            // Assign modal's equipment list ran nearly the full screen width
-            // off the side of the modal.
-            width: menuPos.width,
+            // TWO FAILURE MODES, ONE BOUNDED RANGE. Read both before changing
+            // either — this has swung between them once already.
+            //
+            //   minWidth alone (the original) let a long option stretch the
+            //   panel to whatever its widest label needed. The Assign modal's
+            //   equipment list ran nearly the full screen width, off the side
+            //   of the modal containing it.
+            //
+            //   width alone (the fix for that) pinned the panel to the TRIGGER,
+            //   which is sized by its current value. A 66px trigger showing
+            //   "All" gave a 66px panel that had to hold "Short Orders" — which
+            //   wrapped onto four lines and broke "Packages" mid-word into
+            //   "Pack / ages".
+            //
+            // The trigger width is a FLOOR, not a fixed size, and maxWidth is
+            // the ceiling the first version lacked. The panel grows to fit its
+            // widest option and cannot escape either the viewport or a modal.
+            minWidth: menuPos.width,
+            maxWidth: menuPos.maxWidth,
             maxHeight: menuPos.maxHeight,
           }}
-          className="z-[9999] overflow-y-auto overflow-x-hidden bg-white rounded-xl shadow-lg border border-slate-200 py-1"
+          // overflow-x-hidden is deliberately absent: it clipped the panel
+          // rather than letting it size to its content. Vertical scrolling for
+          // a long list is still right.
+          className="z-[9999] overflow-y-auto bg-white rounded-xl shadow-lg border border-slate-200 py-1"
         >
           {options.map((opt, idx) => {
             const isSelected = String(opt.value) === String(value);
+            // An option label is a short noun phrase and must never wrap: the
+            // panel widens to fit it instead. Past the 320px ceiling it is
+            // ellipsised rather than wrapped, and the title carries the full
+            // text — truncation with no way to read the whole value is not an
+            // acceptable trade. Only strings get a title; a few call sites pass
+            // element children, and [object Object] is worse than nothing.
+            const title = typeof opt.label === 'string' ? opt.label : undefined;
             return (
               <button
                 key={`${opt.value}-${idx}`}
                 type="button"
                 disabled={opt.disabled}
+                title={title}
                 onClick={() => handleSelect(opt.value)}
-                // Wraps instead of forcing the panel wider. break-words stops
-                // an unbroken token (a long equipment name, an email) from
-                // overflowing horizontally now that the width is fixed.
-                className={`w-full text-left px-4 py-2 text-sm leading-snug break-words transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                className={`w-full text-left px-4 py-2 text-sm leading-snug whitespace-nowrap overflow-hidden text-ellipsis transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                   isSelected ? 'bg-[#EAF3F2] text-[#007038] font-semibold' : 'text-slate-700 hover:bg-slate-50'
                 }`}
               >
