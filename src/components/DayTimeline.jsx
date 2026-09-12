@@ -103,7 +103,14 @@ export default function TimelineTrack({
             // identifies it), and `|| b.primary` would hand it back the long
             // one it just declined.
             const label = compact && b.compactLabel !== undefined ? b.compactLabel : b.primary;
-            const showLabel = (!compact || b.width >= 9) && !!label;
+            // The full-size timeline needs the same threshold the compact strip
+            // has. A short-order delivery is 75 minutes on a 24-hour axis — a
+            // 61px block with 43px of text space — and its two lines need 76px
+            // and 140px. Both rendered, clipped to a few characters each, which
+            // reads as a broken box rather than a short trip. The block's own
+            // title carries the full sentence on hover either way.
+            const showLabel = (compact ? b.width >= 9 : b.width >= 8) && !!label;
+            const showSecondary = !compact && b.secondary && b.width >= 14;
             const inner = (
               <>
                 {showLabel && (
@@ -111,7 +118,7 @@ export default function TimelineTrack({
                   {label}
                 </span>
                 )}
-                {!compact && b.secondary && (
+                {showSecondary && (
                   <span className="text-[10.5px] leading-tight truncate w-full opacity-80 tabular-nums">
                     {b.secondary}
                   </span>

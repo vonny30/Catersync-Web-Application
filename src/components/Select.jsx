@@ -39,6 +39,23 @@ export default function Select({ value, onChange, className = '', disabled, name
 
   const selected = options.find(o => String(o.value) === String(value));
 
+  // The plain text of an option label, for the `title` on a truncated option.
+  //
+  // NOT `typeof label === 'string'`. Most call sites build a label out of an
+  // expression — <option>{name} — {qty} in stock</option> — which React hands
+  // over as an ARRAY of children, not a string. A string check therefore fails
+  // on exactly the long, composed labels most likely to be ellipsised, and
+  // leaves them with no way to read the full text. Flattening covers arrays and
+  // nested elements, and yields '' for anything with no text (an icon), which
+  // the caller turns back into no title at all.
+  const labelText = (node) => {
+    if (node === null || node === undefined || typeof node === 'boolean') return '';
+    if (typeof node === 'string' || typeof node === 'number') return String(node);
+    if (Array.isArray(node)) return node.map(labelText).join('');
+    if (node.props?.children !== undefined) return labelText(node.props.children);
+    return '';
+  };
+
   const MENU_MAX_HEIGHT = 256; // matches max-h-64 on the panel
   const GAP = 4;
   // How wide the panel may grow beyond its trigger. This ceiling is the whole
@@ -158,9 +175,8 @@ export default function Select({ value, onChange, className = '', disabled, name
             // panel widens to fit it instead. Past the 320px ceiling it is
             // ellipsised rather than wrapped, and the title carries the full
             // text — truncation with no way to read the whole value is not an
-            // acceptable trade. Only strings get a title; a few call sites pass
-            // element children, and [object Object] is worse than nothing.
-            const title = typeof opt.label === 'string' ? opt.label : undefined;
+            // acceptable trade.
+            const title = labelText(opt.label) || undefined;
             return (
               <button
                 key={`${opt.value}-${idx}`}
