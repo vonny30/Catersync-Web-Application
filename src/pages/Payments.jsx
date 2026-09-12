@@ -1576,12 +1576,33 @@ export default function Payments() {
           tab (click a row to see every payment made against it); refunds
           are each their own event, so that tab stays one row per record. */}
       <div ref={tableRef} className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden scroll-mt-4">
-        <div className="px-5 py-4 border-b border-slate-100 font-bold text-base tracking-[-0.01em] text-slate-900 flex justify-between items-center">
-          <span>{mainTab === 'Refunds' ? 'Refunds' : (activeTab === 'All' ? 'All Payments' : activeTab)}</span>
-          <span className="text-sm font-normal text-slate-600 tabular-nums whitespace-nowrap">
+        {/* TWO COUNTS OF THE SAME THING, SO SAY SO.
+            The status card above is headed "All Payments" and counts payment
+            RECORDS; this table carries the same heading and counts BOOKINGS,
+            because it is grouped one row per booking. Nine records over eight
+            bookings is correct — one booking took two payments — but with the
+            same words above both numbers it reads as a contradiction, or as two
+            figures that have been swapped.
+
+            groupedPayments is built from filteredPayments (see the grouping
+            block above), so these are the same set counted two ways and can
+            never disagree. Printing both together, each with its unit named, is
+            what makes the relationship legible. */}
+        <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-start gap-4">
+          <div className="min-w-0">
+            <span className="font-bold text-base tracking-[-0.01em] text-slate-900">
+              {mainTab === 'Refunds' ? 'Refunds' : (activeTab === 'All' ? 'All Payments' : activeTab)}
+            </span>
+            <p className="text-[13px] font-normal text-slate-600 mt-0.5 [text-wrap:pretty]">
+              {mainTab === 'Refunds'
+                ? 'One row per refund — each refund is its own event.'
+                : 'One row per booking. A booking paid in instalments appears once, with its number of payments in the Payments column.'}
+            </p>
+          </div>
+          <span className="text-sm font-normal text-slate-600 tabular-nums whitespace-nowrap shrink-0">
             {mainTab === 'Refunds'
-              ? `${filteredPayments.length} result${filteredPayments.length === 1 ? '' : 's'}`
-              : `${groupedPayments.length} booking${groupedPayments.length === 1 ? '' : 's'}`}
+              ? `${filteredPayments.length} refund${filteredPayments.length === 1 ? '' : 's'}`
+              : `${groupedPayments.length} booking${groupedPayments.length === 1 ? '' : 's'} · ${filteredPayments.length} payment record${filteredPayments.length === 1 ? '' : 's'}`}
           </span>
         </div>
         <div className="overflow-x-auto">
