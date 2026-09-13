@@ -1137,8 +1137,8 @@ export default function Dashboard() {
                     whenever a booking was paid in instalments. */}
                 <p className="text-xs text-slate-500 mt-0.5">
                   {statsModalType === 'revenue'
-                    ? `${groupedStatsModalData.length} booking${groupedStatsModalData.length === 1 ? '' : 's'} · ${filteredStatsModalData.length} of ${statsModalData.length} payment record(s)`
-                    : `${filteredStatsModalData.length} of ${statsModalData.length} record(s) shown`}
+                    ? `${filteredStatsModalData.length}${filteredStatsModalData.length === statsModalData.length ? '' : ` of ${statsModalData.length}`} payment${statsModalData.length === 1 ? '' : 's'} across ${groupedStatsModalData.length} booking${groupedStatsModalData.length === 1 ? '' : 's'}`
+                    : `${filteredStatsModalData.length} of ${statsModalData.length} booking${statsModalData.length === 1 ? '' : 's'} shown`}
                 </p>
               </div>
               <button
@@ -1399,7 +1399,7 @@ export default function Dashboard() {
                   hint={`${groupedStatsModalData.length} booking${groupedStatsModalData.length === 1 ? '' : 's'}`}
                 />
               ) : (
-                <ModalTotal label="Records" value={filteredStatsModalData.length} tone="neutral" />
+                <ModalTotal label="Bookings" value={filteredStatsModalData.length} tone="neutral" />
               )}
               <button
                 onClick={closeStatsModal}

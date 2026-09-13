@@ -548,9 +548,12 @@ export default function Payments() {
 
   // "8 payments across 7 bookings", but "4 payments" when the two are equal —
   // the same number twice reads as a mistake of its own.
-  const describeStatusCount = ({ count, bookings }) => {
+  // `of` is the unfiltered total, for lists that can be narrowed: "5 of 7
+  // payments across 4 bookings".
+  const describeStatusCount = ({ count, bookings, of }) => {
     if (count === 0) return 'No payments';
-    const payments = `${count} payment${count === 1 ? '' : 's'}`;
+    const shown = of !== undefined && of !== count ? `${count} of ${of}` : `${count}`;
+    const payments = `${shown} payment${(of ?? count) === 1 ? '' : 's'}`;
     return bookings === count ? payments : `${payments} across ${bookings} booking${bookings === 1 ? '' : 's'}`;
   };
 
@@ -2176,8 +2179,10 @@ export default function Payments() {
                 <h2 className="text-lg font-bold text-slate-900">{summaryModalTitle}</h2>
                 <p className="text-xs text-slate-500 mt-0.5">
                   {summaryModalType === 'collected'
-                    ? `${groupedCollected.length} booking${groupedCollected.length === 1 ? '' : 's'} (${filteredSummaryModalData.length} of ${summaryModalData.length} payment record(s))`
-                    : `${filteredSummaryModalData.length} of ${summaryModalData.length} record(s) shown`}
+                    // Rows are bookings; the count is payments. Say both.
+                    ? describeStatusCount({ count: filteredSummaryModalData.length, bookings: groupedCollected.length, of: summaryModalData.length })
+                    // Outstanding Balance and Fully Paid list one booking per row.
+                    : `${filteredSummaryModalData.length} of ${summaryModalData.length} booking${summaryModalData.length === 1 ? '' : 's'} shown`}
                 </p>
               </div>
               <button
@@ -2428,7 +2433,8 @@ export default function Payments() {
                 <ModalTotal
                   label="Total received"
                   value={`₱${filteredSummaryModalData.reduce((sum, p) => sum + (p.amount_paid || 0), 0).toLocaleString()}`}
-                  hint={`${filteredSummaryModalData.length} record${filteredSummaryModalData.length === 1 ? '' : 's'}`}
+                  // "5 records" sat under 4 rows: the 5 were payments.
+                  hint={describeStatusCount({ count: filteredSummaryModalData.length, bookings: groupedCollected.length })}
                 />
               )}
               {summaryModalType === 'fullypaid' && (
@@ -2443,7 +2449,7 @@ export default function Payments() {
                   label="Total outstanding"
                   value={`₱${filteredSummaryModalData.reduce((sum, b) => sum + (b.remaining || 0), 0).toLocaleString()}`}
                   tone="negative"
-                  hint={`${filteredSummaryModalData.length} record${filteredSummaryModalData.length === 1 ? '' : 's'}`}
+                  hint={`${filteredSummaryModalData.length} booking${filteredSummaryModalData.length === 1 ? '' : 's'}`}
                 />
               )}
               <button

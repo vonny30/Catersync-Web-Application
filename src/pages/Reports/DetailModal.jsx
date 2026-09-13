@@ -72,7 +72,7 @@ export default function DetailModal({ detailModal, onClose }) {
           <div>
             <h2 className="text-lg font-bold text-slate-900">{detailModal.title}</h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Excludes Rejected and Cancelled bookings • {filteredData.length} of {detailModal.data.length} records shown
+              Excludes Rejected and Cancelled bookings • {filteredData.length} of {detailModal.data.length} booking{detailModal.data.length === 1 ? '' : 's'} shown
             </p>
           </div>
           <button
@@ -302,7 +302,7 @@ export default function DetailModal({ detailModal, onClose }) {
             <ModalTotal
               label="Total"
               value={formatCurrency(filteredData.reduce((sum, item) => sum + item.total, 0))}
-              hint={`${filteredData.length} record${filteredData.length === 1 ? '' : 's'}`}
+              hint={`${filteredData.length} booking${filteredData.length === 1 ? '' : 's'}`}
             />
           )}
           {detailModal.type === 'outstanding' && (
@@ -310,7 +310,7 @@ export default function DetailModal({ detailModal, onClose }) {
               label="Total outstanding"
               value={formatCurrency(filteredData.reduce((sum, item) => sum + item.outstanding, 0))}
               tone="negative"
-              hint={`${filteredData.length} record${filteredData.length === 1 ? '' : 's'}`}
+              hint={`${filteredData.length} booking${filteredData.length === 1 ? '' : 's'}`}
             />
           )}
           {detailModal.type !== 'revenue' && detailModal.type !== 'outstanding' && <span />}
