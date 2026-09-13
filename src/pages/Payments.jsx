@@ -1353,12 +1353,14 @@ export default function Payments() {
 
       {/* SUMMARY CARDS — "Awaiting Verification" only exists when there's something
           to review, so the grid drops a column then instead of leaving a blank
-          slot. */}
+          slot. Each card is a flex column pinned to the top: a <button>
+          centres its content vertically, so cards of different heights put
+          their titles at different heights. */}
       <div className={`grid grid-cols-1 gap-3.5 ${pendingVerificationCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
         {pendingVerificationCount > 0 && (
           <button
             onClick={handlePendingVerificationClick}
-            className="relative overflow-hidden rounded-2xl border border-[#f3c9c9] bg-[#fef4f4] p-5 text-left transition-all cursor-pointer hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]"
+            className="relative overflow-hidden flex flex-col justify-start rounded-2xl border border-[#f3c9c9] bg-[#fef4f4] p-5 text-left transition-all cursor-pointer hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]"
           >
             <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-red-500" />
             <span className="absolute top-4 right-4 w-2 h-2 rounded-full bg-red-500 ring-4 ring-red-500/15" />
@@ -1369,7 +1371,7 @@ export default function Payments() {
         )}
         <button
           onClick={handleCollectedClick}
-          className="relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white p-5 text-left transition-all cursor-pointer hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]"
+          className="relative overflow-hidden flex flex-col justify-start rounded-2xl border border-slate-200/70 bg-white p-5 text-left transition-all cursor-pointer hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]"
         >
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Payments Received</p>
@@ -1405,7 +1407,7 @@ export default function Payments() {
         </button>
         <button
           onClick={handlePendingClick}
-          className="relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white p-5 text-left transition-all cursor-pointer hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]"
+          className="relative overflow-hidden flex flex-col justify-start rounded-2xl border border-slate-200/70 bg-white p-5 text-left transition-all cursor-pointer hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]"
         >
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500" />
           {/* "Pending Balance" collided with the booking status called Pending:
