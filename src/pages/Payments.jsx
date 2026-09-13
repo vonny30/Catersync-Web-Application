@@ -274,17 +274,18 @@ export default function Payments() {
   const [showBookingList, setShowBookingList] = useState(false);
 
   // --- SUMMARY STATE ---
-  const [pendingBalance, setPendingBalance] = useState(0);
-  // The part of pendingBalance owed on events that have ALREADY HAPPENED —
-  // work delivered and not yet paid for. See where both are accumulated.
-  const [pendingOnPastEvents, setPendingOnPastEvents] = useState(0);
-  const [fullyPaidCount, setFullyPaidCount] = useState(0);
+  // Verified money per booking, and the moment it was read. Kept rather than
+  // the finished balance so Outstanding Balance can follow the period filter
+  // in render; `balanceAsOf` is the "already happened" cut-off, taken at fetch
+  // time so render stays pure.
+  const [verifiedPaidByBooking, setVerifiedPaidByBooking] = useState({});
+  const [balanceAsOf, setBalanceAsOf] = useState(null);
 
   // --- SUMMARY DETAIL MODAL STATE ---
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
   const [summaryModalData, setSummaryModalData] = useState([]);
   const [summaryModalTitle, setSummaryModalTitle] = useState('');
-  const [summaryModalType, setSummaryModalType] = useState(''); // 'collected', 'pending', 'fullypaid'
+  const [summaryModalType, setSummaryModalType] = useState(''); // 'collected', 'pending'
   const [summarySearchTerm, setSummarySearchTerm] = useState('');
   const [summaryTypeFilter, setSummaryTypeFilter] = useState('All'); // 'All' | 'Package' | 'Short Order'
   const [summaryMethodFilter, setSummaryMethodFilter] = useState('All'); // 'All' | 'Cash' | 'GCash' | 'Bank Transfer' | 'Refund' — only meaningful for Collected/Fully Paid (payment-level records); Pending is booking-level and has no pay_method
@@ -406,14 +407,8 @@ export default function Payments() {
 
       setBookings(bookingsData || []);
 
-      // Total Collections now follows the page's own date filter and is derived
-      // further down (see the `received` memo) — a flow figure has to describe
-      // the period the table is showing, or the card and the rows underneath it
-      // are talking about different months.
-      //
-      // The two figures below are different in kind: an outstanding balance and
-      // a count of settled records are positions as at now, not flows over a
-      // period, so they are correctly not date-filtered.
+      // Outstanding Balance is derived in render from these, so it can follow
+      // the page's period filter like Payments Received does.
       const verifiedActivePayments = paymentsData.filter(p => {
         const status = p.booking?.booking_status;
         return status !== 'Rejected' && status !== 'Cancelled'
@@ -427,36 +422,8 @@ export default function Payments() {
           bookingTotals[p.booking_id] += p.amount_paid || 0;
         }
       });
-      let fullyPaid = 0;
-      bookingsData.forEach(b => {
-        const paid = bookingTotals[b.booking_id] || 0;
-        if (paid >= (b.total_amount || 0) && paid > 0) fullyPaid++;
-      });
-      setFullyPaidCount(fullyPaid);
-
-      // Both figures are accumulated in ONE pass, over the same bookingsData,
-      // the same bookingTotals and the same `remaining > 0` test, so the
-      // past-event share is a subset of the headline by construction and can
-      // never exceed or disagree with it. The headline accumulator itself is
-      // unchanged — the second branch only reads what the first already
-      // decided to count.
-      //
-      // Nothing on the card separated money owed for work already delivered
-      // from money owed for work still to come, and those call for different
-      // things: the second is a receivable, the first is a follow-up.
-      const asOf = new Date();
-      let pending = 0;
-      let onPastEvents = 0;
-      bookingsData.forEach(b => {
-        const paid = bookingTotals[b.booking_id] || 0;
-        const remaining = (b.total_amount || 0) - paid;
-        if (remaining > 0) {
-          pending += remaining;
-          if (b.event_datetime && new Date(b.event_datetime) < asOf) onPastEvents += remaining;
-        }
-      });
-      setPendingBalance(pending);
-      setPendingOnPastEvents(onPastEvents);
+      setVerifiedPaidByBooking(bookingTotals);
+      setBalanceAsOf(new Date());
 
     } catch (error) {
       handleError(error, 'Unable to load payments. Please refresh the page.');
@@ -527,8 +494,8 @@ export default function Payments() {
     { key: 'All', label: 'All Payments', description: 'any status', match: () => true },
     { key: 'Pending Verification', label: 'Pending Verification', description: 'submitted from mobile, awaiting review', match: (p) => p.pay_status === 'Pending Verification' },
     { key: 'Downpayment', label: 'Downpayment', description: 'partial payments so far', match: (p) => p.pay_status === 'Downpayment' },
-    // "marked Fully Paid", not "paid in full": the card above is Paid in Full
-    // and counts BOOKINGS. This one counts payments carrying that status.
+    // "marked Fully Paid": this counts PAYMENTS carrying that status, not
+    // bookings settled in full.
     { key: 'Full Payment', label: 'Fully Paid', description: 'marked Fully Paid', match: (p) => p.pay_status === 'Fully Paid' },
   ];
 
@@ -599,11 +566,31 @@ export default function Payments() {
   // already work this way.
   const received = getPaymentsReceived(dateFilteredBothSigns);
 
-  // The page period in words, and whether search/type/method are narrowing
-  // it. Payments Received and the status cards follow both; Outstanding
-  // Balance and Paid in Full follow neither. Each says which, because
-  // side-by-side figures on different scopes read as contradictions.
+  // The page period in words, and whether search/type/method are narrowing it.
   const periodPhrase = datePreset === 'All Time' ? 'all time' : datePreset === 'Custom' ? 'the selected dates' : datePreset.toLowerCase();
+
+  // OUTSTANDING BALANCE — follows the period filter, by EVENT date.
+  //
+  // It used to be a position as at now, ignoring the filter, which put a
+  // this-month figure and an all-time figure side by side as if comparable.
+  // A balance has no payment date — an unpaid booking may have no payments at
+  // all — so the period applies to the event: what is still owed on the events
+  // in this period. The modal behind the card filters pending rows by event
+  // date too, so the two agree.
+  //
+  // Both sums come from ONE pass over the same rows, so the past-event share
+  // is a subset of the headline by construction.
+  let pendingBalance = 0;
+  let pendingOnPastEvents = 0;
+  bookings.forEach(b => {
+    if (datePreset !== 'All Time' && !isWithinRange(b.event_datetime, dateRangeStart, dateRangeEnd)) return;
+    const remaining = (b.total_amount || 0) - (verifiedPaidByBooking[b.booking_id] || 0);
+    if (remaining <= 0) return;
+    pendingBalance += remaining;
+    if (balanceAsOf && b.event_datetime && new Date(b.event_datetime) < balanceAsOf) pendingOnPastEvents += remaining;
+  });
+  const eventPeriodPhrase = datePreset === 'All Time' ? 'at any time'
+    : datePreset === 'Custom' || datePreset === 'Last 30 Days' ? `in ${periodPhrase}` : periodPhrase;
   const hasNonDateFilters = !!tableSearchTerm || typeFilter !== 'All' || methodFilter !== 'All';
 
   // --- HANDLERS ---
@@ -1140,11 +1127,8 @@ export default function Payments() {
     // pay_method, so a stray value here would silently empty the list.
     if (summaryModalType === 'collected' && summaryMethodFilter !== 'All' && item.pay_method !== summaryMethodFilter) return false;
     if (summaryDatePreset !== 'All Time') {
-      // Collected/Fully Paid are payment rows (pay_datetime); Pending
-      // Balance is a booking-level aggregate with no payment date, so it
-      // filters by event date instead.
-      // 'collected' rows are payments (pay_datetime); 'pending' and
-      // 'fullypaid' rows are bookings, which have no pay_datetime at all —
+      // 'collected' rows are payments (pay_datetime); 'pending' rows are
+      // bookings, which have no pay_datetime at all —
       // filtering those on it would match nothing and silently empty the
       // modal the moment a period was picked.
       const dateField = summaryModalType === 'collected' ? item.pay_datetime : item.event_datetime;
@@ -1292,48 +1276,11 @@ export default function Payments() {
     setSummarySearchTerm('');
     setSummaryTypeFilter('All');
     setSummaryMethodFilter('All');
-    // The card is not date-scoped, so the modal opens unfiltered. Opening on
-    // DEFAULT_DATE_PRESET hid every balance whose event is outside this month.
-    setSummaryDatePreset('All Time');
-    setSummaryDateCustomStart('');
-    setSummaryDateCustomEnd('');
-    setIsSummaryModalOpen(true);
-  };
-
-  // 3. ✅ FIXED Fully Paid – shows payments from fully paid orders (positive payments only)
-  const handleFullyPaidClick = () => {
-    // Lists the BOOKINGS the card counts — one row each — not their payments.
-    //
-    // The card counts fully-paid bookings while this used to list every
-    // payment belonging to them, and a booking commonly has several. So a
-    // card reading 5 opened onto 12 rows, which is exactly the mismatch the
-    // panel reported ("the displayed number does not appear to match the
-    // number of corresponding records"). Same source, same shape, so the
-    // count and the list now agree by construction rather than by luck.
-    const data = bookings
-      .map(b => {
-        const paid = payments
-          .filter(p => p.booking_id === b.booking_id && !UNVERIFIED_PAY_STATUSES.includes(p.pay_status))
-          .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-        return {
-          ...b,
-          paid,
-          clientName: b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown',
-          bookingRef: bookingRefFor(b),
-        };
-      })
-      .filter(b => b.paid >= (b.total_amount || 0) && b.paid > 0);
-
-    setSummaryModalData(data);
-    setSummaryModalTitle('Paid in full – bookings & orders');
-    setSummaryModalType('fullypaid');
-    setSummarySearchTerm('');
-    setSummaryTypeFilter('All');
-    setSummaryMethodFilter('All');
-    // Not date-scoped either — same reason as Outstanding Balance.
-    setSummaryDatePreset('All Time');
-    setSummaryDateCustomStart('');
-    setSummaryDateCustomEnd('');
+    // The card follows the page period by event date, and the modal filters
+    // pending rows by event date — so it opens on the same period.
+    setSummaryDatePreset(datePreset);
+    setSummaryDateCustomStart(customStart);
+    setSummaryDateCustomEnd(customEnd);
     setIsSummaryModalOpen(true);
   };
 
@@ -1405,9 +1352,9 @@ export default function Payments() {
       </div>
 
       {/* SUMMARY CARDS — "Awaiting Verification" only exists when there's something
-          to review, so the grid drops to 3 columns then instead of leaving
-          a blank fourth slot. */}
-      <div className={`grid grid-cols-1 gap-3.5 ${pendingVerificationCount > 0 ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
+          to review, so the grid drops a column then instead of leaving a blank
+          slot. */}
+      <div className={`grid grid-cols-1 gap-3.5 ${pendingVerificationCount > 0 ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
         {pendingVerificationCount > 0 && (
           <button
             onClick={handlePendingVerificationClick}
@@ -1466,7 +1413,7 @@ export default function Payments() {
               unpaid balance across every active record, whatever its status. */}
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Outstanding Balance</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">₱{pendingBalance.toLocaleString()}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">Unpaid on active bookings &amp; orders · as of today, any event date</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">Still owed on bookings &amp; orders with events {eventPeriodPhrase}</p>
           {/* Only when there is something to chase. A fully collected caterer
               sees no line at all rather than a reassuring "₱0", which would
               just be one more number to read. Amber, the app's "needs
@@ -1478,19 +1425,10 @@ export default function Payments() {
             </p>
           )}
         </button>
-        <button
-          onClick={handleFullyPaidClick}
-          className="relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white p-5 text-left transition-all cursor-pointer hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]"
-        >
-          <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-emerald-500" />
-          {/* Blueprint 02: "Paid in Full", not "Fully Paid". This counts
-              BOOKINGS; Fully Paid is a payment status, and the status card of
-              that name below counts payments. Two cards with one name and two
-              different numbers is what made this section read as wrong. */}
-          <p className="text-[13px] font-semibold text-slate-600 mb-2">Paid in Full</p>
-          <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{fullyPaidCount}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">Bookings &amp; orders settled in full · as of today</p>
-        </button>
+        {/* A "Paid in Full" card (bookings settled, as at today) sat here. It
+            ignored the period filter, and once scoped it asked the same
+            question as the Fully Paid status card below, so it was removed
+            rather than kept as a second answer with a different number. */}
       </div>
 
       {/* MAIN TABS — Refunds are money going OUT, not a kind of payment, so
@@ -2360,43 +2298,6 @@ export default function Payments() {
                     </table>
                   )}
 
-                  {/* Outstanding Balance – records with the amount still due */}
-                  {summaryModalType === 'fullypaid' && (
-                    <table className="w-full text-left border-separate border-spacing-0 bg-white rounded-2xl border border-slate-200 overflow-hidden">
-                      <thead>
-                        <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
-                          <th className="p-3">Reference</th>
-                          <th className="p-3">Customer</th>
-                          <th className="p-3">Type</th>
-                          <th className="p-3 text-right">Total</th>
-                          <th className="p-3 text-right">Paid</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 text-sm">
-                        {filteredSummaryModalData.map((item, idx) => (
-                          <tr
-                            key={idx}
-                            className="hover:bg-slate-50 transition-colors cursor-pointer"
-                            onClick={() => handleSummaryRowClick(item)}
-                          >
-                            <td className="p-3 font-mono text-xs font-semibold text-slate-800">
-                              {item.bookingRef || getBookingRef(item)}
-                            </td>
-                            <td className="p-3 font-medium text-slate-900">{item.clientName}</td>
-                            <td className="p-3">
-                              {item.booking_type === 'Short Order' ? (
-                                <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-100 text-purple-700 border border-purple-200 rounded-full">Short Order</span>
-                              ) : (
-                                <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-700 border border-blue-200 rounded-full">Package</span>
-                              )}
-                            </td>
-                            <td className="p-3 text-right font-semibold">₱{(item.total_amount || 0).toLocaleString()}</td>
-                            <td className="p-3 text-right font-semibold text-emerald-600">₱{(item.paid || 0).toLocaleString()}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
 
                   {summaryModalType === 'pending' && (
                     <table className="w-full text-left border-separate border-spacing-0 bg-white rounded-2xl border border-slate-200 overflow-hidden">
@@ -2457,13 +2358,6 @@ export default function Payments() {
                   value={`₱${filteredSummaryModalData.reduce((sum, p) => sum + (p.amount_paid || 0), 0).toLocaleString()}`}
                   // "5 records" sat under 4 rows: the 5 were payments.
                   hint={describeStatusCount({ count: filteredSummaryModalData.length, bookings: groupedCollected.length })}
-                />
-              )}
-              {summaryModalType === 'fullypaid' && (
-                <ModalTotal
-                  label="Total paid in full"
-                  value={`₱${filteredSummaryModalData.reduce((sum, b) => sum + (b.paid || 0), 0).toLocaleString()}`}
-                  hint={`${filteredSummaryModalData.length} booking${filteredSummaryModalData.length === 1 ? '' : 's'}`}
                 />
               )}
               {summaryModalType === 'pending' && (
