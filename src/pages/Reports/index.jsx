@@ -588,7 +588,10 @@ export default function Reports() {
     };
     const entry = breakdowns[type];
     if (!entry) return;
-    setDetailModal({ open: true, type, data: entry.data, title: entry.title });
+    // The rows are already this page's period. The modal re-filters by its own
+    // date control, so it opens on that same period rather than narrowing an
+    // All Time card to this month.
+    setDetailModal({ open: true, type, data: entry.data, title: entry.title, datePreset, customStart, customEnd });
   };
 
   const closeDetailModal = () => setDetailModal({ open: false, type: null, data: [], title: '' });

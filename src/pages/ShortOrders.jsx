@@ -642,7 +642,10 @@ export default function ShortOrders() {
   // manager can see the full day at a glance regardless of where each
   // order is in the pipeline.
   const applyTodayFilter = () => {
-    const todayISO = new Date().toISOString().slice(0, 10);
+    // LOCAL date. toISOString() is UTC, so before 8 AM in Manila it named
+    // yesterday: the badge counted today's events and the click showed
+    // yesterday's.
+    const todayISO = toDateTimeLocalValue(new Date()).slice(0, 10);
     setDatePreset('Custom');
     setCustomStart(todayISO);
     setCustomEnd(todayISO);
@@ -656,7 +659,10 @@ export default function ShortOrders() {
   // end date), since those are the ones genuinely locked in and still to
   // come.
   const applyUpcomingConfirmedFilter = () => {
-    const todayISO = new Date().toISOString().slice(0, 10);
+    // LOCAL date. toISOString() is UTC, so before 8 AM in Manila it named
+    // yesterday: the badge counted today's events and the click showed
+    // yesterday's.
+    const todayISO = toDateTimeLocalValue(new Date()).slice(0, 10);
     setDatePreset('Custom');
     setCustomStart(todayISO);
     setCustomEnd('');

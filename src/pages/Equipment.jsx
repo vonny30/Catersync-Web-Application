@@ -1299,7 +1299,12 @@ export default function Equipment() {
   const ownedStockAll = equipmentList.reduce((sum, eq) => sum + getStockBreakdown(eq).total, 0);
   const unitsCommitted = snapshot.items.reduce((sum, item) => sum + (item.committed || 0), 0);
   const unitsFree = usableStockAll - unitsCommitted;
+  // One test for "needs attention", read by the card AND by the Inventory
+  // filter the card opens. The card counts UNITS while that list has one row
+  // per ITEM, so the card states both.
+  const needsAttention = (item) => (item.damaged_quantity || 0) + (item.maintenance_quantity || 0) > 0;
   const needsAttentionUnits = equipmentList.reduce((sum, eq) => sum + (eq.damaged_quantity || 0) + (eq.maintenance_quantity || 0), 0);
+  const needsAttentionItems = equipmentList.filter(needsAttention).length;
 
   // "Now", not the date selected in the Availability tab: overdue asks "is
   // anything late right now", not "late relative to whatever date I am
@@ -1639,7 +1644,7 @@ export default function Equipment() {
     // Set by the sidebar's Needs Attention panel, so that panel leads to the
     // one list that can actually act on the problem instead of to a read-only
     // copy of it.
-    if (inventoryNeedsAttentionOnly && !((item.damaged_quantity || 0) + (item.maintenance_quantity || 0) > 0)) return false;
+    if (inventoryNeedsAttentionOnly && !needsAttention(item)) return false;
     if (inventoryTypeFilter !== 'All' && item.equipment_type !== inventoryTypeFilter) return false;
     if (inventorySearch) {
       const term = inventorySearch.toLowerCase();
@@ -1956,12 +1961,17 @@ export default function Equipment() {
           <span className="block text-[13px] font-semibold mb-2 whitespace-nowrap text-slate-600">Damaged or under maintenance</span>
           <span className={`block text-[30px] font-semibold tracking-[-0.03em] leading-none tabular-nums ${needsAttentionUnits > 0 ? 'text-slate-900' : 'text-slate-400'}`}>{needsAttentionUnits}</span>
           <span className="block text-[13px] mt-2.5 text-slate-600">
-            {needsAttentionUnits > 0 ? 'Never counted as available' : 'Nothing needs attention'}
+            {needsAttentionUnits > 0
+              ? `${needsAttentionUnits} unit${needsAttentionUnits === 1 ? '' : 's'}${needsAttentionItems === needsAttentionUnits ? '' : ` across ${needsAttentionItems} item${needsAttentionItems === 1 ? '' : 's'}`} · never counted as available`
+              : 'Nothing needs attention'}
           </span>
         </button>
 
         <button
-          onClick={() => { setAssignmentSectionFilter('Overdue'); setActiveTableTab('assignments'); }}
+          // The card is not date-scoped, so the list opens unfiltered by date.
+          // The Active tab defaults to this month, which hid anything overdue
+          // from an earlier month behind a card that still counted it.
+          onClick={() => { setAssignmentSectionFilter('Overdue'); setAssignmentSearchTerm(''); setAssignmentDatePreset('All Time'); setAssignmentDateCustomStart(''); setAssignmentDateCustomEnd(''); setActiveTableTab('assignments'); }}
           className="relative overflow-hidden rounded-[15px] border px-5 py-[18px] text-left cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 bg-white border-slate-200/70 hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)]"
         >
           <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${overdueGroups.length > 0 ? 'bg-red-500' : 'bg-slate-400'}`} />

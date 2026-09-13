@@ -1546,7 +1546,9 @@ export default function Vehicles() {
         </button>
 
         <button
-          onClick={() => { setAssignmentSectionFilter('Overdue'); goToTab('trips'); }}
+          // Not date-scoped, so the Trips list opens unfiltered by date — its
+          // this-month default hid earlier overdue trips the card counted.
+          onClick={() => { setAssignmentSectionFilter('Overdue'); setAssignmentSearchTerm(''); setAssignmentDatePreset('All Time'); setAssignmentDateCustomStart(''); setAssignmentDateCustomEnd(''); goToTab('trips'); }}
           className="relative overflow-hidden rounded-[15px] border border-slate-200/70 bg-white px-5 py-[18px] text-left cursor-pointer transition-all hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)] focus:outline-none focus:ring-2 focus:ring-[#008A45]/40"
         >
           <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${overdueGroups.length > 0 ? 'bg-red-500' : 'bg-slate-400'}`} />

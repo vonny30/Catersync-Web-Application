@@ -25,9 +25,9 @@ export default function DetailModal({ detailModal, onClose }) {
     setSearchTerm('');
     setTypeFilter('All');
     setStatusFilter('All');
-    setDatePreset(DEFAULT_DATE_PRESET);
-    setDateCustomStart('');
-    setDateCustomEnd('');
+    setDatePreset(detailModal.datePreset || DEFAULT_DATE_PRESET);
+    setDateCustomStart(detailModal.customStart || '');
+    setDateCustomEnd(detailModal.customEnd || '');
   };
 
   // Reset filters the moment the modal transitions closed -> open, without a

@@ -521,20 +521,38 @@ export default function Payments() {
   // computed from the type+date filtered set, so the numbers stay accurate
   // as those other filters change, and clicking one filters the table by
   // that status. ---
+  // Descriptions are the tail of the card's sub-line, after the counts —
+  // "8 payments across 7 bookings · any status".
   const statusTabs = [
-    { key: 'All', label: 'All Payments', description: 'Every payment record, any status', match: () => true },
-    { key: 'Pending Verification', label: 'Pending Verification', description: 'Submitted from mobile, awaiting review', match: (p) => p.pay_status === 'Pending Verification' },
-    { key: 'Downpayment', label: 'Downpayment', description: 'Partial payments recorded so far', match: (p) => p.pay_status === 'Downpayment' },
-    { key: 'Full Payment', label: 'Fully Paid', description: 'Records paid in full', match: (p) => p.pay_status === 'Fully Paid' },
+    { key: 'All', label: 'All Payments', description: 'any status', match: () => true },
+    { key: 'Pending Verification', label: 'Pending Verification', description: 'submitted from mobile, awaiting review', match: (p) => p.pay_status === 'Pending Verification' },
+    { key: 'Downpayment', label: 'Downpayment', description: 'partial payments so far', match: (p) => p.pay_status === 'Downpayment' },
+    { key: 'Full Payment', label: 'Fully Paid', description: 'paid in full', match: (p) => p.pay_status === 'Fully Paid' },
   ];
+
+  // The table below renders one row per GROUP, and this is the rule that
+  // decides the group. The cards count payment records, so without a booking
+  // count beside it a card reading 8 opened onto 7 rows. Both read this one
+  // key, so a change to how the table groups moves the cards with it.
+  const paymentGroupKey = (p) => p.booking_id || p.payment_id;
+
   const statusStats = statusTabs.map(t => {
     const rows = typeAndDateFiltered.filter(t.match);
     return {
       ...t,
       count: rows.length,
+      bookings: new Set(rows.map(paymentGroupKey)).size,
       amount: rows.reduce((sum, p) => sum + Math.max(0, p.amount_paid || 0), 0),
     };
   });
+
+  // "8 payments across 7 bookings", but "4 payments" when the two are equal —
+  // the same number twice reads as a mistake of its own.
+  const describeStatusCount = ({ count, bookings }) => {
+    if (count === 0) return 'No payments';
+    const payments = `${count} payment${count === 1 ? '' : 's'}`;
+    return bookings === count ? payments : `${payments} across ${bookings} booking${bookings === 1 ? '' : 's'}`;
+  };
 
   const filteredPayments = typeAndDateFiltered.filter(
     statusTabs.find(t => t.key === activeTab)?.match || (() => true)
@@ -551,7 +569,7 @@ export default function Payments() {
   const groupedPayments = mainTab === 'Payments'
     ? Object.values(
         filteredPayments.reduce((groups, p) => {
-          const key = p.booking_id || p.payment_id;
+          const key = paymentGroupKey(p);
           if (!groups[key]) groups[key] = { bookingId: p.booking_id, booking: p.booking, entries: [] };
           groups[key].entries.push(p);
           return groups;
@@ -1139,7 +1157,7 @@ export default function Payments() {
   const groupedCollected = summaryModalType === 'collected'
     ? Object.values(
         filteredSummaryModalData.reduce((groups, p) => {
-          const key = p.booking_id || p.payment_id;
+          const key = paymentGroupKey(p);
           if (!groups[key]) groups[key] = { bookingId: p.booking_id, entries: [] };
           groups[key].entries.push(p);
           return groups;
@@ -1511,7 +1529,7 @@ export default function Payments() {
               </p>
               <p className={`text-[25px] font-semibold tracking-[-0.025em] leading-none tabular-nums ${activeTab === s.key ? 'text-[#007038]' : 'text-slate-900'}`}>{s.count}</p>
               <p className="text-sm font-medium text-slate-600 mt-[7px] tabular-nums">₱{s.amount.toLocaleString()}</p>
-              <p className={`text-[12.5px] mt-1.5 ${activeTab === s.key ? 'text-[#007038]/80' : 'text-slate-600'}`}>{s.description}</p>
+              <p className={`text-[12.5px] mt-1.5 ${activeTab === s.key ? 'text-[#007038]/80' : 'text-slate-600'}`}>{describeStatusCount(s)} · {s.description}</p>
             </button>
           ))}
         </div>
