@@ -1394,7 +1394,7 @@ export default function Payments() {
               payment, so it is only mentioned when one exists. Matches
               FinancialTab. */}
           <p className="text-[13px] text-slate-600 mt-2.5">
-            Paid {receivedWhen} on confirmed bookings{hasNonDateFilters && ' · matching filters'}
+            Paid {receivedWhen} on confirmed &amp; completed bookings{hasNonDateFilters && ' · matching filters'}
             {received.refundsNettedAgainstReceived > 0 && `, after ₱${received.refundsNettedAgainstReceived.toLocaleString()} refunded`}
           </p>
           {received.awaitingConfirmation > 0 && (

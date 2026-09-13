@@ -44,7 +44,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
             {formatCurrency(financialSummary.revenueReceived)}
           </span>
           <span className="block text-[13.5px] text-slate-600 mt-3">
-            Paid in this period on confirmed bookings
+            Paid in this period on confirmed &amp; completed bookings
             {financialSummary.refundsNettedAgainstReceived > 0
               ? `, after ${formatCurrency(financialSummary.refundsNettedAgainstReceived)} refunded`
               : ''}

@@ -877,7 +877,7 @@ export default function Dashboard() {
               stranded on an Approved booking nobody had confirmed — is handled
               at source: verifying a payment now offers the Confirm Event
               dialog immediately (utils/confirmBooking.js). */}
-          <span className="text-[12.5px] text-slate-400 mt-1">Paid on confirmed bookings</span>
+          <span className="text-[12.5px] text-slate-400 mt-1">Paid on confirmed &amp; completed bookings</span>
           {/* Cash taken on a booking that was later cancelled is real money but
               not live business, so getPaymentsReceived splits it out and the
               headline above excludes it. It was being computed and then thrown
