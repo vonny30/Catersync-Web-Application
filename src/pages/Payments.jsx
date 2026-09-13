@@ -1476,7 +1476,7 @@ export default function Payments() {
             <button
               key={s.key}
               onClick={() => { setActiveTab(s.key); scrollToTable(); }}
-              className={`relative overflow-hidden text-left rounded-[13px] border p-4 transition-all ${
+              className={`relative overflow-hidden flex flex-col justify-start text-left rounded-[13px] border p-4 transition-all ${
                 activeTab === s.key
                   ? 'border-[#008A45] ring-2 ring-[#008A45]/15 bg-[#EAF3F2]'
                   : s.key === 'Pending Verification'
