@@ -877,7 +877,7 @@ export default function Dashboard() {
               stranded on an Approved booking nobody had confirmed — is handled
               at source: verifying a payment now offers the Confirm Event
               dialog immediately (utils/confirmBooking.js). */}
-          <span className="text-[12.5px] text-slate-400 mt-1">Verified payments on confirmed &amp; completed bookings</span>
+          <span className="text-[12.5px] text-slate-400 mt-1">Paid on confirmed bookings</span>
           {/* Cash taken on a booking that was later cancelled is real money but
               not live business, so getPaymentsReceived splits it out and the
               headline above excludes it. It was being computed and then thrown
@@ -886,12 +886,12 @@ export default function Dashboard() {
               clean. */}
           {stats.awaitingConfirmationThisMonth > 0 && (
             <span className="text-[12.5px] text-slate-500 mt-1">
-              plus ₱{stats.awaitingConfirmationThisMonth.toLocaleString()} awaiting confirmation
+              + ₱{stats.awaitingConfirmationThisMonth.toLocaleString()} paid on bookings not yet confirmed
             </span>
           )}
           {stats.retainedThisMonth > 0 && (
             <span className="text-[12.5px] text-amber-700 mt-1">
-              plus ₱{stats.retainedThisMonth.toLocaleString()} retained from cancellations
+              + ₱{stats.retainedThisMonth.toLocaleString()} kept from cancelled bookings
             </span>
           )}
         </button>

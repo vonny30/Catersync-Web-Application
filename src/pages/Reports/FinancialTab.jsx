@@ -44,9 +44,9 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
             {formatCurrency(financialSummary.revenueReceived)}
           </span>
           <span className="block text-[13.5px] text-slate-600 mt-3">
-            Cash received in this period on confirmed &amp; completed bookings, by payment date
+            Paid in this period on confirmed bookings
             {financialSummary.refundsNettedAgainstReceived > 0
-              ? ` — net of ${formatCurrency(financialSummary.refundsNettedAgainstReceived)} refunded`
+              ? `, after ${formatCurrency(financialSummary.refundsNettedAgainstReceived)} refunded`
               : ''}
           </span>
           {/* The two figures the headline excludes. Both are real cash, so
@@ -56,12 +56,12 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
               this number. */}
           {financialSummary.awaitingConfirmation > 0 && (
             <span className="block text-[13px] text-slate-600 mt-1.5">
-              A further {formatCurrency(financialSummary.awaitingConfirmation)} is awaiting confirmation.
+              + {formatCurrency(financialSummary.awaitingConfirmation)} paid on bookings not yet confirmed
             </span>
           )}
           {financialSummary.retainedFromCancellations > 0 && (
             <span className="block text-[13px] text-slate-600 mt-1.5">
-              A further {formatCurrency(financialSummary.retainedFromCancellations)} was retained from cancelled bookings.
+              + {formatCurrency(financialSummary.retainedFromCancellations)} kept from cancelled bookings
             </span>
           )}
         </div>

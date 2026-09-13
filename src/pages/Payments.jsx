@@ -589,8 +589,11 @@ export default function Payments() {
     pendingBalance += remaining;
     if (balanceAsOf && b.event_datetime && new Date(b.event_datetime) < balanceAsOf) pendingOnPastEvents += remaining;
   });
-  const eventPeriodPhrase = datePreset === 'All Time' ? 'at any time'
-    : datePreset === 'Custom' || datePreset === 'Last 30 Days' ? `in ${periodPhrase}` : periodPhrase;
+  // Short time phrases for the two cards: "Paid this month", "Unpaid for
+  // events this month". All Time reads "to date" / "across all events".
+  const inPeriod = datePreset === 'Custom' || datePreset === 'Last 30 Days' ? `in ${periodPhrase}` : periodPhrase;
+  const receivedWhen = datePreset === 'All Time' ? 'to date' : inPeriod;
+  const unpaidFor = datePreset === 'All Time' ? 'across all events' : `for events ${inPeriod}`;
   const hasNonDateFilters = !!tableSearchTerm || typeFilter !== 'All' || methodFilter !== 'All';
 
   // --- HANDLERS ---
@@ -1391,17 +1394,17 @@ export default function Payments() {
               payment, so it is only mentioned when one exists. Matches
               FinancialTab. */}
           <p className="text-[13px] text-slate-600 mt-2.5">
-            On confirmed &amp; completed bookings · {periodPhrase}{hasNonDateFilters && ' · matching filters'}
-            {received.refundsNettedAgainstReceived > 0 && ` — less ₱${received.refundsNettedAgainstReceived.toLocaleString()} refunded`}
+            Paid {receivedWhen} on confirmed bookings{hasNonDateFilters && ' · matching filters'}
+            {received.refundsNettedAgainstReceived > 0 && `, after ₱${received.refundsNettedAgainstReceived.toLocaleString()} refunded`}
           </p>
           {received.awaitingConfirmation > 0 && (
             <p className="text-[12.5px] text-slate-500 mt-1">
-              plus ₱{received.awaitingConfirmation.toLocaleString()} awaiting confirmation
+              + ₱{received.awaitingConfirmation.toLocaleString()} paid on bookings not yet confirmed
             </p>
           )}
           {received.retainedFromCancellations !== 0 && (
             <p className="text-[12.5px] text-amber-700 mt-1">
-              plus ₱{received.retainedFromCancellations.toLocaleString()} retained from cancellations
+              + ₱{received.retainedFromCancellations.toLocaleString()} kept from cancelled bookings
             </p>
           )}
         </button>
@@ -1415,7 +1418,7 @@ export default function Payments() {
               unpaid balance across every active record, whatever its status. */}
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Outstanding Balance</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">₱{pendingBalance.toLocaleString()}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">Still owed on bookings &amp; orders with events {eventPeriodPhrase}</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">Unpaid {unpaidFor}</p>
           {/* Only when there is something to chase. A fully collected caterer
               sees no line at all rather than a reassuring "₱0", which would
               just be one more number to read. Amber, the app's "needs
@@ -1423,7 +1426,7 @@ export default function Payments() {
               line beside it — this is a prompt to follow up, not an error. */}
           {pendingOnPastEvents > 0 && (
             <p className="text-[12.5px] text-amber-700 mt-1">
-              ₱{pendingOnPastEvents.toLocaleString()} of this is on events that have already happened.
+              ₱{pendingOnPastEvents.toLocaleString()} of it is for events already done
             </p>
           )}
         </button>
