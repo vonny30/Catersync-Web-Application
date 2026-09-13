@@ -26,7 +26,12 @@
 // rate, and this one reports stock.
 import { cardColorClasses, cardAccentClass } from './helpers';
 
-export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
+// `periodLabel` is the Reports filter in words — "this month", "all time".
+// Committed and available follow it; stock does not. Every figure that follows
+// the filter says so, because a figure that silently ignores or silently obeys
+// a control sitting above it is exactly how "Available Now" came to mean
+// something different from what the filter implied.
+export default function EquipmentUtilizationTab({ derived, onOpenDetail, periodLabel = 'the selected period' }) {
   const { equipmentUtilizationData } = derived;
 
   const totalDeployed = equipmentUtilizationData.reduce((sum, e) => sum + e.deployed, 0);
@@ -38,22 +43,27 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
   return (
     <div className="space-y-[18px]">
       <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))]">
+        {/* Was "Available Now", which read as a live count while the page
+            above it was filtered to a month — and it was neither: it summed
+            every commitment on any date. It is now the stock left on each
+            item's busiest day in the period, which is the number that decides
+            whether that period can be served. */}
         <button
           onClick={() => onOpenDetail({
-            title: 'Available Equipment',
-            description: 'From the equipment table: units currently in good condition and not committed to a booking.',
+            title: 'Available on the Busiest Day',
+            description: `For ${periodLabel}: each item's usable stock minus the units committed on its single busiest day in that period. Stock is owned once, so a Saturday booking and a Sunday booking do not add together — only the busiest day can run it short. Items peak on different days, so this total is a worst-case sum across items, not one day's figure.`,
             fields: [
-              { label: 'Available now', value: totalFree, emphasis: true },
-              { label: 'Usable stock', value: totalUsable },
-              { label: 'Committed', value: totalDeployed },
+              { label: 'Available on the busiest day', value: totalFree, emphasis: true },
+              { label: 'Usable stock (today)', value: totalUsable },
+              { label: 'Committed on the busiest day', value: totalDeployed },
             ],
           })}
           className={`border rounded-2xl p-5 text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 ${cardColorClasses()}`}
         >
           <span className={cardAccentClass('teal')} />
-          <p className="text-[13px] font-semibold text-slate-600 mb-2">Available Now</p>
+          <p className="text-[13px] font-semibold text-slate-600 mb-2">Available on the busiest day</p>
           <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{totalFree}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">{totalUsable} usable − {totalDeployed} committed</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">{periodLabel === 'all time' ? 'All time' : `For ${periodLabel}`} · {totalUsable} usable − {totalDeployed} committed</p>
         </button>
         <button
           onClick={() => onOpenDetail({
@@ -87,7 +97,12 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
         <div className="p-5 border-b border-slate-200">
           <h3 className="text-base font-bold text-slate-900">Equipment by Type</h3>
-          <p className="text-xs text-slate-500 mt-1">Live snapshot — not affected by the date range above. Owned − out of service = usable; usable − committed = available.</p>
+          {/* Two scopes in one table, so both are stated. The old line said the
+              whole table ignored the date range — true of the stock columns and
+              false of what a manager actually reads it for. */}
+          <p className="text-xs text-slate-500 mt-1">
+            Owned, out of service and usable are the stock as it stands today. Committed and available follow the period above ({periodLabel}): committed is the most units booked on any single day in that period, and available is what is left on that day. Owned − out of service = usable; usable − committed = available.
+          </p>
         </div>
         {equipmentUtilizationData.length === 0 ? (
           <div className="p-8 text-center text-slate-500 text-sm">No equipment data available.</div>
@@ -100,8 +115,14 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Owned</th>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Out of service</th>
                   <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Usable</th>
-                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Committed</th>
-                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Available</th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">
+                    Committed
+                    <span className="block text-[11px] font-medium normal-case tracking-normal text-slate-500">busiest day</span>
+                  </th>
+                  <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">
+                    Available
+                    <span className="block text-[11px] font-medium normal-case tracking-normal text-slate-500">on that day</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
@@ -116,10 +137,11 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail }) {
                       key={item.id}
                       onClick={() => onOpenDetail({
                         title: item.name,
-                        description: 'From the equipment table (stock, damaged, maintenance) and booking_equipment table (committed and not yet returned).',
+                        description: `For ${periodLabel}. Stock is from the equipment table as it stands today. Committed is the most units of this item booked on any single day in that period (booking_equipment, not yet returned, on Approved or Confirmed bookings), and available is what is left on that day.`,
                         fields: [
-                          { label: 'Committed', value: item.deployed, emphasis: true },
-                          { label: 'Available now', value: item.free },
+                          { label: 'Committed on the busiest day', value: item.deployed, emphasis: true },
+                          { label: 'Available on that day', value: item.free },
+                          { label: 'Days booked in the period', value: item.bookedDays },
                           { label: 'Usable', value: item.usable },
                           { label: 'Damaged', value: item.damaged },
                           { label: 'Under maintenance', value: item.maintenance },

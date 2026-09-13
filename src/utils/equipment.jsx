@@ -529,6 +529,55 @@ export const getStockBreakdown = (item, committedOverride) => {
   };
 };
 
+/**
+ * The most units of each item committed on any SINGLE DAY within a range.
+ *
+ * Returns { [equipment_id]: { units, days } } — `units` is the busiest day's
+ * total, `days` is how many distinct days in the range carried a commitment.
+ *
+ * Why a peak and not a sum. Stock is owned once but can be booked on many days,
+ * and those days never coexist: 120 chairs out on Saturday and 120 on Sunday is
+ * 120 chairs, not 240. Summing commitments across a range and subtracting the
+ * total from one day's stock counts the same units once per day they go out,
+ * which understates what is free by exactly as much as the range spans. That is
+ * the error the Reports equipment figures carried until this existed.
+ *
+ * THE INCLUSION RULE IS getDailyEquipmentSnapshot's, deliberately. A row counts
+ * against a day when its booking is in ACTIVE_BOOKING_STATUSES, the row is not
+ * yet returned, and the booking's event falls on that LOCAL calendar day (the
+ * snapshot bounds a day with setHours(0,0,0,0) .. (23,59,59,999)). Reports
+ * applying a different rule is how two pages come to show different
+ * availability for the same equipment on the same date.
+ *
+ * Pure and synchronous: it works on rows already in memory, so a report can ask
+ * about a whole month without one round-trip per day. `rows` need
+ * { equipment_id, quantity, returned, booking: { booking_status,
+ * event_datetime } }; a null range end means unbounded on that side.
+ */
+export const peakDailyCommitment = (rows = [], rangeStart = null, rangeEnd = null) => {
+  const perDay = {};
+  rows.forEach(r => {
+    if (r.returned) return;
+    if (!ACTIVE_BOOKING_STATUSES.includes(r.booking?.booking_status)) return;
+    const when = r.booking?.event_datetime ? new Date(r.booking.event_datetime) : null;
+    if (!when || Number.isNaN(when.getTime())) return;
+    if (rangeStart && when < rangeStart) return;
+    if (rangeEnd && when > rangeEnd) return;
+    const day = `${when.getFullYear()}-${when.getMonth()}-${when.getDate()}`;
+    const key = `${r.equipment_id}|${day}`;
+    perDay[key] = (perDay[key] || 0) + (r.quantity || 0);
+  });
+
+  const peak = {};
+  Object.entries(perDay).forEach(([key, units]) => {
+    const id = key.slice(0, key.indexOf('|'));
+    if (!peak[id]) peak[id] = { units: 0, days: 0 };
+    peak[id].days += 1;
+    if (units > peak[id].units) peak[id].units = units;
+  });
+  return peak;
+};
+
 export const getDailyEquipmentSnapshot = async (dateStr) => {
   if (!dateStr) return { items: [], eventsOnDate: [] };
 

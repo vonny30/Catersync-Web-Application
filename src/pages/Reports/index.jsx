@@ -11,7 +11,7 @@ import { getPaymentsReceived } from '../../utils/reportMetrics';
 import { fetchAllRows } from '../../utils/fetchAllRows';
 import { getDispatchWindow } from '../../utils/vehicle';
 import { ACTIVE_BOOKING_STATUSES } from '../../utils/bookingStatus';
-import { getStockBreakdown } from '../../utils/equipment.jsx';
+import { getStockBreakdown, peakDailyCommitment } from '../../utils/equipment.jsx';
 import DateRangeFilter from './DateRangeFilter';
 import DetailModal from './DetailModal';
 import SimpleDetailModal from './SimpleDetailModal';
@@ -103,7 +103,7 @@ export default function Reports() {
         fetchAll(() => supabase.from('category').select('*').order('category_id', { ascending: true })),
         fetchAll(() => supabase.from('package_category').select('package_id, category_id').order('package_category_id', { ascending: true })),
         fetchAll(() => supabase.from('equipment').select('equipment_id, eqm_name, quantity_available, damaged_quantity, maintenance_quantity').order('equipment_id', { ascending: true })),
-        fetchAll(() => supabase.from('booking_equipment').select('equipment_id, quantity, returned, booking:booking_id (booking_status)').eq('returned', false).order('assignment_id', { ascending: true })),
+        fetchAll(() => supabase.from('booking_equipment').select('equipment_id, quantity, returned, booking:booking_id (booking_status, event_datetime)').eq('returned', false).order('assignment_id', { ascending: true })),
         fetchAll(() => supabase.from('vehicle').select('vehicle_id, plate_number, vehicle_type, vehicle_status').order('vehicle_id', { ascending: true })),
         // dispatch_datetime plus the booking's event date and type are what
         // getDispatchWindow needs; without them this page could only reason
@@ -499,34 +499,45 @@ export default function Reports() {
       .map(cat => ({ ...cat, share: totalPackageBookings > 0 ? (cat.bookings / totalPackageBookings) * 100 : 0 }))
       .sort((a, b) => b.bookings - a.bookings);
 
-    // --- EQUIPMENT UTILIZATION (live snapshot, not date-filtered) ---
-    // Only counts gear tied to a booking that's actually Approved/Confirmed
-    // right now — matches how Equipment.jsx's own availability view defines
-    // "committed", so this number doesn't disagree with what that page
-    // shows for the same equipment.
-    const deployedMap = {};
-    bookingEquipment
-      .filter(d => d.booking?.booking_status && ACTIVE_BOOKING_STATUSES.includes(d.booking.booking_status))
-      .forEach(d => {
-        deployedMap[d.equipment_id] = (deployedMap[d.equipment_id] || 0) + d.quantity;
-      });
+    // --- EQUIPMENT STOCK ---
+    // Two kinds of figure, deliberately treated differently.
+    //
+    // STOCK (owned, out of service, usable) is a present fact: what is in the
+    // warehouse does not depend on which month is being looked at, so it is
+    // not scoped by the period filter.
+    //
+    // COMMITTED and AVAILABLE are about bookings, which happen on dates, so
+    // they DO follow the period filter — and they are the busiest single day
+    // in it, not a sum across it. This used to be neither: it summed every
+    // unreturned commitment on any active booking, on ANY date, and subtracted
+    // that from one day's stock. Under a "This Month" filter it therefore
+    // counted October bookings against September, and it counted an item once
+    // per day it went out. Measured on live data, Chafing Dishes read 120
+    // available when 240 were free on September's busiest day.
+    //
+    // peakDailyCommitment applies getDailyEquipmentSnapshot's own inclusion
+    // rule, so this cannot disagree with the Equipment page about a date.
+    const peakByItem = peakDailyCommitment(bookingEquipment, rangeStart, rangeEnd);
+
     // `quantity_available` already means USABLE units — it is not reduced when
     // gear is assigned to a booking, because commitments live in
-    // booking_equipment and are per date. Adding `deployed` back into the total
-    // therefore counted every committed unit twice and inflated the fleet size,
-    // which in turn understated utilisation. getStockBreakdown owns the
-    // identity: total = usable + out of service.
+    // booking_equipment and are per date. getStockBreakdown owns the identity:
+    // total = usable + out of service.
     const equipmentUtilizationData = equipment.map(eq => {
-      const deployed = deployedMap[eq.equipment_id] || 0;
+      const peak = peakByItem[eq.equipment_id] || { units: 0, days: 0 };
       const { total, usable, damaged, maintenance, outOfService } = getStockBreakdown(eq);
       return {
         id: eq.equipment_id,
         name: eq.eqm_name,
         total,
         usable,
-        deployed,
-        // Free right now: usable stock that isn't already promised out.
-        free: usable - deployed,
+        // Units committed on the busiest day in the period.
+        deployed: peak.units,
+        // How many days in the period carried any commitment for this item.
+        bookedDays: peak.days,
+        // What is left on that busiest day. Never below zero on screen would
+        // hide an overbooking, so it is left signed.
+        free: usable - peak.units,
         damaged,
         maintenance,
         outOfService,
@@ -761,7 +772,7 @@ export default function Reports() {
           {activeTab === 'Overview' && <OverviewTab derived={derived} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Financial' && <FinancialTab derived={derived} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Menu & Packages' && <MenuPerformanceTab derived={derived} onOpenDetail={openSimpleModal} />}
-          {activeTab === 'Equipment Stock' && <EquipmentUtilizationTab derived={derived} onOpenDetail={openSimpleModal} />}
+          {activeTab === 'Equipment Stock' && <EquipmentUtilizationTab derived={derived} onOpenDetail={openSimpleModal} periodLabel={datePreset === 'All Time' ? 'all time' : datePreset === 'Custom' ? 'the selected dates' : datePreset.toLowerCase()} />}
           {activeTab === 'Vehicle Utilization' && <VehicleUtilizationTab derived={derived} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Booking Summary' && <BookingSummaryTab derived={derived} onOpenDetail={openSimpleModal} />}
         </div>
