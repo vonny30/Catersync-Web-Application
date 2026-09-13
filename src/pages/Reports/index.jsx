@@ -11,24 +11,15 @@ import { getPaymentsReceived } from '../../utils/reportMetrics';
 import { fetchAllRows } from '../../utils/fetchAllRows';
 import { getDispatchWindow } from '../../utils/vehicle';
 import { ACTIVE_BOOKING_STATUSES } from '../../utils/bookingStatus';
-import { getStockBreakdown, peakDailyCommitment, summariseEquipmentHealth } from '../../utils/equipment.jsx';
 import DateRangeFilter from './DateRangeFilter';
 import DetailModal from './DetailModal';
 import SimpleDetailModal from './SimpleDetailModal';
 import OverviewTab from './OverviewTab';
 import FinancialTab from './FinancialTab';
 import MenuPerformanceTab from './MenuPerformanceTab';
-import EquipmentUtilizationTab from './EquipmentUtilizationTab';
-import VehicleUtilizationTab from './VehicleUtilizationTab';
 import BookingSummaryTab from './BookingSummaryTab';
 
-const TABS = [
-  'Overview', 'Financial', 'Menu & Packages',
-  // "Equipment Stock", not "Equipment Utilization": that tab reports stock
-  // levels and no longer computes a rate — see EquipmentUtilizationTab.jsx for
-  // why the percentage was removed rather than corrected.
-  'Equipment Stock', 'Vehicle Utilization', 'Booking Summary',
-];
+const TABS = ['Overview', 'Financial', 'Menu & Packages', 'Booking Summary'];
 
 const CANCELLED_STATUSES = ['Rejected', 'Cancelled'];
 
@@ -89,7 +80,7 @@ export default function Reports() {
     try {
       const [
         bookings, payments, packages, menuItems, categories,
-        packageCategories, equipment, bookingEquipment, vehicles, vehicleAssignments,
+        packageCategories, vehicles, vehicleAssignments,
       ] = await Promise.all([
         fetchAll(() => supabase.from('booking').select(`
           booking_id, booking_number, booking_type, event_datetime, book_datetime,
@@ -102,9 +93,7 @@ export default function Reports() {
         fetchAll(() => supabase.from('menu_item').select('*').order('menu_item_id', { ascending: true })),
         fetchAll(() => supabase.from('category').select('*').order('category_id', { ascending: true })),
         fetchAll(() => supabase.from('package_category').select('package_id, category_id').order('package_category_id', { ascending: true })),
-        fetchAll(() => supabase.from('equipment').select('equipment_id, eqm_name, quantity_available, damaged_quantity, maintenance_quantity').order('equipment_id', { ascending: true })),
-        fetchAll(() => supabase.from('booking_equipment').select('assignment_id, equipment_id, quantity, returned, returned_at, booking:booking_id (booking_id, booking_number, booking_status, event_datetime)').order('assignment_id', { ascending: true })),
-        fetchAll(() => supabase.from('vehicle').select('vehicle_id, plate_number, vehicle_type, vehicle_status').order('vehicle_id', { ascending: true })),
+        fetchAll(() => supabase.from('vehicle').select('vehicle_id').order('vehicle_id', { ascending: true })),
         // dispatch_datetime plus the booking's event date and type are what
         // getDispatchWindow needs; without them this page could only reason
         // about whether an assignment exists, not when it actually runs.
@@ -118,8 +107,6 @@ export default function Reports() {
         menuItems,
         categories,
         packageCategories,
-        equipment,
-        bookingEquipment,
         vehicles,
         vehicleAssignments,
       });
@@ -140,7 +127,7 @@ export default function Reports() {
   const derived = useMemo(() => {
     if (!rawData) return null;
 
-    const { bookings, payments, menuItems, categories, packageCategories, equipment, bookingEquipment, vehicles, vehicleAssignments } = rawData;
+    const { bookings, payments, menuItems, categories, packageCategories, vehicles, vehicleAssignments } = rawData;
 
     // Lookup for attaching a booking ref/type to a payment/refund row that
     // only carries booking_id — used so the Refunds panel can link
@@ -499,70 +486,7 @@ export default function Reports() {
       .map(cat => ({ ...cat, share: totalPackageBookings > 0 ? (cat.bookings / totalPackageBookings) * 100 : 0 }))
       .sort((a, b) => b.bookings - a.bookings);
 
-    // --- EQUIPMENT STOCK ---
-    // Two kinds of figure, deliberately treated differently.
-    //
-    // STOCK (owned, out of service, usable) is a present fact: what is in the
-    // warehouse does not depend on which month is being looked at, so it is
-    // not scoped by the period filter.
-    //
-    // COMMITTED and AVAILABLE are about bookings, which happen on dates, so
-    // they DO follow the period filter — and they are the busiest single day
-    // in it, not a sum across it. This used to be neither: it summed every
-    // unreturned commitment on any active booking, on ANY date, and subtracted
-    // that from one day's stock. Under a "This Month" filter it therefore
-    // counted October bookings against September, and it counted an item once
-    // per day it went out. Measured on live data, Chafing Dishes read 120
-    // available when 240 were free on September's busiest day.
-    //
-    // peakDailyCommitment applies getDailyEquipmentSnapshot's own inclusion
-    // rule, so this cannot disagree with the Equipment page about a date.
-    const peakByItem = peakDailyCommitment(bookingEquipment, rangeStart, rangeEnd);
-
-    // `quantity_available` already means USABLE units — it is not reduced when
-    // gear is assigned to a booking, because commitments live in
-    // booking_equipment and are per date. getStockBreakdown owns the identity:
-    // total = usable + out of service.
-    const equipmentUtilizationData = equipment.map(eq => {
-      const peak = peakByItem[eq.equipment_id] || { units: 0, days: 0 };
-      const { total, usable, damaged, maintenance, outOfService } = getStockBreakdown(eq);
-      return {
-        id: eq.equipment_id,
-        name: eq.eqm_name,
-        total,
-        usable,
-        // Units committed on the busiest day in the period.
-        deployed: peak.units,
-        // How many days in the period carried any commitment for this item.
-        bookedDays: peak.days,
-        // What is left on that busiest day. Never below zero on screen would
-        // hide an overbooking, so it is left signed.
-        free: usable - peak.units,
-        damaged,
-        maintenance,
-        outOfService,
-      };
-    });
-
-    // --- VEHICLE UTILIZATION (live snapshot, not date-filtered) ---
-    // Same cross-check Vehicles.jsx itself applies: a Scheduled assignment
-    // only counts as "really active" if the booking it's tied to is still
-    // Approved/Confirmed — otherwise a vehicle scheduled for a since-
-    // rejected/cancelled booking would keep showing as dispatched here even
-    // though Vehicles.jsx no longer treats it that way.
-    const activeAssignmentsByVehicle = {};
-    vehicleAssignments
-      .filter(v => v.assignment_status === 'Scheduled' && v.booking?.booking_status && ACTIVE_BOOKING_STATUSES.includes(v.booking.booking_status))
-      .forEach(v => {
-        activeAssignmentsByVehicle[v.vehicle_id] = (activeAssignmentsByVehicle[v.vehicle_id] || 0) + 1;
-      });
-    const vehicleUtilizationData = vehicles.map(v => ({
-      id: v.vehicle_id,
-      plateNumber: v.plate_number,
-      type: v.vehicle_type,
-      status: v.vehicle_status,
-      activeDispatches: activeAssignmentsByVehicle[v.vehicle_id] || 0,
-    }));
+    // --- VEHICLES ---
     const totalVehicles = vehicles.length;
 
     // D8. "Currently dispatched" used to count any vehicle holding a Scheduled
@@ -584,49 +508,6 @@ export default function Reports() {
         .map(v => v.vehicle_id)
     );
     const dispatchedVehicles = dispatchedVehicleIds.size;
-    // Kept separately, because "booked" is a real and different question from
-    // "out right now" and the page shows both.
-    const committedVehicles = vehicles.filter(v => (activeAssignmentsByVehicle[v.vehicle_id] || 0) > 0).length;
-
-    // Fleet utilization as a share of a whole, per Blueprint 02 §4: the hours
-    // vehicles actually spent on the road inside the reporting range, over the
-    // hours the fleet had available across that range.
-    //
-    // Only vehicles in service count toward the denominator — a van sitting in
-    // the workshop was never available to dispatch, so including it would
-    // report the fleet as idle when it was simply smaller.
-    //
-    // Needs a bounded range. Over "All Time" there is no finite denominator,
-    // so the figure is reported as unavailable rather than invented.
-    const HOUR = 60 * 60 * 1000;
-    // Vehicles actually fit to go out. Reported on its own because
-    // "available" previously meant total minus dispatched, which counted a van
-    // sitting in the workshop as free.
-    const serviceableVehicles = vehicles.filter(v => v.vehicle_status === 'Available').length;
-    let fleetUtilization = null;
-    if (rangeStart && rangeEnd && serviceableVehicles > 0) {
-      const rangeMs = rangeEnd.getTime() - rangeStart.getTime();
-      if (rangeMs > 0) {
-        // Every dispatch in the range, returned ones included: hours spent are
-        // hours spent whether or not the trip has since closed.
-        const dispatchedMs = vehicleAssignments
-          .filter(v => v.booking?.booking_status && !CANCELLED_STATUSES.includes(v.booking.booking_status))
-          .reduce((sum, v) => {
-            const w = getDispatchWindow(v, v.booking);
-            if (!w) return sum;
-            const from = Math.max(w.start.getTime(), rangeStart.getTime());
-            const to = Math.min(w.end.getTime(), rangeEnd.getTime());
-            return sum + Math.max(0, to - from);
-          }, 0);
-        const availableMs = serviceableVehicles * rangeMs;
-        fleetUtilization = {
-          percent: (dispatchedMs / availableMs) * 100,
-          dispatchedHours: dispatchedMs / HOUR,
-          availableHours: availableMs / HOUR,
-          serviceableVehicles,
-        };
-      }
-    }
 
     // --- CUSTOMER INSIGHTS ---
     const customerMap = {};
@@ -685,21 +566,14 @@ export default function Reports() {
       bookings, verifiedPayments, nowInstant, { excludeStatuses: CANCELLED_STATUSES }
     );
 
-    // What a manager needs beyond stock levels: what to chase, what will run
-    // short, and whether returns come back on time. Three time scopes, each
-    // labelled on screen — see summariseEquipmentHealth.
-    const equipmentHealth = summariseEquipmentHealth(bookingEquipment, equipment, nowInstant, { rangeStart, rangeEnd });
-
     return {
-      equipmentHealth,
       financialSummary, monthlyRevenueData, monthlyFinancialTrend, paymentMethodData, refunds, totalRefunded,
       totalSubmitted, cancellationRate, rejectedCount, customerCancelledCount, pendingInRangeCount,
-      committedVehicles, fleetUtilization, serviceableVehicles,
       productLineMix, packageMix, menuItemMix, categoryDemandData,
       packageRevenue, shortOrderRevenue, combinedRevenue,
       menuItemRevenue, deliveryFeeTotal, unattributedFoodRevenue, traysSold, topSellingItem,
       hasEstimatedMenuRevenue, totalPackageBookings,
-      equipmentUtilizationData, vehicleUtilizationData, totalVehicles, dispatchedVehicles,
+      totalVehicles, dispatchedVehicles,
       repeatCustomers, oneTimeCustomers, totalCustomers: customerList.length,
       bookingSummaryData,
     };
@@ -735,7 +609,7 @@ export default function Reports() {
               an instruction for an affordance the cards already carry. The
               exclusion is kept -- it changes what the figures mean. */}
           <p className="text-[14.5px] text-slate-600 mt-1.5 max-w-[620px] [text-wrap:pretty]">
-            Bookings, payments, menu popularity, and equipment usage for PG's Catering. Figures exclude rejected and cancelled bookings.
+            Bookings, payments, and menu popularity for PG's Catering. Figures exclude rejected and cancelled bookings.
           </p>
         </div>
         <DateRangeFilter
@@ -778,8 +652,6 @@ export default function Reports() {
           {activeTab === 'Overview' && <OverviewTab derived={derived} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Financial' && <FinancialTab derived={derived} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Menu & Packages' && <MenuPerformanceTab derived={derived} onOpenDetail={openSimpleModal} />}
-          {activeTab === 'Equipment Stock' && <EquipmentUtilizationTab derived={derived} onOpenDetail={openSimpleModal} periodLabel={datePreset === 'All Time' ? 'all time' : datePreset === 'Custom' ? 'the selected dates' : datePreset.toLowerCase()} />}
-          {activeTab === 'Vehicle Utilization' && <VehicleUtilizationTab derived={derived} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Booking Summary' && <BookingSummaryTab derived={derived} onOpenDetail={openSimpleModal} />}
         </div>
       )}

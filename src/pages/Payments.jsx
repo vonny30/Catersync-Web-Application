@@ -1232,9 +1232,12 @@ export default function Payments() {
     setSummarySearchTerm('');
     setSummaryTypeFilter('All');
     setSummaryMethodFilter('All');
-    setSummaryDatePreset(DEFAULT_DATE_PRESET);
-    setSummaryDateCustomStart('');
-    setSummaryDateCustomEnd('');
+    // The modal re-filters by its own date control, so it must open on the
+    // card's period. Opening on DEFAULT_DATE_PRESET narrowed an All Time card
+    // to this month.
+    setSummaryDatePreset(datePreset);
+    setSummaryDateCustomStart(customStart);
+    setSummaryDateCustomEnd(customEnd);
     setIsSummaryModalOpen(true);
   };
 
@@ -1259,7 +1262,9 @@ export default function Payments() {
     setSummarySearchTerm('');
     setSummaryTypeFilter('All');
     setSummaryMethodFilter('All');
-    setSummaryDatePreset(DEFAULT_DATE_PRESET);
+    // The card is not date-scoped, so the modal opens unfiltered. Opening on
+    // DEFAULT_DATE_PRESET hid every balance whose event is outside this month.
+    setSummaryDatePreset('All Time');
     setSummaryDateCustomStart('');
     setSummaryDateCustomEnd('');
     setIsSummaryModalOpen(true);
@@ -1295,7 +1300,8 @@ export default function Payments() {
     setSummarySearchTerm('');
     setSummaryTypeFilter('All');
     setSummaryMethodFilter('All');
-    setSummaryDatePreset(DEFAULT_DATE_PRESET);
+    // Not date-scoped either — same reason as Outstanding Balance.
+    setSummaryDatePreset('All Time');
     setSummaryDateCustomStart('');
     setSummaryDateCustomEnd('');
     setIsSummaryModalOpen(true);
