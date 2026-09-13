@@ -527,7 +527,9 @@ export default function Payments() {
     { key: 'All', label: 'All Payments', description: 'any status', match: () => true },
     { key: 'Pending Verification', label: 'Pending Verification', description: 'submitted from mobile, awaiting review', match: (p) => p.pay_status === 'Pending Verification' },
     { key: 'Downpayment', label: 'Downpayment', description: 'partial payments so far', match: (p) => p.pay_status === 'Downpayment' },
-    { key: 'Full Payment', label: 'Fully Paid', description: 'paid in full', match: (p) => p.pay_status === 'Fully Paid' },
+    // "marked Fully Paid", not "paid in full": the card above is Paid in Full
+    // and counts BOOKINGS. This one counts payments carrying that status.
+    { key: 'Full Payment', label: 'Fully Paid', description: 'marked Fully Paid', match: (p) => p.pay_status === 'Fully Paid' },
   ];
 
   // The table below renders one row per GROUP, and this is the rule that
@@ -596,6 +598,13 @@ export default function Payments() {
   // makes the card describe the table beneath it; the status cards above
   // already work this way.
   const received = getPaymentsReceived(dateFilteredBothSigns);
+
+  // The page period in words, and whether search/type/method are narrowing
+  // it. Payments Received and the status cards follow both; Outstanding
+  // Balance and Paid in Full follow neither. Each says which, because
+  // side-by-side figures on different scopes read as contradictions.
+  const periodPhrase = datePreset === 'All Time' ? 'all time' : datePreset === 'Custom' ? 'the selected dates' : datePreset.toLowerCase();
+  const hasNonDateFilters = !!tableSearchTerm || typeFilter !== 'All' || methodFilter !== 'All';
 
   // --- HANDLERS ---
   const handleInputChange = (e) => {
@@ -1433,7 +1442,7 @@ export default function Payments() {
               payment, so it is only mentioned when one exists. Matches
               FinancialTab. */}
           <p className="text-[13px] text-slate-600 mt-2.5">
-            On confirmed &amp; completed bookings · {datePreset === 'All Time' ? 'all time' : datePreset.toLowerCase()}
+            On confirmed &amp; completed bookings · {periodPhrase}{hasNonDateFilters && ' · matching filters'}
             {received.refundsNettedAgainstReceived > 0 && ` — less ₱${received.refundsNettedAgainstReceived.toLocaleString()} refunded`}
           </p>
           {received.awaitingConfirmation > 0 && (
@@ -1457,7 +1466,7 @@ export default function Payments() {
               unpaid balance across every active record, whatever its status. */}
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Outstanding Balance</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">₱{pendingBalance.toLocaleString()}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">Unpaid balance on active bookings &amp; orders</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">Unpaid on active bookings &amp; orders · as of today, any event date</p>
           {/* Only when there is something to chase. A fully collected caterer
               sees no line at all rather than a reassuring "₱0", which would
               just be one more number to read. Amber, the app's "needs
@@ -1474,9 +1483,13 @@ export default function Payments() {
           className="relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white p-5 text-left transition-all cursor-pointer hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]"
         >
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-emerald-500" />
-          <p className="text-[13px] font-semibold text-slate-600 mb-2">Fully Paid</p>
+          {/* Blueprint 02: "Paid in Full", not "Fully Paid". This counts
+              BOOKINGS; Fully Paid is a payment status, and the status card of
+              that name below counts payments. Two cards with one name and two
+              different numbers is what made this section read as wrong. */}
+          <p className="text-[13px] font-semibold text-slate-600 mb-2">Paid in Full</p>
           <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{fullyPaidCount}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">Active orders fully paid</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">Bookings &amp; orders settled in full · as of today</p>
         </button>
       </div>
 
@@ -1505,9 +1518,18 @@ export default function Payments() {
           doesn't apply there. */}
       {mainTab === 'Payments' && (
       <div className="bg-white rounded-2xl border border-slate-200/70 p-5">
-        <div className="flex items-center gap-1.5 mb-3">
-          <LayoutGrid size={13} className="text-slate-500" />
-          <span className="text-[13px] font-bold text-slate-600 tracking-[0.04em] whitespace-nowrap">Status Overview</span>
+        <div className="mb-3">
+          <div className="flex items-center gap-1.5">
+            <LayoutGrid size={13} className="text-slate-500" />
+            <span className="text-[13px] font-bold text-slate-600 tracking-[0.04em] whitespace-nowrap">Payments by Status</span>
+          </div>
+          {/* The cards above answer "how much money, and who still owes".
+              These count individual payments by the status on each one, on
+              every booking — so All Payments includes money Payments Received
+              deliberately leaves out, and is never smaller than it. */}
+          <p className="text-[12.5px] text-slate-500 mt-1">
+            Individual payments made {periodPhrase}{hasNonDateFilters && ', matching your filters'}, on any booking — including ones not yet confirmed or since cancelled. That is why All Payments can be higher than Payments Received.
+          </p>
         </div>
         <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))]">
           {statusStats.map((s) => (
