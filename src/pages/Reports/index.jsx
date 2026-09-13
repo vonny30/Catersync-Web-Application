@@ -11,7 +11,7 @@ import { getPaymentsReceived } from '../../utils/reportMetrics';
 import { fetchAllRows } from '../../utils/fetchAllRows';
 import { getDispatchWindow } from '../../utils/vehicle';
 import { ACTIVE_BOOKING_STATUSES } from '../../utils/bookingStatus';
-import { getStockBreakdown, peakDailyCommitment } from '../../utils/equipment.jsx';
+import { getStockBreakdown, peakDailyCommitment, summariseEquipmentHealth } from '../../utils/equipment.jsx';
 import DateRangeFilter from './DateRangeFilter';
 import DetailModal from './DetailModal';
 import SimpleDetailModal from './SimpleDetailModal';
@@ -103,7 +103,7 @@ export default function Reports() {
         fetchAll(() => supabase.from('category').select('*').order('category_id', { ascending: true })),
         fetchAll(() => supabase.from('package_category').select('package_id, category_id').order('package_category_id', { ascending: true })),
         fetchAll(() => supabase.from('equipment').select('equipment_id, eqm_name, quantity_available, damaged_quantity, maintenance_quantity').order('equipment_id', { ascending: true })),
-        fetchAll(() => supabase.from('booking_equipment').select('equipment_id, quantity, returned, booking:booking_id (booking_status, event_datetime)').eq('returned', false).order('assignment_id', { ascending: true })),
+        fetchAll(() => supabase.from('booking_equipment').select('assignment_id, equipment_id, quantity, returned, returned_at, booking:booking_id (booking_id, booking_number, booking_status, event_datetime)').order('assignment_id', { ascending: true })),
         fetchAll(() => supabase.from('vehicle').select('vehicle_id, plate_number, vehicle_type, vehicle_status').order('vehicle_id', { ascending: true })),
         // dispatch_datetime plus the booking's event date and type are what
         // getDispatchWindow needs; without them this page could only reason
@@ -685,7 +685,13 @@ export default function Reports() {
       bookings, verifiedPayments, nowInstant, { excludeStatuses: CANCELLED_STATUSES }
     );
 
+    // What a manager needs beyond stock levels: what to chase, what will run
+    // short, and whether returns come back on time. Three time scopes, each
+    // labelled on screen — see summariseEquipmentHealth.
+    const equipmentHealth = summariseEquipmentHealth(bookingEquipment, equipment, nowInstant, { rangeStart, rangeEnd });
+
     return {
+      equipmentHealth,
       financialSummary, monthlyRevenueData, monthlyFinancialTrend, paymentMethodData, refunds, totalRefunded,
       totalSubmitted, cancellationRate, rejectedCount, customerCancelledCount, pendingInRangeCount,
       committedVehicles, fleetUtilization, serviceableVehicles,

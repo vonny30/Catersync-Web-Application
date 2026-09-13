@@ -1,6 +1,11 @@
 // src/utils/equipment.js
 import { supabase } from '../supabase';
 import { ACTIVE_BOOKING_STATUSES } from './bookingStatus';
+// The 24-hour return window. utils/vehicle.js owns the constant; Equipment.jsx
+// enforces the same 24h as RETURN_DUE_AFTER_MS and states it in
+// RETURN_POLICY_TEXT. Imported rather than retyped so a report cannot flag a
+// return late on a different deadline from the page that records it.
+import { RETURN_DUE_AFTER_HOURS } from './vehicle';
 import { fetchAllRows } from './fetchAllRows';
 
 /**
@@ -576,6 +581,193 @@ export const peakDailyCommitment = (rows = [], rangeStart = null, rangeEnd = nul
     if (units > peak[id].units) peak[id].units = units;
   });
   return peak;
+};
+
+// ---------------------------------------------------------------------------
+// EQUIPMENT HEALTH — what a manager needs to see to know gear is under control
+// ---------------------------------------------------------------------------
+
+const HOUR = 3600 * 1000;
+
+// Bookings whose unreturned gear counts as out, for overdue purposes. Matches
+// Equipment.jsx's LIVE_COMMITMENT_STATUSES exactly: a Completed event whose gear
+// never came back is the classic overdue, so Completed is in.
+const LIVE_STATUSES = [...ACTIVE_BOOKING_STATUSES, 'Completed'];
+const DEAD_STATUSES = ['Cancelled', 'Rejected'];
+
+/**
+ * booking_equipment.returned_at is `timestamp without time zone`, and every
+ * writer in this app stores `new Date().toISOString()` into it. Postgres drops
+ * the offset, so the column holds a UTC wall-clock with no marker. JavaScript
+ * parses a zoneless timestamp as LOCAL time, which in Asia/Manila puts every
+ * return eight hours earlier than it happened — a return 20 hours after an event
+ * would read as 12. Re-attach the UTC marker before parsing.
+ */
+const returnedAtUtc = (value) => {
+  if (!value) return null;
+  const s = String(value).trim().replace(' ', 'T');
+  const d = new Date(/[zZ]$|[+-]\d{2}:?\d{2}$/.test(s) ? s : `${s}Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+const eventOf = (r) => {
+  const d = r.booking?.event_datetime ? new Date(r.booking.event_datetime) : null;
+  return d && !Number.isNaN(d.getTime()) ? d : null;
+};
+
+// Rows grouped per booking, because a manager chases a booking, not a row.
+const groupByBooking = (rows, nameById) => {
+  const map = new Map();
+  rows.forEach(r => {
+    const key = r.booking?.booking_id || r.assignment_id;
+    if (!map.has(key)) {
+      map.set(key, {
+        bookingId: r.booking?.booking_id || null,
+        ref: r.booking?.booking_number || 'Unnumbered booking',
+        status: r.booking?.booking_status || null,
+        eventAt: eventOf(r),
+        units: 0,
+        items: [],
+      });
+    }
+    const g = map.get(key);
+    g.units += r.quantity || 0;
+    g.items.push({ name: nameById[r.equipment_id] || 'Unknown item', quantity: r.quantity || 0 });
+  });
+  return [...map.values()];
+};
+
+/**
+ * Everything the Equipment Stock report needs beyond stock levels, in one pass.
+ *
+ *   rows       booking_equipment incl. RETURNED rows:
+ *              { assignment_id, equipment_id, quantity, returned, returned_at,
+ *                booking: { booking_id, booking_number, booking_status,
+ *                           event_datetime } }
+ *   equipment  { equipment_id, eqm_name, quantity_available,
+ *                damaged_quantity, maintenance_quantity }
+ *
+ * Three different time scopes, deliberately, and the report labels each:
+ *
+ *   overdue, outOnCancelled, returnedWithoutTime   AS OF NOW
+ *   tight                                          NEXT horizonDays FROM TODAY
+ *   returns                                        THE PERIOD FILTER
+ *
+ * What this cannot report, and does not pretend to: units lost or short on a
+ * return, or which booking damaged something. `returned` is one flag for the
+ * whole row and damage is a stock counter with no link to a booking — both
+ * need a schema change.
+ *
+ * Pure: `now` is a parameter, so it is testable and never reads the clock.
+ */
+export const summariseEquipmentHealth = (rows = [], equipment = [], now = new Date(), {
+  rangeStart = null,
+  rangeEnd = null,
+  horizonDays = 60,
+  // A day is "tight" when what is left is at or below this share of usable
+  // stock. Ten percent flags a fully booked item (4 of 4 vases, 0 left) without
+  // flagging an item that is merely busy (120 of 290 chafing dishes).
+  tightShare = 0.1,
+} = {}) => {
+  const byId = Object.fromEntries(equipment.map(e => [e.equipment_id, e]));
+  const nameById = Object.fromEntries(equipment.map(e => [e.equipment_id, e.eqm_name]));
+  const dueMs = RETURN_DUE_AFTER_HOURS * HOUR;
+
+  // --- NEEDS FOLLOW-UP, as of now -----------------------------------------
+  const pastDue = (r) => {
+    const ev = eventOf(r);
+    return ev ? ev.getTime() + dueMs < now.getTime() : false;
+  };
+
+  const overdue = groupByBooking(
+    rows.filter(r => !r.returned && LIVE_STATUSES.includes(r.booking?.booking_status) && pastDue(r)),
+    nameById
+  ).map(g => ({ ...g, hoursLate: g.eventAt ? (now - g.eventAt - dueMs) / HOUR : null }))
+    .sort((a, b) => (b.hoursLate || 0) - (a.hoursLate || 0));
+
+  // Gear recorded as out on a booking that was called off, past the point it
+  // would have been due back. Either it never left and the record was never
+  // closed, or it left and has not come back. Both need a person to look.
+  const outOnCancelled = groupByBooking(
+    rows.filter(r => !r.returned && DEAD_STATUSES.includes(r.booking?.booking_status) && pastDue(r)),
+    nameById
+  ).map(g => ({ ...g, hoursLate: g.eventAt ? (now - g.eventAt - dueMs) / HOUR : null }));
+
+  // Marked back with no time recorded, so it cannot be judged on time or late.
+  const returnedWithoutTime = groupByBooking(
+    rows.filter(r => r.returned && !returnedAtUtc(r.returned_at)),
+    nameById
+  );
+
+  // --- COMING UP TIGHT, next horizonDays ----------------------------------
+  const startOfToday = new Date(now); startOfToday.setHours(0, 0, 0, 0);
+  const horizonEnd = new Date(startOfToday.getTime() + horizonDays * 24 * HOUR);
+  const perDay = {};
+  rows.forEach(r => {
+    if (r.returned) return;
+    if (!ACTIVE_BOOKING_STATUSES.includes(r.booking?.booking_status)) return;
+    const ev = eventOf(r);
+    if (!ev || ev < startOfToday || ev >= horizonEnd) return;
+    const dayStart = new Date(ev); dayStart.setHours(0, 0, 0, 0);
+    const key = `${r.equipment_id}|${dayStart.getTime()}`;
+    if (!perDay[key]) perDay[key] = { equipmentId: r.equipment_id, day: dayStart, committed: 0, refs: new Set() };
+    perDay[key].committed += r.quantity || 0;
+    if (r.booking?.booking_number) perDay[key].refs.add(r.booking.booking_number);
+  });
+
+  const tight = Object.values(perDay).map(d => {
+    const eq = byId[d.equipmentId] || {};
+    const usable = eq.quantity_available || 0;
+    const outOfService = (eq.damaged_quantity || 0) + (eq.maintenance_quantity || 0);
+    return {
+      equipmentId: d.equipmentId,
+      name: eq.eqm_name || 'Unknown item',
+      day: d.day,
+      committed: d.committed,
+      usable,
+      spare: usable - d.committed,
+      outOfService,
+      owned: usable + outOfService,
+      refs: [...d.refs],
+    };
+  })
+    .filter(t => t.spare <= Math.floor(t.usable * tightShare))
+    .sort((a, b) => a.spare - b.spare || a.day - b.day);
+
+  // --- RETURNS, for the period --------------------------------------------
+  // A booking is back when its LAST item is back, so its return time is the
+  // latest returned_at among its rows.
+  const inRange = (d) => d && (!rangeStart || d >= rangeStart) && (!rangeEnd || d <= rangeEnd);
+  const returnedByBooking = new Map();
+  rows.forEach(r => {
+    if (!r.returned) return;
+    const ev = eventOf(r);
+    if (!inRange(ev)) return;
+    const key = r.booking?.booking_id || r.assignment_id;
+    if (!returnedByBooking.has(key)) returnedByBooking.set(key, { eventAt: ev, returnAt: null, missingTime: false });
+    const g = returnedByBooking.get(key);
+    const at = returnedAtUtc(r.returned_at);
+    if (!at) g.missingTime = true;
+    else if (!g.returnAt || at > g.returnAt) g.returnAt = at;
+  });
+
+  const timed = [...returnedByBooking.values()].filter(g => g.returnAt && !g.missingTime);
+  const hours = timed.map(g => (g.returnAt - g.eventAt) / HOUR).sort((a, b) => a - b);
+  const median = hours.length
+    ? (hours.length % 2 ? hours[(hours.length - 1) / 2] : (hours[hours.length / 2 - 1] + hours[hours.length / 2]) / 2)
+    : null;
+
+  const returns = {
+    bookings: returnedByBooking.size,
+    timed: timed.length,
+    onTime: hours.filter(h => h <= RETURN_DUE_AFTER_HOURS).length,
+    late: hours.filter(h => h > RETURN_DUE_AFTER_HOURS).length,
+    withoutTime: [...returnedByBooking.values()].filter(g => g.missingTime).length,
+    medianHours: median,
+    dueWithinHours: RETURN_DUE_AFTER_HOURS,
+  };
+
+  return { overdue, outOnCancelled, returnedWithoutTime, tight, returns, horizonDays };
 };
 
 export const getDailyEquipmentSnapshot = async (dateStr) => {
