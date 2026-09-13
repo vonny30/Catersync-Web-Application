@@ -24,7 +24,10 @@ import BookingSummaryTab from './BookingSummaryTab';
 
 const TABS = [
   'Overview', 'Financial', 'Menu & Packages',
-  'Equipment Utilization', 'Vehicle Utilization', 'Booking Summary',
+  // "Equipment Stock", not "Equipment Utilization": that tab reports stock
+  // levels and no longer computes a rate — see EquipmentUtilizationTab.jsx for
+  // why the percentage was removed rather than corrected.
+  'Equipment Stock', 'Vehicle Utilization', 'Booking Summary',
 ];
 
 const CANCELLED_STATUSES = ['Rejected', 'Cancelled'];
@@ -758,7 +761,7 @@ export default function Reports() {
           {activeTab === 'Overview' && <OverviewTab derived={derived} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Financial' && <FinancialTab derived={derived} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Menu & Packages' && <MenuPerformanceTab derived={derived} onOpenDetail={openSimpleModal} />}
-          {activeTab === 'Equipment Utilization' && <EquipmentUtilizationTab derived={derived} onOpenDetail={openSimpleModal} />}
+          {activeTab === 'Equipment Stock' && <EquipmentUtilizationTab derived={derived} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Vehicle Utilization' && <VehicleUtilizationTab derived={derived} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Booking Summary' && <BookingSummaryTab derived={derived} onOpenDetail={openSimpleModal} />}
         </div>

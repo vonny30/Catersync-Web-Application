@@ -275,6 +275,9 @@ export default function Payments() {
 
   // --- SUMMARY STATE ---
   const [pendingBalance, setPendingBalance] = useState(0);
+  // The part of pendingBalance owed on events that have ALREADY HAPPENED —
+  // work delivered and not yet paid for. See where both are accumulated.
+  const [pendingOnPastEvents, setPendingOnPastEvents] = useState(0);
   const [fullyPaidCount, setFullyPaidCount] = useState(0);
 
   // --- SUMMARY DETAIL MODAL STATE ---
@@ -431,13 +434,29 @@ export default function Payments() {
       });
       setFullyPaidCount(fullyPaid);
 
+      // Both figures are accumulated in ONE pass, over the same bookingsData,
+      // the same bookingTotals and the same `remaining > 0` test, so the
+      // past-event share is a subset of the headline by construction and can
+      // never exceed or disagree with it. The headline accumulator itself is
+      // unchanged — the second branch only reads what the first already
+      // decided to count.
+      //
+      // Nothing on the card separated money owed for work already delivered
+      // from money owed for work still to come, and those call for different
+      // things: the second is a receivable, the first is a follow-up.
+      const asOf = new Date();
       let pending = 0;
+      let onPastEvents = 0;
       bookingsData.forEach(b => {
         const paid = bookingTotals[b.booking_id] || 0;
         const remaining = (b.total_amount || 0) - paid;
-        if (remaining > 0) pending += remaining;
+        if (remaining > 0) {
+          pending += remaining;
+          if (b.event_datetime && new Date(b.event_datetime) < asOf) onPastEvents += remaining;
+        }
       });
       setPendingBalance(pending);
+      setPendingOnPastEvents(onPastEvents);
 
     } catch (error) {
       handleError(error, 'Unable to load payments. Please refresh the page.');
@@ -1412,6 +1431,16 @@ export default function Payments() {
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Outstanding Balance</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">₱{pendingBalance.toLocaleString()}</h3>
           <p className="text-[13px] text-slate-600 mt-2.5">Unpaid balance on active bookings &amp; orders</p>
+          {/* Only when there is something to chase. A fully collected caterer
+              sees no line at all rather than a reassuring "₱0", which would
+              just be one more number to read. Amber, the app's "needs
+              attention" role and the same as the retained-from-cancellations
+              line beside it — this is a prompt to follow up, not an error. */}
+          {pendingOnPastEvents > 0 && (
+            <p className="text-[12.5px] text-amber-700 mt-1">
+              ₱{pendingOnPastEvents.toLocaleString()} of this is on events that have already happened.
+            </p>
+          )}
         </button>
         <button
           onClick={handleFullyPaidClick}
