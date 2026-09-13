@@ -69,6 +69,9 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail, periodL
   const { equipmentUtilizationData, equipmentHealth } = derived;
   const health = equipmentHealth || { overdue: [], outOnCancelled: [], returnedWithoutTime: [], tight: [], returns: { bookings: 0 }, horizonDays: 60 };
   const followUpCount = health.overdue.length + health.outOnCancelled.length + health.returnedWithoutTime.length;
+  // "Events in all time" is not English. The period reads as a phrase that
+  // fits after "events", whichever preset is chosen.
+  const inPeriod = periodLabel === 'all time' ? 'at any time' : `in ${periodLabel}`;
 
   const totalDeployed = equipmentUtilizationData.reduce((sum, e) => sum + e.deployed, 0);
   const totalUsable = equipmentUtilizationData.reduce((sum, e) => sum + e.usable, 0);
@@ -163,10 +166,19 @@ export default function EquipmentUtilizationTab({ derived, onOpenDetail, periodL
           icon={Undo2}
           tone={health.returns.late ? 'amber' : 'slate'}
           title="Returns"
-          scope={`Events in ${periodLabel}. Due back within ${health.returns.dueWithinHours ?? 24} hours of the event.`}
+          scope={`Events ${inPeriod}. Due back within ${health.returns.dueWithinHours ?? 24} hours of the event.`}
         >
+          {/* THREE states, not two. Testing only bookings === 0 rendered
+              "0 of 0 back on time" as a headline when a return existed but none
+              had a time — a big figure that measured nothing. Nothing came back,
+              something came back untimed, and something came back timed are
+              different facts and each gets its own sentence. */}
           {health.returns.bookings === 0 ? (
-            <p className="text-[13.5px] text-slate-600">No equipment came back from events in {periodLabel}.</p>
+            <p className="text-[13.5px] text-slate-600">No equipment came back from events {inPeriod}.</p>
+          ) : health.returns.timed === 0 ? (
+            <p className="text-[13.5px] text-slate-600">
+              {health.returns.bookings} return{health.returns.bookings === 1 ? '' : 's'} from events {inPeriod}, but none has a recorded return time — so on-time returns cannot be measured for this period.
+            </p>
           ) : (
             <div className="space-y-1.5">
               <p className="text-[22px] font-semibold tracking-[-0.02em] tabular-nums text-slate-900">
