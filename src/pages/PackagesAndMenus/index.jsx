@@ -14,6 +14,45 @@ import ItemFormModal from './ItemFormModal';
 import CategoryManagerModal from './CategoryManagerModal';
 import { requiresMaxPax } from '../../utils/packageRules';
 
+// Deletes a package's child rows, then the package, stopping at the first
+// failure. Every result is checked — these four calls used to be awaited with
+// the result thrown away, so a failed parent delete left the package alive
+// with its categories, equipment and menu links already gone, under a
+// "Package deleted." toast.
+//
+// The parent must actually remove one row. Supabase reports NO error when an
+// RLS policy blocks a delete — it simply deletes nothing — so an error check
+// alone would still report success over a package that survived. Child
+// deletes may legitimately remove zero rows (a package with no equipment).
+//
+// Throws an Error whose message says which step failed and whether anything
+// had already been removed, so the manager knows to check the package.
+const deletePackageCascade = async (client, id) => {
+  const steps = [
+    { label: 'its categories', run: () => client.from('package_category').delete().eq('package_id', id) },
+    { label: 'its equipment', run: () => client.from('package_equipment').delete().eq('package_id', id) },
+    { label: 'its menu links', run: () => client.from('package_menu').delete().eq('package_id', id) },
+    { label: 'the package itself', run: () => client.from('package').delete({ count: 'exact' }).eq('package_id', id), mustRemoveOne: true },
+  ];
+  for (let i = 0; i < steps.length; i++) {
+    const { error, count } = await steps[i].run();
+    const blocked = !error && steps[i].mustRemoveOne && count !== 1;
+    if (error || blocked) {
+      const doneLabels = steps.slice(0, i).map(s => s.label.replace(/^its /, ''));
+      const done = doneLabels.length > 1
+        ? `${doneLabels.slice(0, -1).join(', ')} and ${doneLabels[doneLabels.length - 1]}`
+        : doneLabels[0];
+      const reason = error ? '' : ' (the database did not remove it — this account may not be allowed to)';
+      const message = i === 0
+        ? `Package not deleted: removing ${steps[i].label} failed. Nothing was changed.`
+        : `Package delete stopped while removing ${steps[i].label}${reason}. Its ${done} were already removed, so the package may now be incomplete — check it before it is booked.`;
+      const failure = new Error(message, { cause: error || undefined });
+      failure.userMessage = message;
+      throw failure;
+    }
+  }
+};
+
 // Brings a package's category and equipment links in line with the form by
 // changing ONLY what differs: inserts what was added, updates equipment whose
 // quantity or per-pax setting changed, deletes what was removed.
@@ -816,10 +855,7 @@ export default function PackagesAndMenus() {
           toast.error(`Cannot delete this package because it is used in ${count} booking(s).`);
           return;
         }
-        await supabase.from('package_category').delete().eq('package_id', id);
-        await supabase.from('package_equipment').delete().eq('package_id', id);
-        await supabase.from('package_menu').delete().eq('package_id', id);
-        await supabase.from('package').delete().eq('package_id', id);
+        await deletePackageCascade(supabase, id);
         toast.success('Package deleted.');
       } else {
         // package_menu is a real table in the schema, but this app's own
@@ -864,12 +900,23 @@ export default function PackagesAndMenus() {
           return;
         }
 
-        await supabase.from('menu_item').delete().eq('menu_item_id', id);
+        // Checked, and required to remove the row: an RLS-blocked delete
+        // returns no error and removes nothing.
+        const { error: deleteError, count: deletedCount } = await supabase
+          .from('menu_item')
+          .delete({ count: 'exact' })
+          .eq('menu_item_id', id);
+        if (deleteError) throw deleteError;
+        if (deletedCount !== 1) {
+          const failure = new Error('Menu item not deleted: the database did not remove it — this account may not be allowed to. Nothing was changed.');
+          failure.userMessage = failure.message;
+          throw failure;
+        }
         toast.success('Menu item deleted.');
       }
       await fetchData();
     } catch (error) {
-      handleError(error, `Failed to delete ${type.toLowerCase()}.`);
+      handleError(error, error.userMessage || `Failed to delete ${type.toLowerCase()}.`);
     }
   };
 
