@@ -41,6 +41,12 @@ export default function DetailModal({ detailModal, onClose }) {
 
   const { start: dateRangeStart, end: dateRangeEnd } = getRangeBounds(datePreset, dateCustomStart, dateCustomEnd);
 
+  // What the revenue list INCLUDES that a reader may not expect: requests not
+  // yet approved. Over the whole set, like "Excludes Rejected and Cancelled"
+  // beside it — both describe what the list is, not what the filters show.
+  const pendingRows = detailModal.data.filter(item => item.status === 'Pending');
+  const pendingInModal = { count: pendingRows.length, total: pendingRows.reduce((sum, item) => sum + (item.total || 0), 0) };
+
   const filteredData = detailModal.data.filter((item) => {
     if (typeFilter !== 'All') {
       const itemType = item.type === 'Short Order' ? 'Short Order' : 'Package';
@@ -72,7 +78,10 @@ export default function DetailModal({ detailModal, onClose }) {
           <div>
             <h2 className="text-lg font-bold text-slate-900">{detailModal.title}</h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Excludes Rejected and Cancelled bookings • {filteredData.length} of {detailModal.data.length} booking{detailModal.data.length === 1 ? '' : 's'} shown
+              {detailModal.type === 'revenue' && pendingInModal.count > 0
+                ? `Excludes Rejected and Cancelled • Includes ${pendingInModal.count} not yet approved (${formatCurrency(pendingInModal.total)}) • `
+                : 'Excludes Rejected and Cancelled bookings • '}
+              {filteredData.length} of {detailModal.data.length} booking{detailModal.data.length === 1 ? '' : 's'} shown
             </p>
           </div>
           <button
@@ -89,7 +98,7 @@ export default function DetailModal({ detailModal, onClose }) {
           <div className={`px-6 py-3 border-b space-y-2 shrink-0 ${activeFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-200'}`}>
             <div className="flex flex-wrap items-center gap-3">
               {activeFilterCount > 0 && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shrink-0">
+                <span className="inline-flex items-center gap-1 whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shrink-0">
                   {activeFilterCount} active
                 </span>
               )}
@@ -183,15 +192,15 @@ export default function DetailModal({ detailModal, onClose }) {
                           </button>
                         </td>
                         <td className="px-5 py-[15px] font-medium text-slate-900">{item.customer}</td>
-                        <td className="px-5 py-[15px]">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${item.type === 'Short Order' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
+                        <td className="px-5 py-[15px] whitespace-nowrap">
+                          <span className={`inline-block whitespace-nowrap px-2 py-0.5 rounded-full text-xs font-medium ${item.type === 'Short Order' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
                             {item.type === 'Short Order' ? 'Short Order' : 'Package'}
                           </span>
                         </td>
                         <td className="px-5 py-[15px] text-slate-600">{formatDate(item.eventDate)}</td>
                         <td className="px-5 py-[15px] text-right font-bold text-slate-900">{formatCurrency(item.total)}</td>
                         <td className="px-5 py-[15px] text-right">
-                          <span className={`px-2 py-1 rounded-full text-xs font-bold ${item.status === 'Completed' ? 'bg-green-100 text-green-700' : item.status === 'Confirmed' ? 'bg-emerald-100 text-emerald-700' : item.status === 'Approved' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                          <span className={`inline-block whitespace-nowrap px-2 py-1 rounded-full text-xs font-bold ${item.status === 'Completed' ? 'bg-green-100 text-green-700' : item.status === 'Confirmed' ? 'bg-emerald-100 text-emerald-700' : item.status === 'Approved' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
                             {item.status}
                           </span>
                         </td>
@@ -273,8 +282,8 @@ export default function DetailModal({ detailModal, onClose }) {
                           </button>
                         </td>
                         <td className="px-5 py-[15px] font-medium text-slate-900">{item.customer}</td>
-                        <td className="px-5 py-[15px]">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${item.type === 'Short Order' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
+                        <td className="px-5 py-[15px] whitespace-nowrap">
+                          <span className={`inline-block whitespace-nowrap px-2 py-0.5 rounded-full text-xs font-medium ${item.type === 'Short Order' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
                             {item.type === 'Short Order' ? 'Short Order' : 'Package'}
                           </span>
                         </td>
@@ -299,11 +308,23 @@ export default function DetailModal({ detailModal, onClose }) {
 
         <div className="flex items-center justify-between gap-4 px-6 py-4 bg-slate-50 border-t border-slate-200 shrink-0">
           {detailModal.type === 'revenue' && (
-            <ModalTotal
-              label="Total"
-              value={formatCurrency(filteredData.reduce((sum, item) => sum + item.total, 0))}
-              hint={`${filteredData.length} booking${filteredData.length === 1 ? '' : 's'}`}
-            />
+            <div className="min-w-0">
+              <ModalTotal
+                label="Total"
+                value={formatCurrency(filteredData.reduce((sum, item) => sum + item.total, 0))}
+                hint={`${filteredData.length} booking${filteredData.length === 1 ? '' : 's'}`}
+              />
+              {/* From filteredData, never the summary: the Type, Status and date
+                  filters above must move this split with the list, or the footer
+                  disagrees with the rows it sits under. */}
+              {filteredData.some(item => item.status === 'Pending') && (
+                <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
+                  {formatCurrency(filteredData.filter(item => item.status !== 'Pending').reduce((sum, item) => sum + item.total, 0))} accepted
+                  {' · '}
+                  {formatCurrency(filteredData.filter(item => item.status === 'Pending').reduce((sum, item) => sum + item.total, 0))} awaiting approval
+                </p>
+              )}
+            </div>
           )}
           {detailModal.type === 'outstanding' && (
             <ModalTotal

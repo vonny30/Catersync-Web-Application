@@ -166,6 +166,19 @@ export default function Reports() {
     });
 
     let totalCollected = 0, totalOutstanding = 0, totalContractValue = 0;
+    // The same totals split at the approval boundary. Pending is a request
+    // PG's has not accepted; everything else in activeBookingsInRange has been.
+    // Pending and not-Pending partition the set, so
+    //   acceptedContractValue + pendingContractValue === totalContractValue
+    // by construction. The totals above are untouched — three cards and the
+    // FinancialTab division are tied to them.
+    //
+    // acceptedPaid is carried rather than assumed equal to totalCollected. The
+    // admin forms cannot record a payment before Approved, but a payment
+    // submitted from the mobile app can be verified while its booking is still
+    // Pending; when that never happens (true of live data) the two are equal and
+    // acceptedOutstanding === acceptedContractValue - totalCollected exactly.
+    let acceptedContractValue = 0, pendingContractValue = 0, acceptedOutstanding = 0, acceptedPaid = 0;
     const revenueBreakdown = [], collectedBreakdown = [], outstandingBreakdown = [];
 
     activeBookingsInRange.forEach(b => {
@@ -175,6 +188,13 @@ export default function Reports() {
       totalContractValue += total;
       totalCollected += paid;
       totalOutstanding += outstanding;
+      if (b.booking_status === 'Pending') {
+        pendingContractValue += total;
+      } else {
+        acceptedContractValue += total;
+        acceptedOutstanding += outstanding;
+        acceptedPaid += paid;
+      }
 
       const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
       const bookingInfo = {
@@ -202,8 +222,12 @@ export default function Reports() {
 
     const financialSummary = {
       contractValue: totalContractValue,
+      acceptedContractValue,
+      pendingContractValue,
       paidAgainstEvents: totalCollected,
+      acceptedPaid,
       outstanding: totalOutstanding,
+      acceptedOutstanding,
       // Panel PR-38: the headline counts Confirmed and Completed only. The
       // other two are carried alongside so the tab can show what it excludes
       // instead of leaving a manager to wonder where the difference went.
@@ -568,7 +592,7 @@ export default function Reports() {
 
     return {
       financialSummary, monthlyRevenueData, monthlyFinancialTrend, paymentMethodData, refunds, totalRefunded,
-      totalSubmitted, cancellationRate, rejectedCount, customerCancelledCount, pendingInRangeCount,
+      totalSubmitted, cancellationRate, rejectedCount, customerCancelledCount, pendingInRangeCount, pendingContractValue,
       productLineMix, packageMix, menuItemMix, categoryDemandData,
       packageRevenue, shortOrderRevenue, combinedRevenue,
       menuItemRevenue, deliveryFeeTotal, unattributedFoodRevenue, traysSold, topSellingItem,

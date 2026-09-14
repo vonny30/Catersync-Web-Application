@@ -8,7 +8,7 @@ import { formatCurrency, formatPercent, formatDate } from './helpers';
 
 export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
   const navigate = useNavigate();
-  const { financialSummary, monthlyFinancialTrend, paymentMethodData, refunds, totalRefunded, bookingSummaryData } = derived;
+  const { financialSummary, monthlyFinancialTrend, paymentMethodData, refunds, totalRefunded, bookingSummaryData, pendingInRangeCount } = derived;
 
   // Share of estimated gross revenue that has been paid. BOTH sides are
   // event-anchored (the estimate and the payments against those same events),
@@ -17,8 +17,14 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
   // from events outside this period, so dividing it by this period's estimate
   // would compare two different populations and produce a number that means
   // nothing.
-  const collectedPct = financialSummary.contractValue > 0
-    ? (financialSummary.paidAgainstEvents / financialSummary.contractValue) * 100
+  //
+  // The denominator is ACCEPTED work only. A Pending request cannot be
+  // collected on until it is approved, so counting it made the rate measure
+  // the approval backlog and collection performance mixed together. The
+  // numerator is paid against those same accepted bookings, which equals
+  // paidAgainstEvents whenever no Pending booking carries a verified payment.
+  const collectedPct = financialSummary.acceptedContractValue > 0
+    ? (financialSummary.acceptedPaid / financialSummary.acceptedContractValue) * 100
     : 0;
 
   // Shared class string for the three event-anchored figures.
@@ -97,15 +103,26 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
               the division that produced it is printed underneath in the same
               two amounts shown above. Both sides are event-anchored, which is
               what makes the ratio meaningful. */}
-          {financialSummary.contractValue > 0 ? (
+          {financialSummary.acceptedContractValue > 0 ? (
             <>
               <span className="block text-[13px] text-slate-600 tabular-nums">
-                {formatPercent(collectedPct)} of estimated gross revenue paid for these events
+                {formatPercent(collectedPct)} of accepted gross revenue paid for these events
               </span>
               <span className="block text-[12.5px] text-slate-500 mt-1 tabular-nums">
-                {formatCurrency(financialSummary.paidAgainstEvents)} paid ÷ {formatCurrency(financialSummary.contractValue)} estimated gross revenue
+                {formatCurrency(financialSummary.acceptedPaid)} paid ÷ {formatCurrency(financialSummary.acceptedContractValue)} accepted gross revenue
               </span>
+              {financialSummary.pendingContractValue > 0 && (
+                <span className="block text-[12.5px] text-slate-500 mt-1 tabular-nums">
+                  Excludes {formatCurrency(financialSummary.pendingContractValue)} on {pendingInRangeCount} request{pendingInRangeCount === 1 ? '' : 's'} not yet approved — nothing can be collected on those yet.
+                </span>
+              )}
             </>
+          ) : financialSummary.contractValue > 0 ? (
+            // Every event in the period is still a request. The old zero-state
+            // ("no events fall in this period") would be false here.
+            <span className="block text-[13px] text-slate-600">
+              Every event in this period is still awaiting approval, so nothing can be collected on them yet.
+            </span>
           ) : (
             <span className="block text-[13px] text-slate-600">
               No events fall in this period, so there is no estimated gross revenue to measure against.

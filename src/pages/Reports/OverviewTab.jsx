@@ -28,7 +28,7 @@ const SECTION_HEAD = 'text-[13px] font-bold text-slate-600 tracking-[0.04em] mb-
 
 export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
   const {
-    financialSummary, totalSubmitted, pendingInRangeCount,
+    financialSummary, totalSubmitted, pendingInRangeCount, pendingContractValue,
     packageMix, menuItemMix, topSellingItem,
     totalVehicles, dispatchedVehicles, totalCustomers, repeatCustomers, oneTimeCustomers,
     bookingSummaryData,
@@ -54,12 +54,15 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
         <h2 className={SECTION_HEAD}>Financial</h2>
         <div className={SECTION_GRID}>
         {/* "Estimated", because the figure deliberately includes bookings that
-            have not been approved yet — the sub-line says how many. A pending
-            request may never convert, which is what makes this an estimate
-            rather than a contracted amount. The computation is unchanged. */}
-        <StatCard label="Estimated Gross Revenue" value={formatCurrency(financialSummary.contractValue)} sub={`Events in this period${pendingInRangeCount > 0 ? ` · includes ${pendingInRangeCount} not yet approved` : ''}`} color="green" onClick={() => onCardClick('revenue')} />
+            have not been approved yet. The sub-line names the AMOUNT: "2 of 8"
+            reads as a quarter of the records and says nothing about the pesos,
+            which can be far more. The headline is unchanged. */}
+        <StatCard label="Estimated Gross Revenue" value={formatCurrency(financialSummary.contractValue)} sub={`Events in this period${pendingContractValue > 0 ? ` · ${formatCurrency(pendingContractValue)} from ${pendingInRangeCount} not yet approved` : ''}`} color="green" onClick={() => onCardClick('revenue')} />
         <StatCard label="Paid to Date" value={formatCurrency(financialSummary.paidAgainstEvents)} sub="Against those events" color="teal" onClick={() => onCardClick('collected')} />
-        <StatCard label="Unpaid on These Events" value={formatCurrency(financialSummary.outstanding)} sub="Of the events in this period" color="amber" onClick={() => onCardClick('outstanding')} />
+        {/* An amount under "Unpaid" reads as something to chase. The part owed
+            on requests not yet approved cannot be — nothing can be collected
+            before approval — so it is named. */}
+        <StatCard label="Unpaid on These Events" value={formatCurrency(financialSummary.outstanding)} sub={`Of the events in this period${financialSummary.outstanding - financialSummary.acceptedOutstanding > 0 ? ` · ${formatCurrency(financialSummary.outstanding - financialSummary.acceptedOutstanding)} not collectable until approved` : ''}`} color="amber" onClick={() => onCardClick('outstanding')} />
         <StatCard
           label="Completed Bookings"
           count
