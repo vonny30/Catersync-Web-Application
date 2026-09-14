@@ -48,6 +48,14 @@ const tomorrowISO = () => {
   return toDateInputValue(d);
 };
 
+// The planning controls start at today. A past day renders every vehicle and
+// every item as free, because nothing is dispatched any more — a false picture
+// of a day that is over; past trips belong to the History tab. todayISO() is
+// read at the moment of the change, never captured, so a page left open past
+// midnight still floors at the real today. Clamped where the date is set, not
+// in an effect.
+const clampToToday = (value) => (value && value < todayISO() ? todayISO() : value);
+
 // A vehicle can't physically come back until the event it's dispatched for
 // is actually happening or over — same 3-hour-past-the-event grace period
 // as Equipment's Return trap, for the same reason (covers events running
@@ -1108,8 +1116,15 @@ export default function Vehicles() {
 
   const shiftSelectedDate = (delta) => {
     const [y, m, d] = selectedDate.split('-').map(Number);
-    setSelectedDate(toDateInputValue(new Date(y, m - 1, d + delta)));
+    const next = toDateInputValue(new Date(y, m - 1, d + delta));
+    // Refuse a step back past today (see clampToToday).
+    if (delta < 0 && next < todayISO()) return;
+    setSelectedDate(next);
   };
+  // Today or earlier: the Previous day button is disabled. "Earlier" covers a
+  // page left open past midnight — the button disables rather than the date
+  // being rewritten.
+  const isAtDateFloor = selectedDate <= todayISO();
 
   // Full vehicle list per event on the selected date, including returned
   // ones — powers the "Events on this date" modal.
@@ -1428,7 +1443,10 @@ export default function Vehicles() {
         <button
           onClick={() => shiftSelectedDate(-1)}
           aria-label="Previous day"
-          className="px-2 py-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-800 transition-colors cursor-pointer"
+          disabled={isAtDateFloor}
+          aria-disabled={isAtDateFloor}
+          title={isAtDateFloor ? 'The schedule starts today. Past trips are on the History tab.' : 'Previous day'}
+          className="px-2 py-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-800 transition-colors cursor-pointer disabled:text-slate-300 disabled:hover:bg-transparent disabled:cursor-not-allowed"
         >
           <ChevronLeft size={16} />
         </button>
@@ -1456,11 +1474,15 @@ export default function Vehicles() {
       <input
         type="date"
         value={selectedDate}
-        onChange={(e) => setSelectedDate(e.target.value)}
+        min={todayISO()}
+        // min greys out past days in the picker but can be bypassed by typing,
+        // so the value is clamped here as well.
+        onChange={(e) => setSelectedDate(clampToToday(e.target.value))}
         aria-label="Pick a date"
         className="border border-slate-300 rounded-[10px] px-3 py-[6px] text-[13px] font-semibold text-slate-700 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
       />
       {snapshotLoading && <span className="text-[12.5px] text-slate-400">recalculating…</span>}
+      <span className="basis-full text-[12.5px] text-slate-500">Showing today onwards. Past trips are on the History tab.</span>
     </div>
   );
 

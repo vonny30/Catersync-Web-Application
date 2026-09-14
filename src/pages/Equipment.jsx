@@ -37,6 +37,13 @@ const tomorrowISO = () => {
   return toDateInputValue(d);
 };
 
+// The planning controls start at today. A past day renders every item as free, because nothing is dispatched any more — a false picture
+// of a day that is over; past assignments belong to the History tab. todayISO() is
+// read at the moment of the change, never captured, so a page left open past
+// midnight still floors at the real today. Clamped where the date is set, not
+// in an effect.
+const clampToToday = (value) => (value && value < todayISO() ? todayISO() : value);
+
 // Turns checkEquipmentAvailabilityImpact's conflict list into the specific,
 // accurate reason a stock change is blocked — naming the actual date(s)
 // and booking(s) so the manager knows exactly what to resolve, instead of
@@ -2358,7 +2365,10 @@ export default function Equipment() {
                   <input
                     type="date"
                     value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
+                    min={todayISO()}
+                    // Same floor as Vehicles: min greys out past days, and the
+                    // clamp catches a typed one.
+                    onChange={(e) => setSelectedDate(clampToToday(e.target.value))}
                     className="border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
                   />
                 </div>
