@@ -441,8 +441,25 @@ export default function Dashboard() {
   // becomes "Mar 3", silently skipping February. Building a fresh date
   // from year/month + a fixed day 1 sidesteps the rollover entirely.
   const changeMonth = (delta) => {
-    setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + delta, 1));
+    setCurrentMonth(prev => {
+      const next = new Date(prev.getFullYear(), prev.getMonth() + delta, 1);
+      // Never before the current month: see isAtMonthFloor.
+      return delta < 0 && monthIndex(next) < monthIndex(new Date()) ? prev : next;
+    });
   };
+
+  // The calendar shows confirmed bookings only, and a completed event leaves
+  // it, so every past month renders as an empty grid that reads as "nothing
+  // happened". Navigation therefore stops at the current month.
+  //
+  // Year and month only, as one number — never Date objects compared with <,
+  // which would misfire on any day but the 1st. `new Date()` is read when this
+  // runs, not captured at mount, so a dashboard left open across a month
+  // boundary floors at the real current month. "At or before" (not "equal")
+  // keeps the arrow disabled on a month that has since become the past.
+  const monthIndex = (d) => d.getFullYear() * 12 + d.getMonth();
+  const isAtMonthFloor = (d) => monthIndex(d) <= monthIndex(new Date());
+  const atMonthFloor = isAtMonthFloor(currentMonth);
 
   const monthName = currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' });
 
@@ -902,7 +919,14 @@ export default function Dashboard() {
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           <div className="mb-[22px] bg-[#fbfcfd] border border-slate-100 rounded-2xl p-4 pt-[18px]">
             <div className="flex justify-between items-center mb-4 px-2">
-              <button onClick={() => changeMonth(-1)} className="p-1.5 hover:bg-[#EAF3F2] hover:text-[#008A45] rounded-lg transition-colors">
+              <button
+                onClick={() => changeMonth(-1)}
+                disabled={atMonthFloor}
+                aria-disabled={atMonthFloor}
+                aria-label="Previous month"
+                title={atMonthFloor ? 'The calendar starts at this month. Past bookings are on the Bookings page.' : 'Previous month'}
+                className="p-1.5 hover:bg-[#EAF3F2] hover:text-[#008A45] rounded-lg transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+              >
                 <ChevronLeft size={20} className="text-slate-600" />
               </button>
               <h3 className="font-bold text-slate-900 text-base">{monthName}</h3>
@@ -913,7 +937,8 @@ export default function Dashboard() {
             {/* Only Confirmed bookings/orders show on this calendar — not
                 Pending, Approved, or Completed — so the dots reflect what's
                 actually locked in for the month, not everything submitted. */}
-            <p className="text-center text-[12.5px] text-slate-500 mb-3.5">Showing confirmed bookings &amp; orders only</p>
+            <p className="text-center text-[12.5px] text-slate-500">Showing confirmed bookings &amp; orders only</p>
+            <p className="text-center text-[12.5px] text-slate-500 mb-3.5">This month onwards</p>
             <div className="grid grid-cols-7 gap-1 max-w-[430px] mx-auto mb-2 py-[7px] bg-[#EAF3F2] rounded-[9px]">
               {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d, i) => (
                 <div key={i} className="text-center text-xs font-bold tracking-[0.06em] text-[#0b6b3c]">{d}</div>
