@@ -123,56 +123,93 @@ export default function ShortOrders() {
   };
 
   // --- FETCH DATA ---
+  // Every list filter except status and paging, in ONE place. The page's list,
+  // its status counts and select-all all read this, so the list and
+  // select-all can never disagree about what "matching" means. Moved out of
+  // fetchData unchanged; async because the search resolves customer ids first.
+  const buildCommonFilters = async () => {
+    const { start: dateStart, end: dateEnd } = getRangeBounds(datePreset, customStart, customEnd);
+
+    // --- SEARCH: resolve once, reused by both the main query and the
+    // status-count query below, so a search term narrows both. ---
+    let searchCustomerIds = null;
+    const search = searchTerm.trim();
+    if (search) {
+      const parts = search.split(' ').filter(p => p.length > 0);
+      const conditions = [];
+      parts.forEach(part => {
+        conditions.push(`first_name.ilike.%${part}%`);
+        conditions.push(`last_name.ilike.%${part}%`);
+      });
+      try {
+        const matchingCustomers = await fetchAllRows(() => supabase
+          .from('customer')
+          .select('customer_id')
+          .or(conditions.join(','))
+          .order('customer_id', { ascending: true }), 'customer name search');
+        searchCustomerIds = (matchingCustomers || []).map(c => c.customer_id);
+      } catch (e) {
+        console.warn('Customer search failed:', e);
+        searchCustomerIds = [];
+      }
+      if (searchCustomerIds.length === 0) searchCustomerIds = ['00000000-0000-0000-0000-000000000000'];
+    }
+
+    // Every filter except status and pagination — shared by the main
+    // paginated query and the lightweight status-count query.
+    const applyCommonFilters = (q) => {
+      q = q.eq('booking_type', 'Short Order');
+      if (dateStart) q = q.gte(dateFilterField, dateStart.toISOString());
+      if (dateEnd) q = q.lte(dateFilterField, dateEnd.toISOString());
+      if (filters.customerId) q = q.eq('customer_id', filters.customerId);
+      if (filters.venue) q = q.ilike('venue', `%${filters.venue}%`);
+      if (searchCustomerIds) q = q.in('customer_id', searchCustomerIds);
+      return q;
+    };
+    return applyCommonFilters;
+  };
+  const applyStatusTab = (q) => (activeTab !== 'All' ? q.eq('booking_status', activeTab) : q);
+
+  // The primary key of every record matching the current filters and status
+  // tab: the list's own query, ids only, no .range(). fetchAllRows pages it so
+  // it cannot stop at PostgREST's 1000-row cap, on a total sort by the key.
+  const fetchMatchingIds = async () => {
+    const applyCommonFilters = await buildCommonFilters();
+    const matching = await fetchAllRows(() => applyStatusTab(applyCommonFilters(
+      supabase.from('booking').select('booking_id')
+    )).order('booking_id', { ascending: true }), 'short order select-all ids');
+    return (matching || []).map(r => r.booking_id);
+  };
+
+  // --- SELECTION -----------------------------------------------------------
+  // A selection belongs to the filters it was made under. When any of them
+  // change it is cleared, so a manager never bulk-deletes rows chosen under a
+  // filter they are no longer looking at. Reset during render (React's own
+  // pattern for this) rather than in an effect.
+  const selectionFilterKey = JSON.stringify([activeTab, searchTerm, filters, datePreset, customStart, customEnd, dateFilterField]);
+  const [selectionMadeUnder, setSelectionMadeUnder] = useState(selectionFilterKey);
+  if (selectionMadeUnder !== selectionFilterKey) {
+    setSelectionMadeUnder(selectionFilterKey);
+    setSelectedOrders([]);
+  }
+  // Read by a select-all that is still fetching when the filters move on, so it
+  // does not land its ids in the new filter's (now empty) selection.
+  const selectionFilterKeyRef = useRef(selectionFilterKey);
+  useEffect(() => { selectionFilterKeyRef.current = selectionFilterKey; }, [selectionFilterKey]);
+  const [isSelectingAll, setIsSelectingAll] = useState(false);
+
   const fetchData = async () => {
     setLoading(true);
     try {
       const from = (currentPage - 1) * pageSize;
       const to = from + pageSize - 1;
-      const { start: dateStart, end: dateEnd } = getRangeBounds(datePreset, customStart, customEnd);
 
-      // --- SEARCH: resolve once, reused by both the main query and the
-      // status-count query below, so a search term narrows both. ---
-      let searchCustomerIds = null;
-      const search = searchTerm.trim();
-      if (search) {
-        const parts = search.split(' ').filter(p => p.length > 0);
-        const conditions = [];
-        parts.forEach(part => {
-          conditions.push(`first_name.ilike.%${part}%`);
-          conditions.push(`last_name.ilike.%${part}%`);
-        });
-        try {
-          const matchingCustomers = await fetchAllRows(() => supabase
-            .from('customer')
-            .select('customer_id')
-            .or(conditions.join(','))
-            .order('customer_id', { ascending: true }), 'customer name search');
-          searchCustomerIds = (matchingCustomers || []).map(c => c.customer_id);
-        } catch (e) {
-          console.warn('Customer search failed:', e);
-          searchCustomerIds = [];
-        }
-        if (searchCustomerIds.length === 0) searchCustomerIds = ['00000000-0000-0000-0000-000000000000'];
-      }
-
-      // Every filter except status and pagination — shared by the main
-      // paginated query and the lightweight status-count query.
-      const applyCommonFilters = (q) => {
-        q = q.eq('booking_type', 'Short Order');
-        if (dateStart) q = q.gte(dateFilterField, dateStart.toISOString());
-        if (dateEnd) q = q.lte(dateFilterField, dateEnd.toISOString());
-        if (filters.customerId) q = q.eq('customer_id', filters.customerId);
-        if (filters.venue) q = q.ilike('venue', `%${filters.venue}%`);
-        if (searchCustomerIds) q = q.in('customer_id', searchCustomerIds);
-        return q;
-      };
+      const applyCommonFilters = await buildCommonFilters();
 
       let query = applyCommonFilters(
         supabase.from('booking').select('*, customer:customer_id (first_name, last_name, contact_no)', { count: 'exact' })
       );
-      if (activeTab !== 'All') {
-        query = query.eq('booking_status', activeTab);
-      }
+      query = applyStatusTab(query);
 
       // Unread ("NEW") orders float above read ones first — is_read is
       // false/true, and false sorts before true ascending, so new orders
@@ -1102,10 +1139,36 @@ export default function ShortOrders() {
       prev.includes(orderId) ? prev.filter(id => id !== orderId) : [...prev, orderId]
     );
   };
+  // Select-all covers every record matching the filters, not just this page,
+  // and MERGES with ticks already made — it used to replace them with the
+  // visible page, silently dropping selections made on other pages.
+  const selectedCount = selectedOrders.length;
+  // A selection only ever holds matching ids (it clears when filters change),
+  // so a count at or above the match total means everything is selected.
+  const allMatchingSelected = totalCount > 0 && selectedCount >= totalCount;
+  const someSelected = selectedCount > 0 && !allMatchingSelected;
+  const pageFullySelected = orders.length > 0 && orders.every(r => selectedOrders.includes(r.booking_id));
+
+  const selectAllMatching = async () => {
+    const madeUnder = selectionFilterKey;
+    setIsSelectingAll(true);
+    try {
+      const ids = await fetchMatchingIds();
+      if (selectionFilterKeyRef.current !== madeUnder) return;
+      setSelectedOrders(prev => [...new Set([...prev, ...ids])]);
+    } catch (error) {
+      handleError(error, 'Could not select every matching order. Please try again.');
+    } finally {
+      setIsSelectingAll(false);
+    }
+  };
+
   const toggleSelectAll = () => {
-    const visibleIds = orders.map(o => o.booking_id);
-    const allSelected = visibleIds.every(id => selectedOrders.includes(id));
-    setSelectedOrders(allSelected ? [] : visibleIds);
+    if (allMatchingSelected) {
+      setSelectedOrders([]);
+      return;
+    }
+    selectAllMatching();
   };
   const clearSelection = () => setSelectedOrders([]);
 
@@ -1392,6 +1455,39 @@ export default function ShortOrders() {
           <span>{activeTab === 'All' ? 'All Short Orders' : `${activeTab} Short Orders`}</span>
           <span className="text-sm font-normal text-slate-600 tabular-nums whitespace-nowrap">{totalCount} result{totalCount === 1 ? '' : 's'}</span>
         </div>
+        {/* What a bulk action would act on. Selections can now span pages, so
+            "Delete Selected" alone no longer says whether that is ten records
+            or four hundred. */}
+        {selectedCount > 0 && (
+          <div className="px-5 py-2.5 border-b border-slate-100 bg-[#EAF3F2]/60 text-[13px] text-slate-700 flex flex-wrap items-center gap-x-2 gap-y-1 tabular-nums">
+            {allMatchingSelected ? (
+              <span className="font-semibold">All {totalCount} matching selected</span>
+            ) : pageFullySelected && selectedCount === orders.length && totalCount > orders.length ? (
+              <>
+                <span className="font-semibold">All {orders.length} on this page selected</span>
+                <span className="text-slate-400">·</span>
+                <button
+                  type="button"
+                  onClick={selectAllMatching}
+                  disabled={isSelectingAll}
+                  className="font-semibold text-[#007038] hover:underline disabled:opacity-60"
+                >
+                  {isSelectingAll ? 'Selecting…' : `Select all ${totalCount} matching`}
+                </button>
+              </>
+            ) : (
+              <span className="font-semibold">{selectedCount} selected</span>
+            )}
+            <span className="text-slate-400">·</span>
+            <button
+              type="button"
+              onClick={() => setSelectedOrders([])}
+              className="text-slate-500 hover:text-red-600 hover:underline"
+            >
+              Clear selection
+            </button>
+          </div>
+        )}
         {/* CARD LIST — below 2xl. See the matching note in Bookings.jsx: the
             table needs ~1500px and a 1440px laptop has ~1120px of content
             width, so it scrolled sideways on every screen short of a 1920px
@@ -1519,12 +1615,17 @@ export default function ShortOrders() {
             <thead>
               <tr className="bg-[#fbfcfd] border-b border-slate-100">
                 <th className="px-3 py-3 w-[3%]">
+                  {/* Driven by the full matching set, not the page: checked when
+                      every match is selected, a dash when some are. `indeterminate`
+                      is a DOM property with no attribute, hence the ref. */}
                   <input
                     type="checkbox"
-                    checked={orders.length > 0 && orders.every(o => selectedOrders.includes(o.booking_id))}
+                    ref={el => { if (el) el.indeterminate = someSelected; }}
+                    checked={allMatchingSelected}
                     onChange={toggleSelectAll}
+                    aria-label={allMatchingSelected ? 'Clear selection' : `Select all ${totalCount} matching`}
                     className="w-4 h-4 rounded border-slate-300 text-[#008A45] focus:ring-[#008A45]"
-                    disabled={orders.length === 0}
+                    disabled={totalCount === 0 || isSelectingAll}
                   />
                 </th>
                 <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[16%] min-[1920px]:w-[18%]">Customer</th>
