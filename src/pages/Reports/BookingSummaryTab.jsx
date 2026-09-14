@@ -47,7 +47,7 @@ export default function BookingSummaryTab({ derived, onOpenDetail }) {
         {/* The qualifier lived in the heading AND the description. Saying it
             twice at two sizes is what made the header look cramped. */}
         <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Historical Booking Summary</h3>
-        <p className="text-[13.5px] text-slate-600 mt-1.5">Bookings whose <span className="font-semibold text-slate-700">event date</span> falls in the selected period and which are now marked Completed. The period filters the event, not the day it was marked.</p>
+        <p className="text-[13.5px] text-slate-600 mt-1.5">Bookings whose <span className="font-semibold text-slate-700">event date</span> falls in the selected period and are now marked Completed. The period filters the event date, not the day it was marked.</p>
       </div>
       {bookingSummaryData.length === 0 ? (
         <div className="p-8 text-center text-slate-500 text-sm">No completed bookings found.</div>
@@ -73,7 +73,7 @@ export default function BookingSummaryTab({ derived, onOpenDetail }) {
                   key={row.id}
                   onClick={() => onOpenDetail({
                     title: row.month,
-                    description: 'From the booking table: rows with booking_status = "Completed" and an event date in this month.',
+                    description: 'Completed bookings with an event date in this month.',
                     fields: [
                       { label: 'Revenue', value: formatCurrency(row.revenue), emphasis: true },
                       { label: 'Completed bookings', value: row.bookings },

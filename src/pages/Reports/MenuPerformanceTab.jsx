@@ -73,7 +73,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
       {/* ---------- 1. PRODUCT LINE ---------- */}
       <Panel
         title="Revenue by Product Line"
-        description="The only place packages and short orders belong in one table — here they really are two parts of one whole. Everything below this panel keeps them apart."
+        description="Packages and short orders side by side. Every panel below this one keeps them apart."
       >
         {combinedRevenue === 0 ? (
           <div className={EMPTY}>No revenue in this period.</div>
@@ -98,8 +98,8 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                     onClick={() => onOpenDetail({
                       title: line.name,
                       description: line.key === 'Package'
-                        ? 'From the booking table: active package bookings with an event date in the selected period, at their estimated gross revenue.'
-                        : 'From the booking table: active short orders with an event date in the selected period, at their estimated gross revenue including delivery fees.',
+                        ? 'Active package bookings with an event date in the selected period, at estimated gross revenue.'
+                        : 'Active short orders with an event date in the selected period, at estimated gross revenue including delivery fees.',
                       fields: [
                         { label: 'Revenue', value: formatCurrency(line.revenue), emphasis: true },
                         { label: 'Share of total revenue', value: formatPercent(line.revenueShare) },
@@ -129,7 +129,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
       {/* ---------- 2. PACKAGE MIX ---------- */}
       <Panel
         title="Package Mix"
-        description={`Every package measured against total package revenue — this column adds up to 100%, so the top package's share is a real number rather than an automatic full bar.`}
+        description={`Every package measured against total package revenue. The column adds up to 100%, so the top package's share is a real number rather than an automatic full bar.`}
       >
         {packageMix.length === 0 ? (
           <div className={EMPTY}>No package bookings in this period.</div>
@@ -151,7 +151,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                     key={pkg.id}
                     onClick={() => onOpenDetail({
                       title: pkg.name,
-                      description: 'From the booking table: active bookings of this package with an event date in the selected period. Share is this package’s revenue divided by the revenue of all packages.',
+                      description: 'Active bookings of this package with an event date in the selected period. Share is this package’s revenue divided by revenue from all packages.',
                       badge: showPareto
                         ? (index <= paretoIndex
                             ? { label: `Top ${PARETO_LINE}%`, variant: 'good' }
@@ -194,7 +194,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
       {/* ---------- 3. MENU ITEM MIX ---------- */}
       <Panel
         title="Menu Item Mix"
-        description="Short order items measured against total menu item revenue. Dishes served inside a package are not counted here: a package is sold once per event and a tray is sold by the tray, so the two cannot share one revenue ranking. Package dishes are counted separately in a Dishes Prepared view, planned for the next increment. Trays sold and revenue sit side by side on purpose: the item people order most and the item that earns most are rarely the same item, and one column can never show both."
+        description="Short order items measured against total menu item revenue. Dishes served inside a package are not counted here, because a package is sold once per event while a tray is sold by the tray. Trays sold and revenue sit side by side because the item ordered most and the item that earns most are rarely the same one."
       >
         {menuItemMix.length === 0 ? (
           <div className={EMPTY}>No short order items in this period.</div>
@@ -217,7 +217,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                       key={item.id}
                       onClick={() => onOpenDetail({
                         title: item.name,
-                        description: 'From short order bookings’ menu_selections in the selected period. Each order’s food revenue (its total minus the delivery fee) is split across its items in proportion to menu price × quantity, so these figures add up to money actually received.',
+                        description: 'Each short order’s food revenue, minus any delivery fee, split across its items in proportion to menu price x quantity.',
                         badge: topSellingItem && topSellingItem.id === item.id
                           ? { label: 'Most ordered', variant: 'info' }
                           : null,
@@ -296,7 +296,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
       {/* ---------- 4. CATEGORY DEMAND ---------- */}
       <Panel
         title="Category Demand"
-        description="How often each food category appears across package bookings. One package usually includes several categories, so a booking counts toward each of them — these shares are of all package bookings, and they add up to more than 100% on purpose."
+        description="How often each category appears across package bookings. One package usually includes several categories, so a booking counts toward each of them. These shares add up to more than 100% on purpose."
       >
         <div className="p-5 space-y-3">
           {categoryDemandData.length === 0 ? (
@@ -307,7 +307,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
                 key={cat.name}
                 onClick={() => onOpenDetail({
                   title: cat.name,
-                  description: 'From the package_category table: package bookings in this period whose package includes this category.',
+                  description: 'Package bookings in this period whose package includes this category.',
                   fields: [
                     { label: 'Bookings including this category', value: cat.bookings, emphasis: true },
                     { label: 'Share of all package bookings', value: formatPercent(cat.share) },

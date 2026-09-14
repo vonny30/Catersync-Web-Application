@@ -162,7 +162,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
       <div className="bg-white border border-slate-200/70 rounded-2xl p-6">
         <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
           <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Money by event month</h3>
-          <span className="text-[13px] text-slate-600">Same three figures as the cards above</span>
+          <span className="text-[13px] text-slate-600">Broken down by event month, using the same three figures as the cards above.</span>
         </div>
         {/* REQUIRED SENTENCE. This chart deliberately ignores the period filter
             sitting above it, and a chart that ignores a nearby control reads as
@@ -269,7 +269,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
                     key={m.method}
                     onClick={() => onOpenDetail({
                       title: m.method,
-                      description: 'From the payment table: payments with this pay_method in the selected period.',
+                      description: 'Payments made by this method in the selected period.',
                       fields: [
                         { label: 'Total collected', value: formatCurrency(m.total), emphasis: true },
                         { label: 'Number of payments', value: m.count },
@@ -310,7 +310,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
                     key={r.payment_id}
                     onClick={() => onOpenDetail({
                       title: 'Refund',
-                      description: `From the payment table: a negative amount_paid entry recorded ${formatDate(r.pay_datetime)}.`,
+                      description: `A refund recorded on ${formatDate(r.pay_datetime)}.`,
                       badge: { label: 'Refund', variant: 'danger' },
                       fields: [
                         { label: 'Booking', value: r.bookingRef || 'Unknown' },
@@ -346,7 +346,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
 
       <div className="bg-white border border-slate-200/70 rounded-2xl overflow-hidden">
         <div className="px-5 pt-[18px] pb-4 border-b border-slate-100"><h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Recent Months (Completed)</h3>
-          <p className="text-[13px] text-slate-600 mt-1">Latest 3 months — full history on the Booking Summary tab.</p>
+          <p className="text-[13px] text-slate-600 mt-1">The latest three months. Full history is on the Booking Summary tab.</p>
         </div>
         {bookingSummaryData.length === 0 ? (
           <div className="p-8 text-center text-slate-500 text-sm">No completed bookings yet.</div>
@@ -367,7 +367,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
                     key={row.id}
                     onClick={() => onOpenDetail({
                       title: row.month,
-                      description: 'From the booking table: rows with booking_status = "Completed" and an event date in this month.',
+                      description: 'Completed bookings with an event date in this month.',
                       fields: [
                         { label: 'Completed bookings', value: row.bookings, emphasis: true },
                         { label: 'Revenue', value: formatCurrency(row.revenue) },

@@ -73,7 +73,7 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
           color="blue"
           onClick={() => onOpenDetail({
             title: 'Completed Bookings',
-            description: `From the booking table: rows where booking_status = "Completed" and the event date falls in the selected period. ${bookingSummaryData.length} month(s) had at least one.`,
+            description: `Completed bookings with an event date in the selected period. ${bookingSummaryData.length} month${bookingSummaryData.length === 1 ? '' : 's'} had at least one.`,
             fields: [{ label: 'Completed bookings', value: totalCompletedBookings, emphasis: true }],
           })}
         />
@@ -91,7 +91,7 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
           color="purple"
           onClick={() => onOpenDetail({
             title: 'Bookings & Orders Submitted',
-            description: 'From the booking table: every row submitted in the selected period, counted by its submission date — regardless of what status it ended up with.',
+            description: 'Every booking submitted in the selected period, counted by its submission date, whatever status it reached later.',
             fields: [{ label: 'Total submitted', value: totalSubmitted, emphasis: true }],
           })}
         />
@@ -102,7 +102,7 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
           color="teal"
           onClick={() => onOpenDetail({
             title: 'Vehicles Dispatched',
-            description: 'From vehicle_assign: vehicles whose dispatch window contains this moment. A vehicle booked for a future event is committed, not on the road — that count is shown separately.',
+            description: 'Vehicles whose trip window covers this moment. A vehicle booked for a later event is committed, not on the road, and is counted separately.',
             fields: [
               { label: 'Dispatched', value: dispatchedVehicles, emphasis: true },
               { label: 'Total fleet', value: totalVehicles },
@@ -116,7 +116,7 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
         <button
           onClick={() => hasTopSellers && onOpenDetail({
             title: 'Top Sellers',
-            description: 'The highest-earning package and the highest-earning menu item, each measured against its own product line — a package and a tray are different kinds of sale and are never ranked against each other.',
+            description: 'The highest-earning package and the highest-earning menu item. Each is measured against its own product line, because a package and a tray are different kinds of sale.',
             fields: [
               ...(topPackage ? [
                 { label: 'Top package', value: topPackage.name, emphasis: true },
@@ -170,7 +170,7 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
         <button
           onClick={() => onOpenDetail({
             title: 'Customers',
-            description: 'From the booking table: distinct customers with at least one active (non-Rejected/Cancelled) booking in the selected period. Repeat = 2+ bookings.',
+            description: 'Customers with at least one active booking in the selected period. Repeat customers have two or more.',
             fields: [
               { label: 'Total customers', value: totalCustomers, emphasis: true },
               { label: 'Repeat customers', value: repeatCustomers },
