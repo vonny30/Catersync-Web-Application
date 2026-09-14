@@ -555,6 +555,15 @@ export default function Payments() {
           latest,
           count: entries.length,
           totalPaid: sumVerifiedPositivePayments(entries),
+          // What the customer has CLAIMED and a manager has not ruled on yet.
+          // totalPaid is money actually received, so every row on the Pending
+          // Verification tab read ₱0 beside a card showing the amount. This is
+          // the figure that column needs there — shown apart from received
+          // money, never added to it. Pending Verification only: a Proof
+          // Rejected claim has been ruled against and is not awaiting anything.
+          awaitingVerification: entries
+            .filter(p => p.pay_status === 'Pending Verification' && (p.amount_paid || 0) > 0)
+            .reduce((sum, p) => sum + p.amount_paid, 0),
         };
       })
     : [];
@@ -1785,9 +1794,18 @@ export default function Payments() {
                             {group.count} payment{group.count === 1 ? '' : 's'} <ChevronRight size={12} />
                           </button>
                         </td>
-                        <td className="px-4 py-[15px] text-[15px] font-semibold text-slate-900 text-right tabular-nums">
-                          ₱{group.totalPaid.toLocaleString()}
-                        </td>
+                        {group.totalPaid === 0 && group.awaitingVerification > 0 ? (
+                          // Claimed, not received: muted amount and a plain
+                          // qualifier, so it never reads as banked money.
+                          <td className="px-4 py-[15px] text-right tabular-nums">
+                            <span className="block text-[15px] font-medium text-slate-500">₱{group.awaitingVerification.toLocaleString()}</span>
+                            <span className="block text-[11.5px] font-medium text-amber-700 whitespace-nowrap">awaiting verification</span>
+                          </td>
+                        ) : (
+                          <td className="px-4 py-[15px] text-[15px] font-semibold text-slate-900 text-right tabular-nums">
+                            ₱{group.totalPaid.toLocaleString()}
+                          </td>
+                        )}
                         {/* Shows the derived kind of the MOST RECENT payment,
                             not the booking overall — so a booking's history
                             still reads Downpayment → Partial payment → Fully
