@@ -88,6 +88,52 @@ export function totalLossOnRecompute(storedTotal, recomputedTotal) {
 
 const peso = (n) => `₱${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+// ---------------------------------------------------------------------------
+// CARRYING AN ADJUSTMENT THROUGH AN EDIT
+//
+// The lock above refuses the edit outright. The alternative, used by the
+// Bookings list, lets the edit happen and carries the adjustment with it: an
+// approval fee is a fixed amount on top of the package, so it stays that amount
+// whatever the pax count or package becomes.
+//
+//   carried  = stored total − base, measured ONCE when the form opens, from the
+//              booking as saved. Never recomputed while the form changes: the
+//              total field is derived from it, so recomputing it from the form
+//              would chase its own tail.
+//   new total = new base + carried
+//
+// Carried is never negative. A stored total BELOW the base is not a discount —
+// approval clamps every adjustment to >= 0 — it is a package price that rose
+// after the booking was taken. Carrying that difference would invent money, so
+// it carries zero and the total rises to the new base as it always has.
+//
+// These take plain base amounts, not packages or menus, so a short order can
+// call them with its menu-based base exactly as a package booking does.
+// ---------------------------------------------------------------------------
+
+/** The adjustment to carry: the same arithmetic as totalLossOnRecompute. */
+export function carriedAdjustment(storedTotal, baseAtOpen) {
+  return totalLossOnRecompute(storedTotal, baseAtOpen);
+}
+
+/** The total an edited booking should carry: its new base plus the adjustment. */
+export function totalWithCarried(newBase, carried) {
+  return Math.round(((Number(newBase) || 0) + (Number(carried) || 0)) * 100) / 100;
+}
+
+/**
+ * How far a total about to be saved falls below new base + carried.
+ * @returns the shortfall in pesos, or 0 when the save keeps the adjustment.
+ */
+export function carriedTotalShortfall(totalToSave, requiredTotal) {
+  const diff = (Number(requiredTotal) || 0) - (Number(totalToSave) || 0);
+  return diff > ADJUSTMENT_TOLERANCE ? diff : 0;
+}
+
+export function carriedTotalShortfallMessage(totalToSave, requiredTotal, carried, { noun = 'booking' } = {}) {
+  return `This ${noun} wasn't saved — its total would be ${peso(totalToSave)}, but the package and guests come to ${peso(requiredTotal - carried)} plus ${peso(carried)} in fees added at approval, which is ${peso(requiredTotal)}. Close the form and open it again, then retry.`;
+}
+
 export function totalLossLockedMessage(storedTotal, recomputedTotal, { noun = 'booking' } = {}) {
   return `This ${noun} can't be edited — its total (${peso(storedTotal)}) is higher than the package and menu it is built from (${peso(recomputedTotal)}), usually because a fee was added at approval. Saving would recalculate it down to ${peso(recomputedTotal)} and lose the difference. Record a refund or a new payment instead.`;
 }

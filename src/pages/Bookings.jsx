@@ -20,7 +20,10 @@ import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
-import { isPaymentLedgerLocked, formatPaymentDeletionWarning } from '../utils/payments';
+import {
+  isPaymentLedgerLocked, formatPaymentDeletionWarning,
+  carriedAdjustment, totalWithCarried, carriedTotalShortfall, carriedTotalShortfallMessage,
+} from '../utils/payments';
 import { bookingEditLockedMessage, STATUS_ORDER, findStatusOrderDrift } from '../utils/bookingStatus';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
 import { validatePaxForPackage } from '../utils/packageRules';
@@ -29,6 +32,19 @@ import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds } from './Reports/helpers';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import ImageUploadField from '../components/ImageUploadField';
+
+// Package × pax, the way this page has always priced a booking: per-pax
+// packages multiply, per-package ones add extra_pax_price above max_pax. One
+// definition, read by the auto-calculate effect, by Edit when it measures the
+// carried fee, and by the save-time backstop — three copies would let the base
+// the fee is measured against drift from the base it is added back to.
+const packageBaseTotal = (pkg, paxValue) => {
+  const pax = parseInt(paxValue) || 0;
+  if (pkg.pricing_type === 'per_pax') return (pkg.pkg_price || 0) * pax;
+  let base = pkg.pkg_price || 0;
+  if (pkg.max_pax && pax > pkg.max_pax) base += (pax - pkg.max_pax) * (pkg.extra_pax_price || 0);
+  return base;
+};
 
 export default function Bookings() {
   const navigate = useNavigate();
@@ -82,6 +98,10 @@ export default function Bookings() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  // Fees added at approval, carried through this edit. Measured once when the
+  // Edit form opens (see utils/payments.js) and held for the life of the modal.
+  // Always 0 for a new booking.
+  const [carriedAtOpen, setCarriedAtOpen] = useState(0);
   const [customerMode, setCustomerMode] = useState('existing');
   const [formData, setFormData] = useState({
     customer_id: '',
@@ -120,32 +140,24 @@ export default function Bookings() {
   };
 
   // Auto-calculate total amount (no delivery fee)
+  //
+  // Base is package × pax. An edit adds back the fees carried from approval:
+  // this used to write the bare base, so opening Edit from this list and saving
+  // — even with only the venue changed — erased the approval fee from the
+  // booking and every figure built on it. A new booking carries 0, so it
+  // calculates exactly as before.
   useEffect(() => {
     if (formData.package_id && formData.pax_count) {
       const selectedPkg = packages.find(p => p.package_id === formData.package_id);
       if (selectedPkg) {
-        const pax = parseInt(formData.pax_count) || 0;
-        let baseTotal = 0;
-
-        if (selectedPkg.pricing_type === 'per_pax') {
-          const pkgPrice = selectedPkg.pkg_price || 0;
-          baseTotal = pkgPrice * pax;
-        } else {
-          baseTotal = selectedPkg.pkg_price || 0;
-          if (selectedPkg.max_pax && pax > selectedPkg.max_pax) {
-            const extraPax = pax - selectedPkg.max_pax;
-            const extraPrice = selectedPkg.extra_pax_price || 0;
-            baseTotal += extraPax * extraPrice;
-          }
-        }
-
+        const baseTotal = packageBaseTotal(selectedPkg, formData.pax_count);
         setFormData(prev => ({
           ...prev,
-          total_amount: baseTotal.toFixed(2),
+          total_amount: totalWithCarried(baseTotal, editingId ? carriedAtOpen : 0).toFixed(2),
         }));
       }
     }
-  }, [formData.package_id, formData.pax_count, packages]);
+  }, [formData.package_id, formData.pax_count, packages, editingId, carriedAtOpen]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -570,6 +582,7 @@ export default function Bookings() {
 
   const openNewBookingModal = () => {
     setEditingId(null);
+    setCarriedAtOpen(0);
     setCustomerMode('existing');
     setCustomerSearch('');
     setShowCustomerList(false);
@@ -598,6 +611,13 @@ export default function Bookings() {
       return;
     }
     setEditingId(booking.booking_id);
+    // Measured here, once, from the booking as saved — against the same
+    // `packages` list the auto-calculate effect prices from, so an unchanged
+    // form reproduces the stored total exactly. A package no longer in that
+    // list carries 0; the effect cannot price it either, so the stored total
+    // is left as it is.
+    const pkgAtOpen = packages.find(p => p.package_id === booking.package_id);
+    setCarriedAtOpen(pkgAtOpen ? carriedAdjustment(booking.total_amount, packageBaseTotal(pkgAtOpen, booking.pax_count)) : 0);
     setCustomerMode('existing');
     setCustomerSearch('');
     setShowCustomerList(false);
@@ -621,6 +641,7 @@ export default function Bookings() {
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingId(null);
+    setCarriedAtOpen(0);
     setCustomerMode('existing');
     setCustomerSearch('');
     setShowCustomerList(false);
@@ -791,6 +812,20 @@ export default function Bookings() {
       setFieldErrors({ pax_count: paxCheck.message });
       setIsSubmitting(false);
       return;
+    }
+
+    // Backstop. The effect should already have set the total to new base +
+    // carried, so this should be unreachable — but a silent path to a lower
+    // total is exactly what erased approval fees, so the write is refused
+    // rather than trusted.
+    if (editingId && selectedPackage) {
+      const requiredTotal = totalWithCarried(packageBaseTotal(selectedPackage, formData.pax_count), carriedAtOpen);
+      const totalToSave = parseFloat(formData.total_amount) || 0;
+      if (carriedTotalShortfall(totalToSave, requiredTotal) > 0) {
+        toast.error(carriedTotalShortfallMessage(totalToSave, requiredTotal, carriedAtOpen), { duration: 10000 });
+        setIsSubmitting(false);
+        return;
+      }
     }
 
     const requiredCategories = packageCategories.map(c => c.category_id);
@@ -2177,6 +2212,12 @@ const handleMarkCompleted = async (id) => {
                   />
                   {fieldErrors.total_amount ? (
                     <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.total_amount}</p>
+                  ) : editingId && carriedAtOpen > 0 ? (
+                    // Say why the number isn't package × pax. An adjustment
+                    // applied invisibly to a money field is how this bug began.
+                    <p className="text-xs text-slate-500 mt-1 tabular-nums">
+                      Includes ₱{carriedAtOpen.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} in fees added at approval — kept if guests or package change.
+                    </p>
                   ) : (
                     <p className="text-xs text-slate-400 mt-1">Based on package pricing and pax count. Fees/discounts are applied when approving the booking.</p>
                   )}
