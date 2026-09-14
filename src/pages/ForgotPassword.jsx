@@ -11,6 +11,15 @@ import toast from 'react-hot-toast';
 // about.
 const RESEND_COOLDOWN_SECONDS = 60;
 
+// One-time proof that THIS tab just completed a code-based password recovery.
+// ResetPassword.jsx reads it and clears it. The key and shape are written out
+// in both files (neither may import the other's page module); keep them in
+// step: sessionStorage['catersync.passwordRecovery'] = { userId, expiresAt }.
+const RECOVERY_MARKER_KEY = 'catersync.passwordRecovery';
+// Long enough to type a new password without hurrying, short enough that an
+// old recovery cannot be replayed later in the same tab.
+const RECOVERY_MARKER_TTL_MS = 30 * 60 * 1000;
+
 export default function ForgotPassword() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
@@ -74,8 +83,23 @@ export default function ForgotPassword() {
     try {
       // Exchanges the code for a recovery session. ResetPassword then finds
       // that session and lets the new password be set.
-      const { error } = await supabase.auth.verifyOtp({ email: email.trim(), token, type: 'recovery' });
+      const { data, error } = await supabase.auth.verifyOtp({ email: email.trim(), token, type: 'recovery' });
       if (error) throw error;
+      // The session verifyOtp creates is indistinguishable, once we reach
+      // ResetPassword, from any ordinary signed-in session: supabase-js 2.110
+      // emits PASSWORD_RECOVERY here, before navigation, and its AMR claims
+      // name no "recovery" method. Without a marker, ResetPassword accepted any
+      // session — so anyone at a signed-in workstation could set a new
+      // password with no current-password check.
+      try {
+        sessionStorage.setItem(RECOVERY_MARKER_KEY, JSON.stringify({
+          userId: data?.user?.id || null,
+          expiresAt: Date.now() + RECOVERY_MARKER_TTL_MS,
+        }));
+      } catch {
+        // Storage unavailable: ResetPassword will send them to Settings rather
+        // than grant a reset it cannot confirm.
+      }
       navigate('/reset-password');
     } catch (error) {
       console.error('Code verification error:', error);

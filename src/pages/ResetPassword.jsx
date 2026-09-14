@@ -8,6 +8,23 @@ import toast from 'react-hot-toast';
 import { getPasswordPolicyError } from '../utils/passwordPolicy';
 import PasswordChecklist from '../components/PasswordChecklist';
 
+// One-time proof that THIS tab just completed a code-based password recovery.
+// ResetPassword.jsx reads it and clears it. The key and shape are written out
+// in both files (neither may import the other's page module); keep them in
+// step: sessionStorage['catersync.passwordRecovery'] = { userId, expiresAt }.
+const RECOVERY_MARKER_KEY = 'catersync.passwordRecovery';
+
+const readRecoveryMarker = () => {
+  try {
+    return JSON.parse(sessionStorage.getItem(RECOVERY_MARKER_KEY) || 'null');
+  } catch {
+    return null;
+  }
+};
+const clearRecoveryMarker = () => {
+  try { sessionStorage.removeItem(RECOVERY_MARKER_KEY); } catch { /* storage unavailable */ }
+};
+
 export default function ResetPassword() {
   const navigate = useNavigate();
   const { logout } = useAuth();
@@ -22,25 +39,31 @@ export default function ResetPassword() {
   const [isValidToken, setIsValidToken] = useState(() => {
     try {
       const hash = new URLSearchParams(window.location.hash.substring(1));
-      if (hash.get('access_token') && hash.get('type') === 'recovery') return true;
-      return !!new URLSearchParams(window.location.search).get('token');
+      // The hash form is real: Supabase's recovery link carries the session
+      // and type=recovery there. The old `?token=` check accepted ANY value and
+      // never used it, so it is gone.
+      return !!(hash.get('access_token') && hash.get('type') === 'recovery');
     } catch {
       return false;
     }
   });
 
   useEffect(() => {
-    // Three ways in, because the recovery email can arrive in two shapes and
-    // this page previously only handled one of them.
+    // Two ways in:
     //
-    //   1. Link, token in the URL hash  — Supabase's link template
-    //   2. Link, token in the query     — older/alternate template
-    //   3. An existing recovery session — set by verifyOtp() on the
-    //      ForgotPassword page when the email carried a 6-digit CODE
+    //   1. Link, token in the URL hash — Supabase's link template
+    //   2. A RECOVERY session — set by verifyOtp() on the ForgotPassword page
+    //      when the email carried a 6-digit code
     //
-    // This project's template sends a code, so (3) is the live path. Without
-    // it the page bounced every code-based reset straight back to
-    // /forgot-password, and the flow had no ending.
+    // This project's template sends a code, so (2) is the live path and must
+    // stay: without it every code-based reset bounced back to
+    // /forgot-password with no ending. But a session alone is not proof of
+    // recovery — it used to be, so any signed-in manager, or anyone at an
+    // unlocked workstation, could set a new password here with no
+    // current-password check. (2) now also requires the one-time marker
+    // ForgotPassword writes after a successful verifyOtp, for this same user
+    // and not expired. An ordinary session is sent to Settings, whose Change
+    // Password asks for the current one.
     let cancelled = false;
 
     // Both URL-carried forms were already resolved by the initialiser above.
@@ -50,7 +73,17 @@ export default function ResetPassword() {
       const { data } = await supabase.auth.getSession();
       if (cancelled) return;
       if (data?.session) {
-        setIsValidToken(true);
+        const marker = readRecoveryMarker();
+        const isRecovery = !!marker
+          && marker.userId === data.session.user?.id
+          && Number(marker.expiresAt) > Date.now();
+        if (isRecovery) {
+          setIsValidToken(true);
+        } else {
+          clearRecoveryMarker();
+          toast('To change your password while signed in, use Settings → Security → Change Password. It asks for your current password first.', { duration: 6000 });
+          navigate('/app/settings', { replace: true });
+        }
       } else {
         toast.error('That reset link or code is no longer valid. Request a new one.');
         navigate('/forgot-password');
@@ -77,6 +110,8 @@ export default function ResetPassword() {
       // Supabase will use the recovery session automatically
       const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) throw error;
+      // One-time: the marker is spent once the password is set.
+      clearRecoveryMarker();
 
       toast.success('Password updated. Sign in with your new password.');
       // AuthContext's logout(silent) rather than a raw supabase.auth.signOut().
