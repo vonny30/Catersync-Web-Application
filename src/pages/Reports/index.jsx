@@ -152,10 +152,11 @@ export default function Reports() {
     const activeBookingIds = new Set(activeBookingsInRange.map(b => b.booking_id));
     // A Pending row is an enquiry PG's has not accepted, but it still carries a
     // total_amount and so still lands in Estimated Gross Revenue — which is
-    // exactly why that figure is called an estimate. It stays as it is: these
-    // three cards are a tied set, contractValue - paidAgainstEvents
-    // = outstandingBalance, and FinancialTab prints that division on screen —
-    // so the count is disclosed in the sub-line instead of being subtracted.
+    // exactly why that figure is called an estimate. The three headline totals
+    // keep it (contractValue - paidAgainstEvents = outstanding). The accepted /
+    // pending split accumulated below is what the Overview sub-lines, the
+    // FinancialTab collection rate and the modal footers read; this count names
+    // how many requests that pending amount covers.
     const pendingInRangeCount = activeBookingsInRange.filter(b => b.booking_status === 'Pending').length;
 
     // --- FINANCIAL ---

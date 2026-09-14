@@ -16,7 +16,7 @@ export default function DetailModal({ detailModal, onClose }) {
   // list filters the same way.
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('All'); // 'All' | 'Package' | 'Short Order'
-  const [statusFilter, setStatusFilter] = useState('All'); // revenue view only
+  const [statusFilter, setStatusFilter] = useState('All'); // revenue and outstanding views
   const [datePreset, setDatePreset] = useState(DEFAULT_DATE_PRESET);
   const [dateCustomStart, setDateCustomStart] = useState('');
   const [dateCustomEnd, setDateCustomEnd] = useState('');
@@ -40,19 +40,16 @@ export default function DetailModal({ detailModal, onClose }) {
   }
 
   const { start: dateRangeStart, end: dateRangeEnd } = getRangeBounds(datePreset, dateCustomStart, dateCustomEnd);
-
-  // What the revenue list INCLUDES that a reader may not expect: requests not
-  // yet approved. Over the whole set, like "Excludes Rejected and Cancelled"
-  // beside it — both describe what the list is, not what the filters show.
-  const pendingRows = detailModal.data.filter(item => item.status === 'Pending');
-  const pendingInModal = { count: pendingRows.length, total: pendingRows.reduce((sum, item) => sum + (item.total || 0), 0) };
+  // Outstanding needs it too: its card names what is not collectable until
+  // approved, and the list has to be able to show exactly those rows.
+  const hasStatusFilter = detailModal.type === 'revenue' || detailModal.type === 'outstanding';
 
   const filteredData = detailModal.data.filter((item) => {
     if (typeFilter !== 'All') {
       const itemType = item.type === 'Short Order' ? 'Short Order' : 'Package';
       if (itemType !== typeFilter) return false;
     }
-    if (detailModal.type === 'revenue' && statusFilter !== 'All' && item.status !== statusFilter) return false;
+    if (hasStatusFilter && statusFilter !== 'All' && item.status !== statusFilter) return false;
     if (datePreset !== 'All Time' && !isWithinRange(item.eventDate, dateRangeStart, dateRangeEnd)) return false;
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
@@ -62,7 +59,15 @@ export default function DetailModal({ detailModal, onClose }) {
     }
     return true;
   });
-  const activeFilterCount = (searchTerm.trim() ? 1 : 0) + (typeFilter !== 'All' ? 1 : 0) + (detailModal.type === 'revenue' && statusFilter !== 'All' ? 1 : 0) + (datePreset !== DEFAULT_DATE_PRESET ? 1 : 0);
+  const activeFilterCount = (searchTerm.trim() ? 1 : 0) + (typeFilter !== 'All' ? 1 : 0) + (hasStatusFilter && statusFilter !== 'All' ? 1 : 0) + (datePreset !== DEFAULT_DATE_PRESET ? 1 : 0);
+
+  // Requests not yet approved in the rows SHOWN. Scoped to filteredData, not
+  // the whole set: the footer split already is, and "N of M bookings shown"
+  // sits in the same sentence. A subtitle counting pending rows the filters
+  // have hidden disagrees with the list under it — the card-versus-list
+  // mismatch PR-19 was about.
+  const pendingRows = filteredData.filter(item => item.status === 'Pending');
+  const pendingInModal = { count: pendingRows.length, total: pendingRows.reduce((sum, item) => sum + (item.total || 0), 0) };
 
   if (!detailModal.open) return null;
 
@@ -121,7 +126,7 @@ export default function DetailModal({ detailModal, onClose }) {
                 <option value="Package">Package</option>
                 <option value="Short Order">Short Order</option>
               </Select>
-              {detailModal.type === 'revenue' && (
+              {hasStatusFilter && (
                 <Select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
@@ -267,6 +272,7 @@ export default function DetailModal({ detailModal, onClose }) {
                       <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Total</th>
                       <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Paid</th>
                       <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Balance</th>
+                      <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
@@ -291,6 +297,11 @@ export default function DetailModal({ detailModal, onClose }) {
                         <td className="px-5 py-[15px] text-right text-slate-600">{formatCurrency(item.total)}</td>
                         <td className="px-5 py-[15px] text-right text-emerald-600">{formatCurrency(item.paid)}</td>
                         <td className="px-5 py-[15px] text-right font-bold text-red-600">{formatCurrency(item.outstanding)}</td>
+                        <td className="px-5 py-[15px] text-right">
+                          <span className={`inline-block whitespace-nowrap px-2 py-1 rounded-full text-xs font-bold ${item.status === 'Completed' ? 'bg-green-100 text-green-700' : item.status === 'Confirmed' ? 'bg-emerald-100 text-emerald-700' : item.status === 'Approved' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                            {item.status}
+                          </span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -327,12 +338,23 @@ export default function DetailModal({ detailModal, onClose }) {
             </div>
           )}
           {detailModal.type === 'outstanding' && (
-            <ModalTotal
-              label="Total outstanding"
-              value={formatCurrency(filteredData.reduce((sum, item) => sum + item.outstanding, 0))}
-              tone="negative"
-              hint={`${filteredData.length} booking${filteredData.length === 1 ? '' : 's'}`}
-            />
+            <div className="min-w-0">
+              <ModalTotal
+                label="Total outstanding"
+                value={formatCurrency(filteredData.reduce((sum, item) => sum + item.outstanding, 0))}
+                tone="negative"
+                hint={`${filteredData.length} booking${filteredData.length === 1 ? '' : 's'}`}
+              />
+              {/* "Collectable", not "accepted": this is a balance, not an
+                  estimate. Same filteredData scoping as the revenue footer. */}
+              {filteredData.some(item => item.status === 'Pending') && (
+                <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
+                  {formatCurrency(filteredData.filter(item => item.status !== 'Pending').reduce((sum, item) => sum + item.outstanding, 0))} collectable
+                  {' · '}
+                  {formatCurrency(filteredData.filter(item => item.status === 'Pending').reduce((sum, item) => sum + item.outstanding, 0))} awaiting approval
+                </p>
+              )}
+            </div>
           )}
           {detailModal.type !== 'revenue' && detailModal.type !== 'outstanding' && <span />}
           <button
