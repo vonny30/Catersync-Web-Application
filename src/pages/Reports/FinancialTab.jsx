@@ -8,7 +8,7 @@ import { formatCurrency, formatPercent, formatDate } from './helpers';
 
 export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
   const navigate = useNavigate();
-  const { financialSummary, monthlyFinancialTrend, paymentMethodData, refunds, totalRefunded, bookingSummaryData, pendingInRangeCount } = derived;
+  const { financialSummary, monthlyFinancialTrend, paymentMethodData, refunds, totalRefunded, bookingSummaryData } = derived;
 
   // Share of estimated gross revenue that has been paid. BOTH sides are
   // event-anchored (the estimate and the payments against those same events),
@@ -82,6 +82,15 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
             <button onClick={() => onCardClick('revenue')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
               <span className="block text-[13px] text-slate-600 mb-1.5">Estimated Gross Revenue</span>
               <span className={`${FIG} text-slate-900`}>{formatCurrency(financialSummary.contractValue)}</span>
+              {/* The collection rate below divides by ACCEPTED gross revenue, so
+                  that figure has to be on screen here, or the division under
+                  the bar uses a number nothing above it shows. The headline
+                  stays the whole estimate. */}
+              {financialSummary.pendingContractValue > 0 && (
+                <span className="block text-[12.5px] text-slate-500 mt-1 tabular-nums">
+                  {formatCurrency(financialSummary.acceptedContractValue)} accepted · {formatCurrency(financialSummary.pendingContractValue)} awaiting approval
+                </span>
+              )}
             </button>
             <button onClick={() => onCardClick('collected')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
               <span className="block text-[13px] text-slate-600 mb-1.5">Paid to Date</span>
@@ -100,9 +109,12 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
             <div className="h-full rounded-full bg-[#008A45]" style={{ width: `${Math.min(100, Math.max(0, collectedPct))}%` }} />
           </div>
           {/* The figure alone invites "where does that number come from?", so
-              the division that produced it is printed underneath in the same
-              two amounts shown above. Both sides are event-anchored, which is
-              what makes the ratio meaningful. */}
+              the division that produced it is printed underneath. Both sides
+              appear on screen: paid is the Paid to Date figure, and accepted
+              gross revenue is the sub-line under Estimated Gross Revenue, which
+              shows whenever pending requests make it differ from the headline.
+              Both sides are event-anchored, which is what makes the ratio
+              meaningful. */}
           {financialSummary.acceptedContractValue > 0 ? (
             <>
               <span className="block text-[13px] text-slate-600 tabular-nums">
@@ -113,7 +125,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
               </span>
               {financialSummary.pendingContractValue > 0 && (
                 <span className="block text-[12.5px] text-slate-500 mt-1 tabular-nums">
-                  Excludes {formatCurrency(financialSummary.pendingContractValue)} on {pendingInRangeCount} request{pendingInRangeCount === 1 ? '' : 's'} not yet approved — nothing can be collected on those yet.
+                  Requests not yet approved are excluded — nothing can be collected on those yet.
                 </span>
               )}
             </>
