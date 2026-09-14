@@ -31,6 +31,7 @@ import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplet
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds } from './Reports/helpers';
 import { fetchAllRows } from '../utils/fetchAllRows';
+import { bulkDeleteBookings } from '../utils/bulkDeleteBookings';
 import ImageUploadField from '../components/ImageUploadField';
 
 // Package × pax, the way this page has always priced a booking: per-pax
@@ -1294,24 +1295,28 @@ const handleMarkCompleted = async (id) => {
     if (!passwordOk) return;
 
     try {
-      await supabase.from('payment').delete().in('booking_id', selectedBookings);
-      await supabase.from('booking_equipment').delete().in('booking_id', selectedBookings);
-      await supabase.from('vehicle_assign').delete().in('booking_id', selectedBookings);
-      const { error: bookingsError } = await supabase
-        .from('booking')
-        .delete()
-        .in('booking_id', selectedBookings);
-      if (bookingsError) throw bookingsError;
-
-      toast.success(`Deleted ${selectedBookings.length} booking(s).`);
+      // Batched and checked: see utils/bulkDeleteBookings. Select-all can put
+      // every matching booking in this list, far past what one .in() URL holds.
+      const deleted = await bulkDeleteBookings(selectedBookings, {
+        childTables: ['payment', 'booking_equipment', 'vehicle_assign'],
+        noun: 'booking',
+      });
+      toast.success(`Deleted ${deleted} booking(s).`);
       clearSelection();
-      if (bookings.length === selectedBookings.length && currentPage > 1) {
-        setCurrentPage(currentPage - 1);
+      // A selection can now span pages, so "the whole visible page went" no
+      // longer tells us where to land. Step back only if this page is now past
+      // the last one.
+      const lastPage = Math.max(1, Math.ceil((totalCount - deleted) / pageSize));
+      if (currentPage > lastPage) {
+        setCurrentPage(lastPage);
       } else {
         fetchData();
       }
     } catch (error) {
-      handleError(error, 'Failed to delete selected bookings.');
+      handleError(error, error.userMessage || 'Failed to delete selected bookings.');
+      // Part of the selection may be gone; refresh rather than leave stale rows.
+      clearSelection();
+      fetchData();
     }
   };
 

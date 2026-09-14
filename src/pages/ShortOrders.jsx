@@ -28,6 +28,7 @@ import { getBookingsOnDate } from '../utils/availability';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds } from './Reports/helpers';
 import { fetchAllRows } from '../utils/fetchAllRows';
+import { bulkDeleteBookings } from '../utils/bulkDeleteBookings';
 import ImageUploadField from '../components/ImageUploadField';
 
 export default function ShortOrders() {
@@ -1190,21 +1191,26 @@ export default function ShortOrders() {
     if (!passwordOk) return;
 
     try {
-      await supabase.from('payment').delete().in('booking_id', selectedOrders);
-      const { error: ordersError } = await supabase
-        .from('booking')
-        .delete()
-        .in('booking_id', selectedOrders);
-      if (ordersError) throw ordersError;
-      toast.success(`Deleted ${selectedOrders.length} short order(s).`);
+      // Batched and checked: see utils/bulkDeleteBookings. Only payments are
+      // cleared first, as before — vehicle_assign cascades from booking.
+      const deleted = await bulkDeleteBookings(selectedOrders, {
+        childTables: ['payment'],
+        noun: 'order',
+      });
+      toast.success(`Deleted ${deleted} short order(s).`);
       clearSelection();
-      if (orders.length === selectedOrders.length && currentPage > 1) {
-        setCurrentPage(currentPage - 1);
+      // A selection can now span pages; step back only if this page is now
+      // past the last one.
+      const lastPage = Math.max(1, Math.ceil((totalCount - deleted) / pageSize));
+      if (currentPage > lastPage) {
+        setCurrentPage(lastPage);
       } else {
         fetchData();
       }
     } catch (error) {
-      handleError(error, 'Failed to delete selected orders.');
+      handleError(error, error.userMessage || 'Failed to delete selected orders.');
+      clearSelection();
+      fetchData();
     }
   };
 
