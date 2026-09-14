@@ -95,6 +95,17 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
             <button onClick={() => onCardClick('collected')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
               <span className="block text-[13px] text-slate-600 mb-1.5">Paid to Date</span>
               <span className={`${FIG} text-slate-900`}>{formatCurrency(financialSummary.paidAgainstEvents)}</span>
+              {/* The rate below divides money paid on ACCEPTED bookings. That
+                  equals this figure until a pending request carries a verified
+                  payment (the mobile app takes proof at request time), and from
+                  then on the division's numerator would appear nowhere above
+                  it. Guarded on the difference, not on pending requests
+                  existing: "₱0 on requests" is noise. */}
+              {financialSummary.paidAgainstEvents - financialSummary.acceptedPaid > 0 && (
+                <span className="block text-[12.5px] text-slate-500 mt-1 tabular-nums">
+                  {formatCurrency(financialSummary.acceptedPaid)} on accepted · {formatCurrency(financialSummary.paidAgainstEvents - financialSummary.acceptedPaid)} on requests not yet approved
+                </span>
+              )}
             </button>
             <button onClick={() => onCardClick('outstanding')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
               <span className="block text-[13px] text-slate-600 mb-1.5">Unpaid on These Events</span>
@@ -109,10 +120,15 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
             <div className="h-full rounded-full bg-[#008A45]" style={{ width: `${Math.min(100, Math.max(0, collectedPct))}%` }} />
           </div>
           {/* The figure alone invites "where does that number come from?", so
-              the division that produced it is printed underneath. Both sides
-              appear on screen: paid is the Paid to Date figure, and accepted
-              gross revenue is the sub-line under Estimated Gross Revenue, which
-              shows whenever pending requests make it differ from the headline.
+              the division that produced it is printed underneath, and both of
+              its sides appear on screen in either data state.
+                - Numerator: paid against ACCEPTED bookings only. It equals Paid
+                  to Date whenever no pending request carries a verified payment;
+                  when one does, the difference is named in the sub-line under
+                  Paid to Date.
+                - Denominator: accepted gross revenue. It equals the headline
+                  when there are no pending requests; otherwise it is the
+                  sub-line under Estimated Gross Revenue.
               Both sides are event-anchored, which is what makes the ratio
               meaningful. */}
           {financialSummary.acceptedContractValue > 0 ? (

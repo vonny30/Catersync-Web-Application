@@ -58,7 +58,9 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
             reads as a quarter of the records and says nothing about the pesos,
             which can be far more. The headline is unchanged. */}
         <StatCard label="Estimated Gross Revenue" value={formatCurrency(financialSummary.contractValue)} sub={`Events in this period${pendingContractValue > 0 ? ` · ${formatCurrency(pendingContractValue)} from ${pendingInRangeCount} not yet approved` : ''}`} color="green" onClick={() => onCardClick('revenue')} />
-        <StatCard label="Paid to Date" value={formatCurrency(financialSummary.paidAgainstEvents)} sub="Against those events" color="teal" onClick={() => onCardClick('collected')} />
+        {/* Same qualification as the Financial tab's Paid to Date: named only
+            when a request not yet approved carries a verified payment. */}
+        <StatCard label="Paid to Date" value={formatCurrency(financialSummary.paidAgainstEvents)} sub={`Against those events${financialSummary.paidAgainstEvents - financialSummary.acceptedPaid > 0 ? ` · ${formatCurrency(financialSummary.paidAgainstEvents - financialSummary.acceptedPaid)} on requests not yet approved` : ''}`} color="teal" onClick={() => onCardClick('collected')} />
         {/* An amount under "Unpaid" reads as something to chase. The part owed
             on requests not yet approved cannot be — nothing can be collected
             before approval — so it is named. */}
