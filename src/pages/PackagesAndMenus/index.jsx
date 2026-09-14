@@ -14,6 +14,81 @@ import ItemFormModal from './ItemFormModal';
 import CategoryManagerModal from './CategoryManagerModal';
 import { requiresMaxPax } from '../../utils/packageRules';
 
+// Brings a package's category and equipment links in line with the form by
+// changing ONLY what differs: inserts what was added, updates equipment whose
+// quantity or per-pax setting changed, deletes what was removed.
+//
+// The save used to insert the whole selected set and then delete every row
+// that existed before. Both tables carry UNIQUE (package_id, category_id) /
+// UNIQUE (package_id, equipment_id), so every link that was simply kept
+// collided with itself: saving a package with no changes returned 409, after
+// the package row itself had already been updated. A diff issues no request at
+// all for an unchanged link, so a no-change save writes nothing here.
+//
+// Order is kept from the old version's reasoning: additions and changes land
+// before removals, so a failure part-way leaves the old links in place rather
+// than a package stripped of them. Every result is checked.
+const syncPackageLinks = async (client, packageId, { categoryIds = [], equipmentIds = [], quantities = {}, perPax = {} }) => {
+  const { data: oldCats, error: oldCatsError } = await client
+    .from('package_category')
+    .select('package_category_id, category_id')
+    .eq('package_id', packageId);
+  if (oldCatsError) throw oldCatsError;
+
+  const keptCats = new Set(categoryIds);
+  const oldCatIds = new Set((oldCats || []).map(r => r.category_id));
+  const catInserts = categoryIds
+    .filter(catId => !oldCatIds.has(catId))
+    .map(catId => ({ package_id: packageId, category_id: catId }));
+  const catDeletes = (oldCats || []).filter(r => !keptCats.has(r.category_id)).map(r => r.package_category_id);
+
+  if (catInserts.length > 0) {
+    const { error } = await client.from('package_category').insert(catInserts);
+    if (error) throw error;
+  }
+  if (catDeletes.length > 0) {
+    const { error } = await client.from('package_category').delete().in('package_category_id', catDeletes);
+    if (error) throw error;
+  }
+
+  const { data: oldEquip, error: oldEquipError } = await client
+    .from('package_equipment')
+    .select('package_equipment_id, equipment_id, included_quantity, per_pax')
+    .eq('package_id', packageId);
+  if (oldEquipError) throw oldEquipError;
+
+  // The same defaults the old insert applied, so a row the form never touched
+  // compares equal to what it would have written.
+  const wanted = (equipId) => ({
+    included_quantity: quantities[equipId] || 1,
+    per_pax: perPax[equipId] !== undefined ? perPax[equipId] : true,
+  });
+  const oldByEquip = new Map((oldEquip || []).map(r => [r.equipment_id, r]));
+  const keptEquip = new Set(equipmentIds);
+
+  const equipInserts = equipmentIds
+    .filter(equipId => !oldByEquip.has(equipId))
+    .map(equipId => ({ package_id: packageId, equipment_id: equipId, ...wanted(equipId) }));
+  const equipUpdates = equipmentIds
+    .filter(equipId => oldByEquip.has(equipId))
+    .map(equipId => ({ row: oldByEquip.get(equipId), next: wanted(equipId) }))
+    .filter(({ row, next }) => Number(row.included_quantity) !== Number(next.included_quantity) || Boolean(row.per_pax) !== Boolean(next.per_pax));
+  const equipDeletes = (oldEquip || []).filter(r => !keptEquip.has(r.equipment_id)).map(r => r.package_equipment_id);
+
+  if (equipInserts.length > 0) {
+    const { error } = await client.from('package_equipment').insert(equipInserts);
+    if (error) throw error;
+  }
+  for (const { row, next } of equipUpdates) {
+    const { error } = await client.from('package_equipment').update(next).eq('package_equipment_id', row.package_equipment_id);
+    if (error) throw error;
+  }
+  if (equipDeletes.length > 0) {
+    const { error } = await client.from('package_equipment').delete().in('package_equipment_id', equipDeletes);
+    if (error) throw error;
+  }
+};
+
 export default function PackagesAndMenus() {
   const { showConfirm } = useConfirm();
   const { requestPasswordConfirm } = usePasswordConfirm();
@@ -640,53 +715,14 @@ export default function PackagesAndMenus() {
           packageId = newPackage[0].package_id;
         }
 
-        // Update categories — insert the new set FIRST, then delete only the
-        // rows that predate this save (captured by id before inserting).
-        // Deleting first and inserting after (the old approach) meant a
-        // failed insert left the package with its categories already wiped
-        // and nothing to show for it, since these aren't run in a real
-        // transaction. Inserting first means a failed insert leaves the old
-        // associations completely untouched.
-        const { data: oldCatRows } = await supabase
-          .from('package_category')
-          .select('package_category_id')
-          .eq('package_id', packageId);
-
-        const selectedCatIds = formData.selectedCategories || [];
-        if (selectedCatIds.length > 0) {
-          const inserts = selectedCatIds.map(catId => ({ package_id: packageId, category_id: catId }));
-          const { error } = await supabase.from('package_category').insert(inserts);
-          if (error) throw error;
-        }
-        if (oldCatRows && oldCatRows.length > 0) {
-          const oldCatIds = oldCatRows.map(r => r.package_category_id);
-          const { error } = await supabase.from('package_category').delete().in('package_category_id', oldCatIds);
-          if (error) throw error;
-        }
-
-        // Update equipment — same insert-then-delete-old ordering, for the
-        // same reason.
-        const { data: oldEquipRows } = await supabase
-          .from('package_equipment')
-          .select('package_equipment_id')
-          .eq('package_id', packageId);
-
-        const selectedEquipIds = formData.selectedEquipment || [];
-        if (selectedEquipIds.length > 0) {
-          const inserts = selectedEquipIds.map(equipId => ({
-            package_id: packageId,
-            equipment_id: equipId,
-            included_quantity: formData.equipmentQuantities[equipId] || 1,
-            per_pax: formData.equipmentPerPax[equipId] !== undefined ? formData.equipmentPerPax[equipId] : true,
-          }));
-          const { error } = await supabase.from('package_equipment').insert(inserts);
-          if (error) throw error;
-        }
-        if (oldEquipRows && oldEquipRows.length > 0) {
-          const oldEquipIds = oldEquipRows.map(r => r.package_equipment_id);
-          const { error } = await supabase.from('package_equipment').delete().in('package_equipment_id', oldEquipIds);
-          if (error) throw error;
-        }
+        // Categories and equipment: change only what differs — see
+        // syncPackageLinks for why inserting the whole set returned 409.
+        await syncPackageLinks(supabase, packageId, {
+          categoryIds: formData.selectedCategories || [],
+          equipmentIds: formData.selectedEquipment || [],
+          quantities: formData.equipmentQuantities || {},
+          perPax: formData.equipmentPerPax || {},
+        });
 
         toast.success(editingId ? 'Package saved.' : 'Package created.');
         await fetchData();
