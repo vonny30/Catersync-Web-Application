@@ -20,7 +20,7 @@ import { useCancellationHandlers } from '../hooks/useCancellationHandlers';
 import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
-import { allocateEquipmentForBooking } from '../utils/equipment';
+import { allocateEquipmentForBooking, getDailyEquipmentSnapshot, computeEquipmentDemand } from '../utils/equipment';
 import { TRIP_LEG, countDistinctVehicles, groupDispatchRuns } from '../utils/vehicle';
 import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind, formatPaymentDeletionWarning } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
@@ -46,6 +46,10 @@ export default function BookingDetails() {
   const [payments, setPayments] = useState([]);
   const [menuSelections, setMenuSelections] = useState([]);
   const [equipment, setEquipment] = useState([]);
+  // { equipment_id: quantity } the package template would allocate for this
+  // booking's pax, or null when it could not be derived (panel falls back to a
+  // flat list). Derived on every load, never stored.
+  const [templateDemand, setTemplateDemand] = useState(null);
   const [dispatches, setDispatches] = useState([]);
   const [isAssignVehicleOpen, setIsAssignVehicleOpen] = useState(false);
 
@@ -80,6 +84,10 @@ export default function BookingDetails() {
   const [assignEquipData, setAssignEquipData] = useState({ equipment_id: '', quantity: 1, notes: '' });
   const [isAssignSubmitting, setIsAssignSubmitting] = useState(false);
   const [equipSearchTerm, setEquipSearchTerm] = useState('');
+  // Free units per item ON THIS BOOKING'S EVENT DATE, read when the Assign
+  // modal opens. status: 'idle' | 'loading' | 'ready' | 'failed'. See
+  // openAssignEquipModal for where the number comes from and its known gap.
+  const [assignSnapshot, setAssignSnapshot] = useState({ status: 'idle', freeById: {} });
 
   // --- Edit Equipment Assignment modal state (unique) ---
   const [isEditEquipModalOpen, setIsEditEquipModalOpen] = useState(false);
@@ -196,6 +204,20 @@ export default function BookingDetails() {
           returned: item.returned,
         })) || []
       );
+      // What approval would allocate from the package template, so the panel
+      // can tell template rows from ones a manager added. booking_equipment has
+      // no column for this and gets none (no schema changes): the template is
+      // the source of truth. computeEquipmentDemand requires a package id, so a
+      // booking without one is given the empty demand an empty template already
+      // returns — every row then reads "Added by manager" either way.
+      try {
+        setTemplateDemand(bookingData.package_id
+          ? await computeEquipmentDemand(bookingData.package_id, bookingData.pax_count)
+          : {});
+      } catch (demandError) {
+        console.error('Could not derive the package template for the Equipment panel:', demandError);
+        setTemplateDemand(null);
+      }
       // Dispatch — what is actually carrying this event. The page could
       // previously only mention a vehicle in its delete warning, so a manager
       // had to open Vehicles and search for the reference to answer "is there
@@ -939,6 +961,57 @@ export default function BookingDetails() {
       }
     };
     fetchEquipmentList();
+
+    // AVAILABILITY ON THE EVENT DATE. The dropdown used to show
+    // quantity_available — total usable stock — which ignores everything
+    // already committed that day, this booking's own rows included, so a
+    // manager saw 170 Guest Tables where 161 could actually be assigned.
+    //
+    // The number comes from getDailyEquipmentSnapshot, the same call the
+    // Equipment page's Availability tab reads, so the two screens agree by
+    // construction. It INCLUDES this booking's own rows, deliberately: Assign
+    // adds a new row on top of the existing ones, so topping 9 Guest Tables up
+    // to 10 needs 10 free units that day. handleAssignEquipSubmit counts them
+    // too, which is why its limit and this label line up.
+    //
+    // KNOWN GAP — do not read the two as one rule. The snapshot and the submit
+    // guard count different bookings:
+    //   - getDailyEquipmentSnapshot counts only ACTIVE_BOOKING_STATUSES
+    //     (Approved, Confirmed), and for an active booking with no
+    //     booking_equipment rows it subtracts that booking's ESTIMATED package
+    //     demand instead.
+    //   - handleAssignEquipSubmit counts every unreturned booking_equipment row
+    //     on the date regardless of booking status, and no estimates.
+    // On current data they are equal: Pending bookings hold no equipment,
+    // Completed rows are returned, and every active booking has its rows.
+    // They diverge in two directions:
+    //   - Unreturned rows on a Pending, Completed, Cancelled or Rejected
+    //     booking that day: the guard is STRICTER, so the label can offer units
+    //     the submit then refuses — a refused assignment, not an oversell.
+    //   - An active booking that day with no rows yet: the snapshot is
+    //     stricter, so the label shows FEWER free than the guard would accept.
+    // Neither direction can oversell. FOLLOW-UP, NOT DONE: point this guard
+    // AND the Edit Equipment guard (handleEditEquipSubmit) at the same
+    // snapshot so all three agree by construction.
+    //
+    // If the snapshot fails the modal falls back to the raw "in stock" label:
+    // a degraded label beats an unusable form, and the guard still protects
+    // the data.
+    if (booking.event_datetime) {
+      setAssignSnapshot({ status: 'loading', freeById: {} });
+      getDailyEquipmentSnapshot(booking.event_datetime)
+        .then(({ items }) => setAssignSnapshot({
+          status: 'ready',
+          freeById: Object.fromEntries((items || []).map(item => [item.equipment_id, item.free])),
+        }))
+        .catch((snapshotError) => {
+          console.error('Could not load equipment availability for the event date:', snapshotError);
+          setAssignSnapshot({ status: 'failed', freeById: {} });
+        });
+    } else {
+      setAssignSnapshot({ status: 'failed', freeById: {} });
+    }
+
     setAssignEquipData({ equipment_id: '', quantity: 1, notes: '' });
     setEquipSearchTerm('');
     setIsAssignEquipModalOpen(true);
@@ -1177,6 +1250,87 @@ export default function BookingDetails() {
   // --- RENDER ---
   if (loading) return <div className="p-12 text-center text-slate-500 font-medium">Loading...</div>;
   if (!booking) return <div className="p-12 text-center text-slate-500">Booking not found.</div>;
+
+  // --- Assign modal: the event date as the options name it ("19 Sep"), and
+  // free units per item on it — null while loading or after a failed snapshot,
+  // which is the signal to fall back to raw stock.
+  const assignEventDay = booking.event_datetime
+    ? `${new Date(booking.event_datetime).getDate()} ${new Date(booking.event_datetime).toLocaleString('en', { month: 'short' })}`
+    : '';
+  const freeOnEventDay = (equipmentId) => (assignSnapshot.status === 'ready'
+    ? (assignSnapshot.freeById[equipmentId] ?? 0)
+    : null);
+  const selectedAssignEquip = equipmentList.find(eq => eq.equipment_id === assignEquipData.equipment_id);
+  const selectedAssignFree = selectedAssignEquip ? freeOnEventDay(selectedAssignEquip.equipment_id) : null;
+  const assignQuantityMax = selectedAssignEquip
+    ? (selectedAssignFree !== null ? Math.max(1, selectedAssignFree) : selectedAssignEquip.quantity_available)
+    : undefined;
+
+  // --- Equipment panel: package-derived rows vs rows a manager added. Judged
+  // PER ITEM (all of an item's rows summed) against the template demand, so a
+  // second Guest Tables row does not split one item into two verdicts. An
+  // empty demand — no package, or a package with no template — sends every row
+  // to "Added by manager" with no special case. null (derivation failed)
+  // means no grouping: the flat list, so a grouping failure never hides
+  // equipment.
+  const equipmentGroups = (() => {
+    if (!templateDemand) return null;
+    const unitsByItem = {};
+    equipment.forEach(item => {
+      unitsByItem[item.equipment_id] = (unitsByItem[item.equipment_id] || 0) + (Number(item.quantity) || 0);
+    });
+    const fromPackage = [];
+    const addedByManager = [];
+    equipment.forEach(item => {
+      if (templateDemand[item.equipment_id] === undefined) {
+        addedByManager.push({ item, note: null });
+      } else {
+        const adjusted = unitsByItem[item.equipment_id] !== templateDemand[item.equipment_id];
+        fromPackage.push({ item, note: adjusted ? 'From package · adjusted' : null });
+      }
+    });
+    const units = (rows) => rows.reduce((sum, r) => sum + (Number(r.item.quantity) || 0), 0);
+    return [
+      { key: 'package', title: 'From package', rows: fromPackage, units: units(fromPackage) },
+      { key: 'manual', title: 'Added by manager', rows: addedByManager, units: units(addedByManager) },
+    ].filter(group => group.rows.length > 0);
+  })();
+
+  // One row of the Equipment panel, shared by both groups and the flat
+  // fallback so the Assigned badge and the edit/delete controls stay
+  // identical wherever a row appears.
+  const renderEquipmentRow = (item, idx, note) => (
+      <div key={item.assignment_id ?? idx} className="flex justify-between items-center gap-3 px-1 py-3">
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-slate-800 truncate">{item.eqm_name}</span>
+          {note && <span className="block text-xs text-slate-500">{note}</span>}
+        </span>
+        <div className="flex items-center gap-3 shrink-0">
+          <span className="text-sm font-bold tabular-nums text-slate-700">× {item.quantity}</span>
+          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${item.returned ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-slate-50 border border-slate-200 text-slate-600'}`}>
+            {item.returned ? 'Returned' : 'Assigned'}
+          </span>
+          {!item.returned && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => openEditEquipModal(item)}
+                className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-blue-500 hover:text-blue-700'}
+                title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be edited once a booking is ${booking.booking_status}` : 'Edit quantity'}
+              >
+                {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
+              </button>
+              <button
+                onClick={() => handleRemoveEquipment(item.assignment_id)}
+                className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-red-400 hover:text-red-600'}
+                title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be removed once a booking is ${booking.booking_status}` : 'Remove'}
+              >
+                {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Trash2 size={14} />}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+  );
 
   // --- PAYMENT CALCULATIONS (including Cancelled) ---
   // `positivePayments` stays a gross figure (money paid in, ignoring
@@ -1755,37 +1909,27 @@ export default function BookingDetails() {
                     items a bordered card each turns the list into corduroy. The
                     quantity gets its own right-hand column so the numbers read
                     DOWN as a column instead of trailing each name. */}
-                <div className="divide-y divide-slate-100">
-                  {equipment.map((item, idx) => (
-                    <div key={idx} className="flex justify-between items-center gap-3 px-1 py-3">
-                      <span className="text-sm font-semibold text-slate-800 min-w-0 truncate">{item.eqm_name}</span>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <span className="text-sm font-bold tabular-nums text-slate-700">× {item.quantity}</span>
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${item.returned ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-slate-50 border border-slate-200 text-slate-600'}`}>
-                          {item.returned ? 'Returned' : 'Assigned'}
-                        </span>
-                        {!item.returned && (
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => openEditEquipModal(item)}
-                              className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-blue-500 hover:text-blue-700'}
-                              title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be edited once a booking is ${booking.booking_status}` : 'Edit quantity'}
-                            >
-                              {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
-                            </button>
-                            <button
-                              onClick={() => handleRemoveEquipment(item.assignment_id)}
-                              className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-red-400 hover:text-red-600'}
-                              title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be removed once a booking is ${booking.booking_status}` : 'Remove'}
-                            >
-                              {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Trash2 size={14} />}
-                            </button>
-                          </div>
-                        )}
+                {equipmentGroups ? (
+                  // Two labelled groups, package-derived first. A quiet label
+                  // and a unit subtotal per group — organisation, not an alert.
+                  <div className="space-y-4">
+                    {equipmentGroups.map(group => (
+                      <div key={group.key}>
+                        <div className="flex justify-between items-baseline gap-3 px-1 pb-1.5 text-xs text-slate-500">
+                          <span className="font-semibold uppercase tracking-[0.05em]">{group.title}</span>
+                          <span className="tabular-nums">{group.units} unit{group.units !== 1 ? 's' : ''}</span>
+                        </div>
+                        <div className="divide-y divide-slate-100 border-t border-slate-100">
+                          {group.rows.map(({ item, note }, idx) => renderEquipmentRow(item, idx, note))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {equipment.map((item, idx) => renderEquipmentRow(item, idx, null))}
+                  </div>
+                )}
                 </CardScrollArea>
               )}
               {/* Line items and units are different quantities and were never
@@ -2253,17 +2397,31 @@ export default function BookingDetails() {
                     name="equipment_id"
                     value={assignEquipData.equipment_id}
                     onChange={handleAssignEquipChange}
+                    disabled={assignSnapshot.status === 'loading'}
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none font-medium text-slate-800"
                     required
                   >
-                    <option value="">Choose equipment...</option>
+                    <option value="">
+                      {assignSnapshot.status === 'loading' ? `Checking availability for ${assignEventDay}…` : 'Choose equipment...'}
+                    </option>
                     {equipmentList
                       .filter(eq => eq.eqm_name.toLowerCase().includes(equipSearchTerm.toLowerCase()))
-                      .map((eq) => (
-                        <option key={eq.equipment_id} value={eq.equipment_id}>
-                          {eq.eqm_name} — {eq.quantity_available} in stock{eq.equipment_type === 'Decoration' ? ' (Decoration)' : ''}
-                        </option>
-                      ))}
+                      .map((eq) => {
+                        // Free on the event date (see openAssignEquipModal);
+                        // null means the snapshot failed, so fall back to raw
+                        // stock. Nothing free that day cannot be picked.
+                        const free = freeOnEventDay(eq.equipment_id);
+                        const noneFree = free !== null && free <= 0;
+                        return (
+                          <option key={eq.equipment_id} value={eq.equipment_id} disabled={noneFree}>
+                            {eq.eqm_name} — {free === null
+                              ? `${eq.quantity_available} in stock`
+                              : noneFree
+                                ? `none available on ${assignEventDay}`
+                                : `${free} available on ${assignEventDay}`}{eq.equipment_type === 'Decoration' ? ' (Decoration)' : ''}
+                          </option>
+                        );
+                      })}
                   </Select>
                 </div>
                 <div>
@@ -2272,6 +2430,7 @@ export default function BookingDetails() {
                     type="number"
                     name="quantity"
                     min="1"
+                    max={assignQuantityMax}
                     value={assignEquipData.quantity}
                     onChange={handleAssignEquipChange}
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
