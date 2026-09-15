@@ -98,10 +98,10 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
                   there, unpaid here). Label dot and figure share the colour, so
                   the bar below reads against them. */}
               <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" aria-hidden="true" />
+                <span className="w-2 h-2 rounded-full bg-[#009E73] shrink-0" aria-hidden="true" />
                 Paid to Date
               </span>
-              <span className={`${FIG} text-emerald-700`}>{formatCurrency(financialSummary.paidAgainstEvents)}</span>
+              <span className={`${FIG} text-[#009E73]`}>{formatCurrency(financialSummary.paidAgainstEvents)}</span>
               {/* The rate below divides money paid on ACCEPTED bookings. That
                   equals this figure until a pending request carries a verified
                   payment (the mobile app takes proof at request time), and from
@@ -127,7 +127,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
               clamped at 100% so an overpaid booking cannot render a bar wider
               than its track, while the printed percentage stays truthful. */}
           <div className="mt-[22px] mb-2.5 h-2 rounded-full bg-slate-100 overflow-hidden">
-            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, Math.max(0, collectedPct))}%` }} />
+            <div className="h-full rounded-full bg-[#009E73]" style={{ width: `${Math.min(100, Math.max(0, collectedPct))}%` }} />
           </div>
           {/* The figure alone invites "where does that number come from?", so
               the division that produced it is printed underneath, and both of
