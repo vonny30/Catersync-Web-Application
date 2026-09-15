@@ -116,10 +116,10 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
             </button>
             <button onClick={() => onCardClick('outstanding')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
               <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
-                <span className="w-2 h-2 rounded-full bg-red-600 shrink-0" aria-hidden="true" />
+                <span className="w-2 h-2 rounded-full bg-[#D55E00] shrink-0" aria-hidden="true" />
                 Unpaid on These Events
               </span>
-              <span className={`${FIG} text-red-600`}>{formatCurrency(financialSummary.outstanding)}</span>
+              <span className={`${FIG} text-[#D55E00]`}>{formatCurrency(financialSummary.outstanding)}</span>
             </button>
           </div>
 
