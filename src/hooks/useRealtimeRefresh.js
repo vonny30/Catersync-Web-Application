@@ -12,11 +12,7 @@ import { supabase } from '../supabase';
  *
  * This is the failure mode to know about: subscribing to an unpublished
  * table SUCCEEDS (status: SUBSCRIBED) and then silently delivers nothing,
- * forever. There is no error to notice. It was already the case here —
- * Bookings.jsx, ShortOrders.jsx and the ManagerLayout payment badge all
- * subscribed to `booking`/`payment`, which were never published, so none of
- * them had ever actually refreshed. Only `manager` was published (added for
- * the session lock), which is why that one feature worked.
+ * forever. There is no error to notice.
  *
  * To check what is published:
  *   select tablename from pg_publication_tables
