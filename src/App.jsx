@@ -15,6 +15,7 @@ import Bookings from './pages/Bookings';
 import BookingDetails from './pages/BookingDetails';
 import ShortOrders from './pages/ShortOrders';
 import ShortOrderDetails from './pages/ShortOrderDetails';
+import Customers from './pages/Customers';
 import Payments from './pages/Payments';
 import Equipment from './pages/Equipment';
 import Vehicles from './pages/Vehicles';
@@ -92,6 +93,7 @@ function AppContent() {
           <Route path="bookings/:id" element={<BookingDetails />} />
           <Route path="orders" element={<ShortOrders />} />
           <Route path="orders/:id" element={<ShortOrderDetails />} />
+          <Route path="customers" element={<Customers />} />
           <Route path="payments" element={<Payments />} />
           <Route path="equipment" element={<Equipment />} />
           <Route path="vehicles" element={<Vehicles />} />

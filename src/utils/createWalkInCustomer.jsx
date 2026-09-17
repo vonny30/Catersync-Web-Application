@@ -128,6 +128,9 @@ export async function createWalkInCustomer(walkInData) {
           cus_address: walkInData.cus_address,
           username: username,
           account_status: 'Active',
+          // The column defaults to 'Mobile'; this is the only place a
+          // walk-in is created, so it is the only place 'Walk-in' is written.
+          source: 'Walk-in',
           user_id: authData.user?.id,
         },
       ])
