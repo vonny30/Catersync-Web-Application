@@ -714,7 +714,9 @@ export default function Customers() {
   const [formModal, setFormModal] = useState(null); // { mode: 'add' | 'edit', customer? }
   const [statusTarget, setStatusTarget] = useState(null);
 
-  useRealtimeRefresh('customers-page', ['customer', 'booking', 'payment'], refresh);
+  // customer_note too, so a note another manager adds appears in an open
+  // drawer. All four tables are in the supabase_realtime publication.
+  useRealtimeRefresh('customers-page', ['customer', 'booking', 'payment', 'customer_note'], refresh);
 
   const { start: joinedStart, end: joinedEnd } = getRangeBounds(datePreset, customStart, customEnd);
   const trimmedSearch = searchPattern(search);
