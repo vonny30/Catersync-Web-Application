@@ -41,6 +41,40 @@ const styles = {
   contentWindow: 'flex-1 overflow-y-auto bg-transparent p-4 md:p-8',
 };
 
+// Nine links split 3/3/3, each group named by a noun for what it holds, the
+// way every link is named for the records it manages. Orders is what a manager
+// opens the app to work through; Operations is the physical stuff that gets
+// committed to an event; Business is money and records. Reports sits with the
+// figures it reports on, and Packages & Menus (edited weekly) is no longer
+// last. The single source of truth for the nav: derive a flat list from it
+// rather than keeping a second one.
+const NAV_GROUPS = [
+  {
+    label: 'Orders',
+    links: [
+      { name: 'Dashboard', path: '/app', icon: LayoutDashboard },
+      { name: 'Bookings', path: '/app/bookings', icon: CalendarDays },
+      { name: 'Short Orders', path: '/app/orders', icon: ShoppingBag },
+    ],
+  },
+  {
+    label: 'Operations',
+    links: [
+      { name: 'Equipment', path: '/app/equipment', icon: Wrench },
+      { name: 'Vehicles', path: '/app/vehicles', icon: Truck },
+      { name: 'Packages & Menus', path: '/app/packages-menu', icon: MenuIcon },
+    ],
+  },
+  {
+    label: 'Business',
+    links: [
+      { name: 'Customers', path: '/app/customers', icon: Users },
+      { name: 'Payments', path: '/app/payments', icon: CreditCard },
+      { name: 'Reports', path: '/app/reports', icon: BarChart3 },
+    ],
+  },
+];
+
 export default function ManagerLayout() {
   const location = useLocation();
   const { user, logout } = useAuth();
@@ -119,18 +153,6 @@ export default function ManagerLayout() {
     };
   }, []);
 
-  const navLinks = [
-    { name: 'Dashboard', path: '/app', icon: LayoutDashboard },
-    { name: 'Bookings', path: '/app/bookings', icon: CalendarDays },
-    { name: 'Short Orders', path: '/app/orders', icon: ShoppingBag },
-    { name: 'Customers', path: '/app/customers', icon: Users },
-    { name: 'Payments', path: '/app/payments', icon: CreditCard },
-    { name: 'Equipment', path: '/app/equipment', icon: Wrench },
-    { name: 'Vehicles', path: '/app/vehicles', icon: Truck },
-    { name: 'Reports', path: '/app/reports', icon: BarChart3 },
-    { name: 'Packages & Menus', path: '/app/packages-menu', icon: MenuIcon },
-  ];
-
   const isSettingsActive = location.pathname === '/app/settings';
 
   const handleLogout = async () => {
@@ -144,7 +166,8 @@ export default function ManagerLayout() {
   };
 
   const renderNavItems = (isMobile = false) => {
-    const navItems = navLinks.map((link) => {
+    // One row, shared by every group and by the mobile drawer.
+    const renderLink = (link) => {
       const Icon = link.icon;
       const isActive = location.pathname === link.path;
 
@@ -161,7 +184,8 @@ export default function ManagerLayout() {
         >
           {isActive && <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-full bg-[#008A45]" />}
           <Icon size={18} className={isActive ? 'text-[#008A45]' : 'text-slate-400'} />
-          {link.name}
+          {/* Truncated, so "Packages & Menus" stays one line at 256px. */}
+          <span className="truncate">{link.name}</span>
           {link.path === '/app/payments' && pendingVerificationCount > 0 && (
             <span className="ml-auto flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-bold animate-pulse">
               {pendingVerificationCount > 99 ? '99+' : pendingVerificationCount}
@@ -169,7 +193,7 @@ export default function ManagerLayout() {
           )}
         </Link>
       );
-    });
+    };
 
     const settingsLink = (
       <Link
@@ -203,7 +227,19 @@ export default function ManagerLayout() {
 
     return (
       <>
-        <nav className="p-3 space-y-1">{navItems}</nav>
+        {/* No space-y on <nav>: it would space the GROUPS and fight mt-5.
+            Labels are slate-500 (about 4.8:1), not 400 (about 2.6:1): small
+            tracked uppercase needs more contrast than body text, not less. */}
+        <nav className="p-3">
+          {NAV_GROUPS.map((group, i) => (
+            <div key={group.label} className={i === 0 ? '' : 'mt-5'}>
+              <span className="block px-4 mb-1.5 text-[10.5px] font-bold tracking-[0.11em] uppercase text-slate-500">
+                {group.label}
+              </span>
+              <div className="space-y-0.5">{group.links.map(renderLink)}</div>
+            </div>
+          ))}
+        </nav>
         <div className="p-3 space-y-1 mt-auto border-t border-slate-100 pt-4">
           {settingsLink}
           {logoutButton}
