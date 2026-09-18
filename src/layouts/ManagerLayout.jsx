@@ -41,37 +41,36 @@ const styles = {
   contentWindow: 'flex-1 overflow-y-auto bg-transparent p-4 md:p-8',
 };
 
-// Nine links split 3/3/3, each group named for exactly what is in it, the way
-// every link is named for the records it manages: the bookings and orders
-// (with the Dashboard that summarises them); the equipment and vehicles an
-// event uses plus the packages and menus it is sold from; and the customers,
-// their payments, and the reports on both. Reports sits with the figures it
-// reports on, and Packages & Menus (edited weekly) is no longer last. The
+// A heading names the area; each link names a view within it, so a link
+// never repeats its heading (the Dashboard is the Overview, under Main).
+// Main holds the two summary screens. Bookings holds the two kinds of order
+// plus the customers who place them and the payments made against them.
+// Resources holds what an event uses and the catalogue it is sold from. The
 // single source of truth for the nav: derive a flat list from it rather than
 // keeping a second one.
 const NAV_GROUPS = [
   {
-    label: 'Bookings & Orders',
+    label: 'Main',
     links: [
-      { name: 'Dashboard', path: '/app', icon: LayoutDashboard },
-      { name: 'Bookings', path: '/app/bookings', icon: CalendarDays },
-      { name: 'Short Orders', path: '/app/orders', icon: ShoppingBag },
+      { name: 'Overview', path: '/app', icon: LayoutDashboard },
+      { name: 'Reports', path: '/app/reports', icon: BarChart3 },
     ],
   },
   {
-    label: 'Resources & Catalogue',
+    label: 'Bookings',
+    links: [
+      { name: 'Events', path: '/app/bookings', icon: CalendarDays },
+      { name: 'Short Orders', path: '/app/orders', icon: ShoppingBag },
+      { name: 'Customers', path: '/app/customers', icon: Users },
+      { name: 'Payments', path: '/app/payments', icon: CreditCard },
+    ],
+  },
+  {
+    label: 'Resources',
     links: [
       { name: 'Equipment', path: '/app/equipment', icon: Wrench },
       { name: 'Vehicles', path: '/app/vehicles', icon: Truck },
       { name: 'Packages & Menus', path: '/app/packages-menu', icon: MenuIcon },
-    ],
-  },
-  {
-    label: 'Customers & Finance',
-    links: [
-      { name: 'Customers', path: '/app/customers', icon: Users },
-      { name: 'Payments', path: '/app/payments', icon: CreditCard },
-      { name: 'Reports', path: '/app/reports', icon: BarChart3 },
     ],
   },
 ];

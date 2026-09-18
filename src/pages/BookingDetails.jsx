@@ -1623,7 +1623,7 @@ export default function BookingDetails() {
               onClick={() => navigate('/app/bookings')}
               className="inline-flex items-center gap-1.5 mb-[11px] text-[13px] font-semibold text-white/80 hover:text-white cursor-pointer"
             >
-              <ArrowLeft size={15} /> Back to Bookings
+              <ArrowLeft size={15} /> Back to Events
             </button>
             <div className="flex items-center gap-[11px] flex-wrap">
               <h1 className="text-[clamp(24px,2.3vw,30px)] font-extrabold tracking-[-0.03em] text-white">

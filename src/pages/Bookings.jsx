@@ -1383,7 +1383,7 @@ const handleMarkCompleted = async (id) => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Bookings</h1>
+          <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Events</h1>
           <p className="text-[14.5px] text-slate-600 mt-1.5">Manage all customer catering bookings (packages only)</p>
         </div>
         <button

@@ -924,7 +924,7 @@ export default function Dashboard() {
                 disabled={atMonthFloor}
                 aria-disabled={atMonthFloor}
                 aria-label="Previous month"
-                title={atMonthFloor ? 'The calendar starts at this month. Past bookings are on the Bookings page.' : 'Previous month'}
+                title={atMonthFloor ? 'The calendar starts at this month. Past bookings are on the Events page.' : 'Previous month'}
                 className="p-1.5 hover:bg-[#EAF3F2] hover:text-[#008A45] rounded-lg transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
               >
                 <ChevronLeft size={20} className="text-slate-600" />
