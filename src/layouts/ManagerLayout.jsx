@@ -41,16 +41,17 @@ const styles = {
   contentWindow: 'flex-1 overflow-y-auto bg-transparent p-4 md:p-8',
 };
 
-// Nine links split 3/3/3, each group named by a noun for what it holds, the
-// way every link is named for the records it manages. Orders is what a manager
-// opens the app to work through; Operations is the physical stuff that gets
-// committed to an event; Business is money and records. Reports sits with the
-// figures it reports on, and Packages & Menus (edited weekly) is no longer
-// last. The single source of truth for the nav: derive a flat list from it
-// rather than keeping a second one.
+// Nine links split 3/3/3, each group named for exactly what is in it, the way
+// every link is named for the records it manages: the bookings and orders
+// (with the Dashboard that summarises them); the equipment and vehicles an
+// event uses plus the packages and menus it is sold from; and the customers,
+// their payments, and the reports on both. Reports sits with the figures it
+// reports on, and Packages & Menus (edited weekly) is no longer last. The
+// single source of truth for the nav: derive a flat list from it rather than
+// keeping a second one.
 const NAV_GROUPS = [
   {
-    label: 'Orders',
+    label: 'Bookings & Orders',
     links: [
       { name: 'Dashboard', path: '/app', icon: LayoutDashboard },
       { name: 'Bookings', path: '/app/bookings', icon: CalendarDays },
@@ -58,7 +59,7 @@ const NAV_GROUPS = [
     ],
   },
   {
-    label: 'Operations',
+    label: 'Resources & Catalogue',
     links: [
       { name: 'Equipment', path: '/app/equipment', icon: Wrench },
       { name: 'Vehicles', path: '/app/vehicles', icon: Truck },
@@ -66,7 +67,7 @@ const NAV_GROUPS = [
     ],
   },
   {
-    label: 'Business',
+    label: 'Customers & Finance',
     links: [
       { name: 'Customers', path: '/app/customers', icon: Users },
       { name: 'Payments', path: '/app/payments', icon: CreditCard },
