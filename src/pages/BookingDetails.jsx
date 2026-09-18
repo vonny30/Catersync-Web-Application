@@ -4,7 +4,7 @@ import Select from '../components/Select';
 import AssignVehicleModal from '../components/AssignVehicleModal';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Search,
-  MapPin, Calendar, User, Phone, Mail, Pencil, UtensilsCrossed, Briefcase, CreditCard, Truck, ArrowUpRight, ArrowDownLeft, AlertTriangle } from 'lucide-react';
+  MapPin, Calendar, User, Phone, Mail, Pencil, UtensilsCrossed, Briefcase, CreditCard, Truck, ArrowUpRight, ArrowDownLeft, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import { SectionHeader, SectionCard, Field, CardScrollArea } from '../components/DetailPrimitives';
 import { initialsOf, fmtDateTime, fmtShortDate, fmtTime, displayNotes } from '../utils/detailFormat';
 import { createPortal } from 'react-dom';
@@ -24,6 +24,7 @@ import { allocateEquipmentForBooking, getDailyEquipmentSnapshot, computeEquipmen
 import { TRIP_LEG, countDistinctVehicles, groupDispatchRuns } from '../utils/vehicle';
 import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind, formatPaymentDeletionWarning } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
+import { isResourceLocked, resourceLockReason } from '../utils/resourceLock';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
 import { validatePaxForPackage } from '../utils/packageRules';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
@@ -33,6 +34,59 @@ import DateTimePicker from '../components/DateTimePicker';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { getAssignmentStatus } from '../utils/statusLabels';
 import ImageUploadField from '../components/ImageUploadField';
+
+// The allocation history for one booking, from booking_equipment_log. The log
+// has no foreign keys (so a deleted booking or item cannot block it), which
+// means names are resolved here rather than embedded. `changed_by` is an auth
+// uid; a manager can read only their own manager row, so anyone else's change
+// falls back to "A manager", as customer notes do.
+async function fetchAllocationLog(bookingId) {
+  try {
+    const rows = await fetchAllRows(() => supabase
+      .from('booking_equipment_log')
+      .select('log_id, equipment_id, action, qty_before, qty_after, changed_by, changed_at')
+      .eq('booking_id', bookingId)
+      .order('changed_at', { ascending: false })
+      .order('log_id', { ascending: true }), 'allocation history');
+    if (rows.length === 0) return [];
+
+    const equipmentIds = [...new Set(rows.map(r => r.equipment_id).filter(Boolean))];
+    const userIds = [...new Set(rows.map(r => r.changed_by).filter(Boolean))];
+    const [{ data: equipmentRows }, { data: managerRows }] = await Promise.all([
+      equipmentIds.length
+        ? supabase.from('equipment').select('equipment_id, eqm_name').in('equipment_id', equipmentIds)
+        : Promise.resolve({ data: [] }),
+      userIds.length
+        ? supabase.from('manager').select('user_id, first_name, last_name').in('user_id', userIds)
+        : Promise.resolve({ data: [] }),
+    ]);
+    const nameOf = Object.fromEntries((equipmentRows || []).map(e => [e.equipment_id, e.eqm_name]));
+    const managerOf = Object.fromEntries((managerRows || []).map(m => [m.user_id, `${m.first_name} ${m.last_name}`]));
+    return rows.map(r => ({
+      ...r,
+      eqm_name: nameOf[r.equipment_id] || 'Equipment no longer listed',
+      changed_by_name: managerOf[r.changed_by] || 'A manager',
+    }));
+  } catch (error) {
+    // History is secondary to the allocation itself; never fail the page on it.
+    console.error('Could not load the allocation history:', error);
+    return [];
+  }
+}
+
+// "5 → 8", "removed (was 2)" — what one log row did.
+const describeAllocationChange = (row) => {
+  if (row.action === 'changed') return `${row.qty_before} → ${row.qty_after}`;
+  if (row.action === 'removed') return `removed (was ${row.qty_before})`;
+  if (row.action === 'returned') return `returned (${row.qty_after} of ${row.qty_before})`;
+  return `added (${row.qty_after})`;
+};
+
+// "18 Sep, 2:14 PM"
+const formatLogTime = (value) => {
+  const d = new Date(value);
+  return `${d.getDate()} ${d.toLocaleString('en-US', { month: 'short' })}, ${d.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+};
 
 export default function BookingDetails() {
   const { id } = useParams();
@@ -93,6 +147,14 @@ export default function BookingDetails() {
   const [isEditEquipModalOpen, setIsEditEquipModalOpen] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState(null);
   const [editEquipData, setEditEquipData] = useState({ quantity: 1 });
+  // Changing a CONFIRMED booking's allocation is confirmed once per visit to
+  // this booking, not once per line. Holds the booking id it was given for,
+  // so moving to another booking asks again.
+  const [confirmedEditAckFor, setConfirmedEditAckFor] = useState(null);
+  // booking_equipment_log, written by trigger on every insert, quantity change,
+  // removal and return. Read-only here: the page never inserts into it.
+  const [allocationLog, setAllocationLog] = useState([]);
+  const [isAllocationHistoryOpen, setIsAllocationHistoryOpen] = useState(false);
 
   // --- Refund after rejection/cancellation modal (still local) ---
   const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
@@ -192,7 +254,7 @@ export default function BookingDetails() {
       // Equipment
       const { data: equipData } = await supabase
         .from('booking_equipment')
-        .select(`assignment_id, quantity, returned, equipment:equipment_id (eqm_name, equipment_id)`)
+        .select(`assignment_id, quantity, returned, returned_quantity, equipment:equipment_id (eqm_name, equipment_id)`)
         .eq('booking_id', id)
         .order('assigned_at', { ascending: true });
       setEquipment(
@@ -202,8 +264,10 @@ export default function BookingDetails() {
           eqm_name: item.equipment?.eqm_name || 'Unknown',
           quantity: item.quantity,
           returned: item.returned,
+          returned_quantity: item.returned_quantity || 0,
         })) || []
       );
+      setAllocationLog(await fetchAllocationLog(id));
       // What approval would allocate from the package template, so the panel
       // can tell template rows from ones a manager added. booking_equipment has
       // no column for this and gets none (no schema changes): the template is
@@ -935,18 +999,38 @@ export default function BookingDetails() {
   // The lock is not cosmetic — styling alone leaves the modal reachable, so
   // the handler refuses too. Same shape as openAssignEquipModal below.
   const openAssignVehicleModal = () => {
-    if (isPaymentLedgerLocked(booking.booking_status)) {
-      toast.error(`Vehicles can't be dispatched anymore — this booking is ${booking.booking_status}.`);
+    if (isResourceLocked(booking.booking_status)) {
+      toast.error(resourceLockReason(booking.booking_status, 'vehicles'));
       return;
     }
     setIsAssignVehicleOpen(true);
   };
 
-  const openAssignEquipModal = () => {
-    if (isPaymentLedgerLocked(booking.booking_status)) {
-      toast.error(`Equipment can't be assigned anymore — this booking is ${booking.booking_status}.`);
+  // Before the first equipment change on a Confirmed booking. The customer has
+  // paid and the event is locked in, so changing what goes out is a different
+  // act from adjusting an Approved booking: allowed, but said out loud once.
+  // Approved bookings are the normal working window and are never asked.
+  const confirmConfirmedEquipmentEdit = async () => {
+    if (booking?.booking_status !== 'Confirmed' || confirmedEditAckFor === id) return true;
+    const eventDate = booking.event_datetime
+      ? new Date(booking.event_datetime).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+      : 'its event date';
+    const ok = await showConfirm({
+      title: 'Change equipment on a confirmed event?',
+      message: `${booking.booking_number} is confirmed for ${eventDate}. Changing what goes out is allowed, and the change is recorded against your account.`,
+      confirmLabel: 'Continue',
+      confirmVariant: 'warning',
+    });
+    if (ok) setConfirmedEditAckFor(id);
+    return ok;
+  };
+
+  const openAssignEquipModal = async () => {
+    if (isResourceLocked(booking.booking_status)) {
+      toast.error(resourceLockReason(booking.booking_status));
       return;
     }
+    if (!(await confirmConfirmedEquipmentEdit())) return;
     const fetchEquipmentList = async () => {
       try {
         const data = await fetchAllRows(() => supabase
@@ -1094,14 +1178,42 @@ export default function BookingDetails() {
     }
   };
 
-  const handleRemoveEquipment = async (assignmentId) => {
-    if (isPaymentLedgerLocked(booking.booking_status)) {
-      toast.error(`Equipment can't be removed anymore — this booking is ${booking.booking_status}.`);
+  const handleRemoveEquipment = async (item) => {
+    const assignmentId = item.assignment_id;
+    if (isResourceLocked(booking.booking_status)) {
+      toast.error(resourceLockReason(booking.booking_status));
       return;
     }
+    // Returned units are a record of what came back. Removing the line would
+    // erase it, so a line with any returns stays. Read fresh: a return can be
+    // recorded from the Operations Manager app while this page is open.
+    const { data: current, error: currentError } = await supabase
+      .from('booking_equipment')
+      .select('returned_quantity')
+      .eq('assignment_id', assignmentId)
+      .maybeSingle();
+    if (currentError) {
+      console.error(currentError);
+      toast.error('Failed to remove equipment.');
+      return;
+    }
+    if (!current) {
+      toast.error('This equipment line no longer exists. The page has been refreshed.');
+      fetchBooking();
+      return;
+    }
+    if ((current.returned_quantity || 0) > 0) {
+      toast.error(`Can't remove this — ${current.returned_quantity} unit(s) have already been recorded as returned.`);
+      return;
+    }
+    if (!(await confirmConfirmedEquipmentEdit())) return;
+
+    const isLastLine = equipment.length === 1;
     const confirmed = await showConfirm({
       title: 'Remove Equipment?',
-      message: 'Are you sure you want to remove this equipment assignment? This action cannot be undone.',
+      message: isLastLine
+        ? `${item.eqm_name} is the only equipment on this booking. Removing it leaves ${booking.booking_number} with no equipment at all. This action cannot be undone.`
+        : `Remove ${item.eqm_name} (× ${item.quantity}) from this booking? This action cannot be undone.`,
       confirmLabel: 'Remove',
       confirmVariant: 'warning',
     });
@@ -1114,11 +1226,13 @@ export default function BookingDetails() {
     if (!passwordOk) return;
 
     try {
-      const { error: deleteError } = await supabase
+      const { error: deleteError, count: deletedCount } = await supabase
         .from('booking_equipment')
-        .delete()
+        .delete({ count: 'exact' })
         .eq('assignment_id', assignmentId);
       if (deleteError) throw deleteError;
+      // RLS refuses a delete without an error; it just removes nothing.
+      if (!deletedCount) throw new Error('No equipment line was removed.');
       fetchBooking();
       toast.success('Equipment removed.');
     } catch (error) {
@@ -1128,11 +1242,12 @@ export default function BookingDetails() {
   };
 
   // --- Edit Equipment Assignment ---
-  const openEditEquipModal = (assignment) => {
-    if (isPaymentLedgerLocked(booking.booking_status)) {
-      toast.error(`Equipment can't be edited anymore — this booking is ${booking.booking_status}.`);
+  const openEditEquipModal = async (assignment) => {
+    if (isResourceLocked(booking.booking_status)) {
+      toast.error(resourceLockReason(booking.booking_status));
       return;
     }
+    if (!(await confirmConfirmedEquipmentEdit())) return;
     setEditingAssignment(assignment);
     setEditEquipData({ quantity: assignment.quantity });
     setIsEditEquipModalOpen(true);
@@ -1148,17 +1263,31 @@ export default function BookingDetails() {
       setIsAssignSubmitting(false);
       return;
     }
-    // Quantity can only go up from here, never down — lowering it below what
-    // was already allocated could leave the event short on the day, and the
-    // "remove" action already covers taking equipment off the booking
-    // entirely if it's genuinely no longer needed.
-    if (newQuantity < editingAssignment.quantity) {
-      toast.error(`Quantity can't be lowered below what's already allocated (${editingAssignment.quantity}). Remove the assignment instead if less is needed.`);
-      setIsAssignSubmitting(false);
-      return;
-    }
-
+    // Lowering a quantity is the manager's call: whether the event can run
+    // with fewer is not something the software can know. What it must not do
+    // is un-return units. returned_quantity is a record of what came back, so
+    // the quantity can't drop below it. (The table's CHECK constraint refuses
+    // it too; this says why first.) Read fresh, since a return can be recorded
+    // from the Operations Manager app while this page is open.
     try {
+      const { data: current, error: currentError } = await supabase
+        .from('booking_equipment')
+        .select('quantity, returned_quantity')
+        .eq('assignment_id', editingAssignment.assignment_id)
+        .maybeSingle();
+      if (currentError) throw currentError;
+      if (!current) {
+        toast.error('This equipment line no longer exists. The page has been refreshed.');
+        setIsEditEquipModalOpen(false);
+        fetchBooking();
+        return;
+      }
+      const returnedUnits = current.returned_quantity || 0;
+      if (newQuantity < returnedUnits) {
+        toast.error(`Can't lower this to ${newQuantity} — ${returnedUnits} unit(s) have already been recorded as returned.`);
+        return;
+      }
+
       // Quantity-aware stock check — equipment isn't exclusive to one
       // event per day, there's just a finite amount of it in total. Same
       // check the Assign Equipment flow already does; this edit path
@@ -1171,7 +1300,10 @@ export default function BookingDetails() {
         .maybeSingle();
       if (equipError) throw equipError;
 
-      if (equipRow && booking?.event_datetime) {
+      // Availability binds only when more is being committed. Lowering frees
+      // stock; checking it would refuse a decrease on a date that is already
+      // oversold, which is exactly when the manager most needs to make one.
+      if (equipRow && booking?.event_datetime && newQuantity > current.quantity) {
         const eventDate = new Date(booking.event_datetime);
         const { data: otherAssignments, error: otherError } = await supabase
           .from('booking_equipment')
@@ -1200,6 +1332,13 @@ export default function BookingDetails() {
         .from('booking_equipment')
         .update({ quantity: newQuantity })
         .eq('assignment_id', editingAssignment.assignment_id);
+      if (error?.code === '23514') {
+        // booking_equipment_returned_quantity_check: a return landed between
+        // the read above and this write.
+        toast.error(`Can't lower this to ${newQuantity} — more units have just been recorded as returned. The page has been refreshed.`);
+        fetchBooking();
+        return;
+      }
       if (error) throw error;
       setIsEditEquipModalOpen(false);
       fetchBooking();
@@ -1314,17 +1453,17 @@ export default function BookingDetails() {
             <div className="flex gap-2">
               <button
                 onClick={() => openEditEquipModal(item)}
-                className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-blue-500 hover:text-blue-700'}
-                title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be edited once a booking is ${booking.booking_status}` : 'Edit quantity'}
+                className={isResourceLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-blue-500 hover:text-blue-700'}
+                title={isResourceLocked(booking.booking_status) ? resourceLockReason(booking.booking_status) : 'Edit quantity'}
               >
-                {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
+                {isResourceLocked(booking.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
               </button>
               <button
-                onClick={() => handleRemoveEquipment(item.assignment_id)}
-                className={isPaymentLedgerLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-red-400 hover:text-red-600'}
-                title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be removed once a booking is ${booking.booking_status}` : 'Remove'}
+                onClick={() => handleRemoveEquipment(item)}
+                className={isResourceLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-red-400 hover:text-red-600'}
+                title={isResourceLocked(booking.booking_status) ? resourceLockReason(booking.booking_status) : 'Remove'}
               >
-                {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Trash2 size={14} />}
+                {isResourceLocked(booking.booking_status) ? <Lock size={14} /> : <Trash2 size={14} />}
               </button>
             </div>
           )}
@@ -1892,12 +2031,12 @@ export default function BookingDetails() {
                   )}
                   <button
                     onClick={openAssignEquipModal}
-                    className={isPaymentLedgerLocked(booking.booking_status)
+                    className={isResourceLocked(booking.booking_status)
                       ? 'bg-slate-100 text-slate-400 font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors'
                       : 'bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm'}
-                    title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — equipment can't be assigned once a booking is ${booking.booking_status}` : undefined}
+                    title={isResourceLocked(booking.booking_status) ? resourceLockReason(booking.booking_status) : undefined}
                   >
-                    {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} Assign Equipment
+                    {isResourceLocked(booking.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} Assign Equipment
                   </button>
                 </div>
               </div>
@@ -1941,6 +2080,34 @@ export default function BookingDetails() {
                   <span className="font-semibold text-slate-700 tabular-nums">
                     {equipment.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0)} units total
                   </span>
+                </div>
+              )}
+              {/* Only when something beyond the initial allocation happened: a
+                  booking that was simply allocated at approval has nothing
+                  worth opening. Collapsed by default. */}
+              {allocationLog.some(r => r.action !== 'added') && (
+                <div className="mt-3.5 pt-3 border-t border-slate-100">
+                  <button
+                    onClick={() => setIsAllocationHistoryOpen(open => !open)}
+                    aria-expanded={isAllocationHistoryOpen}
+                    className="flex items-center gap-1.5 text-[12.5px] font-semibold text-slate-600 hover:text-slate-900 transition-colors"
+                  >
+                    {isAllocationHistoryOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    Allocation history
+                    <span className="font-normal text-slate-400 tabular-nums">({allocationLog.length})</span>
+                  </button>
+                  {isAllocationHistoryOpen && (
+                    <ul className="mt-2.5 space-y-1.5">
+                      {allocationLog.map(row => (
+                        <li key={row.log_id} className="text-[12.5px] text-slate-600 tabular-nums">
+                          <span className="font-semibold text-slate-800">{row.eqm_name}</span>
+                          {' · '}{describeAllocationChange(row)}
+                          {' · '}{formatLogTime(row.changed_at)}
+                          <span className="text-slate-400">{' · '}{row.changed_by_name}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               )}
             </div>
@@ -1999,12 +2166,12 @@ export default function BookingDetails() {
                       missing. */}
                   <button
                     onClick={openAssignVehicleModal}
-                    className={isPaymentLedgerLocked(booking.booking_status)
+                    className={isResourceLocked(booking.booking_status)
                       ? 'bg-slate-100 text-slate-400 font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors'
                       : 'bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm'}
-                    title={isPaymentLedgerLocked(booking.booking_status) ? `Locked — vehicles can't be dispatched once a booking is ${booking.booking_status}` : undefined}
+                    title={isResourceLocked(booking.booking_status) ? resourceLockReason(booking.booking_status, 'vehicles') : undefined}
                   >
-                    {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
+                    {isResourceLocked(booking.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
                   </button>
 
                 </div>
@@ -2754,8 +2921,11 @@ export default function BookingDetails() {
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Quantity</label>
-                <input type="number" min={editingAssignment.quantity} value={editEquipData.quantity} onChange={(e) => setEditEquipData({ quantity: parseInt(e.target.value) || 1 })} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]" required />
-                <p className="text-[10px] text-slate-400 mt-0.5">Can't go below the currently allocated {editingAssignment.quantity}. Remove the assignment instead if less is needed.</p>
+                <input type="number" min={Math.max(1, editingAssignment.returned_quantity || 0)} value={editEquipData.quantity} onChange={(e) => setEditEquipData({ quantity: parseInt(e.target.value) || 1 })} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm outline-none focus:border-[#008A45]" required />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Currently {editingAssignment.quantity}. Raising it is checked against what is free on the event date.
+                  {(editingAssignment.returned_quantity || 0) > 0 && ` It can't go below the ${editingAssignment.returned_quantity} already recorded as returned.`}
+                </p>
               </div>
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
                 <button type="button" onClick={() => setIsEditEquipModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors">Cancel</button>
