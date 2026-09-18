@@ -1280,6 +1280,77 @@ export const DUPLICATE_ASSIGNMENT_CODE = '23505';
 export const duplicateAssignmentMessage =
   'That vehicle is already assigned to this booking at that exact time, so nothing was added. If you meant a second run, change the dispatch time.';
 
+// Postgres exclusion_violation. `vehicle_assign_no_overlap` refuses two
+// non-Completed runs for one vehicle whose trip windows overlap; the window is
+// computed by the set_trip_window trigger, not by this file. The client-side
+// check below normally refuses first. This is the answer when it did not —
+// a race, or the two window calculations disagreeing at an edge.
+export const OVERLAP_CONSTRAINT_CODE = '23P01';
+export const overlapConstraintMessage =
+  'The database refused this because the vehicle would be on two overlapping trips. Nothing was saved. Pick another vehicle or move the departure time.';
+
+/**
+ * The confirm-dialog text for removing one run, shared by both detail pages so
+ * the two cannot say different things about the same act.
+ */
+export const runRemovalMessage = ({ run, legLabel, bookingNumber, isLastScheduled }) => {
+  const plate = run?.vehicle?.plate_number || 'this vehicle';
+  const leg = legLabel ? legLabel.toLowerCase() : 'run';
+  const when = run?.dispatch_datetime
+    ? new Date(run.dispatch_datetime).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : 'an unset time';
+  const lines = [`Remove ${plate} from the ${leg} leaving ${when}?`];
+  if (hasRunDeparted(run)) {
+    lines.push('This run was due to leave already. Remove it only if it never went out. If it did, mark it returned on the Vehicles page instead, so the trip stays on record.');
+  }
+  if (isLastScheduled) {
+    lines.push(`This is the last vehicle scheduled for ${bookingNumber}. It will have nothing carrying it until another is assigned.`);
+  }
+  return lines.join('\n\n');
+};
+
+/** Has this run's departure time already passed? */
+export const hasRunDeparted = (assignment, now = new Date()) =>
+  !!assignment?.dispatch_datetime && new Date(assignment.dispatch_datetime) <= now;
+
+/**
+ * Remove one vehicle run, checked against the database first.
+ *
+ * Only a Scheduled run can go. A Completed run is a van that went out and came
+ * back — that is the dispatch history, and deleting it would rewrite it. The
+ * row is read fresh because a return can be recorded from the Vehicles page or
+ * the Operations Manager app while a detail page is open, and the delete is
+ * itself scoped to Scheduled so the check and the write cannot disagree.
+ *
+ * Throws an Error with `userMessage` on every refusal. Returns nothing.
+ */
+export const removeScheduledRun = async (assignmentId) => {
+  const refuse = (message) => {
+    const error = new Error(message);
+    error.userMessage = message;
+    return error;
+  };
+  const { data: current, error: readError } = await supabase
+    .from('vehicle_assign')
+    .select('assignment_id, assignment_status')
+    .eq('assignment_id', assignmentId)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (!current) throw refuse('This vehicle run no longer exists. The page has been refreshed.');
+  if (current.assignment_status === 'Completed') {
+    throw refuse('This run has been marked returned, so it is part of the dispatch history and cannot be removed.');
+  }
+  const { error, count } = await supabase
+    .from('vehicle_assign')
+    .delete({ count: 'exact' })
+    .eq('assignment_id', assignmentId)
+    .eq('assignment_status', 'Scheduled');
+  if (error) throw error;
+  // RLS refuses a delete without an error, and a return landing between the
+  // read and the delete leaves the scoped delete nothing to match.
+  if (!count) throw refuse('Nothing was removed — the run may have just been returned, or this account may not be allowed to remove it.');
+};
+
 /**
  * Is this vehicle already committed to an overlapping run?
  *
@@ -1424,22 +1495,18 @@ export const describeClash = (clash, booking) => {
 /**
  * Re-check conflicts against FRESH data, immediately before inserting.
  *
- * `vehicle_assign` has no uniqueness constraint — only three foreign keys and
- * a primary key on assignment_id (confirmed against the live schema) — so
- * nothing in the database stops the same van being booked onto two overlapping
- * runs. Conflict detection is entirely client-side, and the list it reasons
- * over is whatever was loaded when the modal opened, which may have been
- * minutes ago.
+ * The list the modal reasons over is whatever was loaded when it opened, which
+ * may have been minutes ago. The database now backs this with an exclusion
+ * constraint (`vehicle_assign_no_overlap`, see OVERLAP_CONSTRAINT_CODE), but
+ * its refusal is a bare error; asking again here first is what lets the
+ * manager be told which booking the vehicle is already on.
  *
- * This does not make the check atomic; only a constraint could, and that means
- * a schema change on a database shared with the customer app. What it does is
- * shrink the window from "however long the modal has been open" to the round
- * trip of this one query, which is the difference between a realistic race and
- * a theoretical one.
+ * `excludeAssignmentId` is the run being EDITED: without it, a run moved by
+ * ten minutes would clash with its own old self.
  *
- * @returns array of { vehicle_id, conflict } — empty when it is safe to insert.
+ * @returns array of { vehicle_id, conflict } — empty when it is safe to write.
  */
-export const recheckConflictsBeforeInsert = async (vehicleIds, booking, dispatchValue, leg = null) => {
+export const recheckConflictsBeforeInsert = async (vehicleIds, booking, dispatchValue, leg = null, excludeAssignmentId = null) => {
   const fresh = await fetchAllRows(
     () => supabase
       .from('vehicle_assign')
@@ -1450,8 +1517,9 @@ export const recheckConflictsBeforeInsert = async (vehicleIds, booking, dispatch
       .order('assignment_id'),
     'assignments for pre-insert conflict re-check'
   );
+  const pool = excludeAssignmentId ? fresh.filter(a => a.assignment_id !== excludeAssignmentId) : fresh;
   return (vehicleIds || [])
-    .map(vehicle_id => ({ vehicle_id, conflict: findConflictingAssignment(fresh, vehicle_id, booking, dispatchValue, leg) }))
+    .map(vehicle_id => ({ vehicle_id, conflict: findConflictingAssignment(pool, vehicle_id, booking, dispatchValue, leg) }))
     .filter(x => x.conflict);
 };
 

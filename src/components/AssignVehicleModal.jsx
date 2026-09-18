@@ -10,6 +10,13 @@
 // picker. The rules it enforces are NOT reimplemented: conflict detection and
 // the dispatch window come from utils/vehicle, which is also what the Vehicles
 // page calls.
+//
+// EDIT MODE (`editingRun`): the same modal changes one existing run — its
+// vehicle, its departure time, or both — through the same bounds, the same
+// vehicle list and the same conflict checks, with the run itself left out of
+// the conflict pool so it cannot clash with its own old time. The leg is fixed:
+// turning a setup run into a collection run is a different trip, so that is a
+// remove and a new assignment, not an edit.
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Truck, X, Search, Clock, AlertTriangle, Loader2 } from 'lucide-react';
@@ -21,19 +28,24 @@ import { getCurrentManagerId } from '../utils/currentManager';
 import {
   findConflictingAssignment, describeClash, needsTransport,
   recheckConflictsBeforeInsert, DUPLICATE_ASSIGNMENT_CODE, duplicateAssignmentMessage,
+  OVERLAP_CONSTRAINT_CODE, overlapConstraintMessage, hasRunDeparted,
   TRIP_LEG, legLabelFor, getTripType, getDispatchWindow,
   getDispatchBounds, defaultDispatchFor, isDispatchInBounds, describeDispatchBounds,
   toDateTimeLocalValue,
 } from '../utils/vehicle';
 
-export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigned }) {
+export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigned, editingRun = null }) {
+  const isEdit = !!editingRun;
+  // The leg an existing run is on, derived the way every other screen derives
+  // it. Fixed for the life of the modal.
+  const editingLeg = isEdit ? (getDispatchWindow(editingRun, booking)?.leg || TRIP_LEG.setup) : null;
   const [vehicles, setVehicles] = useState([]);
   const [assignments, setAssignments] = useState([]);
   // Starts true: the fleet is always being fetched on mount, and flipping it
   // on inside the effect would be a synchronous setState during render.
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [selectedVehicleIds, setSelectedVehicleIds] = useState([]);
+  const [selectedVehicleIds, setSelectedVehicleIds] = useState(() => (isEdit ? [editingRun.vehicle_id] : []));
   const [search, setSearch] = useState('');
   // WHICH RUN this is. An explicit choice, not something inferred afterwards.
   //
@@ -43,12 +55,14 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
   // says which run they mean BEFORE picking a time, and getDispatchBounds then
   // constrains the time so it can only derive back to that same leg — see the
   // note on getDispatchBounds. Selector and derivation cannot disagree.
-  const [leg, setLeg] = useState(TRIP_LEG.setup);
+  const [leg, setLeg] = useState(() => editingLeg || TRIP_LEG.setup);
 
   // Departure for the chosen leg, already clamped into that leg's bounds.
   // Computed at mount, which is exactly when the modal opens.
   const [dispatchValue, setDispatchValue] = useState(
-    () => toDateTimeLocalValue(defaultDispatchFor(booking, TRIP_LEG.setup))
+    () => (isEdit
+      ? toDateTimeLocalValue(new Date(editingRun.dispatch_datetime))
+      : toDateTimeLocalValue(defaultDispatchFor(booking, TRIP_LEG.setup)))
   );
 
   const chooseLeg = (nextLeg) => {
@@ -133,14 +147,125 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
     return parts.length ? parts.join(' ') : 'less than a minute';
   };
 
+  // Everything a new or moved run could clash with. When editing, the run's
+  // own row is left out — otherwise moving it by ten minutes clashes with
+  // where it already is.
+  const conflictPool = isEdit
+    ? assignments.filter(a => a.assignment_id !== editingRun.assignment_id)
+    : assignments;
+
   const visible = vehicles.filter(v =>
     v.plate_number?.toLowerCase().includes(search.trim().toLowerCase())
   );
 
   const toggle = (vehicleId) => {
+    // An edit changes ONE run, so it holds exactly one vehicle.
+    if (isEdit) { setSelectedVehicleIds([vehicleId]); return; }
     setSelectedVehicleIds(prev =>
       prev.includes(vehicleId) ? prev.filter(x => x !== vehicleId) : [...prev, vehicleId]
     );
+  };
+
+  const handleSaveEdit = async () => {
+    if (!ACTIVE_BOOKING_STATUSES.includes(booking?.booking_status)) {
+      toast.error(`This booking is ${booking?.booking_status || 'not active'}, so its vehicles can't be changed.`);
+      return;
+    }
+    if (!needsTransport(booking)) {
+      toast.error('This is a customer pickup, so it needs no vehicle. Remove the run instead of editing it.');
+      return;
+    }
+    const vehicleId = selectedVehicleIds[0];
+    if (!vehicleId) { toast.error('Please select a vehicle.'); return; }
+    if (!dispatchValue) { toast.error('Please set a dispatch date/time.'); return; }
+    if (!eventAt) { toast.error('This booking has no event date.'); return; }
+    const when = new Date(dispatchValue);
+    if (isNaN(when)) { toast.error('That dispatch time is not a valid date.'); return; }
+    // A run can't be moved to a time that has already gone: it would read as a
+    // trip that happened when it never did.
+    if (when <= new Date()) {
+      toast.error('Pick a departure time that has not passed yet.');
+      return;
+    }
+    if (!isDispatchInBounds(when, booking, leg)) {
+      toast.error(boundsSentence, { duration: 9000 });
+      return;
+    }
+    const unchanged = vehicleId === editingRun.vehicle_id
+      && Math.abs(when - new Date(editingRun.dispatch_datetime)) < 60 * 1000;
+    if (unchanged) { toast('Nothing changed.'); onClose?.(); return; }
+
+    const chosenVehicle = vehicles.find(x => x.vehicle_id === vehicleId);
+    // Keeping the same van is not a reason to send one that is now in the
+    // workshop: the run is re-validated as a whole.
+    if (chosenVehicle && chosenVehicle.vehicle_status !== 'Available') {
+      toast.error(`${chosenVehicle.plate_number} is ${chosenVehicle.vehicle_status}, so it can't take this run. Pick another vehicle.`);
+      return;
+    }
+    const clash = findConflictingAssignment(conflictPool, vehicleId, booking, dispatchValue, leg);
+    if (clash) {
+      const v = vehicles.find(x => x.vehicle_id === vehicleId);
+      toast.error(`${v?.plate_number || 'That vehicle'} can't take this run: ${describeClash(clash, booking)}. Pick another vehicle or time.`, { duration: 8000 });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      // The run as it is NOW. It may have been returned, removed, or have left
+      // since this modal opened.
+      const { data: current, error: readError } = await supabase
+        .from('vehicle_assign')
+        .select('assignment_id, assignment_status, dispatch_datetime')
+        .eq('assignment_id', editingRun.assignment_id)
+        .maybeSingle();
+      if (readError) throw readError;
+      if (!current) {
+        toast.error('This run no longer exists. Nothing was changed.');
+        onClose?.(); onAssigned?.();
+        return;
+      }
+      if (current.assignment_status === 'Completed') {
+        toast.error('This run has been marked returned, so it is history now and cannot be changed.');
+        onClose?.(); onAssigned?.();
+        return;
+      }
+      if (hasRunDeparted(current)) {
+        toast.error('This run has already left, so it cannot be moved or given another vehicle. Mark it returned on the Vehicles page when it is back.', { duration: 9000 });
+        onClose?.(); onAssigned?.();
+        return;
+      }
+
+      const late = await recheckConflictsBeforeInsert([vehicleId], booking, dispatchValue, leg, editingRun.assignment_id);
+      if (late.length > 0) {
+        const v = vehicles.find(x => x.vehicle_id === vehicleId);
+        toast.error(`Booked elsewhere while this was open: ${v?.plate_number || 'that vehicle'} - ${describeClash(late[0].conflict, booking)}. Nothing was changed.`, { duration: 9000 });
+        return;
+      }
+
+      // Scoped to Scheduled so a return landing between the read and this
+      // write leaves nothing to match rather than editing history.
+      const { data: updated, error } = await supabase
+        .from('vehicle_assign')
+        .update({
+          vehicle_id: vehicleId,
+          dispatch_datetime: when.toISOString(),
+        })
+        .eq('assignment_id', editingRun.assignment_id)
+        .eq('assignment_status', 'Scheduled')
+        .select('assignment_id');
+      if (error?.code === OVERLAP_CONSTRAINT_CODE) { toast.error(overlapConstraintMessage, { duration: 9000 }); return; }
+      if (error?.code === DUPLICATE_ASSIGNMENT_CODE) { toast.error(duplicateAssignmentMessage, { duration: 8000 }); return; }
+      if (error) throw error;
+      if (!updated?.length) throw new Error('Nothing was changed — the run may have just been returned.');
+      toast.success('Vehicle run updated.');
+      onClose?.();
+      onAssigned?.();
+    } catch (error) {
+      console.error('Edit run failed:', error);
+      toast.error('Failed to update the run: ' + error.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleAssign = async () => {
@@ -212,6 +337,10 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
         toast.error(duplicateAssignmentMessage, { duration: 8000 });
         return;
       }
+      if (error?.code === OVERLAP_CONSTRAINT_CODE) {
+        toast.error(overlapConstraintMessage, { duration: 9000 });
+        return;
+      }
       if (error) throw error;
       toast.success(`Assigned ${inserts.length} vehicle${inserts.length === 1 ? '' : 's'}.`);
       onClose?.();
@@ -230,7 +359,7 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
         <div className="flex justify-between items-start px-6 py-5 border-b border-slate-200 shrink-0">
           <div>
             <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-              <Truck size={18} className="text-[#008A45]" /> Assign Vehicle
+              <Truck size={18} className="text-[#008A45]" /> {isEdit ? 'Edit Vehicle Run' : 'Assign Vehicle'}
             </h2>
             <p className="text-[13px] text-slate-600 mt-0.5">
               {booking?.booking_number || 'This booking'}
@@ -257,7 +386,15 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
               allowed range, and which vehicles are already taken. Asking it
               after the vehicle list would mean answering it twice. */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Which run is this?</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1">{isEdit ? 'This run' : 'Which run is this?'}</label>
+            {isEdit ? (
+              <p className="text-sm text-slate-800">
+                <span className="font-semibold">{legLabelFor(tripType, leg)}</span>
+                <span className="block text-xs text-slate-500 mt-0.5">
+                  An edit keeps the run on this leg. To turn it into the other run, remove it and assign a new one.
+                </span>
+              </p>
+            ) : (
             <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 border border-slate-200 rounded-[10px]">
               {legChoices.map(choice => (
                 <button
@@ -274,6 +411,7 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
                 </button>
               ))}
             </div>
+            )}
             {previewWindow && (
               <p className="text-xs text-slate-600 mt-1.5 tabular-nums">
                 Leaves {previewWindow.start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
@@ -285,7 +423,7 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Select Vehicles</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1">{isEdit ? 'Vehicle' : 'Select Vehicles'}</label>
             <div className="relative mb-2">
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
@@ -307,7 +445,7 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
               <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-56 overflow-y-auto">
                 {visible.map(v => {
                   const outOfService = v.vehicle_status !== 'Available';
-                  const clash = outOfService ? null : findConflictingAssignment(assignments, v.vehicle_id, booking, dispatchValue, leg);
+                  const clash = outOfService ? null : findConflictingAssignment(conflictPool, v.vehicle_id, booking, dispatchValue, leg);
                   const disabled = outOfService || !!clash;
                   const checked = selectedVehicleIds.includes(v.vehicle_id);
                   return (
@@ -319,7 +457,8 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
                       }`}
                     >
                       <input
-                        type="checkbox"
+                        type={isEdit ? 'radio' : 'checkbox'}
+                        name={isEdit ? 'edit-run-vehicle' : undefined}
                         checked={checked}
                         disabled={disabled}
                         onChange={() => toggle(v.vehicle_id)}
@@ -344,11 +483,13 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
                 })}
               </div>
             )}
-            <p className="text-xs text-slate-500 mt-1.5">Selected: <span className="font-bold text-slate-700">{selectedVehicleIds.length}</span> vehicle{selectedVehicleIds.length === 1 ? '' : 's'}</p>
+            {!isEdit && (
+              <p className="text-xs text-slate-500 mt-1.5">Selected: <span className="font-bold text-slate-700">{selectedVehicleIds.length}</span> vehicle{selectedVehicleIds.length === 1 ? '' : 's'}</p>
+            )}
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Dispatch Date/Time (for all selected vehicles)</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1">{isEdit ? 'Dispatch Date/Time' : 'Dispatch Date/Time (for all selected vehicles)'}</label>
             {/* min/max are LOCAL wall-clock strings. An ISO/UTC value here
                 would shift the allowed range by the timezone offset — the same
                 eight-hour trap the insert path warns about, in reverse. */}
@@ -395,7 +536,7 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
               </p>
             )}
             <p className="text-xs text-slate-400 mt-1">
-              All selected vehicles will have the same dispatch time. {boundsSentence}
+              {isEdit ? 'Must be a time that has not passed yet.' : 'All selected vehicles will have the same dispatch time.'} {boundsSentence}
             </p>
           </div>
         </div>
@@ -408,12 +549,12 @@ export default function AssignVehicleModal({ booking, isOpen, onClose, onAssigne
             Cancel
           </button>
           <button
-            onClick={handleAssign}
+            onClick={isEdit ? handleSaveEdit : handleAssign}
             disabled={isSubmitting || selectedVehicleIds.length === 0}
             className="px-4 py-2.5 bg-[#008A45] hover:bg-[#007038] disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors cursor-pointer flex items-center gap-1.5"
           >
             {isSubmitting && <Loader2 size={14} className="animate-spin" />}
-            Assign {selectedVehicleIds.length} Vehicle{selectedVehicleIds.length === 1 ? '' : 's'}
+            {isEdit ? 'Save Changes' : `Assign ${selectedVehicleIds.length} Vehicle${selectedVehicleIds.length === 1 ? '' : 's'}`}
           </button>
         </div>
       </div>

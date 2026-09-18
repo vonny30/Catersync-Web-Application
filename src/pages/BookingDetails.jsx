@@ -21,7 +21,7 @@ import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
 import { allocateEquipmentForBooking, getDailyEquipmentSnapshot, computeEquipmentDemand } from '../utils/equipment';
-import { TRIP_LEG, countDistinctVehicles, groupDispatchRuns } from '../utils/vehicle';
+import { TRIP_LEG, countDistinctVehicles, groupDispatchRuns, hasRunDeparted, removeScheduledRun, runRemovalMessage } from '../utils/vehicle';
 import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind, formatPaymentDeletionWarning } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
 import { isResourceLocked, resourceLockReason } from '../utils/resourceLock';
@@ -106,6 +106,8 @@ export default function BookingDetails() {
   const [templateDemand, setTemplateDemand] = useState(null);
   const [dispatches, setDispatches] = useState([]);
   const [isAssignVehicleOpen, setIsAssignVehicleOpen] = useState(false);
+  // The one vehicle run being edited (a vehicle_assign row), or null.
+  const [editingVehicleRun, setEditingVehicleRun] = useState(null);
 
   // --- Edit Modal state (unique) ---
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -1004,6 +1006,58 @@ export default function BookingDetails() {
       return;
     }
     setIsAssignVehicleOpen(true);
+  };
+
+  // Change one run's vehicle or departure time. Guards are repeated in the
+  // modal against fresh rows; these only stop a modal opening that could never
+  // save.
+  const openEditVehicleRun = (run) => {
+    if (isResourceLocked(booking.booking_status)) {
+      toast.error(resourceLockReason(booking.booking_status, 'vehicles'));
+      return;
+    }
+    if (run.assignment_status === 'Completed') {
+      toast.error('This run has been marked returned, so it is history now and cannot be changed.');
+      return;
+    }
+    if (hasRunDeparted(run)) {
+      toast.error('This run has already left, so it cannot be moved or given another vehicle. Mark it returned on the Vehicles page when it is back.', { duration: 9000 });
+      return;
+    }
+    setEditingVehicleRun(run);
+  };
+
+  const handleRemoveVehicleRun = async (run, legLabel) => {
+    if (isResourceLocked(booking.booking_status)) {
+      toast.error(resourceLockReason(booking.booking_status, 'vehicles'));
+      return;
+    }
+    if (run.assignment_status === 'Completed') {
+      toast.error('This run has been marked returned, so it is part of the dispatch history and cannot be removed.');
+      return;
+    }
+    const isLastScheduled = !dispatches.some(d => d.assignment_id !== run.assignment_id && d.assignment_status !== 'Completed');
+    const confirmed = await showConfirm({
+      title: 'Remove Vehicle Run?',
+      message: runRemovalMessage({ run, legLabel, bookingNumber: booking.booking_number, isLastScheduled }),
+      confirmLabel: 'Remove',
+      confirmVariant: 'warning',
+    });
+    if (!confirmed) return;
+    const passwordOk = await requestPasswordConfirm({
+      title: 'Confirm Your Password',
+      message: 'Removing this vehicle run is permanent. Re-enter your password to continue.',
+    });
+    if (!passwordOk) return;
+    try {
+      await removeScheduledRun(run.assignment_id);
+      toast.success('Vehicle run removed.');
+    } catch (error) {
+      console.error(error);
+      toast.error(error.userMessage || 'Failed to remove the vehicle run.');
+    } finally {
+      fetchBooking();
+    }
   };
 
   // Before the first equipment change on a Confirmed booking. The customer has
@@ -2258,7 +2312,32 @@ export default function BookingDetails() {
                                 <span className="text-[13.5px] font-bold text-slate-900 whitespace-nowrap">{d.vehicle?.plate_number || 'Unknown vehicle'}</span>
                                 <span className="text-[12.5px] text-slate-500 truncate">{d.vehicle?.vehicle_type || ''}</span>
                               </span>
-                              {!shared && <span className={`${pill(stages[i])} shrink-0`}>{stages[i].label}</span>}
+                              <span className="flex items-center gap-3 shrink-0">
+                                {!shared && <span className={pill(stages[i])}>{stages[i].label}</span>}
+                                {/* A returned run is history; a locked booking
+                                    says why on its Manage button. */}
+                                {d.assignment_status !== 'Completed' && !isResourceLocked(booking.booking_status) && (
+                                  <span className="flex items-center gap-2">
+                                    <button
+                                      onClick={() => openEditVehicleRun(d)}
+                                      disabled={hasRunDeparted(d)}
+                                      title={hasRunDeparted(d) ? 'This run has already left, so it cannot be changed.' : 'Change vehicle or time'}
+                                      aria-label="Edit vehicle run"
+                                      className="text-blue-500 hover:text-blue-700 disabled:text-slate-300 disabled:cursor-not-allowed"
+                                    >
+                                      <Edit size={14} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleRemoveVehicleRun(d, run.legLabel)}
+                                      title="Remove this run"
+                                      aria-label="Remove vehicle run"
+                                      className="text-red-400 hover:text-red-600"
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </span>
+                                )}
+                              </span>
                             </div>
                           ))}
                         </div>
@@ -3383,6 +3462,16 @@ export default function BookingDetails() {
           booking={booking}
           isOpen={isAssignVehicleOpen}
           onClose={() => setIsAssignVehicleOpen(false)}
+          onAssigned={fetchBooking}
+        />
+      )}
+      {editingVehicleRun && (
+        <AssignVehicleModal
+          key={editingVehicleRun.assignment_id}
+          booking={booking}
+          isOpen
+          editingRun={editingVehicleRun}
+          onClose={() => setEditingVehicleRun(null)}
           onAssigned={fetchBooking}
         />
       )}

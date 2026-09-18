@@ -21,7 +21,8 @@ import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
 import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind, formatPaymentDeletionWarning } from '../utils/payments';
-import { getServiceMethod, reconcileServiceMethodChange, PICKUP_VENUE_MARKER, TRIP_LEG, countDistinctVehicles, groupDispatchRuns } from '../utils/vehicle';
+import { getServiceMethod, reconcileServiceMethodChange, PICKUP_VENUE_MARKER, TRIP_LEG, countDistinctVehicles, groupDispatchRuns, hasRunDeparted, removeScheduledRun, runRemovalMessage } from '../utils/vehicle';
+import { isResourceLocked, resourceLockReason } from '../utils/resourceLock';
 import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
@@ -43,6 +44,8 @@ export default function ShortOrderDetails() {
   const [payments, setPayments] = useState([]);
   const [dispatches, setDispatches] = useState([]);
   const [isAssignVehicleOpen, setIsAssignVehicleOpen] = useState(false);
+  // The one vehicle run being edited (a vehicle_assign row), or null.
+  const [editingVehicleRun, setEditingVehicleRun] = useState(null);
   const [menuItems, setMenuItems] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [menuSelections, setMenuSelections] = useState([]); // array of {menu_name, quantity}
@@ -823,12 +826,66 @@ export default function ShortOrderDetails() {
   // Guarded against a zero total and clamped so an overpayment cannot read
   // above 100%.
   // The lock is not cosmetic — styling alone leaves the modal reachable.
+  // Dispatch is logistics, not the money ledger, so it follows the resource
+  // lock (utils/resourceLock) rather than isPaymentLedgerLocked: open through
+  // Approved and Confirmed.
   const openAssignVehicleModal = () => {
-    if (isPaymentLedgerLocked(order.booking_status)) {
-      toast.error(`Vehicles can't be dispatched anymore — this order is ${order.booking_status}.`);
+    if (isResourceLocked(order.booking_status)) {
+      toast.error(resourceLockReason(order.booking_status, 'vehicles'));
       return;
     }
     setIsAssignVehicleOpen(true);
+  };
+
+  // Change one run's vehicle or departure time. The modal re-checks all of this
+  // against fresh rows; these only stop a modal opening that could never save.
+  const openEditVehicleRun = (run) => {
+    if (isResourceLocked(order.booking_status)) {
+      toast.error(resourceLockReason(order.booking_status, 'vehicles'));
+      return;
+    }
+    if (run.assignment_status === 'Completed') {
+      toast.error('This run has been marked returned, so it is history now and cannot be changed.');
+      return;
+    }
+    if (hasRunDeparted(run)) {
+      toast.error('This run has already left, so it cannot be moved or given another vehicle. Mark it returned on the Vehicles page when it is back.', { duration: 9000 });
+      return;
+    }
+    setEditingVehicleRun(run);
+  };
+
+  const handleRemoveVehicleRun = async (run, legLabel) => {
+    if (isResourceLocked(order.booking_status)) {
+      toast.error(resourceLockReason(order.booking_status, 'vehicles'));
+      return;
+    }
+    if (run.assignment_status === 'Completed') {
+      toast.error('This run has been marked returned, so it is part of the dispatch history and cannot be removed.');
+      return;
+    }
+    const isLastScheduled = !dispatches.some(d => d.assignment_id !== run.assignment_id && d.assignment_status !== 'Completed');
+    const confirmed = await showConfirm({
+      title: 'Remove Vehicle Run?',
+      message: runRemovalMessage({ run, legLabel, bookingNumber: order.booking_number, isLastScheduled }),
+      confirmLabel: 'Remove',
+      confirmVariant: 'warning',
+    });
+    if (!confirmed) return;
+    const passwordOk = await requestPasswordConfirm({
+      title: 'Confirm Your Password',
+      message: 'Removing this vehicle run is permanent. Re-enter your password to continue.',
+    });
+    if (!passwordOk) return;
+    try {
+      await removeScheduledRun(run.assignment_id);
+      toast.success('Vehicle run removed.');
+    } catch (error) {
+      console.error(error);
+      toast.error(error.userMessage || 'Failed to remove the vehicle run.');
+    } finally {
+      fetchOrder();
+    }
   };
 
   // Runs, not rows.
@@ -1342,12 +1399,12 @@ export default function ShortOrderDetails() {
                   {!isCustomerPickup && (
                     <button
                       onClick={openAssignVehicleModal}
-                      className={isPaymentLedgerLocked(order.booking_status)
+                      className={isResourceLocked(order.booking_status)
                         ? 'bg-slate-100 text-slate-400 font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors'
                         : 'bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm'}
-                      title={isPaymentLedgerLocked(order.booking_status) ? `Locked — vehicles can't be dispatched once an order is ${order.booking_status}` : undefined}
+                      title={isResourceLocked(order.booking_status) ? resourceLockReason(order.booking_status, 'vehicles') : undefined}
                     >
-                      {isPaymentLedgerLocked(order.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
+                      {isResourceLocked(order.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
                     </button>
                   )}
 
@@ -1436,7 +1493,34 @@ export default function ShortOrderDetails() {
                                 <span className="text-[13.5px] font-bold text-slate-900 whitespace-nowrap">{d.vehicle?.plate_number || 'Unknown vehicle'}</span>
                                 <span className="text-[12.5px] text-slate-500 truncate">{d.vehicle?.vehicle_type || ''}</span>
                               </span>
-                              {!shared && <span className={`${pill(stages[i])} shrink-0`}>{stages[i].label}</span>}
+                              <span className="flex items-center gap-3 shrink-0">
+                                {!shared && <span className={pill(stages[i])}>{stages[i].label}</span>}
+                                {d.assignment_status !== 'Completed' && !isResourceLocked(order.booking_status) && (
+                                  <span className="flex items-center gap-2">
+                                    {/* A customer pickup needs no vehicle, so a
+                                        stray run on one can only be removed. */}
+                                    <button
+                                      onClick={() => openEditVehicleRun(d)}
+                                      disabled={hasRunDeparted(d) || isCustomerPickup}
+                                      title={isCustomerPickup
+                                        ? 'This is a customer pickup, so it needs no vehicle. Remove the run instead.'
+                                        : hasRunDeparted(d) ? 'This run has already left, so it cannot be changed.' : 'Change vehicle or time'}
+                                      aria-label="Edit vehicle run"
+                                      className="text-blue-500 hover:text-blue-700 disabled:text-slate-300 disabled:cursor-not-allowed"
+                                    >
+                                      <Edit size={14} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleRemoveVehicleRun(d, run.legLabel)}
+                                      title="Remove this run"
+                                      aria-label="Remove vehicle run"
+                                      className="text-red-400 hover:text-red-600"
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </span>
+                                )}
+                              </span>
                             </div>
                           ))}
                         </div>
@@ -2340,6 +2424,16 @@ export default function ShortOrderDetails() {
           booking={order}
           isOpen={isAssignVehicleOpen}
           onClose={() => setIsAssignVehicleOpen(false)}
+          onAssigned={fetchOrder}
+        />
+      )}
+      {editingVehicleRun && (
+        <AssignVehicleModal
+          key={editingVehicleRun.assignment_id}
+          booking={order}
+          isOpen
+          editingRun={editingVehicleRun}
+          onClose={() => setEditingVehicleRun(null)}
           onAssigned={fetchOrder}
         />
       )}
