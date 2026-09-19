@@ -669,7 +669,7 @@ export default function Dashboard() {
       // and cash retained from cancelled bookings are reported on the card's
       // own lines instead — deliberately not part of this total.
       setStatsModalData(getPaymentsReceived(data || []).revenueRows);
-      setStatsModalTitle(`Payments Received This Month (${today.toLocaleString('default', { month: 'long', year: 'numeric' })})`);
+      setStatsModalTitle(`Revenue Collected This Month (${today.toLocaleString('default', { month: 'long', year: 'numeric' })})`);
       setStatsModalType('revenue');
       resetStatsFilters();
       setIsStatsModalOpen(true);
@@ -869,7 +869,9 @@ export default function Dashboard() {
           <span className="text-[12.5px] text-slate-400 mt-1">{upcomingWindowLabel()}</span>
         </button>
 
-        {/* Payments Received This Month */}
+        {/* Revenue Collected This Month — not the same figure as Receivables'
+            Cash Receipts, which counts every verified receipt; this counts only
+            receipts on Confirmed and Completed bookings. Different words on purpose. */}
         <button
           onClick={handleRevenueClick}
           className="relative overflow-hidden bg-white border border-slate-200/70 rounded-2xl p-[22px] flex flex-col items-center justify-center text-center hover:shadow-[0_4px_14px_rgba(15,23,42,0.06)] hover:-translate-y-0.5 hover:border-[#008A45]/30 transition-all cursor-pointer group"
@@ -881,7 +883,7 @@ export default function Dashboard() {
           <span className="text-[28px] font-semibold tracking-[-0.03em] tabular-nums text-slate-900 mb-2 leading-none">
             ₱{stats.revenueThisMonth.toLocaleString()}
           </span>
-          <span className="text-[15px] font-semibold text-slate-600">Payments Received This Month</span>
+          <span className="text-[15px] font-semibold text-slate-600">Revenue Collected This Month</span>
           {/* Panel, 29 May 2026 (Förster): "Only confirmed & completed bookings
               should count as part of revenue — collectables/payables must not
               yet be included."
@@ -898,7 +900,7 @@ export default function Dashboard() {
               stranded on an Approved booking nobody had confirmed — is handled
               at source: verifying a payment now offers the Confirm Event
               dialog immediately (utils/confirmBooking.js). */}
-          <span className="text-[12.5px] text-slate-400 mt-1">Paid on confirmed &amp; completed bookings</span>
+          <span className="text-[12.5px] text-slate-400 mt-1">Collected on confirmed &amp; completed bookings</span>
           {/* Cash taken on a booking that was later cancelled is real money but
               not live business, so getPaymentsReceived splits it out and the
               headline above excludes it. It was being computed and then thrown
@@ -907,12 +909,12 @@ export default function Dashboard() {
               clean. */}
           {stats.awaitingConfirmationThisMonth > 0 && (
             <span className="text-[12.5px] text-slate-500 mt-1">
-              + ₱{stats.awaitingConfirmationThisMonth.toLocaleString()} paid on bookings not yet confirmed
+              + ₱{stats.awaitingConfirmationThisMonth.toLocaleString()} collected on bookings not yet confirmed
             </span>
           )}
           {stats.retainedThisMonth > 0 && (
             <span className="text-[12.5px] text-amber-700 mt-1">
-              + ₱{stats.retainedThisMonth.toLocaleString()} kept from cancelled bookings
+              + ₱{stats.retainedThisMonth.toLocaleString()} retained from cancelled bookings
             </span>
           )}
         </button>
