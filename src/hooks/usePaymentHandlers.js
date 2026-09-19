@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
-import { sumVerifiedPositivePayments, getPaymentsAwaitingVerification } from '../utils/payments';
+import {
+  sumVerifiedPositivePayments, getPaymentsAwaitingVerification, validateReceipt,
+  methodNeedsReceiptNumber, ENTRY_TYPES,
+} from '../utils/payments';
 
 export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData, customerId }) {
   // Modal state
@@ -9,17 +12,16 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
   const [selectedFile, setSelectedFile] = useState(null);
   const [isPaymentSubmitting, setIsPaymentSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [paymentFormData, setPaymentFormData] = useState({
-    amount: '',
-    pay_method: 'Cash',
-    pay_status: 'Downpayment',
-    pay_proof: 'placeholder.png',
-  });
+  // No pay_status here: the stage is chosen by the system from the money
+  // already in (validateReceipt -> stageForReceipt), never by the manager.
+  const EMPTY_RECEIPT = { amount: '', pay_method: 'Cash', receipt_reference: '' };
+  const [paymentFormData, setPaymentFormData] = useState(EMPTY_RECEIPT);
   // Field-level errors — lets the modal highlight exactly which input is
   // blocking submission (e.g. the amount field, in red) instead of the
   // manager having to re-read a toast to figure out what to fix.
   const [paymentAmountError, setPaymentAmountError] = useState('');
   const [paymentFileError, setPaymentFileError] = useState('');
+  const [paymentReceiptError, setPaymentReceiptError] = useState('');
 
   // Helper: get proof URL
   const getProofUrl = (proofUrl) => {
@@ -40,22 +42,18 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     // renderProof's "Invalid" branch instead, which says the record is broken
     // rather than pretending no proof was ever uploaded.
     //
-    // NOTE: this function is duplicated in pages/Payments.jsx (the Payments
+    // NOTE: this function is duplicated in pages/Receivables.jsx (the Receivables
     // page has its own copy and does not import this hook). Fix both.
     return null;
   };
 
   // --- Record Payment ---
   const openPaymentModal = () => {
-    setPaymentFormData({
-      amount: '',
-      pay_method: 'Cash',
-      pay_status: 'Downpayment',
-      pay_proof: 'placeholder.png',
-    });
+    setPaymentFormData(EMPTY_RECEIPT);
     setSelectedFile(null);
     setPaymentAmountError('');
     setPaymentFileError('');
+    setPaymentReceiptError('');
     setIsPaymentModalOpen(true);
   };
 
@@ -63,7 +61,25 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     const { name, value } = e.target;
     setPaymentFormData(prev => ({ ...prev, [name]: value }));
     if (name === 'amount') setPaymentAmountError('');
+    if (name === 'receipt_reference') setPaymentReceiptError('');
   };
+
+  // Switching away from Cash clears the receipt number, so a number typed for
+  // a cash receipt is never saved against a GCash one. (An image stays: it is
+  // optional for cash and required for the others, so it is never stale.)
+  const handlePaymentMethodChange = (method) => {
+    setPaymentFormData(prev => ({
+      ...prev,
+      pay_method: method,
+      receipt_reference: methodNeedsReceiptNumber(method) ? prev.receipt_reference : '',
+    }));
+    setPaymentReceiptError('');
+    setPaymentFileError('');
+  };
+
+  // What the money already in says about this booking, for the form's hints and
+  // stage preview. Counted receipts only (see movesBooks).
+  const priorPaid = sumVerifiedPositivePayments(payments);
 
   const handlePaymentFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
@@ -77,28 +93,9 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     setIsPaymentSubmitting(true);
     setPaymentAmountError('');
     setPaymentFileError('');
+    setPaymentReceiptError('');
 
     const amount = parseFloat(paymentFormData.amount) || 0;
-    if (amount <= 0) {
-      toast.error('Amount must be greater than zero.');
-      setPaymentAmountError('Amount must be greater than zero.');
-      setIsPaymentSubmitting(false);
-      return;
-    }
-    if (!paymentFormData.pay_method) {
-      toast.error('Please select a payment method.');
-      setIsPaymentSubmitting(false);
-      return;
-    }
-    if (!paymentFormData.pay_status) {
-      toast.error('Please select a payment status.');
-      setIsPaymentSubmitting(false);
-      return;
-    }
-
-    const positivePayments = sumVerifiedPositivePayments(payments);
-    const remainingBalance = Math.max(0, totalAmount - positivePayments);
-    const isFirstPayment = positivePayments === 0;
 
     // Verification comes first. A proof awaiting review may be for the very
     // money about to be entered by hand, and verifying it afterwards would
@@ -108,32 +105,27 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       const total = awaitingVerification.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
       toast.error(
         awaitingVerification.length === 1
-          ? `There is a ₱${total.toLocaleString()} payment awaiting verification on this booking. Verify or reject it first — recording another payment now could count the same money twice.`
-          : `There are ${awaitingVerification.length} payments (₱${total.toLocaleString()}) awaiting verification on this booking. Verify or reject them first — recording another payment now could count the same money twice.`,
+          ? `There is a ₱${total.toLocaleString()} payment claim awaiting verification on this booking. Verify or reject it first — recording a receipt now could count the same money twice.`
+          : `There are ${awaitingVerification.length} payment claims (₱${total.toLocaleString()}) awaiting verification on this booking. Verify or reject them first — recording a receipt now could count the same money twice.`,
         { duration: 8000 }
       );
       setIsPaymentSubmitting(false);
       return;
     }
 
-
-    if (remainingBalance <= 0) {
-      toast.error('This booking is already fully paid. No additional payments are allowed.');
-      setIsPaymentSubmitting(false);
-      return;
-    }
-    if (amount > remainingBalance) {
-      const msg = `Amount exceeds remaining balance of ₱${remainingBalance.toLocaleString()}.`;
-      toast.error(msg);
-      setPaymentAmountError(msg);
-      setIsPaymentSubmitting(false);
-      return;
-    }
-
-    // --- FILE VALIDATION (NEW) ---
-    if (!selectedFile && (paymentFormData.pay_proof === 'placeholder.png' || !paymentFormData.pay_proof)) {
-      toast.error('Please upload a proof of payment image.');
-      setPaymentFileError('Proof of payment is required.');
+    const check = validateReceipt({
+      amount,
+      method: paymentFormData.pay_method,
+      receiptReference: paymentFormData.receipt_reference,
+      hasImage: !!selectedFile,
+      priorPaid,
+      total: totalAmount,
+    });
+    if (!check.ok) {
+      toast.error(check.message);
+      if (check.field === 'amount') setPaymentAmountError(check.message);
+      if (check.field === 'receipt') setPaymentReceiptError(check.message);
+      if (check.field === 'file') setPaymentFileError(check.message);
       setIsPaymentSubmitting(false);
       return;
     }
@@ -159,53 +151,7 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       }
     }
 
-    const status = paymentFormData.pay_status;
-    if (status === 'Downpayment' && isFirstPayment) {
-      const requiredMin = totalAmount * 0.5;
-      if (amount < requiredMin) {
-        const msg = `First payment (Downpayment) must be at least 50% of total (₱${requiredMin.toLocaleString()}).`;
-        toast.error(msg);
-        setPaymentAmountError(msg);
-        setIsPaymentSubmitting(false);
-        return;
-      }
-    } else if (status === 'Fully Paid') {
-      if (isFirstPayment) {
-        if (amount < totalAmount) {
-          const msg = `First payment marked as Fully Paid must equal the full total amount (₱${totalAmount.toLocaleString()}).`;
-          toast.error(msg);
-          setPaymentAmountError(msg);
-          setIsPaymentSubmitting(false);
-          return;
-        }
-      } else {
-        if (amount < remainingBalance) {
-          const msg = `To mark as Fully Paid, the amount must equal the remaining balance of ₱${remainingBalance.toLocaleString()}.`;
-          toast.error(msg);
-          setPaymentAmountError(msg);
-          setIsPaymentSubmitting(false);
-          return;
-        }
-      }
-    }
-
-    let finalPayStatus = status;
-    const isAmountEqualRemaining = Math.abs(amount - remainingBalance) < 0.01;
-    const isAmountEqualTotal = Math.abs(amount - totalAmount) < 0.01;
-
-    // An amount that fully covers the balance IS a full payment, regardless
-    // of which status the manager had selected in the form — asking
-    // "are you sure?" here only invites a wrong answer that leaves the
-    // ledger saying "Downpayment" on a booking that's actually paid off.
-    // Auto-correct it and tell the manager why, instead of asking.
-    let autoMarkedFullyPaid = false;
-    if (status === 'Downpayment' && isFirstPayment && isAmountEqualTotal) {
-      finalPayStatus = 'Fully Paid';
-      autoMarkedFullyPaid = true;
-    } else if (status === 'Downpayment' && !isFirstPayment && isAmountEqualRemaining) {
-      finalPayStatus = 'Fully Paid';
-      autoMarkedFullyPaid = true;
-    }
+    const stage = check.stage;
 
     try {
       let proofUrl = 'placeholder.png';
@@ -244,7 +190,11 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
         booking_id: bookingId,
         amount_paid: amount,
         pay_method: paymentFormData.pay_method,
-        pay_status: finalPayStatus,
+        pay_status: stage,
+        entry_type: ENTRY_TYPES.receipt,
+        receipt_reference: methodNeedsReceiptNumber(paymentFormData.pay_method)
+          ? paymentFormData.receipt_reference.trim()
+          : null,
         pay_datetime: new Date().toISOString(),
         pay_proof: proofUrl,
         customer_id: customerId || null,
@@ -255,13 +205,7 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
 
       setIsPaymentModalOpen(false);
       fetchData();
-      toast.success(
-        autoMarkedFullyPaid
-          ? `Payment recorded and marked as Fully Paid — the amount entered covers the full ${isFirstPayment ? 'total' : 'remaining'} balance.`
-          : finalPayStatus === 'Fully Paid'
-          ? 'Payment recorded and marked as Fully Paid.'
-          : 'Payment recorded.'
-      );
+      toast.success(`Receipt recorded as ${stage}.`);
     } catch (error) {
       console.error(error);
       toast.error(error.message || 'Failed to record payment.');
@@ -271,10 +215,9 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     }
   };
 
-  // Payments can never be edited or deleted (per panel review): once
-  // recorded, a payment has already gone through manual entry or mobile
-  // proof verification, so altering or removing it afterward doesn't make
-  // sense — a refund is its own new entry instead.
+  // Receipts are never edited or deleted. A wrong one is corrected by a
+  // reversing entry (Receivables page), a returned one by a refund; both are
+  // new rows, and the original stays on record.
 
   return {
     // State
@@ -286,11 +229,14 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     uploading,
     paymentAmountError,
     paymentFileError,
+    paymentReceiptError,
+    priorPaid,
 
     // Actions
     openPaymentModal,
     handlePaymentInputChange,
     handlePaymentFileChange,
+    handlePaymentMethodChange,
     handlePaymentSubmit,
 
     // Expose setPaymentFormData so method buttons work

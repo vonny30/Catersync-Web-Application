@@ -62,17 +62,11 @@ export async function autoCompletePastEvents(records) {
       .in('booking_id', ids);
     if (vehicleReturnError) throw vehicleReturnError;
 
-    // Same scoping as useCompletionHandlers, and it matters more here: this
-    // runs automatically, across several bookings at once, with no manager
-    // watching. Updating every payment row promoted unreviewed and explicitly
-    // rejected proofs into settled money without anyone verifying them.
-    const { error: paymentError } = await supabase
-      .from('payment')
-      .update({ pay_status: 'Fully Paid' })
-      .in('booking_id', ids)
-      .eq('pay_status', 'Downpayment')
-      .gt('amount_paid', 0);
-    if (paymentError) throw paymentError;
+    // Receipts are NOT relabelled on completion. This used to turn every
+    // deposit into 'Fully Paid', which stamped an account "settled" whatever
+    // was still owed — the same entry counted as one thing and labelled
+    // another. A receipt's stage is what it reached when it was recorded;
+    // whether the account is settled is v_booking_money's answer.
 
     return ids;
   } catch (err) {

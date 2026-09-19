@@ -12,12 +12,13 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { useApprovalHandlers, extraPaxRate } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
-import { sumVerifiedPositivePayments, sumVerifiedDownpayments } from '../utils/payments';
+import { sumVerifiedPositivePayments, sumDepositsCollected, payStatusPillClass } from '../utils/payments';
 import { getPaymentsReceived } from '../utils/reportMetrics';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './Reports/helpers';
 import ImageUploadField from '../components/ImageUploadField';
+import RefundMethodField from '../components/RefundMethodField';
 
 // `date.toISOString().split('T')[0]` converts to UTC before slicing the
 // date portion — for any UTC+ timezone (PG's Catering is PHT, UTC+8),
@@ -259,14 +260,14 @@ export default function Dashboard() {
       // downpayment never warned about it and never allowed a refund amount.
       if (combined.length > 0) {
         const { data: pendingPayments, error: pendingPaymentsError } = await supabase
-          .from('payment')
-          .select('booking_id, amount_paid, pay_status')
+          .from('v_payment_ledger')
+          .select('booking_id, amount_paid, pay_status, counts_in_ledger')
           .in('booking_id', combined.map(b => b.booking_id));
         if (pendingPaymentsError) throw pendingPaymentsError;
         combined.forEach(item => {
           const itemPayments = (pendingPayments || []).filter(p => p.booking_id === item.booking_id);
           item.positivePayments = sumVerifiedPositivePayments(itemPayments);
-          item.downpaymentPaid = sumVerifiedDownpayments(itemPayments);
+          item.downpaymentPaid = sumDepositsCollected(itemPayments);
         });
       }
 
@@ -297,8 +298,8 @@ export default function Dashboard() {
       // repeat rows.
       const revenueData = await fetchAllRows(
         () => supabase
-          .from('payment')
-          .select('amount_paid, pay_status, pay_datetime, booking:booking_id (booking_status)')
+          .from('v_payment_ledger')
+          .select('amount_paid, pay_status, pay_datetime, counts_in_ledger, booking:booking_id (booking_status)')
           .gte('pay_datetime', instant(startOfMonth))
           .lt('pay_datetime', instant(startOfNextMonth))
           .order('payment_id', { ascending: true }),
@@ -361,6 +362,8 @@ export default function Dashboard() {
     setRejectionRefundRemarks,
     rejectionRefundFile,
     setRejectionRefundFile,
+    rejectionRefundMethod,
+    setRejectionRefundMethod,
     showRejectionRefund,
     rejectionMaxRefundable,
     openRejectionModal,
@@ -637,7 +640,7 @@ export default function Dashboard() {
       // truncated list would disagree with a card that had itself been fixed.
       const data = await fetchAllRows(
         () => supabase
-          .from('payment')
+          .from('v_payment_ledger')
           .select(`
             payment_id,
             booking_id,
@@ -645,6 +648,7 @@ export default function Dashboard() {
             pay_datetime,
             pay_method,
             pay_status,
+            counts_in_ledger,
             booking:booking_id (
               booking_id,
               booking_number,
@@ -1379,18 +1383,13 @@ export default function Dashboard() {
                               <td className="p-3 text-slate-600 text-xs">
                                 {payment.pay_datetime ? new Date(payment.pay_datetime).toLocaleString() : 'N/A'}
                               </td>
-                              {/* The MOST RECENT payment's stored status, not a
-                                  status for the booking overall. Deliberately
-                                  the stored value rather than
-                                  describePaymentKind: this modal only fetched
-                                  the current month, so an earlier instalment
-                                  outside the period is invisible here and a
-                                  derived "Downpayment / Partial / Full" label
-                                  could be computed against an incomplete
-                                  ledger. The booking page has the full history
-                                  and derives it correctly there. */}
+                              {/* The MOST RECENT receipt's stored stage, not a
+                                  status for the booking overall. The stage is
+                                  stored when the receipt is recorded, so it is
+                                  right even though this modal only fetched the
+                                  current month. */}
                               <td className="p-3 text-center">
-                                <span className={`px-2 py-1 rounded-full text-xs font-bold ${payment.pay_status === 'Fully Paid' ? 'bg-green-100 text-green-700' : payment.pay_status === 'Downpayment' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+                                <span className={`px-2 py-1 rounded-full border text-xs font-bold whitespace-nowrap ${payStatusPillClass(payment.pay_status)}`}>
                                   {payment.pay_status || 'N/A'}
                                 </span>
                               </td>
@@ -1573,8 +1572,8 @@ export default function Dashboard() {
                 <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
               </div>
               <div className="text-sm text-slate-500">
-                <p>Downpayment (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
-                <p className="text-xs mt-1">Downpayment is required to secure the order. Non-refundable within 3 days of the event.</p>
+                <p>Deposit (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
+                <p className="text-xs mt-1">A deposit is required to secure the order. Non-refundable within 3 days of the event.</p>
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
@@ -1655,6 +1654,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div className="mt-2">
+                    <RefundMethodField value={rejectionRefundMethod} onChange={setRejectionRefundMethod} />
                     <ImageUploadField
                       label="Receipt / Proof of Refund"
                       required

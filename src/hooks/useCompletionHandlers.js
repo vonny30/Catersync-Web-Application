@@ -9,7 +9,7 @@
 // their own once they're paid; see autoCompletePastEvents in the same
 // file.) Shared by the Bookings/ShortOrders list pages and their Details
 // pages so the action and its side effects — equipment returned, vehicle
-// assignments closed out, payments set Fully Paid — are identical
+// assignments closed out, payments left as recorded — are identical
 // everywhere it appears.
 import { useState } from 'react';
 import { supabase } from '../supabase';
@@ -65,27 +65,12 @@ export function useCompletionHandlers({ booking, payments, fetchData, noun = 'bo
         .eq('booking_id', booking.booking_id);
       if (vehicleReturnError) throw vehicleReturnError;
 
-      if (totalPaid > 0) {
-        // Scoped to Downpayment rows only. This used to update EVERY payment
-        // row on the booking, which rewrote the status of rows that had no
-        // business changing: a 'Pending Verification' proof nobody had
-        // reviewed, a 'Proof Rejected' one a manager had explicitly turned
-        // down, and zero-amount 'Pending' placeholders all became 'Fully
-        // Paid'. Because sumVerifiedPositivePayments counts anything outside
-        // the unverified statuses, that silently promoted rejected and
-        // unreviewed money into real revenue.
-        //
-        // 'Downpayment' is exactly the set that should be relabelled here:
-        // verified, positive, and not yet marked fully paid.
-        const { error: updatePaymentsError } = await supabase
-          .from('payment')
-          .update({ pay_status: 'Fully Paid' })
-          .eq('booking_id', booking.booking_id)
-          .eq('pay_status', 'Downpayment')
-          .gt('amount_paid', 0);
-        if (updatePaymentsError) throw updatePaymentsError;
-      }
-      toast.success(`${noun[0].toUpperCase()}${noun.slice(1)} completed. Remaining payments marked Fully Paid.`);
+      // Receipts are NOT relabelled on completion. This used to turn every
+      // deposit into 'Fully Paid', which stamped an account "settled" whatever
+      // was still owed — the same entry counted as one thing and labelled
+      // another. A receipt's stage is what it reached when it was recorded;
+      // whether the account is settled is v_booking_money's answer.
+      toast.success(`${noun[0].toUpperCase()}${noun.slice(1)} completed.`);
 
       fetchData();
     } catch (error) {

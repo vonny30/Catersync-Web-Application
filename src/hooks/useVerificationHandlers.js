@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
-import { sumVerifiedPositivePayments } from '../utils/payments';
+import { sumVerifiedPositivePayments, stageForReceipt, PROOF_REJECTED } from '../utils/payments';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 
 const KNOWN_METHODS = ['Cash', 'GCash', 'Bank Transfer'];
@@ -47,18 +47,17 @@ export function useVerificationHandlers({ payments, totalAmount, fetchData, onVe
     setIsVerifyModalOpen(true);
   };
 
-  // Auto-detects Downpayment vs Fully Paid the same way a manager-entered
-  // payment would: if this amount closes out the balance (based on already-
-  // verified payments, not counting this one), it's Fully Paid; otherwise
-  // it's a Downpayment.
+  // Verifying turns a claim into a receipt, so it takes the stage a
+  // manager-recorded receipt would (stageForReceipt): the first counted money is
+  // Deposit Collected, money that closes the balance is Fully Settled, and
+  // anything between is Partially Settled.
   const handleVerifyConfirm = async () => {
     if (!verifyTarget) return;
     const payment = verifyTarget;
     const alreadyVerified = sumVerifiedPositivePayments(
       payments.filter(p => p.payment_id !== payment.payment_id)
     );
-    const remainingBeforeThis = Math.max(0, (totalAmount || 0) - alreadyVerified);
-    const finalStatus = payment.amount_paid >= remainingBeforeThis ? 'Fully Paid' : 'Downpayment';
+    const finalStatus = stageForReceipt({ priorPaid: alreadyVerified, amount: payment.amount_paid, total: totalAmount });
 
     // Verifying turns an unverified claim into counted money, so it takes a
     // password — the same bar as deleting a payment. Rejecting a proof
@@ -110,7 +109,7 @@ export function useVerificationHandlers({ payments, totalAmount, fetchData, onVe
       const { error } = await supabase
         .from('payment')
         .update({
-          pay_status: 'Proof Rejected',
+          pay_status: PROOF_REJECTED,
           remarks: rejectProofReason.trim(),
         })
         .eq('payment_id', rejectProofTarget.payment_id);

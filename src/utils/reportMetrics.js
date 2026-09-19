@@ -22,7 +22,7 @@
 // A payment only counts once a manager has verified it: Pending Verification and
 // Proof Rejected rows are claims, not funds. That rule lives in utils/payments
 // and is imported rather than restated.
-import { isUnverifiedPayment } from './payments';
+import { movesBooks } from './payments';
 
 // A booking in one of these statuses is dead: no future work, no receivable.
 // Money already taken against it is handled separately — see below.
@@ -88,8 +88,11 @@ export function isWithinRange(dateValue, start, end) {
  * @param options.bookingStatusById     optional { [booking_id]: booking_status }
  */
 export function getPaymentsReceived(payments, { start, end, bookingStatusById } = {}) {
+  // movesBooks: counts_in_ledger when the rows came from v_payment_ledger
+  // (reversals and reversed entries excluded); the old verified test for rows
+  // read from the raw table, which only Reports still does.
   const counted = (payments || []).filter(p => (
-    !isUnverifiedPayment(p) &&
+    movesBooks(p) &&
     (!start && !end ? true : isWithinRange(p.pay_datetime, start, end))
   ));
 
@@ -191,7 +194,7 @@ export function getEventPeriodTotals(bookings, payments, { start, end } = {}) {
 
   const paidByBooking = {};
   (payments || []).forEach(p => {
-    if (!ids.has(p.booking_id) || isUnverifiedPayment(p)) return;
+    if (!ids.has(p.booking_id) || !movesBooks(p)) return;
     paidByBooking[p.booking_id] = (paidByBooking[p.booking_id] || 0) + (p.amount_paid || 0);
   });
 

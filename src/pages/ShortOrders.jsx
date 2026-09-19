@@ -20,7 +20,7 @@ import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
-import { isPaymentLedgerLocked, totalLossOnRecompute, totalLossLockedMessage, formatPaymentDeletionWarning } from '../utils/payments';
+import { isPaymentLedgerLocked, totalLossOnRecompute, totalLossLockedMessage, formatPaymentDeletionWarning, movesBooks, isRefundEntry, RECEIPT_STAGES } from '../utils/payments';
 import { bookingEditLockedMessage, MAX_SHORT_ORDERS_PER_DAY, STATUS_ORDER, findStatusOrderDrift } from '../utils/bookingStatus';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
@@ -30,6 +30,7 @@ import { getRangeBounds } from './Reports/helpers';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { bulkDeleteBookings } from '../utils/bulkDeleteBookings';
 import ImageUploadField from '../components/ImageUploadField';
+import RefundMethodField from '../components/RefundMethodField';
 
 export default function ShortOrders() {
   const navigate = useNavigate();
@@ -258,8 +259,8 @@ export default function ShortOrders() {
       if (ordersData && ordersData.length > 0) {
         const bookingIds = ordersData.map(b => b.booking_id);
         const { data: paymentsData, error: paymentsError } = await supabase
-          .from('payment')
-          .select('booking_id, amount_paid, pay_status')
+          .from('v_payment_ledger')
+          .select('booking_id, amount_paid, pay_status, entry_type, counts_in_ledger')
           .in('booking_id', bookingIds)
           .not('amount_paid', 'eq', 0)
           .not('pay_status', 'eq', 'Pending');
@@ -272,11 +273,11 @@ export default function ShortOrders() {
           if (!paymentMap[p.booking_id]) paymentMap[p.booking_id] = { positive: 0, refunded: 0, downpayment: 0, rows: 0 };
           paymentMap[p.booking_id].rows += 1;
           const amount = parseFloat(p.amount_paid) || 0;
-          const isUnverified = p.pay_status === 'Pending Verification' || p.pay_status === 'Proof Rejected';
-          if (amount > 0 && !isUnverified) {
+          // Counted entries only (counts_in_ledger); a reversal is never a refund.
+          if (amount > 0 && movesBooks(p)) {
             paymentMap[p.booking_id].positive += amount;
-            if (p.pay_status === 'Downpayment') paymentMap[p.booking_id].downpayment += amount;
-          } else if (amount < 0) {
+            if (p.pay_status === RECEIPT_STAGES.deposit) paymentMap[p.booking_id].downpayment += amount;
+          } else if (isRefundEntry(p) && movesBooks(p)) {
             paymentMap[p.booking_id].refunded += Math.abs(amount);
           }
         });
@@ -390,6 +391,8 @@ export default function ShortOrders() {
     setRejectionRefundRemarks,
     rejectionRefundFile,
     setRejectionRefundFile,
+    rejectionRefundMethod,
+    setRejectionRefundMethod,
     showRejectionRefund,
     rejectionMaxRefundable,
     openRejectionModal,
@@ -1000,7 +1003,7 @@ export default function ShortOrders() {
     const isFullyPaid = paid >= totalAmount;
     const confirmed = await showConfirm({
       title: 'Confirm This Order?',
-      message: `This order has ${isFullyPaid ? 'been paid in full' : 'a verified downpayment of at least 50%'} (₱${paid.toLocaleString()} of ₱${totalAmount.toLocaleString()}). Marking it Confirmed locks the order in — cancellation only becomes available after this point. Continue?`,
+      message: `This order has ${isFullyPaid ? 'been paid in full' : 'a verified deposit of at least 50%'} (₱${paid.toLocaleString()} of ₱${totalAmount.toLocaleString()}). Marking it Confirmed locks the order in — cancellation only becomes available after this point. Continue?`,
       confirmLabel: 'Yes, Confirm Order',
       cancelLabel: 'Cancel',
       confirmVariant: 'success',
@@ -1059,28 +1062,12 @@ export default function ShortOrders() {
       .eq('booking_id', id);
     if (vehicleReturnError) throw vehicleReturnError;
 
-    // 3. Update payments to Fully Paid
-    if (totalPaid > 0) {
-      // Scoped to Downpayment rows only, matching useCompletionHandlers.
-      // Updating every payment row on the booking rewrote rows that had no
-      // business changing: a 'Pending Verification' proof nobody had reviewed
-      // and a 'Proof Rejected' one a manager had explicitly turned down both
-      // became 'Fully Paid'. Because sumVerifiedPositivePayments counts
-      // anything outside the unverified statuses, that silently promoted
-      // rejected and unreviewed money into real revenue.
-      //
-      // This rule now exists in three places — here, ShortOrders.jsx, and
-      // useCompletionHandlers.js — and has already drifted once. If you touch
-      // one, touch all three, or better, collapse them into the hook.
-      const { error: updatePaymentsError } = await supabase
-        .from('payment')
-        .update({ pay_status: 'Fully Paid' })
-        .eq('booking_id', id)
-        .eq('pay_status', 'Downpayment')
-        .gt('amount_paid', 0);
-      if (updatePaymentsError) throw updatePaymentsError;
-    }
-    toast.success('Short order completed. Remaining payments marked Fully Paid.');
+    // 3. // Receipts are NOT relabelled on completion. This used to turn every
+    // deposit into 'Fully Paid', which stamped an account "settled" whatever
+    // was still owed — the same entry counted as one thing and labelled
+    // another. A receipt's stage is what it reached when it was recorded;
+    // whether the account is settled is v_booking_money's answer.
+    toast.success('Short order completed.');
 
     // 4. Refresh data
     fetchData();
@@ -1097,7 +1084,7 @@ export default function ShortOrders() {
     const paidHere = targetOrder?.positivePayments || 0;
     const rowsHere = targetOrder?.paymentRowCount || 0;
     const moneyWarning = formatPaymentDeletionWarning(rowsHere, paidHere, {
-      tail: 'Cancel it instead if you need to refund or forfeit the downpayment.',
+      tail: 'Cancel it instead if you need to refund or forfeit the deposit.',
     });
     const confirmed = await showConfirm({
       title: 'Delete Order?',
@@ -2307,8 +2294,8 @@ export default function ShortOrders() {
                 <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
               </div>
               <div className="text-sm text-slate-500">
-                <p>Downpayment (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
-                <p className="text-xs mt-1">Downpayment may be required for large orders.</p>
+                <p>Deposit (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
+                <p className="text-xs mt-1">A deposit may be required for large orders.</p>
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
@@ -2378,6 +2365,7 @@ export default function ShortOrders() {
                     </div>
                   </div>
                   <div className="mt-2">
+                    <RefundMethodField value={rejectionRefundMethod} onChange={setRejectionRefundMethod} />
                     <ImageUploadField
                       label="Receipt / Proof of Refund"
                       required

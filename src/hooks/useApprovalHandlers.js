@@ -6,7 +6,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { allocateEquipmentForBooking, getEquipmentAvailabilityPreview } from '../utils/equipment';
 import { allocateVehiclesForBooking } from '../utils/vehicle';
 import { validatePaxForPackage } from '../utils/packageRules';
-import { sumVerifiedPositivePayments } from '../utils/payments';
+import { sumVerifiedPositivePayments, restageReceipts } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, MAX_SHORT_ORDERS_PER_DAY, STATUS_ORDER } from '../utils/bookingStatus';
 
 /**
@@ -329,32 +329,34 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
         toast('Approved, but no vehicle was assigned: ' + vehicleError.message, { icon: '⚠️', duration: 8000 });
       }
 
-      // ✅ 4. Update already-verified payments – set to Fully Paid if paid in
-      // full, else Downpayment. Pending Verification / Proof Rejected rows
-      // are left alone — approval doesn't verify payments for you.
+      // ✅ 4. Approval can change the total (fees, extra pax), which changes
+      // which receipt, if any, settled the account. Re-stage the counted
+      // receipts in the order they came in against the NEW total — each one
+      // individually, never all to one label. Unverified claims are left
+      // alone: approval doesn't verify payments for you. Read from the ledger
+      // view so reversed entries are not counted.
       const { data: existingPayments, error: fetchPaymentsError } = await supabase
-        .from('payment')
-        .select('payment_id, amount_paid, pay_status')
+        .from('v_payment_ledger')
+        .select('payment_id, amount_paid, pay_status, pay_datetime, counts_in_ledger')
         .eq('booking_id', approvalBooking.booking_id);
       if (fetchPaymentsError) throw fetchPaymentsError;
 
       const paidTotal = sumVerifiedPositivePayments(existingPayments);
       const newTotal = approvalData.newTotal;
-      const newStatus = (paidTotal >= newTotal && paidTotal > 0) ? 'Fully Paid' : 'Downpayment';
-
-      if (paidTotal > 0) {
+      const restaged = restageReceipts(existingPayments, newTotal);
+      for (const change of restaged) {
         const { error: updatePaymentsError } = await supabase
           .from('payment')
-          .update({ pay_status: newStatus })
-          .eq('booking_id', approvalBooking.booking_id)
-          .in('pay_status', ['Downpayment', 'Fully Paid']);
+          .update({ pay_status: change.pay_status })
+          .eq('payment_id', change.payment_id);
         if (updatePaymentsError) throw updatePaymentsError;
       }
+      const newStatus = paidTotal >= newTotal && paidTotal > 0 ? 'fully settled' : 'part-paid';
 
       setIsApprovalModalOpen(false);
       fetchData();
       const noun = approvalType === 'shortorder' ? 'Order' : 'Booking';
-      toast.success(paidTotal > 0 ? `${noun} approved. Payments marked as ${newStatus}.` : `${noun} approved. The customer can now proceed to payment.`);
+      toast.success(paidTotal > 0 ? `${noun} approved. The account is ${newStatus} against the new total.` : `${noun} approved. The customer can now proceed to payment.`);
     } catch (error) {
       console.error(error);
       toast.error('Failed to approve booking.');

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
-import { sumVerifiedPositivePayments } from '../utils/payments';
+import { sumVerifiedPositivePayments, sumDepositsCollected, ENTRY_TYPES, REFUNDED_STATUS, RECEIPT_METHODS, REFUND_METHOD_MESSAGE } from '../utils/payments';
 import { STATUS_ORDER } from '../utils/bookingStatus';
 
 export function useCancellationHandlers({ booking, payments, fetchData }) {
@@ -12,6 +12,8 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
   const [refundAmount, setRefundAmount] = useState('');
   const [refundRemarks, setRefundRemarks] = useState('');
   const [refundFile, setRefundFile] = useState(null);
+  // How the money went back. Required on every refund (pay_method CHECK).
+  const [refundMethod, setRefundMethod] = useState('');
   const [isCancelling, setIsCancelling] = useState(false);
 
   const openCancelModal = () => {
@@ -19,6 +21,7 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
     setRefundAmount('');
     setRefundRemarks('');
     setRefundFile(null);
+    setRefundMethod('');
     setIsCancelModalOpen(true);
   };
 
@@ -44,8 +47,8 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
       let daysUntilEvent = null;
 
       const positivePayments = sumVerifiedPositivePayments(payments);
-      const downpaymentPayments = payments.filter(p => p.pay_status === 'Downpayment' && p.amount_paid > 0);
-      const totalDownpayment = downpaymentPayments.reduce((sum, p) => sum + p.amount_paid, 0);
+      // The deposit: the counted receipts stored as Deposit Collected.
+      const totalDownpayment = sumDepositsCollected(payments);
 
       if (eventDate) {
         const diffTime = eventDate.getTime() - now.getTime();
@@ -74,6 +77,11 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
         }
         if (enteredAmount > maxRefundable) {
           toast.error(`Refund amount cannot exceed ₱${maxRefundable.toLocaleString()}.`);
+          setIsCancelling(false);
+          return;
+        }
+        if (!RECEIPT_METHODS.includes(refundMethod)) {
+          toast.error(REFUND_METHOD_MESSAGE);
           setIsCancelling(false);
           return;
         }
@@ -169,8 +177,9 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
           .insert([{
             booking_id: booking.booking_id,
             amount_paid: -refundAmountValue,
-            pay_method: 'Refund',
-            pay_status: 'Refunded',
+            pay_method: refundMethod,
+            pay_status: REFUNDED_STATUS,
+            entry_type: ENTRY_TYPES.refund,
             pay_datetime: new Date().toISOString(),
             pay_proof: proofUrl,
             customer_id: booking.customer_id,
@@ -215,6 +224,8 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
     setRefundRemarks,
     refundFile,
     setRefundFile,
+    refundMethod,
+    setRefundMethod,
     isCancelling,
     openCancelModal,
     handleCancelBooking,

@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
+import { ENTRY_TYPES, REFUNDED_STATUS, RECEIPT_METHODS, REFUND_METHOD_MESSAGE } from '../utils/payments';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { STATUS_ORDER } from '../utils/bookingStatus';
 
@@ -14,6 +15,8 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
   const [rejectionRefundAmount, setRejectionRefundAmount] = useState('');
   const [rejectionRefundRemarks, setRejectionRefundRemarks] = useState('');
   const [rejectionRefundFile, setRejectionRefundFile] = useState(null);
+  // How the money went back. Required on every refund (pay_method CHECK).
+  const [rejectionRefundMethod, setRejectionRefundMethod] = useState('');
   const [showRejectionRefund, setShowRejectionRefund] = useState(false);
   const [rejectionMaxRefundable, setRejectionMaxRefundable] = useState(0);
 
@@ -69,6 +72,7 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
     setRejectionRefundAmount('');
     setRejectionRefundRemarks('');
     setRejectionRefundFile(null);
+    setRejectionRefundMethod('');
     setIsRejectionModalOpen(true);
   };
 
@@ -93,6 +97,10 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
       if (enteredAmount > 0) {
         if (enteredAmount > rejectionMaxRefundable) {
           toast.error(`Refund amount cannot exceed ₱${rejectionMaxRefundable.toLocaleString()}.`);
+          return;
+        }
+        if (!RECEIPT_METHODS.includes(rejectionRefundMethod)) {
+          toast.error(REFUND_METHOD_MESSAGE);
           return;
         }
         if (!rejectionRefundFile) {
@@ -178,8 +186,9 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
           .insert([{
             booking_id: id,
             amount_paid: -enteredAmount,
-            pay_method: 'Refund',
-            pay_status: 'Refunded',
+            pay_method: rejectionRefundMethod,
+            pay_status: REFUNDED_STATUS,
+            entry_type: ENTRY_TYPES.refund,
             pay_datetime: new Date().toISOString(),
             pay_proof: proofUrl,
             customer_id: booking.customer_id,
@@ -226,6 +235,8 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
     setRejectionRefundRemarks,
     rejectionRefundFile,
     setRejectionRefundFile,
+    rejectionRefundMethod,
+    setRejectionRefundMethod,
     showRejectionRefund,
     rejectionMaxRefundable,
     openRejectionModal,

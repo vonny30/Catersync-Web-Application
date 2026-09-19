@@ -22,7 +22,7 @@ import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
 import { allocateEquipmentForBooking, getDailyEquipmentSnapshot, computeEquipmentDemand } from '../utils/equipment';
 import { TRIP_LEG, countDistinctVehicles, groupDispatchRuns, hasRunDeparted, removeScheduledRun, runRemovalMessage } from '../utils/vehicle';
-import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumVerifiedDownpayments, isPaymentLedgerLocked, describePaymentKind, formatPaymentDeletionWarning } from '../utils/payments';
+import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumDepositsCollected, isPaymentLedgerLocked, formatPaymentDeletionWarning, movesBooks, isRefundEntry, ledgerEntryBadge, PENDING_VERIFICATION, REFUNDED_STATUS, ENTRY_TYPES, RECEIPT_METHODS, REFUND_METHOD_MESSAGE } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
 import { isResourceLocked, resourceLockReason } from '../utils/resourceLock';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
@@ -34,6 +34,8 @@ import DateTimePicker from '../components/DateTimePicker';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { getAssignmentStatus } from '../utils/statusLabels';
 import ImageUploadField from '../components/ImageUploadField';
+import RefundMethodField from '../components/RefundMethodField';
+import ReceiptFields from '../components/ReceiptFields';
 
 // The allocation history for one booking, from booking_equipment_log. The log
 // has no foreign keys (so a deleted booking or item cannot block it), which
@@ -163,6 +165,7 @@ export default function BookingDetails() {
   const [refundModalAmount, setRefundModalAmount] = useState('');
   const [refundModalRemarks, setRefundModalRemarks] = useState('');
   const [refundModalFile, setRefundModalFile] = useState(null);
+  const [refundModalMethod, setRefundModalMethod] = useState('');
   const [isRefundSubmitting, setIsRefundSubmitting] = useState(false);
 
   // --- Proof Image Modal state ---
@@ -198,8 +201,10 @@ export default function BookingDetails() {
       }
 
       // Payments
+      // From v_payment_ledger, not the table: it carries counts_in_ledger and
+      // is_reversed, which every paid figure on this page is read from.
       const { data: paymentsData, error: paymentsError } = await supabase
-        .from('payment')
+        .from('v_payment_ledger')
         .select('*')
         .eq('booking_id', id)
         .order('pay_datetime', { ascending: false });
@@ -362,12 +367,14 @@ export default function BookingDetails() {
     uploading,
     paymentAmountError,
     paymentFileError,
+    paymentReceiptError,
+    priorPaid,
     openPaymentModal,
     handlePaymentInputChange,
     handlePaymentFileChange,
     handlePaymentSubmit,
     getProofUrl,
-    setPaymentFormData,
+    handlePaymentMethodChange,
   } = usePaymentHandlers({
     bookingId: id,
     payments,
@@ -404,7 +411,7 @@ export default function BookingDetails() {
   const getPaymentSummary = (bookingId) => {
     if (bookingId === booking?.booking_id) {
       const positivePayments = sumVerifiedPositivePayments(payments);
-      const downpaymentPaid = sumVerifiedDownpayments(payments);
+      const downpaymentPaid = sumDepositsCollected(payments);
       return { positivePayments, downpaymentPaid };
     }
     return { positivePayments: 0, downpaymentPaid: 0 };
@@ -421,6 +428,8 @@ export default function BookingDetails() {
     setRejectionRefundRemarks,
     rejectionRefundFile,
     setRejectionRefundFile,
+    rejectionRefundMethod,
+    setRejectionRefundMethod,
     showRejectionRefund,
     rejectionMaxRefundable,
     openRejectionModal,
@@ -443,6 +452,8 @@ export default function BookingDetails() {
     setRefundRemarks,
     refundFile,
     setRefundFile,
+    refundMethod,
+    setRefundMethod,
     isCancelling,
     openCancelModal,
     handleCancelBooking,
@@ -520,6 +531,7 @@ export default function BookingDetails() {
     setRefundModalAmount(remainingRefundableAmount > 0 ? remainingRefundableAmount.toFixed(2) : '');
     setRefundModalRemarks('');
     setRefundModalFile(null);
+    setRefundModalMethod('');
     setIsRefundModalOpen(true);
   };
 
@@ -533,6 +545,10 @@ export default function BookingDetails() {
     }
     if (amount > remainingRefundableAmount) {
       toast.error(`Amount exceeds remaining refundable (₱${remainingRefundableAmount.toFixed(2)}).`);
+      return;
+    }
+    if (!RECEIPT_METHODS.includes(refundModalMethod)) {
+      toast.error(REFUND_METHOD_MESSAGE);
       return;
     }
     if (!refundModalFile) {
@@ -579,8 +595,9 @@ export default function BookingDetails() {
         .insert([{
           booking_id: id,
           amount_paid: -amount,
-          pay_method: 'Refund',
-          pay_status: 'Refunded',
+          pay_method: refundModalMethod,
+          pay_status: REFUNDED_STATUS,
+          entry_type: ENTRY_TYPES.refund,
           pay_datetime: new Date().toISOString(),
           pay_proof: proofUrl,
           customer_id: booking.customer_id,
@@ -1534,7 +1551,7 @@ export default function BookingDetails() {
   // paid in right now" (the Total Paid stat).
   const positivePayments = sumVerifiedPositivePayments(payments);
   const totalRefunded = payments
-    .filter(p => p.amount_paid < 0)
+    .filter(p => isRefundEntry(p) && movesBooks(p))
     .reduce((sum, p) => sum + Math.abs(p.amount_paid), 0);
   const netPaid = Math.max(0, positivePayments - totalRefunded);
 
@@ -1542,13 +1559,15 @@ export default function BookingDetails() {
   // in the Payment Tracking ledger alongside actual payments. Split once
   // here so the Payment Tracking table only ever lists real payments, and
   // refunds get their own Refund History section instead.
-  const paymentEntries = payments.filter(p => (p.amount_paid || 0) >= 0);
-  const refundEntries = payments.filter(p => (p.amount_paid || 0) < 0);
+  // A reversal is a correction to a receipt, so it is listed with the receipts
+  // (beneath the one it cancels), never under Refund History.
+  const paymentEntries = payments.filter(p => !isRefundEntry(p));
+  const refundEntries = payments.filter(isRefundEntry);
 
   let remainingBalance = Math.max(0, (booking.total_amount || 0) - positivePayments);
   if (booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') remainingBalance = 0;
 
-  const downpaymentPaid = sumVerifiedDownpayments(payments);
+  const downpaymentPaid = sumDepositsCollected(payments);
 
   // How much of the contract has actually been collected, as a proportion —
   // the hero's Balance KPI states it. Guarded so a booking with no total
@@ -1785,7 +1804,7 @@ export default function BookingDetails() {
           payment is verified by definition, so this only ever fires for
           something the customer submitted from the app that needs a
           manager's eyes on the proof. */}
-      {payments.some(p => p.pay_status === 'Pending Verification') && (
+      {payments.some(p => p.pay_status === PENDING_VERIFICATION) && (
         <div className="relative overflow-hidden rounded-xl border-2 border-red-300 bg-red-50 p-4 flex items-center gap-3">
           <span className="relative flex h-3 w-3 shrink-0">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
@@ -1793,7 +1812,7 @@ export default function BookingDetails() {
           </span>
           <div className="flex-1">
             <p className="text-sm font-bold text-red-800">
-              {payments.filter(p => p.pay_status === 'Pending Verification').length} payment{payments.filter(p => p.pay_status === 'Pending Verification').length > 1 ? 's' : ''} awaiting verification
+              {payments.filter(p => p.pay_status === PENDING_VERIFICATION).length} payment{payments.filter(p => p.pay_status === PENDING_VERIFICATION).length > 1 ? 's' : ''} awaiting verification
             </p>
             <p className="text-xs text-red-600">Submitted from the mobile app — review the proof below and Verify or Reject it.</p>
           </div>
@@ -1997,7 +2016,7 @@ export default function BookingDetails() {
                 </div>
                 <span className="block mt-2 text-xs font-semibold text-slate-500">
                   {pctCollected}% collected · ₱{netPaid.toLocaleString()} of ₱{booking.total_amount?.toLocaleString() || '0'}
-                  {downpaymentPaid > 0 && ` · ₱${downpaymentPaid.toLocaleString()} downpayment`}
+                  {downpaymentPaid > 0 && ` · ₱${downpaymentPaid.toLocaleString()} deposit`}
                 </span>
               </div>
 
@@ -2017,31 +2036,19 @@ export default function BookingDetails() {
                     </thead>
                     <tbody className="divide-y divide-slate-200 text-slate-700">
                       {paymentEntries.map(p => {
-                        const pendingVerification = p.pay_status === 'Pending Verification';
-                        // Frozen historical label — the third payment on this
-                        // booking reads "Partial payment" rather than a third
-                        // "Downpayment", and only the payment that actually
-                        // cleared the balance ever reads "Fully Paid".
-                        const kind = describePaymentKind(
-                          p,
-                          payments.filter(other => other.payment_id !== p.payment_id
-                            && new Date(other.pay_datetime || 0) <= new Date(p.pay_datetime || 0)),
-                          booking.total_amount,
-                        );
+                        const pendingVerification = p.pay_status === PENDING_VERIFICATION;
+                        // The stored stage is the truth now; reversed entries and
+                        // the reversals themselves say so instead.
+                        const badge = ledgerEntryBadge(p);
                         return (
                         <tr key={p.payment_id} className={pendingVerification ? 'bg-blue-50' : ''}>
-                          <td className="p-3 font-bold">
-                            ₱{p.amount_paid.toLocaleString()}
+                          <td className={`p-3 font-bold tabular-nums ${badge.struck ? 'line-through text-slate-400' : ''}`}>
+                            {p.amount_paid < 0 ? '−' : ''}₱{Math.abs(p.amount_paid).toLocaleString()}
                           </td>
                           <td className="p-3">{p.pay_method || 'N/A'}</td>
                           <td className="p-3">
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                              kind === 'Fully Paid' ? 'bg-green-100 text-green-700 border border-green-200' :
-                              p.pay_status === 'Pending Verification' ? 'bg-blue-100 text-blue-700 border border-blue-200' :
-                              p.pay_status === 'Proof Rejected' ? 'bg-red-100 text-red-700 border border-red-200' :
-                              'bg-amber-100 text-amber-700 border border-amber-200'
-                            }`}>
-                              {kind}
+                            <span title={badge.note || undefined} className={`px-2 py-1 rounded-full border text-xs font-medium whitespace-nowrap ${badge.className}`}>
+                              {badge.label}
                             </span>
                           </td>
                           <td className="p-3">{renderProof(p.pay_proof)}</td>
@@ -2386,7 +2393,7 @@ export default function BookingDetails() {
                   )}
                 </p>
                 {refundStatus === 'Non-Refundable' && (
-                  <p className="mt-1 text-red-500">Downpayment forfeited (event within 3 days)</p>
+                  <p className="mt-1 text-red-500">Deposit forfeited (event within 3 days)</p>
                 )}
                 {refundStatus === 'Fully Refunded' && (
                   <p className="mt-1 text-blue-500">All payments have been refunded.</p>
@@ -2724,7 +2731,7 @@ export default function BookingDetails() {
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
-              <h2 className="text-lg font-bold text-slate-900">Record Payment</h2>
+              <h2 className="text-lg font-bold text-slate-900">Record Receipt</h2>
               <button
                 onClick={() => setIsPaymentModalOpen(false)}
                 className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"
@@ -2761,94 +2768,29 @@ export default function BookingDetails() {
                   </span>
                   <span className="text-slate-600 font-medium">Status:</span>
                   <span className="text-slate-900 font-semibold capitalize">{booking.booking_status || 'N/A'}</span>
-                  <span className="text-slate-600 font-medium">First Payment?</span>
+                  <span className="text-slate-600 font-medium">First Receipt?</span>
                   <span className="text-slate-900 font-semibold">{positivePayments === 0 ? '✅ Yes' : 'No'}</span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Amount (₱)</label>
-                  <input
-                    type="number"
-                    name="amount"
-                    value={paymentFormData.amount}
-                    onChange={handlePaymentInputChange}
-                    placeholder="0.00"
-                    step="0.01"
-                    required
-                    className={`w-full border rounded-lg p-2.5 text-sm focus:ring-2 outline-none ${paymentAmountError ? 'border-red-400 focus:ring-red-200 focus:border-red-400 bg-red-50/40' : 'border-slate-300 focus:ring-[#008A45]/20 focus:border-[#008A45]'}`}
-                  />
-                  {paymentAmountError && (
-                    <p className="text-xs text-red-600 mt-1 font-semibold">{paymentAmountError}</p>
-                  )}
-                  {!paymentAmountError && (() => {
-                    const isFirst = positivePayments === 0;
-                    const status = paymentFormData.pay_status;
-                    const total = booking.total_amount || 0;
-                    let hint = '';
-                    if (isFirst) {
-                      if (status === 'Downpayment') {
-                        const minRequired = total * 0.5;
-                        hint = `First payment: Downpayment must be at least 50% of total (₱${minRequired.toLocaleString()}).`;
-                      } else if (status === 'Fully Paid') {
-                        hint = `First payment: Fully Paid must equal total amount (₱${total.toLocaleString()}).`;
-                      }
-                    } else {
-                      if (status === 'Fully Paid') {
-                        hint = `Remaining balance to close: ₱${remainingBalance.toLocaleString()}.`;
-                      } else {
-                        hint = `You can enter any amount up to the remaining balance.`;
-                      }
-                    }
-                    return hint ? <p className="text-xs text-blue-600 mt-1 font-medium">{hint}</p> : null;
-                  })()}
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Payment Status</label>
-                  <Select
-                    name="pay_status"
-                    value={paymentFormData.pay_status}
-                    onChange={handlePaymentInputChange}
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white"
-                  >
-                    <option value="Downpayment">Downpayment</option>
-                    <option value="Fully Paid">Fully Paid</option>
-                  </Select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-2">Payment Method</label>
-                <div className="grid grid-cols-3 gap-3">
-                  {['Cash', 'GCash', 'Bank Transfer'].map((method) => (
-                    <button
-                      key={method}
-                      type="button"
-                      onClick={() => setPaymentFormData(prev => ({ ...prev, pay_method: method }))}
-                      className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border text-sm font-semibold transition-all ${paymentFormData.pay_method === method ? 'bg-[#CBDEDD]/60 border-[#008A45] text-slate-900 shadow-xs' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}
-                    >
-                      <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${paymentFormData.pay_method === method ? 'border-[#008A45]' : 'border-slate-400'}`}>
-                        {paymentFormData.pay_method === method && <div className="w-1.5 h-1.5 rounded-full bg-[#008A45]" />}
-                      </div>
-                      {method}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <ImageUploadField
-                label="Proof of Payment"
+              <ReceiptFields
+                amount={paymentFormData.amount}
+                onAmountChange={handlePaymentInputChange}
+                method={paymentFormData.pay_method}
+                onMethodChange={handlePaymentMethodChange}
+                receiptReference={paymentFormData.receipt_reference}
+                onReceiptReferenceChange={handlePaymentInputChange}
                 file={selectedFile}
-                onChange={handlePaymentFileChange}
-                error={paymentFileError}
-                hint="PNG, JPG up to 5MB. Stored in Supabase Storage."
+                onFileChange={handlePaymentFileChange}
+                errors={{ amount: paymentAmountError, receipt: paymentReceiptError, file: paymentFileError }}
+                priorPaid={priorPaid}
+                total={booking.total_amount || 0}
               />
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
                 <button type="button" onClick={() => setIsPaymentModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">Cancel</button>
                 <button type="submit" disabled={isPaymentSubmitting || uploading} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50">
-                  {uploading ? 'Uploading...' : (isPaymentSubmitting ? 'Saving...' : 'Record Payment')}
+                  {uploading ? 'Uploading...' : (isPaymentSubmitting ? 'Saving...' : 'Record Receipt')}
                 </button>
               </div>
             </form>
@@ -2887,10 +2829,10 @@ export default function BookingDetails() {
                       <p className="font-bold mt-1 text-green-700">✅ Cancellation is 3+ days before event – downpayment IS refundable.</p>
                     )}
                     {!isRefundable && downpaymentPaid > 0 && (
-                      <p className="mt-1 text-xs text-red-600">Downpayment (₱{downpaymentPaid.toLocaleString()}) will be forfeited.</p>
+                      <p className="mt-1 text-xs text-red-600">Deposit (₱{downpaymentPaid.toLocaleString()}) will be forfeited.</p>
                     )}
                     {isRefundable && downpaymentPaid > 0 && (
-                      <p className="mt-1 text-xs text-green-600">Downpayment is refundable as per policy.</p>
+                      <p className="mt-1 text-xs text-green-600">Deposit is refundable as per policy.</p>
                     )}
                   </>
                 ) : (
@@ -2943,6 +2885,7 @@ export default function BookingDetails() {
         </div>
       </div>
       <div className="mt-2">
+        <RefundMethodField value={refundMethod} onChange={setRefundMethod} />
         <ImageUploadField
           label="Receipt / Proof of Refund"
           required
@@ -2957,7 +2900,7 @@ export default function BookingDetails() {
 
               {positivePayments > 0 && !isRefundable && downpaymentPaid > 0 && (
                 <div className="border-t border-slate-200 pt-3 mt-3 text-xs text-slate-500">
-                  <p>⚠️ This booking is <strong>non‑refundable</strong> because the event is less than 3 days away. The downpayment of ₱{downpaymentPaid.toLocaleString()} will be forfeited.</p>
+                  <p>⚠️ This booking is <strong>non‑refundable</strong> because the event is less than 3 days away. The deposit of ₱{downpaymentPaid.toLocaleString()} will be forfeited.</p>
                 </div>
               )}
 
@@ -3074,6 +3017,7 @@ export default function BookingDetails() {
                     </div>
                   </div>
                   <div className="mt-2">
+                    <RefundMethodField value={rejectionRefundMethod} onChange={setRejectionRefundMethod} />
                     <ImageUploadField
                       label="Receipt / Proof of Refund"
                       required
@@ -3148,6 +3092,7 @@ export default function BookingDetails() {
                 />
               </div>
 
+              <RefundMethodField value={refundModalMethod} onChange={setRefundModalMethod} />
               <ImageUploadField
                 label="Proof of Refund"
                 required
@@ -3257,8 +3202,8 @@ export default function BookingDetails() {
                 <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
               </div>
               <div className="text-sm text-slate-500">
-                <p>Downpayment (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
-                <p className="text-xs mt-1">Downpayment is required to secure the booking. Non-refundable within 3 days of the event.</p>
+                <p>Deposit (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
+                <p className="text-xs mt-1">A deposit is required to secure the booking. Non-refundable within 3 days of the event.</p>
               </div>
 
               {approvalEquipmentStatus.applicable && !approvalEquipmentStatus.loading && !approvalEquipmentStatus.sufficient && (
