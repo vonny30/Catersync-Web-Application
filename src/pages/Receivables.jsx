@@ -133,7 +133,7 @@ function ReverseModal({ entry, onClose, onDone }) {
         reverses_payment_id: entry.payment_id,
         reversal_reason: reason.trim(),
         pay_datetime: new Date().toISOString(),
-        pay_proof: 'placeholder.png',
+        pay_proof: null,
       }]);
       if (insertError?.code === '23505') {
         toast.error('This receipt has already been reversed. The page has been refreshed.');
@@ -250,7 +250,8 @@ function RecordReceiptModal({ receivables, onClose, onRecorded }) {
     }
     setSaving(true);
     try {
-      let proof = 'placeholder.png';
+      // null, not a placeholder: payment_evidence_check needs real evidence.
+      let proof = null;
       if (file) {
         const ext = file.name.split('.').pop();
         const path = `payments/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;

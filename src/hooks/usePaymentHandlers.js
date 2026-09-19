@@ -154,7 +154,9 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
     const stage = check.stage;
 
     try {
-      let proofUrl = 'placeholder.png';
+      // null, not a placeholder: payment_evidence_check needs a receipt to carry
+      // real evidence — an image, or (cash) the receipt number.
+      let proofUrl = null;
       if (selectedFile) {
         setUploading(true);
         const file = selectedFile;
