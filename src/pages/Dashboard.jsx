@@ -12,7 +12,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { useApprovalHandlers, extraPaxRate } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
-import { sumVerifiedPositivePayments, sumDepositsCollected, payStatusPillClass } from '../utils/payments';
+import { sumVerifiedPositivePayments, sumDepositsCollected, payStatusPillClass, movesBooks } from '../utils/payments';
 import { getPaymentsReceived } from '../utils/reportMetrics';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import DateRangeFilter from './Reports/DateRangeFilter';
@@ -70,6 +70,9 @@ const upcomingWindowLabel = () => {
   return `${fmt(start, !sameYear)} – ${fmt(end, true)}`;
 };
 
+// The current month's name, for the Cash Receipts subtext.
+const thisMonthName = () => new Date().toLocaleString('en-PH', { month: 'long' });
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const { showConfirm } = useConfirm();
@@ -78,6 +81,16 @@ export default function Dashboard() {
     todayEvents: 0,
     pendingBookings: 0,
     upcomingEvents: 0,
+    // Cash Receipts — the same figure, by the same definition, as the
+    // Receivables and Reports pages: every verified receipt this month, by
+    // payment date, from f_report_period. The figures beside it are what the
+    // explanation modal uses; none of them appears under the card.
+    cashReceipts: 0,
+    receiptCount: 0,
+    refundsIssued: 0,
+    reversalsRecorded: 0,
+    forfeitedDeposits: 0,
+    outstandingReceivable: 0,
     revenueThisMonth: 0,
     awaitingConfirmationThisMonth: 0,
     retainedThisMonth: 0,
@@ -306,8 +319,23 @@ export default function Dashboard() {
         'collections this month'
       );
       const received = getPaymentsReceived(revenueData);
+      // One call for the month's financial block, so the Dashboard cannot
+      // drift from Receivables or Reports.
+      const { data: periodRows, error: periodError } = await supabase.rpc('f_report_period', {
+        p_start: instant(startOfMonth),
+        p_end: instant(startOfNextMonth),
+      });
+      if (periodError) console.error('f_report_period failed:', periodError);
+      const period = Array.isArray(periodRows) ? periodRows[0] : periodRows;
+
       setStats(prev => ({
         ...prev,
+        cashReceipts: Number(period?.cash_receipts) || 0,
+        receiptCount: Number(period?.receipt_count) || 0,
+        refundsIssued: Number(period?.refunds_issued) || 0,
+        reversalsRecorded: Number(period?.reversals_recorded) || 0,
+        forfeitedDeposits: Number(period?.forfeited_deposits) || 0,
+        outstandingReceivable: Number(period?.outstanding_receivable) || 0,
         // Panel PR-38: only Confirmed and Completed bookings count as revenue.
         // The other two figures are reported beside it rather than folded in
         // or dropped — see REVENUE_BOOKING_STATUSES in utils/reportMetrics.
@@ -664,12 +692,12 @@ export default function Dashboard() {
           .order('payment_id', { ascending: false }),
         'collections modal'
       );
-      // List exactly the rows the card counted, so the modal's own total
-      // reconciles with the figure that was clicked. Cash awaiting confirmation
-      // and cash retained from cancelled bookings are reported on the card's
-      // own lines instead — deliberately not part of this total.
-      setStatsModalData(getPaymentsReceived(data || []).revenueRows);
-      setStatsModalTitle(`Revenue Collected This Month (${today.toLocaleString('default', { month: 'long', year: 'numeric' })})`);
+      // Exactly the rows the headline counted: entries that move the books
+      // (counts_in_ledger) and are positive. Claims awaiting verification,
+      // reversals and reversed receipts are excluded by that flag, so the list
+      // and the card can never disagree.
+      setStatsModalData((data || []).filter(p => movesBooks(p) && (p.amount_paid || 0) > 0));
+      setStatsModalTitle(`Cash Receipts — ${today.toLocaleString('default', { month: 'long', year: 'numeric' })}`);
       setStatsModalType('revenue');
       resetStatsFilters();
       setIsStatsModalOpen(true);
@@ -869,11 +897,14 @@ export default function Dashboard() {
           <span className="text-[12.5px] text-slate-400 mt-1">{upcomingWindowLabel()}</span>
         </button>
 
-        {/* Revenue Collected This Month — not the same figure as Receivables'
-            Cash Receipts, which counts every verified receipt; this counts only
-            receipts on Confirmed and Completed bookings. Different words on purpose. */}
+        {/* Cash Receipts — the same number as the Receivables page and the
+            Reports Overview for the same month, read from f_report_period.
+            One number, and a subtext that says what it is and when: no second
+            figure underneath (the panel's rule for every money card). What the
+            headline excludes is explained in the modal behind it. */}
         <button
           onClick={handleRevenueClick}
+          title="What is in this figure?"
           className="relative overflow-hidden bg-white border border-slate-200/70 rounded-2xl p-[22px] flex flex-col items-center justify-center text-center hover:shadow-[0_4px_14px_rgba(15,23,42,0.06)] hover:-translate-y-0.5 hover:border-[#008A45]/30 transition-all cursor-pointer group"
         >
           <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#006634]" />
@@ -881,42 +912,15 @@ export default function Dashboard() {
             <TrendingUp size={20} className="text-[#006634]" />
           </div>
           <span className="text-[28px] font-semibold tracking-[-0.03em] tabular-nums text-slate-900 mb-2 leading-none">
-            ₱{stats.revenueThisMonth.toLocaleString()}
+            ₱{stats.cashReceipts.toLocaleString()}
           </span>
-          <span className="text-[15px] font-semibold text-slate-600">Revenue Collected This Month</span>
-          {/* Panel, 29 May 2026 (Förster): "Only confirmed & completed bookings
-              should count as part of revenue — collectables/payables must not
-              yet be included."
-
-              Applied literally, as asked. The headline counts verified
-              payments on Confirmed and Completed bookings only, anchored on
-              pay_datetime — so nothing owed can reach it (an unpaid balance
-              has no payment row) and nothing on a booking still awaiting
-              confirmation can either.
-
-              The money that filter excludes is shown beneath rather than
-              dropped, because a figure a manager cannot find is worse than one
-              they disagree with. What used to make this filter unsafe — cash
-              stranded on an Approved booking nobody had confirmed — is handled
-              at source: verifying a payment now offers the Confirm Event
-              dialog immediately (utils/confirmBooking.js). */}
-          <span className="text-[12.5px] text-slate-400 mt-1">Collected on confirmed &amp; completed bookings</span>
-          {/* Cash taken on a booking that was later cancelled is real money but
-              not live business, so getPaymentsReceived splits it out and the
-              headline above excludes it. It was being computed and then thrown
-              away — and it is precisely the deduction the panel asked to be
-              able to see. Shown only when there is some, so a clean month stays
-              clean. */}
-          {stats.awaitingConfirmationThisMonth > 0 && (
-            <span className="text-[12.5px] text-slate-500 mt-1">
-              + ₱{stats.awaitingConfirmationThisMonth.toLocaleString()} collected on bookings not yet confirmed
-            </span>
-          )}
-          {stats.retainedThisMonth > 0 && (
-            <span className="text-[12.5px] text-amber-700 mt-1">
-              + ₱{stats.retainedThisMonth.toLocaleString()} retained from cancelled bookings
-            </span>
-          )}
+          <span className="text-[15px] font-semibold text-slate-600">Cash Receipts</span>
+          <span className="text-[12.5px] text-slate-400 mt-1">
+            Collected during {thisMonthName()} · by payment date
+          </span>
+          <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">
+            What is in this figure? <ChevronRight size={13} />
+          </span>
         </button>
       </div>
 
@@ -1179,6 +1183,32 @@ export default function Dashboard() {
                 <X size={18} />
               </button>
             </div>
+
+            {/* What the number is, next to the rows that make it up. The card
+                itself carries no second figure, so this is where the money the
+                headline leaves out is accounted for — nothing is hidden, it is
+                just not in the headline. */}
+            {statsModalType === 'revenue' && (
+              <div className="px-6 py-4 border-b border-slate-200 bg-[#fbfcfd] shrink-0">
+                <p className="text-[13px] text-slate-700">
+                  <span className="font-semibold">Cash Receipts</span> is money actually collected this month, counted on the day it moved.
+                  It is the same figure, by the same rule, as the Cash Receipts card on Receivables and on Reports.
+                </p>
+                <div className="grid gap-x-6 gap-y-1.5 mt-3 sm:grid-cols-2 text-[12.5px] text-slate-600">
+                  <p><span className="font-semibold text-slate-700">Counted:</span> verified receipts — {stats.receiptCount} this month.</p>
+                  <p><span className="font-semibold text-slate-700">Not counted:</span> claims still awaiting verification, reversed receipts, and the reversals themselves.</p>
+                  <p><span className="font-semibold text-slate-700">Of that, revenue:</span> ₱{stats.revenueThisMonth.toLocaleString()} on confirmed &amp; completed bookings.</p>
+                  <p><span className="font-semibold text-slate-700">Refunds paid out:</span> ₱{stats.refundsIssued.toLocaleString()} — money going back, not netted off above.</p>
+                  {stats.reversalsRecorded > 0 && (
+                    <p><span className="font-semibold text-slate-700">Corrections:</span> ₱{stats.reversalsRecorded.toLocaleString()} reversed — receipts recorded in error.</p>
+                  )}
+                  {stats.forfeitedDeposits > 0 && (
+                    <p><span className="font-semibold text-slate-700">Retained from cancellations:</span> ₱{stats.forfeitedDeposits.toLocaleString()} kept on bookings that did not happen.</p>
+                  )}
+                  <p><span className="font-semibold text-slate-700">Still to collect:</span> ₱{stats.outstandingReceivable.toLocaleString()} on services this month — see Receivables.</p>
+                </div>
+              </div>
+            )}
 
             {statsModalData.length > 0 && (
               <div className={`px-6 py-3 border-b space-y-2 shrink-0 ${activeStatsFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-200'}`}>
