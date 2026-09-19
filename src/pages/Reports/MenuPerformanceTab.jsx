@@ -336,18 +336,14 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
 
       {/* This tab reads the same population the renamed cards do:
           packageBookings and shortOrderBookings both derive from
-          activeBookingsInRange, which filters out CANCELLED_STATUSES and
-          nothing else — so a booking awaiting approval is counted here exactly
-          as it is there.
-
-          The note used to state only what was EXCLUDED, which let a reader
-          assume the rest were accepted work. They are not: at the time of
-          writing two pending packages and one pending short order sit in these
-          figures. Saying so is the same disclosure the Financial tab's chart
-          caption makes, in the same words, because it is the same rule. */}
+          acceptedBookingsInRange, which now excludes Pending as well as
+          Rejected and Cancelled — so these figures are accepted work only,
+          exactly like every money figure on the Financial tab. A pending
+          request is a lead: counting it inflated both product popularity and
+          the revenue attributed to a package. */}
       <p className={`text-xs text-slate-500 rounded-xl border p-4 ${cardColorClasses('green')}`}>
         Revenue here is estimated gross revenue — what each booking is worth in total, whether or not it has been
-        paid. Rejected and cancelled bookings are excluded, and bookings not yet approved ARE included, the same
+        paid. Accepted work only: rejected, cancelled and not-yet-approved bookings are all excluded, the same
         basis the Financial tab uses. Every share column is measured against its own product line's total, which
         is why each one adds up to 100%.
       </p>

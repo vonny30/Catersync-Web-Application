@@ -75,7 +75,7 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
           is worth and what is still owed on it. */}
       <section>
         <h2 className={SECTION_HEAD}>Work scheduled {forPeriod(period)}</h2>
-        <p className={SECTION_SUB}>What this month's catering is worth, and how much of it is still to collect.</p>
+        <p className={SECTION_SUB}>What the scheduled catering is worth {forPeriod(period)}, and how much of it is still to collect.</p>
         <div className={ROW_GRID}>
           {/* Contracted work only — Confirmed and Completed. A Pending request
               is not revenue, and it is not folded in under any label. */}
@@ -127,7 +127,7 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
       {/* SECTION 2 — anchored on the PAYMENT date: cash that actually moved. */}
       <section>
         <h2 className={SECTION_HEAD}>Money that moved {inPeriod(period)}</h2>
-        <p className={SECTION_SUB}>Cash in and out during this month, whatever month the catering happens.</p>
+        <p className={SECTION_SUB}>Cash in and out {duringPeriod(period)}, whatever month the catering happens.</p>
         <div className={ROW_GRID}>
           {/* The same figure, by the same definition, as Cash Receipts on the
               Receivables page. Both read f_report_period / v_payment_ledger. */}
@@ -138,7 +138,7 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
             color="teal"
             hint={(
               <InfoHint label="What Cash Receipts includes">
-                Includes deposits collected this month for events happening later, which is why this can be larger than the month&#39;s revenue.
+                Includes deposits collected {duringPeriod(period)} for events happening later, which is why this can be larger than the revenue for the same period.
               </InfoHint>
             )}
             onClick={() => onOpenDetail({

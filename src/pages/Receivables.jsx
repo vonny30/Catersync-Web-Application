@@ -29,7 +29,7 @@ import Select from '../components/Select';
 import ReceiptFields from '../components/ReceiptFields';
 import InfoHint from '../components/InfoHint';
 import DateRangeFilter from './Reports/DateRangeFilter';
-import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, formatDate, periodLabel } from './Reports/helpers';
+import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, formatDate, periodLabel, duringPeriod } from './Reports/helpers';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
@@ -831,7 +831,7 @@ export default function Receivables() {
         </button>
         <span className="absolute top-[18px] right-[14px]">
           <InfoHint label="What Cash Receipts includes">
-            Includes deposits collected this month for events happening later, which is why this can be larger than the month&#39;s revenue.
+            Includes deposits collected {duringPeriod(period)} for events happening later, which is why this can be larger than the revenue for the same period.
           </InfoHint>
         </span>
         </div>

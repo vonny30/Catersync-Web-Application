@@ -8,6 +8,8 @@ import { ExternalLink, Search } from 'lucide-react';
 import { formatCurrency, formatDate, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './helpers';
 import DateRangeFilter from './DateRangeFilter';
 
+const HEAD_CLASS = 'px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap';
+
 export default function DetailModal({ detailModal, onClose }) {
   const navigate = useNavigate();
 
@@ -75,7 +77,9 @@ export default function DetailModal({ detailModal, onClose }) {
           <div>
             <h2 className="text-lg font-bold text-slate-900">{detailModal.title}</h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              {'Excludes Rejected and Cancelled bookings • '}
+              {detailModal.type === 'forfeited'
+                ? 'Cancelled and rejected bookings that kept money • '
+                : 'Accepted work only • '}
               {filteredData.length} of {detailModal.data.length} booking{detailModal.data.length === 1 ? '' : 's'} shown
             </p>
           </div>
@@ -297,9 +301,105 @@ export default function DetailModal({ detailModal, onClose }) {
                 </table>
               )}
 
+              {/* Approved, not yet confirmed: the sales pipeline. A manager
+                  opens this to see whose confirmation to chase, so the balance
+                  due matters as much as the contract amount. */}
+              {detailModal.type === 'approved' && (
+                <table className="w-full text-left border-separate border-spacing-0 bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
+                      <th className={HEAD_CLASS}>Reference</th>
+                      <th className={HEAD_CLASS}>Customer</th>
+                      <th className={HEAD_CLASS}>Type</th>
+                      <th className={HEAD_CLASS}>Event Date</th>
+                      <th className={`${HEAD_CLASS} text-right`}>Contract Amount</th>
+                      <th className={`${HEAD_CLASS} text-right`}>Collected</th>
+                      <th className={`${HEAD_CLASS} text-right`}>Balance Due</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                    {filteredData.map((item) => (
+                      <tr key={item.id} className="hover:bg-slate-50">
+                        <td className="px-5 py-[15px]">
+                          <button
+                            onClick={() => goToBookingDetails(item.id, item.type)}
+                            className="font-mono text-xs font-bold text-[#008A45] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                            title="View full booking details"
+                          >
+                            {item.bookingRef} <ExternalLink size={10} />
+                          </button>
+                        </td>
+                        <td className="px-5 py-[15px] font-medium text-slate-900">{item.customer}</td>
+                        <td className="px-5 py-[15px] whitespace-nowrap">
+                          <span className={`inline-block whitespace-nowrap px-2 py-0.5 rounded-full text-xs font-medium ${item.type === 'Short Order' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
+                            {item.type === 'Short Order' ? 'Short Order' : 'Package'}
+                          </span>
+                        </td>
+                        <td className="px-5 py-[15px] text-slate-600">{formatDate(item.eventDate)}</td>
+                        <td className="px-5 py-[15px] text-right font-bold text-slate-900">{formatCurrency(item.total)}</td>
+                        <td className="px-5 py-[15px] text-right text-emerald-600">{formatCurrency(item.paid)}</td>
+                        <td className="px-5 py-[15px] text-right font-bold text-amber-700">{formatCurrency(item.outstanding)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
+              {/* Forfeited deposits: money the business kept when a booking
+                  fell through. It is realised income, so it is audited exactly
+                  like a receipt — every row, by booking, with what was kept. */}
+              {detailModal.type === 'forfeited' && (
+                <table className="w-full text-left border-separate border-spacing-0 bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
+                      <th className={HEAD_CLASS}>Reference</th>
+                      <th className={HEAD_CLASS}>Customer</th>
+                      <th className={HEAD_CLASS}>Type</th>
+                      <th className={HEAD_CLASS}>Event Date</th>
+                      <th className={`${HEAD_CLASS} text-right`}>Contract Amount</th>
+                      <th className={`${HEAD_CLASS} text-right`}>Retained</th>
+                      <th className={`${HEAD_CLASS} text-right`}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                    {filteredData.map((item) => (
+                      <tr key={item.id} className="hover:bg-slate-50">
+                        <td className="px-5 py-[15px]">
+                          <button
+                            onClick={() => goToBookingDetails(item.id, item.type)}
+                            className="font-mono text-xs font-bold text-[#008A45] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                            title="View full booking details"
+                          >
+                            {item.bookingRef} <ExternalLink size={10} />
+                          </button>
+                        </td>
+                        <td className="px-5 py-[15px] font-medium text-slate-900">{item.customer}</td>
+                        <td className="px-5 py-[15px] whitespace-nowrap">
+                          <span className={`inline-block whitespace-nowrap px-2 py-0.5 rounded-full text-xs font-medium ${item.type === 'Short Order' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
+                            {item.type === 'Short Order' ? 'Short Order' : 'Package'}
+                          </span>
+                        </td>
+                        <td className="px-5 py-[15px] text-slate-600">{formatDate(item.eventDate)}</td>
+                        <td className="px-5 py-[15px] text-right text-slate-600">{formatCurrency(item.total)}</td>
+                        <td className="px-5 py-[15px] text-right font-bold text-slate-900">{formatCurrency(item.paid)}</td>
+                        <td className="px-5 py-[15px] text-right">
+                          <span className="inline-block whitespace-nowrap px-2 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600">
+                            {item.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
               <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 mt-4">
                 <p className="text-sm text-blue-800">
-                  <strong>Note:</strong> This breakdown excludes all bookings with status "Rejected" or "Cancelled" to reflect only active and completed transactions.
+                  {detailModal.type === 'forfeited' ? (
+                    <><strong>Note:</strong> These bookings were cancelled or rejected. The amount retained is money already collected that was not refunded — realised income, kept out of Estimated Gross Revenue on purpose.</>
+                  ) : (
+                    <><strong>Note:</strong> This breakdown excludes bookings that were rejected, cancelled, or not yet approved — accepted work only.</>
+                  )}
                 </p>
               </div>
             </div>
@@ -326,7 +426,21 @@ export default function DetailModal({ detailModal, onClose }) {
               />
             </div>
           )}
-          {detailModal.type !== 'revenue' && detailModal.type !== 'outstanding' && <span />}
+          {detailModal.type === 'approved' && (
+            <ModalTotal
+              label="Total approved"
+              value={formatCurrency(filteredData.reduce((sum, item) => sum + item.total, 0))}
+              hint={`${filteredData.length} booking${filteredData.length === 1 ? '' : 's'} awaiting confirmation`}
+            />
+          )}
+          {detailModal.type === 'forfeited' && (
+            <ModalTotal
+              label="Total retained"
+              value={formatCurrency(filteredData.reduce((sum, item) => sum + item.paid, 0))}
+              hint={`${filteredData.length} cancelled booking${filteredData.length === 1 ? '' : 's'}`}
+            />
+          )}
+          {!['revenue', 'outstanding', 'approved', 'forfeited'].includes(detailModal.type) && <span />}
           <button
             onClick={onClose}
             className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"

@@ -19,6 +19,10 @@ import BookingSummaryTab from './BookingSummaryTab';
 const TABS = ['Overview', 'Financial', 'Menu & Packages', 'Booking Summary'];
 
 const CANCELLED_STATUSES = ['Rejected', 'Cancelled'];
+// Work nobody has agreed to. A Pending request is a lead, not a sale: it is in
+// no revenue figure on the Financial tab, and it must not inflate product
+// popularity or projected revenue on Menu & Packages either.
+const UNACCEPTED_STATUSES = [...CANCELLED_STATUSES, 'Pending'];
 
 // Group-by-month helpers. The KEY is numeric and locale-independent so it
 // can be sorted arithmetically; the LABEL is for display only and is never
@@ -176,7 +180,10 @@ export default function Reports() {
     const countedInRange = countedEntries.filter(p => !rangeStart && !rangeEnd ? true : isWithinRange(p.pay_datetime, rangeStart, rangeEnd));
     const entriesInRange = payments.filter(p => !rangeStart && !rangeEnd ? true : isWithinRange(p.pay_datetime, rangeStart, rangeEnd));
 
-    const activeBookingsInRange = bookingsInEventRange.filter(b => !CANCELLED_STATUSES.includes(b.booking_status));
+    // Accepted work only — Approved, Confirmed, Completed. This list feeds the
+    // product mix and the customer panels; excluding Pending keeps both on the
+    // same revenue-recognition basis as every money figure on this page.
+    const acceptedBookingsInRange = bookingsInEventRange.filter(b => !UNACCEPTED_STATUSES.includes(b.booking_status));
 
     // --- FINANCIAL ---
     //
@@ -262,8 +269,8 @@ export default function Reports() {
     // So each set is measured against its OWN total. Every share column below
     // adds up to 100%, which is what makes a percentage here worth reading.
     // ============================================================
-    const packageBookings = activeBookingsInRange.filter(b => b.booking_type === 'Package' && b.package_id);
-    const shortOrderBookings = activeBookingsInRange.filter(b => b.booking_type === 'Short Order');
+    const packageBookings = acceptedBookingsInRange.filter(b => b.booking_type === 'Package' && b.package_id);
+    const shortOrderBookings = acceptedBookingsInRange.filter(b => b.booking_type === 'Short Order');
 
     const sumTotalAmount = rows => rows.reduce((sum, b) => sum + (b.total_amount || 0), 0);
     const packageRevenue = sumTotalAmount(packageBookings);
@@ -439,7 +446,7 @@ export default function Reports() {
     // --- VEHICLES ---
     // --- CUSTOMER INSIGHTS ---
     const customerMap = {};
-    activeBookingsInRange.forEach(b => {
+    acceptedBookingsInRange.forEach(b => {
       if (!b.customer_id) return;
       const name = b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
       if (!customerMap[b.customer_id]) {
@@ -494,7 +501,7 @@ export default function Reports() {
     // Pending request is not revenue. Paid uses counted entries for the same
     // reason the cards do.
     const monthlyFinancialTrend = buildMonthlyFinancialTrend(
-      bookings, countedEntries, new Date(), { excludeStatuses: [...CANCELLED_STATUSES, 'Pending'] }
+      bookings, countedEntries, new Date(), { excludeStatuses: UNACCEPTED_STATUSES }
     );
 
     return {

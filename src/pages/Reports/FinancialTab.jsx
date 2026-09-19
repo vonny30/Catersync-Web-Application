@@ -35,7 +35,7 @@ export default function FinancialTab({ derived, period, onCardClick, onOpenDetai
           same idea: service-date figures first, then the cash that moved. */}
       <section className="bg-white border border-slate-200/70 rounded-2xl p-6 mb-5">
         <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Work scheduled {forPeriod(period)}</h2>
-        <p className="text-[13px] text-slate-600 mt-0.5 mb-5">What this month&#39;s catering is worth, and how much of it is still to collect.</p>
+        <p className="text-[13px] text-slate-600 mt-0.5 mb-5">What the scheduled catering is worth {forPeriod(period)}, and how much of it is still to collect.</p>
         <div className="flex flex-wrap gap-8">
           <button onClick={() => onCardClick('revenue')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
             <span className="block text-[13px] text-slate-600 mb-1.5">Estimated Gross Revenue</span>
@@ -95,13 +95,13 @@ export default function FinancialTab({ derived, period, onCardClick, onOpenDetai
 
       <section className="bg-white border border-slate-200/70 rounded-2xl p-6 mb-[18px]">
         <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Money that moved {inPeriod(period)}</h2>
-        <p className="text-[13px] text-slate-600 mt-0.5 mb-5">Cash in and out during this month, whatever month the catering happens.</p>
+        <p className="text-[13px] text-slate-600 mt-0.5 mb-5">Cash in and out {duringPeriod(period)}, whatever month the catering happens.</p>
         <div className="flex flex-wrap gap-10">
           <div>
             <span className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-600 mb-2.5">
               Cash Receipts
               <InfoHint label="What Cash Receipts includes" align="left">
-                Includes deposits collected this month for events happening later, which is why this can be larger than the month&#39;s revenue.
+                Includes deposits collected {duringPeriod(period)} for events happening later, which is why this can be larger than the revenue for the same period.
               </InfoHint>
             </span>
             <span className="block text-[38px] font-semibold tracking-[-0.035em] leading-none tabular-nums text-slate-900">

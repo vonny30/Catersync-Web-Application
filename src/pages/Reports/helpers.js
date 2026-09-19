@@ -50,10 +50,12 @@ export const DEFAULT_DATE_PRESET = 'This Month';
 // The selected period, named, for a card subtext: "September", "2026",
 // "the last 30 days", "all time", "1–15 September".
 //
-// A card subtext on Reports and Receivables may not contain a digit that is
-// money or a count, and may not say "events" — the panel's rule. A month name
-// is not a number, so naming the period is how a card says WHEN without
-// putting a second figure under the first.
+// THE RULE, as amended: a card subtext may not contain a digit that is
+// CURRENCY or an ENTITY COUNT, and may not say "events". Digits that are dates
+// or periods are fine — "2026", "the last 30 days", "1–15 September" are how
+// financial reporting states a period, and hiding them only makes the card
+// vague. What the rule stops is a second money figure or a row count sitting
+// under the first number, which is what invites a reader to reconcile them.
 // "for September" / "during September" / "in September" — and, when the range
 // is unbounded, just "all time". Without these, a subtext reads "Collected
 // during all time".
@@ -214,9 +216,11 @@ export const monthLabel = (date) => date.toLocaleString('default', { month: 'sho
  * replaced rendered under the default "This Month" preset. The window is the
  * last six months plus anything already scheduled ahead.
  *
- * Pending bookings are INCLUDED, which keeps it consistent with the Estimated
- * Gross Revenue card, and is what makes "estimated" the honest word: a pending
- * request may never convert.
+ * Pending bookings are EXCLUDED by the caller (excludeStatuses), which keeps
+ * this consistent with the Estimated Gross Revenue card and with every other
+ * money figure on the page: a request nobody has agreed to is a lead, not a
+ * sale. "Estimated" still earns its name — an accepted booking's total can
+ * change before the event.
  *
  * Pure — `now` is a parameter, so this is testable and never reads the clock.
  */
