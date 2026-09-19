@@ -484,6 +484,63 @@ function RejectClaimModal({ claim, onClose, onDone }) {
   );
 }
 
+// Where Total Receivables comes from: every agreed booking with an event in the
+// period and money still owed, one row each. The Owed column adds up to the
+// card. Rows come from v_booking_money exactly as the card does.
+function ReceivablesBreakdown({ bookings, period, total, onClose, onOpenBooking }) {
+  return (
+    <ModalShell
+      title="Total Receivables"
+      onClose={onClose}
+      maxWidth="max-w-4xl"
+      footer={<button type="button" onClick={onClose} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-5 py-2.5 rounded-lg border border-slate-300 transition-colors">Close</button>}
+    >
+      <p className="text-[13px] text-slate-600 mb-3">
+        {period}, by event date. Approved, Confirmed and Completed bookings only: a Pending request has no agreement yet, so nothing is owed on it.
+      </p>
+      {bookings.length === 0 ? (
+        <p className="text-sm text-slate-500 italic text-center py-6">Nothing is owed on events in this period.</p>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="bg-[#fbfcfd] border-b border-slate-100 text-[12px] font-bold uppercase tracking-[0.05em] text-slate-600">
+                <th className="px-3 py-2.5">Booking</th>
+                <th className="px-3 py-2.5">Event</th>
+                <th className="px-3 py-2.5">Status</th>
+                <th className="px-3 py-2.5 text-right">Total</th>
+                <th className="px-3 py-2.5 text-right">Received</th>
+                <th className="px-3 py-2.5 text-right">Owed</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-slate-700">
+              {bookings.map(b => (
+                <tr key={b.booking_id} onClick={() => onOpenBooking(b)} className="hover:bg-[#fbfcfd] cursor-pointer" title="Open the booking">
+                  <td className="px-3 py-2.5">
+                    <span className="font-semibold text-[#007038] inline-flex items-center gap-1">{bookingRef(b)} <ExternalLink size={11} /></span>
+                    <span className="block text-[12px] text-slate-500">{b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown customer'}</span>
+                  </td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">{b.event_datetime ? formatDate(b.event_datetime) : '—'}</td>
+                  <td className="px-3 py-2.5">{b.booking_status}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{peso(b.total_amount)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{peso(b.net_paid)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-amber-700">{peso(b.outstanding)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-slate-200 bg-[#fbfcfd] font-bold text-slate-900">
+                <td className="px-3 py-2.5" colSpan={5}>{bookings.length} booking{bookings.length === 1 ? '' : 's'}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">{peso(total)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </ModalShell>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // The ledger table
 // ---------------------------------------------------------------------------
@@ -607,6 +664,7 @@ export default function Receivables() {
   const [verifyTarget, setVerifyTarget] = useState(null);
   const [rejectTarget, setRejectTarget] = useState(null);
   const [proofUrl, setProofUrl] = useState(null);
+  const [showReceivablesBreakdown, setShowReceivablesBreakdown] = useState(false);
 
   useEffect(() => {
     let ignore = false;
@@ -661,9 +719,12 @@ export default function Receivables() {
     .filter(e => e.counts_in_ledger === true && Number(e.amount_paid) > 0 && inPeriod(e.pay_datetime))
     .reduce((sum, e) => sum + Number(e.amount_paid), 0);
   // Total Receivables: what is owed on agreed bookings, by event date.
-  const totalReceivables = money
-    .filter(b => b.is_receivable && inPeriod(b.event_datetime))
-    .reduce((sum, b) => sum + Number(b.outstanding || 0), 0);
+  const receivablesInPeriod = money.filter(b => b.is_receivable && inPeriod(b.event_datetime));
+  const totalReceivables = receivablesInPeriod.reduce((sum, b) => sum + Number(b.outstanding || 0), 0);
+  // The rows behind the card: only those still owing anything, largest first.
+  const owingInPeriod = receivablesInPeriod
+    .filter(b => Number(b.outstanding) > 0)
+    .sort((a, b) => Number(b.outstanding) - Number(a.outstanding));
 
   // --- Claims (not money) -----------------------------------------------------
   const claims = entries.filter(e => e.pay_status === PENDING_VERIFICATION && Number(e.amount_paid) > 0);
@@ -693,6 +754,23 @@ export default function Receivables() {
         && (stageFilter === 'All' || e.pay_status === stageFilter))
       .map(entry => ({ entry, reversal: reversalOf[entry.payment_id] || null }));
   }
+
+  // What the listed receipts add up to, counting only the ones that move the
+  // books — with no other filter set this is exactly the Cash Receipts card.
+  const listedCounted = !showClaims && tab === 'Receipts'
+    ? rows.filter(r => r.entry.counts_in_ledger === true)
+    : [];
+  const listedCountedTotal = listedCounted.reduce((sum, r) => sum + Number(r.entry.amount_paid), 0);
+  const listedReversed = !showClaims && tab === 'Receipts' ? rows.filter(r => r.entry.is_reversed).length : 0;
+
+  // Clicking Cash Receipts shows exactly its receipts: the Receipts tab, the
+  // same period, every other filter cleared.
+  const showCashReceipts = () => {
+    setShowClaims(false);
+    setTab('Receipts');
+    setSearch(''); setTypeFilter('All'); setMethodFilter('All'); setStageFilter('All');
+    document.getElementById('receivables-table')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const hasFilters = !!term || typeFilter !== 'All' || methodFilter !== 'All' || stageFilter !== 'All' || datePreset !== DEFAULT_DATE_PRESET;
   const clearFilters = () => {
@@ -745,20 +823,23 @@ export default function Receivables() {
 
       {/* THE TWO CARDS. Each states the question it answers. */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-        <div className="relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white p-5">
+        {/* Both open what they add up. */}
+        <button onClick={showCashReceipts} className="relative overflow-hidden flex flex-col justify-start text-left rounded-2xl border border-slate-200/70 bg-white p-5 transition-all cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]">
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Cash Receipts</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(cashReceipts) : '—'}</h3>
           <p className="text-[13px] text-slate-600 mt-2.5">{period}</p>
           <p className="text-[12px] text-slate-500 mt-0.5">By payment date</p>
-        </div>
-        <div className="relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white p-5">
+          <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show these receipts <ChevronRight size={13} /></span>
+        </button>
+        <button onClick={() => setShowReceivablesBreakdown(true)} className="relative overflow-hidden flex flex-col justify-start text-left rounded-2xl border border-slate-200/70 bg-white p-5 transition-all cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]">
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500" />
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Total Receivables</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(totalReceivables) : '—'}</h3>
           <p className="text-[13px] text-slate-600 mt-2.5">{period}</p>
           <p className="text-[12px] text-slate-500 mt-0.5">By event date</p>
-        </div>
+          <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show the bookings owing <ChevronRight size={13} /></span>
+        </button>
       </div>
 
       {/* CLAIMS — not money, so not a card. */}
@@ -772,7 +853,7 @@ export default function Receivables() {
             <span className="font-semibold">
               {claims.length} payment claim{claims.length === 1 ? ' is' : 's are'} awaiting your verification — {peso(claimsTotal)}.
             </span>{' '}
-            Until you verify them they are not receipts and are not counted anywhere.
+            Until you verify {claims.length === 1 ? 'it, it is not a receipt and is' : 'them, they are not receipts and are'} not counted anywhere.
             <span className="ml-1.5 inline-flex items-center font-semibold text-orange-700">{showClaims ? 'Back to receipts' : 'Review'} <ChevronRight size={14} /></span>
           </span>
         </button>
@@ -861,7 +942,7 @@ export default function Receivables() {
       </div>
 
       {/* TABLE */}
-      <div className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden">
+      <div id="receivables-table" className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden scroll-mt-4">
         <div className="px-5 py-4 border-b border-slate-100">
           <span className="font-bold text-base tracking-[-0.01em] text-slate-900">
             {showClaims ? 'Payment claims awaiting verification' : tab === 'Refunds' ? 'Refunds' : 'Receipts'}
@@ -889,6 +970,20 @@ export default function Receivables() {
             onReject={setRejectTarget}
           />
         )}
+        {loaded && !showClaims && tab === 'Receipts' && rows.length > 0 && (
+          <div className="px-5 py-3.5 border-t border-slate-100 bg-[#fbfcfd] flex flex-wrap justify-between gap-2 text-[13px] text-slate-600">
+            <span>
+              {listedCounted.length} receipt{listedCounted.length === 1 ? '' : 's'} counted
+              {listedReversed > 0 && ` · ${listedReversed} reversed, not counted`}
+            </span>
+            <span className="font-semibold text-slate-900 tabular-nums">
+              {peso(listedCountedTotal)}
+              {!term && typeFilter === 'All' && methodFilter === 'All' && stageFilter === 'All'
+                ? <span className="font-normal text-slate-500"> — the Cash Receipts figure</span>
+                : <span className="font-normal text-slate-500"> — matching these filters</span>}
+            </span>
+          </div>
+        )}
       </div>
 
       {recordOpen && (
@@ -896,6 +991,15 @@ export default function Receivables() {
           receivables={receivableBookings}
           onClose={() => setRecordOpen(false)}
           onRecorded={(booking, paidAfter) => { setRecordOpen(false); refresh(); offerConfirmation(booking, paidAfter); }}
+        />
+      )}
+      {showReceivablesBreakdown && (
+        <ReceivablesBreakdown
+          bookings={owingInPeriod}
+          period={period}
+          total={totalReceivables}
+          onClose={() => setShowReceivablesBreakdown(false)}
+          onOpenBooking={(b) => navigate(bookingPath(b.booking_id, b.booking_type))}
         />
       )}
       {reverseTarget && (
