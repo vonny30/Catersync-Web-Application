@@ -51,7 +51,9 @@ Stored values, exact and case-sensitive:
 |---|---|
 | `booking.booking_status` | `Pending`, `Approved`, `Confirmed`, `Completed`, `Rejected`, `Cancelled` |
 | `booking.booking_type` | `Package`, `Short Order` |
-| `payment.pay_status` | `Downpayment`, `Fully Paid`, `Pending Verification`, `Proof Rejected` |
+| `payment.pay_status` | `Pending Verification`, `Proof Rejected`, `Deposit Collected`, `Partially Settled`, `Fully Settled`, `Refunded`, `Reversed` — **changed 19 Sep 2026**: `Downpayment` and `Fully Paid` are refused by a CHECK constraint |
+| `payment.entry_type` | `Receipt` (default), `Refund`, `Reversal` |
+| `payment.pay_method` | `Cash`, `GCash`, `Bank Transfer` — NOT NULL; there is no `Refund` method |
 | `vehicle.vehicle_status` | `Available`, `Maintenance`, `Unavailable` |
 | `vehicle_assign.assignment_status` | `Scheduled`, `Completed` |
 | `equipment.eqm_status` | `Available`, `Under Maintenance` |
@@ -66,7 +68,8 @@ copying it into the database:
 |---|---|
 | `assignment_status: 'Scheduled'` | **Assigned** before the event, **In Use** once it has started |
 | `assignment_status: 'Completed'` | **Returned** |
-| `pay_status: 'Fully Paid'` | **Fully Paid** — but the *tab key* in the web UI is still `Full Payment`; don't copy the key |
+| `pay_status: 'Deposit Collected'` / `'Partially Settled'` / `'Fully Settled'` | shown as stored. The stage a receipt reached **when it was recorded** — not whether the booking is paid off now; read `v_booking_money.is_fully_paid` / `outstanding` for that |
+| `entry_type: 'Reversal'` | **Reversal** — a correction that cancels the receipt in `reverses_payment_id`. Never a refund. Neither row counts: use `v_payment_ledger.counts_in_ledger` |
 | `vehicle_status: 'Maintenance'` | **Under Maintenance** |
 
 The mapping lives in `src/utils/statusLabels.js`. It takes a boolean and a
