@@ -49,24 +49,22 @@ export function underpaidMessage(paid, required) {
  * The dialog copy. Kept beside the rule so the warning cannot drift from the
  * behaviour it warns about.
  *
- * The equipment sentence is the reason this dialog must never be skipped to
- * save a click: confirming freezes equipment allocation, and a manager who
- * reached here from verifying a payment has had no other chance to be told.
+ * Never skipped to save a click: confirming locks the event in, and a manager
+ * who reached here from verifying a payment has had no other chance to decide.
  */
 export function buildConfirmDialog(booking, { paid, totalAmount, isFullyPaid }, { fromVerification = false } = {}) {
   const noun = booking.booking_type === 'Short Order' ? 'order' : 'booking';
-  const equipmentWarning = booking.booking_type !== 'Short Order'
-    ? ' Equipment assignments will also be locked — no more adding, editing, or removing equipment after this.'
-    : '';
+  // Equipment is NOT locked by confirmation any more (utils/resourceLock): it
+  // stays editable up to the event, so the dialog no longer warns that it is.
   // Said only on the chained path, where the manager did not choose to be here
   // and needs to know why a dialog appeared on its own.
   const lead = fromVerification
     ? `That payment is verified, so this ${noun} can now be confirmed. `
     : '';
-  const paidClause = isFullyPaid ? 'been paid in full' : 'a verified downpayment of at least 50%';
+  const paidClause = isFullyPaid ? 'been paid in full' : 'a verified deposit of at least 50%';
   return {
     title: 'Confirm This Event?',
-    message: `${lead}This ${noun} has ${paidClause} (₱${paid.toLocaleString()} of ₱${totalAmount.toLocaleString()}). Marking it Confirmed locks the event in — cancellation only becomes available after this point.${equipmentWarning} Continue?`,
+    message: `${lead}This ${noun} has ${paidClause} (₱${paid.toLocaleString()} of ₱${totalAmount.toLocaleString()}). Marking it Confirmed locks the event in — cancellation only becomes available after this point. Continue?`,
     confirmLabel: 'Yes, Confirm Event',
     // The chained path is offered rather than requested, so its dismissal is
     // "not now", not "cancel the thing I asked for".
