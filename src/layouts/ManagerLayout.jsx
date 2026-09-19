@@ -41,36 +41,30 @@ const styles = {
   contentWindow: 'flex-1 overflow-y-auto bg-transparent p-4 md:p-8',
 };
 
-// A heading names the area; each link names a view within it, so a link
-// never repeats its heading (the Dashboard is the Overview, under Main).
-// Main holds the two summary screens. Bookings holds the two kinds of order
-// plus the customers who place them and the payments made against them.
-// Resources holds what an event uses and the catalogue it is sold from. The
-// single source of truth for the nav: derive a flat list from it rather than
-// keeping a second one.
+// Two areas. Management is the running of the business: the summaries, the
+// customers, the two kinds of order, and the money owed and collected on them
+// (the Payments page, named Receivables here and in its heading). Inventory is
+// what gets sold and sent out: the catalogue, the equipment and the vehicles.
+// The single source of truth for the nav: derive a flat list from it rather
+// than keeping a second one.
 const NAV_GROUPS = [
   {
-    label: 'Main',
+    label: 'Management',
     links: [
       { name: 'Overview', path: '/app', icon: LayoutDashboard },
       { name: 'Reports', path: '/app/reports', icon: BarChart3 },
-    ],
-  },
-  {
-    label: 'Bookings',
-    links: [
+      { name: 'Customers', path: '/app/customers', icon: Users },
       { name: 'Events', path: '/app/bookings', icon: CalendarDays },
       { name: 'Short Orders', path: '/app/orders', icon: ShoppingBag },
-      { name: 'Customers', path: '/app/customers', icon: Users },
-      { name: 'Payments', path: '/app/payments', icon: CreditCard },
+      { name: 'Receivables', path: '/app/payments', icon: CreditCard },
     ],
   },
   {
-    label: 'Resources',
+    label: 'Inventory',
     links: [
+      { name: 'Packages & Menus', path: '/app/packages-menu', icon: MenuIcon },
       { name: 'Equipment', path: '/app/equipment', icon: Wrench },
       { name: 'Vehicles', path: '/app/vehicles', icon: Truck },
-      { name: 'Packages & Menus', path: '/app/packages-menu', icon: MenuIcon },
     ],
   },
 ];

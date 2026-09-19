@@ -186,7 +186,7 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
           setIsCancelModalOpen(false);
           fetchData();
           toast.error(
-            `The ${noun} was cancelled, but the ₱${refundAmountValue.toLocaleString()} refund could not be recorded. Record it from the Payments page — do not cancel again.`,
+            `The ${noun} was cancelled, but the ₱${refundAmountValue.toLocaleString()} refund could not be recorded. Record it from the Receivables page — do not cancel again.`,
             { duration: 10000 }
           );
           return;

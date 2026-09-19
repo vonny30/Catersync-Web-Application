@@ -1344,7 +1344,7 @@ export default function Payments() {
       {/* PAGE HEADER */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Payments</h1>
+          <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Receivables</h1>
           <p className="text-[14.5px] text-slate-600 mt-1.5">Track all booking and short order payments</p>
         </div>
         <div className="flex items-center gap-3">

@@ -193,7 +193,7 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
           console.error('Refund insert failed after rejection:', refundError);
           if (fetchData) fetchData();
           toast.error(
-            `The ${noun} was rejected, but the ₱${enteredAmount.toLocaleString()} refund could not be recorded. Record it from the Payments page — do not reject again.`,
+            `The ${noun} was rejected, but the ₱${enteredAmount.toLocaleString()} refund could not be recorded. Record it from the Receivables page — do not reject again.`,
             { duration: 10000 }
           );
           return;

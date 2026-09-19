@@ -652,7 +652,7 @@ export default function BookingDetails() {
       // payments already gone. "Failed to delete" would suggest nothing
       // happened, which is the one thing that cannot be true here.
       toast.error(
-        'Failed to delete this booking, and some of its records may already have been removed. Check it on the Payments page before trying again.',
+        'Failed to delete this booking, and some of its records may already have been removed. Check it on the Receivables page before trying again.',
         { duration: 10000 }
       );
     }
