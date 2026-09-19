@@ -223,11 +223,13 @@ export default function ManagerLayout() {
       <>
         {/* No space-y on <nav>: it would space the GROUPS and fight mt-5.
             Labels are slate-500 (about 4.8:1), not 400 (about 2.6:1): small
-            tracked uppercase needs more contrast than body text, not less. */}
+            tracked uppercase needs more contrast than body text, not less.
+            px-1 puts a heading at the left edge of the row pills, so the
+            links' icons sit 12px in from it and read as belonging to it. */}
         <nav className="p-3">
           {NAV_GROUPS.map((group, i) => (
             <div key={group.label} className={i === 0 ? '' : 'mt-5'}>
-              <span className="block px-4 mb-1.5 text-[10.5px] font-bold tracking-[0.11em] uppercase text-slate-500">
+              <span className="block px-1 mb-1.5 text-[10.5px] font-bold tracking-[0.11em] uppercase text-slate-500">
                 {group.label}
               </span>
               <div className="space-y-0.5">{group.links.map(renderLink)}</div>
