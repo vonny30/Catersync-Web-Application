@@ -577,7 +577,7 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
                               the balances above leave it out; say so rather
                               than print a figure nobody will collect. */}
                           {b.is_closed ? (
-                            <span className="text-slate-400" title="Rejected or cancelled — not owed, and not counted in Balance Due">—</span>
+                            <span className="text-slate-400" title="Rejected or cancelled — no balance due, and not counted in Balance Due">—</span>
                           ) : Number(b.outstanding) > 0 ? (
                             <span className="font-semibold text-amber-700">{peso(b.outstanding)}</span>
                           ) : (

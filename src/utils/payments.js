@@ -144,7 +144,7 @@ export const RECEIPT_METHODS = ['Cash', 'GCash', 'Bank Transfer'];
 export const methodNeedsReceiptNumber = (method) => method === 'Cash';
 export const CASH_RECEIPT_MESSAGE = 'Enter the number on the receipt you issued.';
 export const PROOF_IMAGE_MESSAGE = 'Please upload a proof of payment image.';
-export const REFUND_METHOD_MESSAGE = 'Choose how the refund was paid back.';
+export const REFUND_METHOD_MESSAGE = 'Choose the refund method.';
 
 /**
  * Every rule a new receipt must pass, in one place, for both receipt forms
@@ -163,11 +163,11 @@ export function validateReceipt({ amount, method, receiptReference, hasImage, pr
     return { ok: false, field: 'amount', message: 'This booking is already fully settled. No further receipts are allowed.' };
   }
   if (owed > 0 && value > remaining + 0.005) {
-    return { ok: false, field: 'amount', message: `Amount exceeds the remaining balance of ₱${remaining.toLocaleString()}.` };
+    return { ok: false, field: 'amount', message: `Amount exceeds the balance due of ₱${remaining.toLocaleString()}.` };
   }
   // The deposit that secures a booking: at least half, on the first receipt.
   if (prior <= 0 && owed > 0 && value < owed * 0.5 - 0.005) {
-    return { ok: false, field: 'amount', message: `The first receipt must be at least 50% of the total (₱${(owed * 0.5).toLocaleString()}).` };
+    return { ok: false, field: 'amount', message: `The deposit must be at least 50% of the contract amount (₱${(owed * 0.5).toLocaleString()}).` };
   }
   if (methodNeedsReceiptNumber(method)) {
     if (!String(receiptReference || '').trim()) return { ok: false, field: 'receipt', message: CASH_RECEIPT_MESSAGE };

@@ -33,7 +33,7 @@ export function useCompletionHandlers({ booking, payments, fetchData, noun = 'bo
     if (!booking) return;
 
     if (!isFullyPaid) {
-      toast.error(`Can't mark this ${noun} as completed — ₱${remainingBalance.toLocaleString()} is still owed. Full payment is required first.`);
+      toast.error(`Can't mark this ${noun} as completed — a balance of ₱${remainingBalance.toLocaleString()} is still due. The account must be fully settled first.`);
       return;
     }
 

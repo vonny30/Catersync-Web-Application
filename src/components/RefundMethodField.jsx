@@ -10,7 +10,7 @@ export default function RefundMethodField({ value, onChange, error = '', disable
   return (
     <div>
       <span className="block text-xs font-bold text-slate-700 mb-1.5">
-        Refunded by<span className="text-red-500 ml-1">*</span>
+        Refund Method<span className="text-red-500 ml-1">*</span>
       </span>
       <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Refund method">
         {RECEIPT_METHODS.map((m) => (

@@ -1755,7 +1755,7 @@ export default function BookingDetails() {
               onClick={handleMarkCompleted}
               disabled={isCompleting}
               className={isCompletionFullyPaid ? 'bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50' : 'bg-white border border-slate-300 text-slate-500 font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 hover:bg-slate-50 transition-colors'}
-              title={isCompletionFullyPaid ? undefined : `Locked — ₱${completionRemainingBalance.toLocaleString()} still owed`}
+              title={isCompletionFullyPaid ? undefined : `Locked — ₱${completionRemainingBalance.toLocaleString()} balance due`}
             >
               {isCompletionFullyPaid ? <Check size={18} /> : <Lock size={18} />} {isCompleting ? 'Completing...' : 'Mark Completed'}
             </button>
@@ -2756,19 +2756,19 @@ export default function BookingDetails() {
                   <span className="text-slate-900 font-semibold">
                     {booking.event_datetime ? new Date(booking.event_datetime).toLocaleString() : 'N/A'}
                   </span>
-                  <span className="text-slate-600 font-medium">Total Amount:</span>
+                  <span className="text-slate-600 font-medium">Contract Amount:</span>
                   <span className="text-slate-900 font-bold text-[#008A45]">
                     ₱{booking.total_amount?.toLocaleString() || '0'}
                   </span>
-                  <span className="text-slate-600 font-medium">Paid:</span>
+                  <span className="text-slate-600 font-medium">Collected:</span>
                   <span className="text-slate-900 font-semibold">₱{positivePayments.toLocaleString()}</span>
-                  <span className="text-slate-600 font-medium">Remaining:</span>
+                  <span className="text-slate-600 font-medium">Balance Due:</span>
                   <span className={`font-semibold ${remainingBalance <= 0 ? 'text-green-700' : 'text-amber-700'}`}>
                     ₱{remainingBalance.toLocaleString()}
                   </span>
                   <span className="text-slate-600 font-medium">Status:</span>
                   <span className="text-slate-900 font-semibold capitalize">{booking.booking_status || 'N/A'}</span>
-                  <span className="text-slate-600 font-medium">First Receipt?</span>
+                  <span className="text-slate-600 font-medium">Deposit?</span>
                   <span className="text-slate-900 font-semibold">{positivePayments === 0 ? '✅ Yes' : 'No'}</span>
                 </div>
               </div>

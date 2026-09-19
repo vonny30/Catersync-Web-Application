@@ -304,7 +304,7 @@ function RecordReceiptModal({ receivables, onClose, onRecorded }) {
               <div>
                 <p className="font-semibold text-slate-900">{bookingRef(booking)} · {booking.customer ? `${booking.customer.first_name} ${booking.customer.last_name}` : 'Unknown customer'}</p>
                 <p className="text-[12.5px] text-slate-600 mt-0.5 tabular-nums">
-                  {booking.booking_type} · {booking.booking_status} · total {peso(booking.total_amount)} · received {peso(booking.verified_paid)} · owed {peso(booking.outstanding)}
+                  {booking.booking_type} · {booking.booking_status} · contract amount {peso(booking.total_amount)} · collected {peso(booking.verified_paid)} · balance due {peso(booking.outstanding)}
                 </p>
               </div>
               <button type="button" onClick={() => setBookingId('')} className="text-[12.5px] font-semibold text-slate-600 hover:text-slate-900 shrink-0">Change</button>
@@ -328,11 +328,11 @@ function RecordReceiptModal({ receivables, onClose, onRecorded }) {
                   <button key={b.booking_id} type="button" onClick={() => setBookingId(b.booking_id)} className="w-full text-left px-3 py-2.5 hover:bg-slate-50 text-sm">
                     <span className="font-semibold text-slate-900">{bookingRef(b)}</span>
                     <span className="text-slate-600"> · {b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown customer'}</span>
-                    <span className="block text-[12px] text-slate-500 tabular-nums">{b.booking_status} · owed {peso(b.outstanding)} of {peso(b.total_amount)}</span>
+                    <span className="block text-[12px] text-slate-500 tabular-nums">{b.booking_status} · balance due {peso(b.outstanding)} of {peso(b.total_amount)}</span>
                   </button>
                 ))}
               </div>
-              <p className="text-[12px] text-slate-500 mt-1">Approved, Confirmed and Completed bookings with a balance. A Pending request has no agreement yet, so nothing is owed on it.</p>
+              <p className="text-[12px] text-slate-500 mt-1">Approved, Confirmed and Completed bookings with a balance due. A Pending request has no agreement yet, so no receivable exists yet.</p>
             </>
           )}
         </div>
@@ -371,7 +371,7 @@ function VerifyClaimModal({ claim, bookingMoney, onClose, onVerified }) {
     if (total > 0 && amount > remaining + 0.005) {
       const proceed = await showConfirm({
         title: 'Verifying This Overpays the Booking',
-        message: `This claim (${peso(amount)}) is ${peso(amount - remaining)} more than the ${peso(remaining)} still owed on this booking. Verify anyway?`,
+        message: `This claim (${peso(amount)}) is ${peso(amount - remaining)} more than the ${peso(remaining)} balance due on this booking. Verify anyway?`,
         confirmLabel: 'Yes, Verify Anyway',
         confirmVariant: 'warning',
       });
@@ -425,7 +425,7 @@ function VerifyClaimModal({ claim, bookingMoney, onClose, onVerified }) {
         </p>
         {proofUrl && <img src={proofUrl} alt="Submitted proof" className="max-h-64 rounded-lg border border-slate-200 mx-auto" />}
         <div>
-          <span className="block text-xs font-bold text-slate-700 mb-1.5">Paid by</span>
+          <span className="block text-xs font-bold text-slate-700 mb-1.5">Payment Method</span>
           <div className="grid grid-cols-3 gap-2">
             {RECEIPT_METHODS.map(m => (
               <button key={m} type="button" onClick={() => setMethod(m)} className={`px-2.5 py-2 rounded-lg border text-[13px] font-semibold ${method === m ? 'bg-[#CBDEDD]/60 border-[#008A45] text-slate-900' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}>{m}</button>
@@ -496,10 +496,10 @@ function ReceivablesBreakdown({ bookings, period, total, onClose, onOpenBooking 
       footer={<button type="button" onClick={onClose} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-5 py-2.5 rounded-lg border border-slate-300 transition-colors">Close</button>}
     >
       <p className="text-[13px] text-slate-600 mb-3">
-        {period}, by event date. Approved, Confirmed and Completed bookings only: a Pending request has no agreement yet, so nothing is owed on it.
+        {period}, by event date. Approved, Confirmed and Completed bookings only: a Pending request has no agreement yet, so no receivable exists yet.
       </p>
       {bookings.length === 0 ? (
-        <p className="text-sm text-slate-500 italic text-center py-6">Nothing is owed on events in this period.</p>
+        <p className="text-sm text-slate-500 italic text-center py-6">No balances due on events in this period.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
           <table className="w-full text-left text-sm">
@@ -508,9 +508,9 @@ function ReceivablesBreakdown({ bookings, period, total, onClose, onOpenBooking 
                 <th className="px-3 py-2.5">Booking</th>
                 <th className="px-3 py-2.5">Event</th>
                 <th className="px-3 py-2.5">Status</th>
-                <th className="px-3 py-2.5 text-right">Total</th>
-                <th className="px-3 py-2.5 text-right">Received</th>
-                <th className="px-3 py-2.5 text-right">Owed</th>
+                <th className="px-3 py-2.5 text-right">Contract Amount</th>
+                <th className="px-3 py-2.5 text-right">Collected</th>
+                <th className="px-3 py-2.5 text-right">Balance Due</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -838,7 +838,7 @@ export default function Receivables() {
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(totalReceivables) : '—'}</h3>
           <p className="text-[13px] text-slate-600 mt-2.5">{period}</p>
           <p className="text-[12px] text-slate-500 mt-0.5">By event date</p>
-          <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show the bookings owing <ChevronRight size={13} /></span>
+          <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show balances due <ChevronRight size={13} /></span>
         </button>
       </div>
 
@@ -973,14 +973,14 @@ export default function Receivables() {
         {loaded && !showClaims && tab === 'Receipts' && rows.length > 0 && (
           <div className="px-5 py-3.5 border-t border-slate-100 bg-[#fbfcfd] flex flex-wrap justify-between gap-2 text-[13px] text-slate-600">
             <span>
-              {listedCounted.length} receipt{listedCounted.length === 1 ? '' : 's'} counted
-              {listedReversed > 0 && ` · ${listedReversed} reversed, not counted`}
+              {listedCounted.length} receipt{listedCounted.length === 1 ? '' : 's'}
+              {listedReversed > 0 && ` · ${listedReversed} reversed (excluded)`}
             </span>
             <span className="font-semibold text-slate-900 tabular-nums">
               {peso(listedCountedTotal)}
               {!term && typeFilter === 'All' && methodFilter === 'All' && stageFilter === 'All'
-                ? <span className="font-normal text-slate-500"> — the Cash Receipts figure</span>
-                : <span className="font-normal text-slate-500"> — matching these filters</span>}
+                ? <span className="font-normal text-slate-500"> — agrees with Cash Receipts</span>
+                : <span className="font-normal text-slate-500"> — for the receipts shown</span>}
             </span>
           </div>
         )}

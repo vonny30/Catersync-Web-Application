@@ -61,8 +61,8 @@ export default function ReceiptFields({
         ) : owed > 0 ? (
           <p className="text-xs text-slate-600 mt-1">
             {isFirst
-              ? `First receipt: at least 50% of the total (₱${(owed * 0.5).toLocaleString()}), up to ₱${remaining.toLocaleString()}.`
-              : `Up to the remaining balance of ₱${remaining.toLocaleString()}.`}
+              ? `Deposit: at least 50% of the contract amount (₱${(owed * 0.5).toLocaleString()}), up to the balance due of ₱${remaining.toLocaleString()}.`
+              : `Up to the balance due of ₱${remaining.toLocaleString()}.`}
           </p>
         ) : null}
         {stage && !errors.amount && (
@@ -98,7 +98,7 @@ export default function ReceiptFields({
       {needsNumber && (
         <div>
           <label htmlFor="receipt-reference" className="block text-xs font-bold text-slate-700 mb-1">
-            Receipt number<span className="text-red-500 ml-1">*</span>
+            Receipt Number<span className="text-red-500 ml-1">*</span>
           </label>
           <input
             id="receipt-reference"

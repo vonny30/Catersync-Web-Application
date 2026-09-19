@@ -1035,7 +1035,7 @@ export default function ShortOrders() {
   const isFullyPaid = remainingBalance <= 0;
 
   if (!isFullyPaid) {
-    toast.error(`Can't mark this order as completed — ₱${remainingBalance.toLocaleString()} is still owed. Full payment is required first.`);
+    toast.error(`Can't mark this order as completed — a balance of ₱${remainingBalance.toLocaleString()} is still due. The account must be fully settled first.`);
     return;
   }
 
@@ -1546,7 +1546,7 @@ export default function ShortOrders() {
                         {order.booking_status}
                       </span>
                       {hasUnpaidPastEvent(order) && (
-                        <span className="px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap bg-red-50 text-red-700" title={`Event passed with ₱${cardOwed.toLocaleString()} still owed`}>
+                        <span className="px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap bg-red-50 text-red-700" title={`Event passed with ₱${cardOwed.toLocaleString()} balance due`}>
                           Past Due
                         </span>
                       )}
@@ -1577,7 +1577,7 @@ export default function ShortOrders() {
                     {order.booking_status === 'Confirmed' && (
                       <button
                         onClick={() => handleMarkCompleted(order.booking_id)}
-                        title={cardFullyPaid ? undefined : `Locked — ₱${cardOwed.toLocaleString()} still owed`}
+                        title={cardFullyPaid ? undefined : `Locked — ₱${cardOwed.toLocaleString()} balance due`}
                         className={`font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 border transition-colors ${cardFullyPaid ? 'bg-blue-50 hover:bg-blue-100 border-blue-100 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
                       >
                         {cardFullyPaid ? <Check size={13} /> : <Lock size={13} />} Complete
@@ -1728,7 +1728,7 @@ export default function ShortOrders() {
                             </span>
                           )}
                           {hasUnpaidPastEvent(order) && (
-                            <span className="px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap bg-red-50 text-red-700" title={`Event passed with ₱${orderOwed.toLocaleString()} still owed`}>
+                            <span className="px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap bg-red-50 text-red-700" title={`Event passed with ₱${orderOwed.toLocaleString()} balance due`}>
                               Past Due
                             </span>
                           )}
@@ -1776,7 +1776,7 @@ export default function ShortOrders() {
                             {order.booking_status === 'Confirmed' && (
                               <button
                                 onClick={() => handleMarkCompleted(order.booking_id)}
-                                title={orderFullyPaid ? 'Mark completed' : `Locked — ₱${orderOwed.toLocaleString()} still owed`}
+                                title={orderFullyPaid ? 'Mark completed' : `Locked — ₱${orderOwed.toLocaleString()} balance due`}
                                 className={`w-[30px] min-[1920px]:w-[106px] shrink-0 justify-center font-semibold text-[12.5px] px-0 min-[1920px]:px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 border transition-colors ${
                                   orderFullyPaid ? 'bg-blue-50 hover:bg-blue-100 border-blue-100 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'
                                 }`}
