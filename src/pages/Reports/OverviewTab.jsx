@@ -1,6 +1,20 @@
 // src/pages/Reports/OverviewTab.jsx
 //
-// Six cards, and the rule they all obey:
+// TWO SECTIONS, because the figures answer two different questions and a
+// reader who sees them in one block tries to add them up:
+//
+//   Work scheduled for {period}  — anchored on the SERVICE date: what this
+//                                  period's catering is worth, and what is
+//                                  still owed on it.
+//   Money that moved in {period} — anchored on the PAYMENT date: cash in and
+//                                  out, whatever month the catering happens.
+//
+// Cash Receipts can exceed a month's revenue, because a deposit taken now for
+// a November wedding belongs to the second and not the first. The sentence
+// between the sections says so outright, and the (i) on Cash Receipts repeats
+// it where a reader will look first.
+//
+// And the rule every card obeys:
 //
 //   A card shows ONE number. Its subtext says what that number is and names
 //   the period. The subtext never contains a second number.
@@ -14,24 +28,34 @@
 //
 // Every figure comes from f_report_period. Pending bookings are in none of
 // them: a request nobody has agreed to is not revenue.
-import { formatCurrency, formatPercent, cardColorClasses, cardAccentClass } from './helpers';
+import { formatCurrency, formatPercent, cardColorClasses, cardAccentClass, forPeriod, duringPeriod, inPeriod } from './helpers';
+import InfoHint from '../../components/InfoHint';
 
-function StatCard({ label, value, sub, color, onClick, count = false, secondary = false }) {
+// The hint sits OUTSIDE the card's button (a button inside a button is
+// invalid, and the click would go to the card), so the card is a positioned
+// wrapper with the button inside it.
+function StatCard({ label, value, sub, color, onClick, count = false, hint = null }) {
   return (
-    <button
-      onClick={onClick}
-      className={`border rounded-2xl text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 ${secondary ? 'p-4' : 'p-5'} ${cardColorClasses()}`}
-    >
-      <span className={cardAccentClass(color)} />
-      <p className={`font-semibold mb-2 ${secondary ? 'text-[12.5px] text-slate-500' : 'text-[13px] text-slate-600'}`}>{label}</p>
-      <h3 className={`font-semibold tracking-[-0.03em] tabular-nums ${secondary ? 'text-[20px] leading-none text-slate-700' : count ? 'text-[32px] leading-none text-slate-900' : 'text-[26px] leading-[1.05] text-slate-900'}`}>{value}</h3>
-      {sub && <p className={`mt-2.5 ${secondary ? 'text-[12.5px] text-slate-500' : 'text-[13px] text-slate-600'}`}>{sub}</p>}
-    </button>
+    <div className="relative">
+      <button
+        onClick={onClick}
+        className={`w-full border rounded-2xl p-5 text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 ${cardColorClasses()}`}
+      >
+        <span className={cardAccentClass(color)} />
+        <p className={`text-[13px] font-semibold text-slate-600 mb-2 ${hint ? 'pr-6' : ''}`}>{label}</p>
+        <h3 className={`font-semibold tracking-[-0.03em] tabular-nums text-slate-900 ${count ? 'text-[32px] leading-none' : 'text-[26px] leading-[1.05]'}`}>{value}</h3>
+        {sub && <p className="text-[13px] text-slate-600 mt-2.5">{sub}</p>}
+      </button>
+      {hint && <span className="absolute top-[18px] right-[14px]">{hint}</span>}
+    </div>
   );
 }
 
 const ROW_GRID = 'grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))]';
-const SECTION_HEAD = 'text-[13px] font-bold text-slate-600 tracking-[0.04em] mb-3';
+// Headings, not card labels: darker, larger, with the plain sentence under
+// them that says what the section answers.
+const SECTION_HEAD = 'text-[15px] font-bold tracking-[-0.01em] text-slate-900';
+const SECTION_SUB = 'text-[13px] text-slate-600 mt-0.5 mb-3.5';
 
 export default function OverviewTab({ derived, period, onCardClick, onOpenDetail }) {
   const {
@@ -46,26 +70,77 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
   const hasTopSellers = Boolean(topPackage || topItem);
 
   return (
-    <div className="space-y-[18px]">
+    <div className="space-y-8">
+      {/* SECTION 1 — anchored on the SERVICE date: what this period's catering
+          is worth and what is still owed on it. */}
       <section>
-        <h2 className={SECTION_HEAD}>The money that matters</h2>
+        <h2 className={SECTION_HEAD}>Work scheduled {forPeriod(period)}</h2>
+        <p className={SECTION_SUB}>What this month's catering is worth, and how much of it is still to collect.</p>
         <div className={ROW_GRID}>
           {/* Contracted work only — Confirmed and Completed. A Pending request
               is not revenue, and it is not folded in under any label. */}
           <StatCard
             label="Estimated Gross Revenue"
             value={formatCurrency(financialSummary.grossContracted)}
-            sub={`Contracted for ${period} · by service date`}
+            sub={`Contracted ${forPeriod(period)} · by service date`}
             color="green"
             onClick={() => onCardClick('revenue')}
           />
+          <StatCard
+            label="Approved, Not Yet Confirmed"
+            value={formatCurrency(financialSummary.grossApproved)}
+            sub={`Accepted, awaiting confirmation · ${forPeriod(period)}`}
+            color="blue"
+            onClick={() => onCardClick('approved')}
+          />
+          {/* One term, one number, both pages: Approved, Confirmed and
+              Completed, exactly as Receivables counts it. */}
+          <StatCard
+            label="Total Receivables"
+            value={formatCurrency(financialSummary.outstandingReceivable)}
+            sub={`Still to collect ${forPeriod(period)} · by service date`}
+            color="amber"
+            onClick={() => onCardClick('outstanding')}
+          />
+          {/* Belongs HERE, not with the cash figures: forfeited_deposits is
+              filtered on the cancelled booking's EVENT date, not on when the
+              deposit was taken. Under a cash-flow heading it would assert a
+              basis the number does not have. */}
+          <StatCard
+            label="Forfeited Deposits"
+            value={formatCurrency(financialSummary.forfeitedDeposits)}
+            sub={`Retained from cancellations · ${forPeriod(period)}`}
+            color="red"
+            onClick={() => onCardClick('forfeited')}
+          />
+        </div>
+      </section>
+
+      {/* The sentence that stops a reader adding the two blocks together. Cash
+          Receipts can exceed a month's revenue — a deposit taken now for a
+          November wedding is in one and not the other — and no tooltip fixes
+          that as well as saying it in the open. */}
+      <p className="text-[13px] text-slate-600 border-l-2 border-slate-200 pl-3.5">
+        These two sections answer different questions. Their totals are not meant to add up.
+      </p>
+
+      {/* SECTION 2 — anchored on the PAYMENT date: cash that actually moved. */}
+      <section>
+        <h2 className={SECTION_HEAD}>Money that moved {inPeriod(period)}</h2>
+        <p className={SECTION_SUB}>Cash in and out during this month, whatever month the catering happens.</p>
+        <div className={ROW_GRID}>
           {/* The same figure, by the same definition, as Cash Receipts on the
               Receivables page. Both read f_report_period / v_payment_ledger. */}
           <StatCard
             label="Cash Receipts"
             value={formatCurrency(financialSummary.cashReceipts)}
-            sub={`Collected during ${period} · by payment date`}
+            sub={`Collected ${duringPeriod(period)} · by payment date`}
             color="teal"
+            hint={(
+              <InfoHint label="What Cash Receipts includes">
+                Includes deposits collected this month for events happening later, which is why this can be larger than the month&#39;s revenue.
+              </InfoHint>
+            )}
             onClick={() => onOpenDetail({
               title: 'Cash Receipts',
               description: 'Verified receipts, counted on the day the money moved. Claims awaiting verification, reversals, and receipts that have been reversed are all excluded — the same rule the Receivables page uses.',
@@ -77,57 +152,38 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
               ],
             })}
           />
-          {/* One term, one number, both pages: Approved, Confirmed and
-              Completed, exactly as Receivables counts it. */}
           <StatCard
-            label="Total Receivables"
-            value={formatCurrency(financialSummary.outstandingReceivable)}
-            sub={`Still to collect for ${period} · by service date`}
-            color="amber"
-            onClick={() => onCardClick('outstanding')}
-          />
-        </div>
-      </section>
-
-      <section>
-        <h2 className={SECTION_HEAD}>Supporting</h2>
-        <div className={ROW_GRID}>
-          <StatCard
-            secondary
-            label="Approved, Not Yet Confirmed"
-            value={formatCurrency(financialSummary.grossApproved)}
-            sub={`Accepted, awaiting confirmation · for ${period}`}
-            color="blue"
-            onClick={() => onCardClick('approved')}
-          />
-          {/* Money the business kept when a booking fell through. It is income,
-              but not of the same kind as contracted work, so it is never folded
-              into Estimated Gross Revenue. */}
-          <StatCard
-            secondary
-            label="Forfeited Deposits"
-            value={formatCurrency(financialSummary.forfeitedDeposits)}
-            sub={`Retained from cancellations · for ${period}`}
+            label="Refunds Issued"
+            value={formatCurrency(financialSummary.refundsIssued)}
+            sub={`Paid back ${duringPeriod(period)} · by payment date`}
             color="red"
-            onClick={() => onCardClick('forfeited')}
-          />
-          {/* The one card whose number IS a count, so a countable word is
-              right here. */}
-          <StatCard
-            secondary
-            count
-            label="Completed Bookings"
-            value={financialSummary.completedCount}
-            sub={`Finished during ${period}`}
-            color="purple"
             onClick={() => onOpenDetail({
-              title: 'Completed Bookings',
-              description: 'Bookings marked Completed whose service date falls in the selected period.',
-              fields: [{ label: 'Completed bookings', value: financialSummary.completedCount, emphasis: true }],
+              title: 'Refunds Issued',
+              description: 'Money returned to customers during this period, counted on the day it went back. A reversal is a correction to a receipt recorded in error, not money returned, and is listed separately on the Financial tab.',
+              fields: [
+                { label: 'Refunds issued', value: formatCurrency(financialSummary.refundsIssued), emphasis: true },
+                { label: 'Reversals recorded', value: formatCurrency(financialSummary.reversalsRecorded) },
+              ],
             })}
           />
         </div>
       </section>
+
+      <div className={ROW_GRID}>
+        {/* A count, not money, so it sits with neither money section. */}
+        <StatCard
+          count
+          label="Completed Bookings"
+          value={financialSummary.completedCount}
+          sub={`Finished ${duringPeriod(period)}`}
+          color="purple"
+          onClick={() => onOpenDetail({
+            title: 'Completed Bookings',
+            description: 'Bookings marked Completed whose service date falls in the selected period.',
+            fields: [{ label: 'Completed bookings', value: financialSummary.completedCount, emphasis: true }],
+          })}
+        />
+      </div>
 
       <div className="grid gap-[18px] [grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))]">
         <button

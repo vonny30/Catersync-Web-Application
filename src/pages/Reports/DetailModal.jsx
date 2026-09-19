@@ -61,14 +61,6 @@ export default function DetailModal({ detailModal, onClose }) {
   });
   const activeFilterCount = (searchTerm.trim() ? 1 : 0) + (typeFilter !== 'All' ? 1 : 0) + (hasStatusFilter && statusFilter !== 'All' ? 1 : 0) + (datePreset !== DEFAULT_DATE_PRESET ? 1 : 0);
 
-  // Requests not yet approved in the rows SHOWN. Scoped to filteredData, not
-  // the whole set: the footer split already is, and "N of M bookings shown"
-  // sits in the same sentence. A subtitle counting pending rows the filters
-  // have hidden disagrees with the list under it — the card-versus-list
-  // mismatch PR-19 was about.
-  const pendingRows = filteredData.filter(item => item.status === 'Pending');
-  const pendingInModal = { count: pendingRows.length, total: pendingRows.reduce((sum, item) => sum + (item.total || 0), 0) };
-
   if (!detailModal.open) return null;
 
   const goToBookingDetails = (id, type) => {
@@ -83,9 +75,7 @@ export default function DetailModal({ detailModal, onClose }) {
           <div>
             <h2 className="text-lg font-bold text-slate-900">{detailModal.title}</h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              {detailModal.type === 'revenue' && pendingInModal.count > 0
-                ? `Excludes Rejected and Cancelled • Includes ${pendingInModal.count} not yet approved (${formatCurrency(pendingInModal.total)}) • `
-                : 'Excludes Rejected and Cancelled bookings • '}
+              {'Excludes Rejected and Cancelled bookings • '}
               {filteredData.length} of {detailModal.data.length} booking{detailModal.data.length === 1 ? '' : 's'} shown
             </p>
           </div>
@@ -133,7 +123,6 @@ export default function DetailModal({ detailModal, onClose }) {
                   className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${statusFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
                 >
                   <option value="All">All statuses</option>
-                  <option value="Pending">Pending</option>
                   <option value="Approved">Approved</option>
                   <option value="Confirmed">Confirmed</option>
                   <option value="Completed">Completed</option>
@@ -325,16 +314,6 @@ export default function DetailModal({ detailModal, onClose }) {
                 value={formatCurrency(filteredData.reduce((sum, item) => sum + item.total, 0))}
                 hint={`${filteredData.length} booking${filteredData.length === 1 ? '' : 's'}`}
               />
-              {/* From filteredData, never the summary: the Type, Status and date
-                  filters above must move this split with the list, or the footer
-                  disagrees with the rows it sits under. */}
-              {filteredData.some(item => item.status === 'Pending') && (
-                <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
-                  {formatCurrency(filteredData.filter(item => item.status !== 'Pending').reduce((sum, item) => sum + item.total, 0))} accepted
-                  {' · '}
-                  {formatCurrency(filteredData.filter(item => item.status === 'Pending').reduce((sum, item) => sum + item.total, 0))} awaiting approval
-                </p>
-              )}
             </div>
           )}
           {detailModal.type === 'outstanding' && (
@@ -345,15 +324,6 @@ export default function DetailModal({ detailModal, onClose }) {
                 tone="negative"
                 hint={`${filteredData.length} booking${filteredData.length === 1 ? '' : 's'}`}
               />
-              {/* "Collectable", not "accepted": this is a balance, not an
-                  estimate. Same filteredData scoping as the revenue footer. */}
-              {filteredData.some(item => item.status === 'Pending') && (
-                <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
-                  {formatCurrency(filteredData.filter(item => item.status !== 'Pending').reduce((sum, item) => sum + item.outstanding, 0))} collectable
-                  {' · '}
-                  {formatCurrency(filteredData.filter(item => item.status === 'Pending').reduce((sum, item) => sum + item.outstanding, 0))} awaiting approval
-                </p>
-              )}
             </div>
           )}
           {detailModal.type !== 'revenue' && detailModal.type !== 'outstanding' && <span />}

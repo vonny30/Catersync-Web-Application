@@ -4,7 +4,8 @@ import {
 } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 import { ExternalLink } from 'lucide-react';
-import { formatCurrency, formatPercent, formatDate } from './helpers';
+import { formatCurrency, formatPercent, formatDate, forPeriod, duringPeriod, inPeriod } from './helpers';
+import InfoHint from '../../components/InfoHint';
 
 export default function FinancialTab({ derived, period, onCardClick, onOpenDetail }) {
   const navigate = useNavigate();
@@ -30,76 +31,91 @@ export default function FinancialTab({ derived, period, onCardClick, onOpenDetai
 
   return (
     <>
-      {/* Two anchors, stated separately and never mixed: cash that MOVED in
-          this period, and the services that HAPPEN in it. Conflating them is
-          what made this page disagree with Receivables. Cash Receipts is the
-          headline because it is the figure both pages must agree on. */}
-      <section className="bg-white border border-slate-200/70 rounded-2xl p-6 mb-[18px]">
-        <div>
-          <span className="block text-[13px] font-semibold text-slate-600 mb-2.5">Cash Receipts</span>
-          <span className="block text-[38px] font-semibold tracking-[-0.035em] leading-none tabular-nums text-slate-900">
-            {formatCurrency(financialSummary.cashReceipts)}
-          </span>
-          <span className="block text-[13.5px] text-slate-600 mt-3">
-            Collected during {period} · by payment date
-          </span>
+      {/* The same two sections as the Overview tab, so both tabs teach the
+          same idea: service-date figures first, then the cash that moved. */}
+      <section className="bg-white border border-slate-200/70 rounded-2xl p-6 mb-5">
+        <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Work scheduled {forPeriod(period)}</h2>
+        <p className="text-[13px] text-slate-600 mt-0.5 mb-5">What this month&#39;s catering is worth, and how much of it is still to collect.</p>
+        <div className="flex flex-wrap gap-8">
+          <button onClick={() => onCardClick('revenue')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
+            <span className="block text-[13px] text-slate-600 mb-1.5">Estimated Gross Revenue</span>
+            <span className={`${FIG} text-slate-900`}>{formatCurrency(financialSummary.grossContracted)}</span>
+            <span className="block text-[12.5px] text-slate-500 mt-1">Contracted · by service date</span>
+          </button>
+          <button onClick={() => onCardClick('collected')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
+            {/* Same colour roles as the Equipment page: green for what is in
+                hand, orange for what is not. */}
+            <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
+              <span className="w-2 h-2 rounded-full bg-[#009E73] shrink-0" aria-hidden="true" />
+              Collected Against These Services
+            </span>
+            <span className={`${FIG} text-[#009E73]`}>{formatCurrency(financialSummary.paidAgainstEvents)}</span>
+            <span className="block text-[12.5px] text-slate-500 mt-1">By service date</span>
+          </button>
+          <button onClick={() => onCardClick('outstanding')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
+            <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
+              <span className="w-2 h-2 rounded-full bg-[#D55E00] shrink-0" aria-hidden="true" />
+              Total Receivables
+            </span>
+            <span className={`${FIG} text-[#D55E00]`}>{formatCurrency(financialSummary.outstandingReceivable)}</span>
+            <span className="block text-[12.5px] text-slate-500 mt-1">Still to collect · by service date</span>
+          </button>
         </div>
 
-        <div className="h-px bg-slate-100 my-[22px]" />
-
-        <div>
-          <span className="block text-[13px] font-bold text-slate-600 tracking-[0.04em] mb-4">
-            Services happening in {period}
-          </span>
-          <div className="flex flex-wrap gap-8">
-            <button onClick={() => onCardClick('revenue')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
-              <span className="block text-[13px] text-slate-600 mb-1.5">Estimated Gross Revenue</span>
-              <span className={`${FIG} text-slate-900`}>{formatCurrency(financialSummary.grossContracted)}</span>
-              <span className="block text-[12.5px] text-slate-500 mt-1">Contracted · by service date</span>
-            </button>
-            <button onClick={() => onCardClick('collected')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
-              {/* Same colour roles as the Equipment page: green for what is in
-                  hand, orange for what is not. */}
-              <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
-                <span className="w-2 h-2 rounded-full bg-[#009E73] shrink-0" aria-hidden="true" />
-                Collected Against These Services
-              </span>
-              <span className={`${FIG} text-[#009E73]`}>{formatCurrency(financialSummary.paidAgainstEvents)}</span>
-              <span className="block text-[12.5px] text-slate-500 mt-1">By service date</span>
-            </button>
-            <button onClick={() => onCardClick('outstanding')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
-              <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
-                <span className="w-2 h-2 rounded-full bg-[#D55E00] shrink-0" aria-hidden="true" />
-                Total Receivables
-              </span>
-              <span className={`${FIG} text-[#D55E00]`}>{formatCurrency(financialSummary.outstandingReceivable)}</span>
-              <span className="block text-[12.5px] text-slate-500 mt-1">Still to collect · by service date</span>
-            </button>
-          </div>
-
-          {/* The relationship the separate figures never showed. Clamped at
-              100% so an overpaid booking cannot draw a bar wider than its
-              track, while the printed percentage stays truthful. */}
-          <div className="mt-[22px] mb-2.5 h-2 rounded-full bg-slate-100 overflow-hidden">
-            <div className="h-full rounded-full bg-[#009E73]" style={{ width: `${Math.min(100, Math.max(0, collectedPct))}%` }} />
-          </div>
-          {financialSummary.grossTotalAccepted > 0 ? (
-            <>
-              <span className="block text-[13px] text-slate-600 tabular-nums">
-                {formatPercent(collectedPct)} of accepted work collected
-              </span>
-              <span className="block text-[12.5px] text-slate-500 mt-1 tabular-nums">
-                {formatCurrency(financialSummary.paidAgainstEvents)} collected ÷ {formatCurrency(financialSummary.grossTotalAccepted)} accepted, which is contracted plus approved
-              </span>
-              <span className="block text-[12.5px] text-slate-500 mt-1">
-                Requests still awaiting approval are excluded — nothing is owed until a booking is accepted.
-              </span>
-            </>
-          ) : (
-            <span className="block text-[13px] text-slate-600">
-              No accepted work falls in this period, so there is nothing to measure collection against.
+        {/* The relationship the separate figures never showed. Clamped at
+            100% so an overpaid booking cannot draw a bar wider than its
+            track, while the printed percentage stays truthful. */}
+        <div className="mt-[22px] mb-2.5 h-2 rounded-full bg-slate-100 overflow-hidden">
+          <div className="h-full rounded-full bg-[#009E73]" style={{ width: `${Math.min(100, Math.max(0, collectedPct))}%` }} />
+        </div>
+        {financialSummary.grossTotalAccepted > 0 ? (
+          <>
+            <span className="block text-[13px] text-slate-600 tabular-nums">
+              {formatPercent(collectedPct)} of accepted work collected
             </span>
-          )}
+            <span className="block text-[12.5px] text-slate-500 mt-1 tabular-nums">
+              {formatCurrency(financialSummary.paidAgainstEvents)} collected ÷ {formatCurrency(financialSummary.grossTotalAccepted)} accepted, which is contracted plus approved
+            </span>
+            <span className="block text-[12.5px] text-slate-500 mt-1">
+              Requests still awaiting approval are excluded — nothing is owed until a booking is accepted.
+            </span>
+          </>
+        ) : (
+          <span className="block text-[13px] text-slate-600">
+            No accepted work falls in this period, so there is nothing to measure collection against.
+          </span>
+        )}
+      </section>
+
+      {/* Whitespace and weight separate the two, never a rule or a coloured
+          bar. This sentence is the part that stops the reconciling. */}
+      <p className="text-[13px] text-slate-600 border-l-2 border-slate-200 pl-3.5 mb-5">
+        These two sections answer different questions. Their totals are not meant to add up.
+      </p>
+
+      <section className="bg-white border border-slate-200/70 rounded-2xl p-6 mb-[18px]">
+        <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Money that moved {inPeriod(period)}</h2>
+        <p className="text-[13px] text-slate-600 mt-0.5 mb-5">Cash in and out during this month, whatever month the catering happens.</p>
+        <div className="flex flex-wrap gap-10">
+          <div>
+            <span className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-600 mb-2.5">
+              Cash Receipts
+              <InfoHint label="What Cash Receipts includes" align="left">
+                Includes deposits collected this month for events happening later, which is why this can be larger than the month&#39;s revenue.
+              </InfoHint>
+            </span>
+            <span className="block text-[38px] font-semibold tracking-[-0.035em] leading-none tabular-nums text-slate-900">
+              {formatCurrency(financialSummary.cashReceipts)}
+            </span>
+            <span className="block text-[13.5px] text-slate-600 mt-3">
+              Collected {duringPeriod(period)} · by payment date
+            </span>
+          </div>
+          <div>
+            <span className="block text-[13px] font-semibold text-slate-600 mb-2.5">Refunds Issued</span>
+            <span className={`${FIG} text-[#D55E00]`}>{formatCurrency(financialSummary.refundsIssued)}</span>
+            <span className="block text-[12.5px] text-slate-500 mt-1">Paid back {duringPeriod(period)} · by payment date</span>
+          </div>
         </div>
       </section>
 

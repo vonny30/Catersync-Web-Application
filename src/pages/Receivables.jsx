@@ -27,6 +27,7 @@ import toast from 'react-hot-toast';
 import { supabase } from '../supabase';
 import Select from '../components/Select';
 import ReceiptFields from '../components/ReceiptFields';
+import InfoHint from '../components/InfoHint';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, formatDate, periodLabel } from './Reports/helpers';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
@@ -817,13 +818,23 @@ export default function Receivables() {
       {/* THE TWO CARDS. Each states the question it answers. */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
         {/* Both open what they add up. */}
-        <button onClick={showCashReceipts} className="relative overflow-hidden flex flex-col justify-start text-left rounded-2xl border border-slate-200/70 bg-white p-5 transition-all cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]">
+        {/* The (i) sits outside the card's button: a button inside a button is
+            invalid, and its click would go to the card. Same text as the
+            Reports card, because it is the same figure and the same question. */}
+        <div className="relative">
+        <button onClick={showCashReceipts} className="w-full h-full relative overflow-hidden flex flex-col justify-start text-left rounded-2xl border border-slate-200/70 bg-white p-5 transition-all cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]">
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
-          <p className="text-[13px] font-semibold text-slate-600 mb-2">Cash Receipts</p>
+          <p className="text-[13px] font-semibold text-slate-600 mb-2 pr-6">Cash Receipts</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(cashReceipts) : '—'}</h3>
           <p className="text-[13px] text-slate-600 mt-2.5">Collected during {period} · by payment date</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show these receipts <ChevronRight size={13} /></span>
         </button>
+        <span className="absolute top-[18px] right-[14px]">
+          <InfoHint label="What Cash Receipts includes">
+            Includes deposits collected this month for events happening later, which is why this can be larger than the month&#39;s revenue.
+          </InfoHint>
+        </span>
+        </div>
         <button onClick={() => setShowReceivablesBreakdown(true)} className="relative overflow-hidden flex flex-col justify-start text-left rounded-2xl border border-slate-200/70 bg-white p-5 transition-all cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]">
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500" />
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Total Receivables</p>

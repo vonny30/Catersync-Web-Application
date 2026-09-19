@@ -54,6 +54,14 @@ export const DEFAULT_DATE_PRESET = 'This Month';
 // money or a count, and may not say "events" — the panel's rule. A month name
 // is not a number, so naming the period is how a card says WHEN without
 // putting a second figure under the first.
+// "for September" / "during September" / "in September" — and, when the range
+// is unbounded, just "all time". Without these, a subtext reads "Collected
+// during all time".
+export const ALL_TIME_LABEL = 'all time';
+export const forPeriod = (period) => (period === ALL_TIME_LABEL ? ALL_TIME_LABEL : `for ${period}`);
+export const duringPeriod = (period) => (period === ALL_TIME_LABEL ? ALL_TIME_LABEL : `during ${period}`);
+export const inPeriod = (period) => (period === ALL_TIME_LABEL ? ALL_TIME_LABEL : `in ${period}`);
+
 export function periodLabel(preset, start, end) {
   if (preset === 'This Month' && start) return start.toLocaleString('en-PH', { month: 'long' });
   if (preset === 'This Year' && start) return String(start.getFullYear());
