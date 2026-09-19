@@ -29,7 +29,7 @@ import Select from '../components/Select';
 import ReceiptFields from '../components/ReceiptFields';
 import InfoHint from '../components/InfoHint';
 import DateRangeFilter from './Reports/DateRangeFilter';
-import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, formatDate, periodLabel, duringPeriod } from './Reports/helpers';
+import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, formatDate, periodLabel, forPeriod, duringPeriod } from './Reports/helpers';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
@@ -487,7 +487,7 @@ function ReceivablesBreakdown({ bookings, period, total, onClose, onOpenBooking 
       footer={<button type="button" onClick={onClose} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-5 py-2.5 rounded-lg border border-slate-300 transition-colors">Close</button>}
     >
       <p className="text-[13px] text-slate-600 mb-3">
-        Still to collect for {period}, by service date. Approved, Confirmed and Completed bookings only: a Pending request has no agreement yet, so no receivable exists yet.
+        Still to collect {forPeriod(period)}, by service date. Approved, Confirmed and Completed bookings only: a Pending request has no agreement yet, so no receivable exists yet.
       </p>
       {bookings.length === 0 ? (
         <p className="text-sm text-slate-500 italic text-center py-6">No balances due for services in this period.</p>
@@ -826,7 +826,7 @@ export default function Receivables() {
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
           <p className="text-[13px] font-semibold text-slate-600 mb-2 pr-6">Cash Receipts</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(cashReceipts) : '—'}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">Collected during {period} · by payment date</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">Collected {duringPeriod(period)} · by payment date</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show these receipts <ChevronRight size={13} /></span>
         </button>
         <span className="absolute top-[18px] right-[14px]">
@@ -839,7 +839,7 @@ export default function Receivables() {
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500" />
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Total Receivables</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(totalReceivables) : '—'}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">Still to collect for {period} · by service date</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">Still to collect {forPeriod(period)} · by service date</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show balances due <ChevronRight size={13} /></span>
         </button>
       </div>
