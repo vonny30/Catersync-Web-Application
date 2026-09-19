@@ -56,7 +56,7 @@ const NAV_GROUPS = [
       { name: 'Customers', path: '/app/customers', icon: Users },
       { name: 'Events', path: '/app/bookings', icon: CalendarDays },
       { name: 'Short Orders', path: '/app/orders', icon: ShoppingBag },
-      { name: 'Receivables', path: '/app/payments', icon: CreditCard },
+      { name: 'Receivables', path: '/app/receivables', icon: CreditCard },
     ],
   },
   {
@@ -180,7 +180,7 @@ export default function ManagerLayout() {
           <Icon size={18} className={isActive ? 'text-[#008A45]' : 'text-slate-400'} />
           {/* Truncated, so "Packages & Menus" stays one line at 256px. */}
           <span className="truncate">{link.name}</span>
-          {link.path === '/app/payments' && pendingVerificationCount > 0 && (
+          {link.path === '/app/receivables' && pendingVerificationCount > 0 && (
             <span className="ml-auto flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-bold animate-pulse">
               {pendingVerificationCount > 99 ? '99+' : pendingVerificationCount}
             </span>

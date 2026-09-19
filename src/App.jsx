@@ -16,7 +16,7 @@ import BookingDetails from './pages/BookingDetails';
 import ShortOrders from './pages/ShortOrders';
 import ShortOrderDetails from './pages/ShortOrderDetails';
 import Customers from './pages/Customers';
-import Payments from './pages/Payments';
+import Receivables from './pages/Receivables';
 import Equipment from './pages/Equipment';
 import Vehicles from './pages/Vehicles';
 import Reports from './pages/Reports';
@@ -94,7 +94,9 @@ function AppContent() {
           <Route path="orders" element={<ShortOrders />} />
           <Route path="orders/:id" element={<ShortOrderDetails />} />
           <Route path="customers" element={<Customers />} />
-          <Route path="payments" element={<Payments />} />
+          <Route path="receivables" element={<Receivables />} />
+          {/* The old address, kept so existing links and bookmarks still land. */}
+          <Route path="payments" element={<Navigate to="/app/receivables" replace />} />
           <Route path="equipment" element={<Equipment />} />
           <Route path="vehicles" element={<Vehicles />} />
           <Route path="reports" element={<Reports />} />
