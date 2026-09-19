@@ -755,7 +755,15 @@ definition.
 
 Dashboard, Payments and the Reports Financial tab all read `revenueReceived`
 from the same function, and all three show the same two sub-lines in the same
-order. Changing only the Dashboard would have reproduced the defect logged in
+order.
+
+> **Superseded in part, 20 Sep 2026.** Receivables (formerly Payments) and the
+> Reports Financial tab now headline **Cash Receipts** — every verified receipt
+> by payment date, from `f_report_period` / `v_payment_ledger`. The Dashboard
+> keeps `revenueReceived` (Confirmed and Completed only) under its own name,
+> **Revenue Collected This Month**, so the two figures no longer share a label
+> while meaning different things. Reports' revenue card is now contracted work
+> only; Pending appears in no revenue figure on any page. Changing only the Dashboard would have reproduced the defect logged in
 `page-test-report-2026-09-04.md` §1.2, where one phrase meant two different
 things on two pages.
 

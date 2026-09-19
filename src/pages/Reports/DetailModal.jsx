@@ -149,7 +149,7 @@ export default function DetailModal({ detailModal, onClose }) {
               )}
             </div>
             <div className="flex flex-col items-start gap-1">
-              <p className="text-xs font-semibold text-slate-600">Filter by event date:</p>
+              <p className="text-xs font-semibold text-slate-600">Filter by service date:</p>
               <DateRangeFilter
                 preset={datePreset}
                 customStart={dateCustomStart}

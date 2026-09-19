@@ -4,7 +4,7 @@
 //
 // The vocabulary is the point of this page (see utils/payments.js):
 //   Cash Receipts      verified money in hand, by payment date
-//   Total Receivables  what customers owe on agreed bookings, by event date
+//   Total Receivables  what customers owe on agreed bookings, by service date
 //   Receipt            one verified entry that moves the books
 //   Claim              a payment the customer says they made, not yet verified
 //   Refund             money going back to the customer
@@ -28,7 +28,7 @@ import { supabase } from '../supabase';
 import Select from '../components/Select';
 import ReceiptFields from '../components/ReceiptFields';
 import DateRangeFilter from './Reports/DateRangeFilter';
-import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, formatDate } from './Reports/helpers';
+import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, formatDate, periodLabel } from './Reports/helpers';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
@@ -65,16 +65,6 @@ const getProofUrl = (proof) => {
   if (!key) return null;
   return supabase.storage.from('images').getPublicUrl(key).data.publicUrl;
 };
-
-// "For the month of September" — each card names the period it answers for.
-function periodPhrase(preset, start, end) {
-  if (preset === 'This Month' && start) return `For the month of ${start.toLocaleString('en-PH', { month: 'long' })}`;
-  if (preset === 'This Year' && start) return `For ${start.getFullYear()}`;
-  if (preset === 'Last 30 Days') return 'For the last 30 days';
-  if (preset === 'All Time') return 'For all time';
-  if (start && end) return `For ${formatDate(start)} – ${formatDate(end)}`;
-  return 'Pick both dates for a custom range';
-}
 
 // ---------------------------------------------------------------------------
 // Modals (module scope, so their state and sums are not part of the page body)
@@ -496,10 +486,10 @@ function ReceivablesBreakdown({ bookings, period, total, onClose, onOpenBooking 
       footer={<button type="button" onClick={onClose} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-5 py-2.5 rounded-lg border border-slate-300 transition-colors">Close</button>}
     >
       <p className="text-[13px] text-slate-600 mb-3">
-        {period}, by event date. Approved, Confirmed and Completed bookings only: a Pending request has no agreement yet, so no receivable exists yet.
+        Still to collect for {period}, by service date. Approved, Confirmed and Completed bookings only: a Pending request has no agreement yet, so no receivable exists yet.
       </p>
       {bookings.length === 0 ? (
-        <p className="text-sm text-slate-500 italic text-center py-6">No balances due on events in this period.</p>
+        <p className="text-sm text-slate-500 italic text-center py-6">No balances due for services in this period.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
           <table className="w-full text-left text-sm">
@@ -710,7 +700,10 @@ export default function Receivables() {
   useRealtimeRefresh('receivables-page', ['payment', 'booking'], refresh);
 
   const { start, end } = getRangeBounds(datePreset, customStart, customEnd);
-  const period = periodPhrase(datePreset, start, end);
+  // The period, named. Card subtexts on this page follow the same rule as
+  // Reports: no digits, no "events", the period named, and only two basis
+  // labels — by payment date and by service date.
+  const period = periodLabel(datePreset, start, end);
   const inPeriod = (value) => (!start && !end) || isWithinRange(value, start, end);
 
   // --- The two figures ------------------------------------------------------
@@ -718,7 +711,7 @@ export default function Receivables() {
   const cashReceipts = entries
     .filter(e => e.counts_in_ledger === true && Number(e.amount_paid) > 0 && inPeriod(e.pay_datetime))
     .reduce((sum, e) => sum + Number(e.amount_paid), 0);
-  // Total Receivables: what is owed on agreed bookings, by event date.
+  // Total Receivables: what is owed on agreed bookings, by service date.
   const receivablesInPeriod = money.filter(b => b.is_receivable && inPeriod(b.event_datetime));
   const totalReceivables = receivablesInPeriod.reduce((sum, b) => sum + Number(b.outstanding || 0), 0);
   // The rows behind the card: only those still owing anything, largest first.
@@ -828,16 +821,14 @@ export default function Receivables() {
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Cash Receipts</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(cashReceipts) : '—'}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">{period}</p>
-          <p className="text-[12px] text-slate-500 mt-0.5">By payment date</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">Collected during {period} · by payment date</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show these receipts <ChevronRight size={13} /></span>
         </button>
         <button onClick={() => setShowReceivablesBreakdown(true)} className="relative overflow-hidden flex flex-col justify-start text-left rounded-2xl border border-slate-200/70 bg-white p-5 transition-all cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]">
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500" />
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Total Receivables</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(totalReceivables) : '—'}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">{period}</p>
-          <p className="text-[12px] text-slate-500 mt-0.5">By event date</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">Still to collect for {period} · by service date</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show balances due <ChevronRight size={13} /></span>
         </button>
       </div>

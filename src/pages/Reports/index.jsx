@@ -3,14 +3,11 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabase';
 import toast from 'react-hot-toast';
 import {
-  getBookingRef, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET,
+  getBookingRef, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, periodLabel,
   monthSortKey, monthLabel, buildMonthlyFinancialTrend,
 } from './helpers';
-import { isUnverifiedPayment } from '../../utils/payments';
-import { getPaymentsReceived } from '../../utils/reportMetrics';
+import { movesBooks, isRefundEntry, isReversalEntry } from '../../utils/payments';
 import { fetchAllRows } from '../../utils/fetchAllRows';
-import { getDispatchWindow } from '../../utils/vehicle';
-import { ACTIVE_BOOKING_STATUSES } from '../../utils/bookingStatus';
 import DateRangeFilter from './DateRangeFilter';
 import DetailModal from './DetailModal';
 import SimpleDetailModal from './SimpleDetailModal';
@@ -37,6 +34,11 @@ export default function Reports() {
   const [datePreset, setDatePreset] = useState(DEFAULT_DATE_PRESET);
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
+
+  // The whole financial block for the selected period, from the database:
+  // one call to f_report_period. Nothing on this page adds money up.
+  const [periodTotals, setPeriodTotals] = useState(null);
+  const [totalsError, setTotalsError] = useState(false);
 
   const [detailModal, setDetailModal] = useState({ open: false, type: null, data: [], title: '' });
   const [simpleModal, setSimpleModal] = useState({ open: false, title: '', description: '', badge: null, fields: [] });
@@ -79,8 +81,8 @@ export default function Reports() {
     setIsLoading(true);
     try {
       const [
-        bookings, payments, packages, menuItems, categories,
-        packageCategories, vehicles, vehicleAssignments,
+        bookings, payments, bookingMoney, packages, menuItems, categories,
+        packageCategories,
       ] = await Promise.all([
         fetchAll(() => supabase.from('booking').select(`
           booking_id, booking_number, booking_type, event_datetime, book_datetime,
@@ -88,27 +90,28 @@ export default function Reports() {
           package:package_id (pkg_name, pricing_type),
           customer:customer_id (first_name, last_name)
         `).order('booking_id', { ascending: true })),
-        fetchAll(() => supabase.from('payment').select('payment_id, amount_paid, pay_datetime, pay_status, pay_method, booking_id, customer_id').order('payment_id', { ascending: true })),
+        // v_payment_ledger, not the payment table: counts_in_ledger is what
+        // decides whether an entry moves the books (a reversal and the receipt
+        // it cancels both stop counting), and entry_type is what separates a
+        // refund from a reversal. Neither is derivable from the raw rows.
+        fetchAll(() => supabase.from('v_payment_ledger').select('payment_id, amount_paid, pay_datetime, pay_status, pay_method, booking_id, customer_id, entry_type, counts_in_ledger, booking_number, booking_type').order('payment_id', { ascending: true })),
+        // Per-booking money, already netted by the database. The breakdown
+        // lists read these columns rather than re-deriving paid/outstanding.
+        fetchAll(() => supabase.from('v_booking_money').select('booking_id, booking_number, booking_type, booking_status, event_datetime, total_amount, net_paid, outstanding, is_receivable, is_closed, counts_toward_revenue, customer:customer_id (first_name, last_name)').order('booking_id', { ascending: true })),
         fetchAll(() => supabase.from('package').select('*').order('package_id', { ascending: true })),
         fetchAll(() => supabase.from('menu_item').select('*').order('menu_item_id', { ascending: true })),
         fetchAll(() => supabase.from('category').select('*').order('category_id', { ascending: true })),
         fetchAll(() => supabase.from('package_category').select('package_id, category_id').order('package_category_id', { ascending: true })),
-        fetchAll(() => supabase.from('vehicle').select('vehicle_id').order('vehicle_id', { ascending: true })),
-        // dispatch_datetime plus the booking's event date and type are what
-        // getDispatchWindow needs; without them this page could only reason
-        // about whether an assignment exists, not when it actually runs.
-        fetchAll(() => supabase.from('vehicle_assign').select('vehicle_id, booking_id, assignment_status, dispatch_datetime, booking:booking_id (booking_status, event_datetime, booking_type)').order('assignment_id', { ascending: true })),
       ]);
 
       setRawData({
         bookings,
         payments,
+        bookingMoney,
         packages,
         menuItems,
         categories,
         packageCategories,
-        vehicles,
-        vehicleAssignments,
       });
     } catch (error) {
       handleError(error, "Couldn't load the reports. Refresh to try again.");
@@ -122,12 +125,40 @@ export default function Reports() {
   }, []);
 
   const { start: rangeStart, end: rangeEnd } = getRangeBounds(datePreset, customStart, customEnd);
+  const period = periodLabel(datePreset, rangeStart, rangeEnd);
+
+  // One call, one row, every headline figure — event-anchored and
+  // payment-anchored alike, all of it computed in the database against
+  // counts_in_ledger. Re-run whenever the period changes. Serialized bounds
+  // as the dependency, since getRangeBounds returns fresh Date objects.
+  const rangeKey = `${rangeStart ? rangeStart.toISOString() : ''}|${rangeEnd ? rangeEnd.toISOString() : ''}`;
+  useEffect(() => {
+    let ignore = false;
+    (async () => {
+      const [startISO, endISO] = rangeKey.split('|');
+      const { data, error } = await supabase.rpc('f_report_period', {
+        p_start: startISO || null,
+        p_end: endISO || null,
+      });
+      if (ignore) return;
+      if (error) {
+        console.error('f_report_period failed:', error);
+        setTotalsError(true);
+        setPeriodTotals(null);
+        toast.error("Couldn't load the period totals. Refresh to try again.");
+        return;
+      }
+      setTotalsError(false);
+      setPeriodTotals(Array.isArray(data) ? data[0] : data);
+    })();
+    return () => { ignore = true; };
+  }, [rangeKey]);
 
   // ========== DERIVE EVERYTHING FROM RAW DATA + DATE RANGE ==========
   const derived = useMemo(() => {
     if (!rawData) return null;
 
-    const { bookings, payments, menuItems, categories, packageCategories, vehicles, vehicleAssignments } = rawData;
+    const { bookings, payments, bookingMoney, menuItems, categories, packageCategories } = rawData;
 
     // Lookup for attaching a booking ref/type to a payment/refund row that
     // only carries booking_id — used so the Refunds panel can link
@@ -137,193 +168,87 @@ export default function Reports() {
 
     // Bookings whose EVENT falls in range (revenue/menu/summary anchor).
     const bookingsInEventRange = bookings.filter(b => !rangeStart && !rangeEnd ? true : isWithinRange(b.event_datetime, rangeStart, rangeEnd));
-    // Bookings SUBMITTED in range (funnel/customer-acquisition anchor).
-    const bookingsInSubmitRange = bookings.filter(b => !rangeStart && !rangeEnd ? true : isWithinRange(b.book_datetime, rangeStart, rangeEnd));
 
-    // Pending Verification / Proof Rejected rows aren't real collected money
-    // yet — matches sumVerifiedPositivePayments' definition used everywhere
-    // else in the app (booking detail pages, Payments.jsx), so "Revenue
-    // Collected" here means the same thing it means there.
-    const verifiedPayments = payments.filter(p => !isUnverifiedPayment(p));
-    // Payments RECEIVED in range.
-    const paymentsInRange = verifiedPayments.filter(p => !rangeStart && !rangeEnd ? true : isWithinRange(p.pay_datetime, rangeStart, rangeEnd));
+    // Entries that move the books, read from the ledger view: not unverified
+    // claims, not reversals, not receipts that have been reversed. movesBooks
+    // reads counts_in_ledger; it is never re-derived here.
+    const countedEntries = payments.filter(movesBooks);
+    const countedInRange = countedEntries.filter(p => !rangeStart && !rangeEnd ? true : isWithinRange(p.pay_datetime, rangeStart, rangeEnd));
+    const entriesInRange = payments.filter(p => !rangeStart && !rangeEnd ? true : isWithinRange(p.pay_datetime, rangeStart, rangeEnd));
 
     const activeBookingsInRange = bookingsInEventRange.filter(b => !CANCELLED_STATUSES.includes(b.booking_status));
-    const activeBookingIds = new Set(activeBookingsInRange.map(b => b.booking_id));
-    // A Pending row is an enquiry PG's has not accepted, but it still carries a
-    // total_amount and so still lands in Estimated Gross Revenue — which is
-    // exactly why that figure is called an estimate. The three headline totals
-    // keep it (contractValue - paidAgainstEvents = outstanding). The accepted /
-    // pending split accumulated below is what the Overview sub-lines, the
-    // FinancialTab collection rate and the modal footers read; this count names
-    // how many requests that pending amount covers.
-    const pendingInRangeCount = activeBookingsInRange.filter(b => b.booking_status === 'Pending').length;
 
     // --- FINANCIAL ---
-    const paymentMap = {};
-    verifiedPayments.forEach(p => {
-      if (!activeBookingIds.has(p.booking_id)) return;
-      paymentMap[p.booking_id] = (paymentMap[p.booking_id] || 0) + p.amount_paid;
-    });
-
-    let totalCollected = 0, totalOutstanding = 0, totalContractValue = 0;
-    // The same totals split at the approval boundary. Pending is a request
-    // PG's has not accepted; everything else in activeBookingsInRange has been.
-    // Pending and not-Pending partition the set, so
-    //   acceptedContractValue + pendingContractValue === totalContractValue
-    // by construction. The totals above are untouched — three cards and the
-    // FinancialTab division are tied to them.
     //
-    // acceptedPaid is carried rather than assumed equal to totalCollected. The
-    // admin forms cannot record a payment before Approved, but a payment
-    // submitted from the mobile app can be verified while its booking is still
-    // Pending; when that never happens (true of live data) the two are equal and
-    // acceptedOutstanding === acceptedContractValue - totalCollected exactly.
-    let acceptedContractValue = 0, pendingContractValue = 0, acceptedOutstanding = 0, acceptedPaid = 0;
-    const revenueBreakdown = [], collectedBreakdown = [], outstandingBreakdown = [];
-
-    activeBookingsInRange.forEach(b => {
-      const paid = paymentMap[b.booking_id] || 0;
-      const total = b.total_amount || 0;
-      const outstanding = Math.max(0, total - paid);
-      totalContractValue += total;
-      totalCollected += paid;
-      totalOutstanding += outstanding;
-      if (b.booking_status === 'Pending') {
-        pendingContractValue += total;
-      } else {
-        acceptedContractValue += total;
-        acceptedOutstanding += outstanding;
-        acceptedPaid += paid;
-      }
-
-      const customerName = b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown';
-      const bookingInfo = {
-        id: b.booking_id, bookingRef: getBookingRef(b), customer: customerName,
-        eventDate: b.event_datetime, total, paid, outstanding,
-        status: b.booking_status, type: b.booking_type || 'Package',
-      };
-      revenueBreakdown.push(bookingInfo);
-      if (paid > 0) {
-        const paymentDetails = verifiedPayments.filter(p => p.booking_id === b.booking_id && activeBookingIds.has(p.booking_id));
-        collectedBreakdown.push({ ...bookingInfo, paymentDetails });
-      }
-      if (outstanding > 0) outstandingBreakdown.push(bookingInfo);
-    });
-
-    // Cash actually received during the period, anchored on pay_datetime —
-    // a different question from the three figures above, which are anchored on
-    // the event date. Both belong on the Financial tab; conflating them is what
-    // made this page disagree with the Dashboard.
-    const bookingStatusById = {};
-    bookings.forEach(b => { bookingStatusById[b.booking_id] = b.booking_status; });
-    const received = getPaymentsReceived(payments, {
-      start: rangeStart, end: rangeEnd, bookingStatusById,
+    // Every headline figure comes from f_report_period (periodTotals). Nothing
+    // is summed here: the database owns the money definitions, and the two
+    // pages that show them must read the same ones. The lists below are the
+    // ROWS behind those figures, taken from v_booking_money as-is — each row's
+    // total, paid and outstanding are the view's own columns.
+    const moneyInEventRange = bookingMoney.filter(m => !rangeStart && !rangeEnd ? true : isWithinRange(m.event_datetime, rangeStart, rangeEnd));
+    // What each booking has actually taken, from the view's own column.
+    const netPaidByBooking = Object.fromEntries(bookingMoney.map(m => [m.booking_id, Number(m.net_paid) || 0]));
+    const breakdownRow = (m) => ({
+      id: m.booking_id,
+      bookingRef: m.booking_number || getBookingRef({ booking_id: m.booking_id, booking_type: m.booking_type }),
+      customer: m.customer ? `${m.customer.first_name} ${m.customer.last_name}` : 'Unknown',
+      eventDate: m.event_datetime,
+      total: Number(m.total_amount) || 0,
+      paid: Number(m.net_paid) || 0,
+      outstanding: Number(m.outstanding) || 0,
+      status: m.booking_status,
+      type: m.booking_type || 'Package',
     });
 
     const financialSummary = {
-      contractValue: totalContractValue,
-      acceptedContractValue,
-      pendingContractValue,
-      paidAgainstEvents: totalCollected,
-      acceptedPaid,
-      outstanding: totalOutstanding,
-      acceptedOutstanding,
-      // Panel PR-38: the headline counts Confirmed and Completed only. The
-      // other two are carried alongside so the tab can show what it excludes
-      // instead of leaving a manager to wonder where the difference went.
-      revenueReceived: received.revenueReceived,
-      awaitingConfirmation: received.awaitingConfirmation,
-      paymentsReceived: received.paymentsReceived,
-      retainedFromCancellations: received.retainedFromCancellations,
-      refundsIssued: received.refundsIssued,
-      // Refunds actually netted out of paymentsReceived -- NOT refundsIssued.
-      // The distinction and its reasoning now live with the derivation, in
-      // getPaymentsReceived; Payments.jsx reads the same field.
-      refundsNettedAgainstReceived: received.refundsNettedAgainstReceived,
-      _revenueBreakdown: revenueBreakdown,
-      _collectedBreakdown: collectedBreakdown,
-      _outstandingBreakdown: outstandingBreakdown,
+      // Event-anchored, by service date.
+      grossContracted: Number(periodTotals?.gross_contracted) || 0,
+      grossApproved: Number(periodTotals?.gross_approved) || 0,
+      grossTotalAccepted: Number(periodTotals?.gross_total_accepted) || 0,
+      outstandingReceivable: Number(periodTotals?.outstanding_receivable) || 0,
+      outstandingContracted: Number(periodTotals?.outstanding_contracted) || 0,
+      paidAgainstEvents: Number(periodTotals?.paid_against_events) || 0,
+      completedCount: Number(periodTotals?.completed_count) || 0,
+      contractedCount: Number(periodTotals?.contracted_count) || 0,
+      approvedCount: Number(periodTotals?.approved_count) || 0,
+      // Payment-anchored, by payment date.
+      cashReceipts: Number(periodTotals?.cash_receipts) || 0,
+      refundsIssued: Number(periodTotals?.refunds_issued) || 0,
+      reversalsRecorded: Number(periodTotals?.reversals_recorded) || 0,
+      receiptCount: Number(periodTotals?.receipt_count) || 0,
+      // Kept from bookings that did not happen.
+      forfeitedDeposits: Number(periodTotals?.forfeited_deposits) || 0,
+      forfeitedCount: Number(periodTotals?.forfeited_count) || 0,
+      _revenueBreakdown: moneyInEventRange.filter(m => m.counts_toward_revenue).map(breakdownRow),
+      _collectedBreakdown: moneyInEventRange.filter(m => m.is_receivable && Number(m.net_paid) > 0).map(breakdownRow),
+      _outstandingBreakdown: moneyInEventRange.filter(m => m.is_receivable && Number(m.outstanding) > 0).map(breakdownRow),
+      _approvedBreakdown: moneyInEventRange.filter(m => m.booking_status === 'Approved').map(breakdownRow),
+      _forfeitedBreakdown: moneyInEventRange.filter(m => m.is_closed && Number(m.net_paid) > 0).map(breakdownRow),
     };
 
-    // Monthly revenue (payments actually received in range).
-    //
-    // Months are grouped by a NUMERIC key and sorted on it. The previous
-    // version grouped by the display string ("Aug 2026") and then sorted by
-    // re-parsing it with new Date("Aug 2026") — parsing a format like that
-    // is implementation-defined in JavaScript, so it only worked by luck.
-    // Under a non-English browser locale toLocaleString emits "ago 2026" /
-    // "8月 2026", new Date() returns Invalid Date, the comparator gets NaN,
-    // and the chart renders its months in arbitrary order. The label is now
-    // kept purely for display and never parsed back.
-    // Built from exactly the rows the Total Collections card counts, so the
-    // chart and the card above it always add up to the same number.
-    //
-    // This previously skipped `amount_paid <= 0`, which meant refunds never
-    // pulled a bar down while the caption claimed the figure was net of them.
-    // Negative rows are now included: a month can legitimately go negative if
-    // more was refunded than taken, and hiding that was the whole problem.
-    // It also used to filter on activeBookingIds — bookings whose EVENT fell in
-    // range — which quietly mixed the event-anchored basis into a chart that is
-    // anchored on the payment date.
-    const monthMap = {};
-    received.activeRows.forEach(p => {
-      if (!p.pay_datetime) return;
-      const date = new Date(p.pay_datetime);
-      const sortKey = monthSortKey(date);
-      if (!monthMap[sortKey]) monthMap[sortKey] = { month: monthLabel(date), revenue: 0, sortKey };
-      monthMap[sortKey].revenue += (p.amount_paid || 0);
-    });
-    const monthlyRevenueData = Object.values(monthMap)
-      .sort((a, b) => a.sortKey - b.sortKey)
-      .map(({ month, revenue }) => ({ month, revenue }));
-
     // --- PAYMENT METHOD & REFUNDS ---
+    // Methods count RECEIPTS only — counted, positive entries. A refund is
+    // money going the other way and a reversal is a correction; neither is a
+    // way of paying.
     const methodMap = {};
-    const refunds = [];
-    paymentsInRange.forEach(p => {
-      if (p.amount_paid < 0) {
-        // Refunds happen almost exclusively when a booking is Rejected or
-        // Cancelled (see useRejectionHandlers.js / useCancellationHandlers.js
-        // — the refund row is inserted in the same action that sets the
-        // booking to that status). Applying the "active bookings only"
-        // filter here excluded a refund the instant its own booking left
-        // active status, which is precisely when almost every refund
-        // exists — the Refunds panel was silently dropping nearly all of
-        // them. Refunds are tracked regardless of the booking's current
-        // status; only the Payment Methods breakdown below stays
-        // active-bookings-only.
-        const refundBooking = bookingsById[p.booking_id];
-        refunds.push({
-          ...p,
-          bookingRef: refundBooking ? getBookingRef(refundBooking) : null,
-          bookingType: refundBooking?.booking_type || 'Package',
-        });
-        return;
-      }
-      if (!activeBookingIds.has(p.booking_id)) return;
+    countedInRange.filter(p => (p.amount_paid || 0) > 0).forEach(p => {
       const method = p.pay_method || 'Unspecified';
       if (!methodMap[method]) methodMap[method] = { method, count: 0, total: 0 };
       methodMap[method].count += 1;
       methodMap[method].total += p.amount_paid;
     });
     const paymentMethodData = Object.values(methodMap).sort((a, b) => b.total - a.total);
-    const totalRefunded = refunds.reduce((sum, r) => sum + Math.abs(r.amount_paid), 0);
 
-    // --- BOOKING FUNNEL (by submission date) ---
-    const statusCounts = {};
-    bookingsInSubmitRange.forEach(b => {
-      statusCounts[b.booking_status] = (statusCounts[b.booking_status] || 0) + 1;
+    // Refunds are entry_type Refund. Reversals are listed separately, never
+    // here: the page used to file every negative row under refunds, so a
+    // correction read as money returned to a customer.
+    const describeEntry = (p) => ({
+      ...p,
+      bookingRef: p.booking_number || (bookingsById[p.booking_id] ? getBookingRef(bookingsById[p.booking_id]) : null),
+      bookingType: p.booking_type || bookingsById[p.booking_id]?.booking_type || 'Package',
     });
-    const totalSubmitted = bookingsInSubmitRange.length;
-    // Rejected (PG's declined the work) and Cancelled (the customer withdrew)
-    // are opposite business events. One combined rate is still the right
-    // headline — both end in no event — but which one is driving it is the
-    // actionable part, so the drill-down names them separately.
-    const rejectedCount = statusCounts['Rejected'] || 0;
-    const customerCancelledCount = statusCounts['Cancelled'] || 0;
-    const cancelledCount = rejectedCount + customerCancelledCount;
-    const cancellationRate = totalSubmitted > 0 ? Math.round((cancelledCount / totalSubmitted) * 1000) / 10 : 0;
+    const refunds = entriesInRange.filter(p => isRefundEntry(p) && movesBooks(p)).map(describeEntry);
+    const reversals = entriesInRange.filter(isReversalEntry).map(describeEntry);
 
     // ============================================================
     // --- PRODUCT MIX ---
@@ -512,28 +437,6 @@ export default function Reports() {
       .sort((a, b) => b.bookings - a.bookings);
 
     // --- VEHICLES ---
-    const totalVehicles = vehicles.length;
-
-    // D8. "Currently dispatched" used to count any vehicle holding a Scheduled
-    // assignment on an active booking — which includes a van booked for a
-    // wedding three weeks out. That is committed, not dispatched. A vehicle is
-    // ON THE ROAD only while a dispatch window actually contains this moment.
-    const nowInstant = new Date();
-    const liveAssignments = vehicleAssignments.filter(v =>
-      v.assignment_status === 'Scheduled'
-      && v.booking?.booking_status
-      && ACTIVE_BOOKING_STATUSES.includes(v.booking.booking_status)
-    );
-    const dispatchedVehicleIds = new Set(
-      liveAssignments
-        .filter(v => {
-          const w = getDispatchWindow(v, v.booking);
-          return w ? (w.start <= nowInstant && nowInstant <= w.end) : false;
-        })
-        .map(v => v.vehicle_id)
-    );
-    const dispatchedVehicles = dispatchedVehicleIds.size;
-
     // --- CUSTOMER INSIGHTS ---
     const customerMap = {};
     activeBookingsInRange.forEach(b => {
@@ -544,7 +447,7 @@ export default function Reports() {
       }
       const entry = customerMap[b.customer_id];
       entry.bookings += 1;
-      entry.spend += paymentMap[b.booking_id] || 0;
+      entry.spend += netPaidByBooking[b.booking_id] || 0;
       if (b.book_datetime && (!entry.firstBookingDate || new Date(b.book_datetime) < new Date(entry.firstBookingDate))) {
         entry.firstBookingDate = b.book_datetime;
       }
@@ -587,29 +490,32 @@ export default function Reports() {
     // The Financial tab's three-line trend. Built by a pure helper, given the
     // FULL booking and payment lists rather than the range-scoped copies —
     // this series ignores the period filter by design, and the chart says so.
+    // Contracted work only, matching Estimated Gross Revenue on the cards: a
+    // Pending request is not revenue. Paid uses counted entries for the same
+    // reason the cards do.
     const monthlyFinancialTrend = buildMonthlyFinancialTrend(
-      bookings, verifiedPayments, nowInstant, { excludeStatuses: CANCELLED_STATUSES }
+      bookings, countedEntries, new Date(), { excludeStatuses: [...CANCELLED_STATUSES, 'Pending'] }
     );
 
     return {
-      financialSummary, monthlyRevenueData, monthlyFinancialTrend, paymentMethodData, refunds, totalRefunded,
-      totalSubmitted, cancellationRate, rejectedCount, customerCancelledCount, pendingInRangeCount, pendingContractValue,
+      financialSummary, monthlyFinancialTrend, paymentMethodData, refunds, reversals,
       productLineMix, packageMix, menuItemMix, categoryDemandData,
       packageRevenue, shortOrderRevenue, combinedRevenue,
       menuItemRevenue, deliveryFeeTotal, unattributedFoodRevenue, traysSold, topSellingItem,
       hasEstimatedMenuRevenue, totalPackageBookings,
-      totalVehicles, dispatchedVehicles,
       repeatCustomers, oneTimeCustomers, totalCustomers: customerList.length,
       bookingSummaryData,
     };
-  }, [rawData, rangeStart, rangeEnd]);
+  }, [rawData, rangeStart, rangeEnd, periodTotals]);
 
   const handleCardClick = (type) => {
     if (!derived) return;
     const breakdowns = {
-      revenue: { data: derived.financialSummary._revenueBreakdown, title: 'Estimated Gross Revenue — events in this period' },
-      collected: { data: derived.financialSummary._collectedBreakdown, title: 'Paid against these events' },
-      outstanding: { data: derived.financialSummary._outstandingBreakdown, title: 'Unpaid on These Events' },
+      revenue: { data: derived.financialSummary._revenueBreakdown, title: `Estimated Gross Revenue — contracted for ${period}` },
+      collected: { data: derived.financialSummary._collectedBreakdown, title: `Collected against services in ${period}` },
+      outstanding: { data: derived.financialSummary._outstandingBreakdown, title: `Total Receivables — still to collect for ${period}` },
+      approved: { data: derived.financialSummary._approvedBreakdown, title: `Approved, not yet confirmed — for ${period}` },
+      forfeited: { data: derived.financialSummary._forfeitedBreakdown, title: `Forfeited deposits — retained from cancellations for ${period}` },
     };
     const entry = breakdowns[type];
     if (!entry) return;
@@ -671,14 +577,14 @@ export default function Reports() {
         </nav>
       </div>
 
-      {isLoading || !derived ? (
+      {isLoading || !derived || (!periodTotals && !totalsError) ? (
         <div className="w-full py-20 flex justify-center items-center text-slate-500 font-medium">
           Loading metrics and database summaries...
         </div>
       ) : (
         <div className="animate-in fade-in duration-200 space-y-[18px]">
-          {activeTab === 'Overview' && <OverviewTab derived={derived} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
-          {activeTab === 'Financial' && <FinancialTab derived={derived} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
+          {activeTab === 'Overview' && <OverviewTab derived={derived} period={period} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
+          {activeTab === 'Financial' && <FinancialTab derived={derived} period={period} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Menu & Packages' && <MenuPerformanceTab derived={derived} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Booking Summary' && <BookingSummaryTab derived={derived} onOpenDetail={openSimpleModal} />}
         </div>

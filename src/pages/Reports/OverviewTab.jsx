@@ -1,37 +1,42 @@
 // src/pages/Reports/OverviewTab.jsx
+//
+// Six cards, and the rule they all obey:
+//
+//   A card shows ONE number. Its subtext says what that number is and names
+//   the period. The subtext never contains a second number.
+//
+// So no "+ ₱58,150 …" lines, no "across 2 bookings", no percentages tucked
+// under an amount: a figure worth showing gets its own card. The word
+// "events" is banned from a money card's subtext too — it is a countable
+// noun, and the number underneath is pesos, not a count. The only two basis
+// labels on this page are "by service date" (the day the catering happens)
+// and "by payment date" (the day the money moved).
+//
+// Every figure comes from f_report_period. Pending bookings are in none of
+// them: a request nobody has agreed to is not revenue.
 import { formatCurrency, formatPercent, cardColorClasses, cardAccentClass } from './helpers';
 
-// `count` renders a plain integer, which carries a larger optical size than a
-// currency string of the same weight.
-function StatCard({ label, value, sub, color, onClick, count = false }) {
+function StatCard({ label, value, sub, color, onClick, count = false, secondary = false }) {
   return (
     <button
       onClick={onClick}
-      className={`border rounded-2xl p-5 text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 ${cardColorClasses()}`}
+      className={`border rounded-2xl text-left transition-all focus:outline-none focus:ring-2 focus:ring-[#008A45]/40 ${secondary ? 'p-4' : 'p-5'} ${cardColorClasses()}`}
     >
       <span className={cardAccentClass(color)} />
-      <p className="text-[13px] font-semibold text-slate-600 mb-2">{label}</p>
-      <h3 className={`font-semibold tracking-[-0.03em] tabular-nums text-slate-900 ${count ? 'text-[32px] leading-none' : 'text-[26px] leading-[1.05]'}`}>{value}</h3>
-      {sub && <p className="text-[13px] text-slate-600 mt-2.5">{sub}</p>}
+      <p className={`font-semibold mb-2 ${secondary ? 'text-[12.5px] text-slate-500' : 'text-[13px] text-slate-600'}`}>{label}</p>
+      <h3 className={`font-semibold tracking-[-0.03em] tabular-nums ${secondary ? 'text-[20px] leading-none text-slate-700' : count ? 'text-[32px] leading-none text-slate-900' : 'text-[26px] leading-[1.05] text-slate-900'}`}>{value}</h3>
+      {sub && <p className={`mt-2.5 ${secondary ? 'text-[12.5px] text-slate-500' : 'text-[13px] text-slate-600'}`}>{sub}</p>}
     </button>
   );
 }
 
-const SECTION_GRID = 'grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))]';
-// auto-FILL, not auto-fit. Operations is down to two cards, and auto-fit
-// collapses the empty tracks so those two stretch across the whole width —
-// which reads as a row that lost two cards rather than a row that has two.
-// auto-fill keeps the tracks, so the cards sit at the same width as the
-// Financial row above and the leftover space stays empty.
-const SECTION_GRID_FIXED = 'grid gap-3.5 [grid-template-columns:repeat(auto-fill,minmax(min(100%,210px),1fr))]';
+const ROW_GRID = 'grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))]';
 const SECTION_HEAD = 'text-[13px] font-bold text-slate-600 tracking-[0.04em] mb-3';
 
-export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
+export default function OverviewTab({ derived, period, onCardClick, onOpenDetail }) {
   const {
-    financialSummary, totalSubmitted, pendingInRangeCount, pendingContractValue,
-    packageMix, menuItemMix, topSellingItem,
-    totalVehicles, dispatchedVehicles, totalCustomers, repeatCustomers, oneTimeCustomers,
-    bookingSummaryData,
+    financialSummary, packageMix, menuItemMix, topSellingItem,
+    totalCustomers, repeatCustomers, oneTimeCustomers,
   } = derived;
 
   // Two leaders, not one. A package and a tray of food are different kinds of
@@ -39,76 +44,88 @@ export default function OverviewTab({ derived, onCardClick, onOpenDetail }) {
   const topPackage = packageMix[0] || null;
   const topItem = menuItemMix[0] || null;
   const hasTopSellers = Boolean(topPackage || topItem);
-  const totalCompletedBookings = bookingSummaryData.reduce((sum, r) => sum + r.bookings, 0);
 
   return (
     <div className="space-y-[18px]">
-      {/* The eight cards shipped as two arbitrary rows of four with nothing
-          saying which was which. They already split cleanly, so the headings
-          name a grouping that was always there but never stated.
-          Everything in this first group is anchored on the EVENT date -- hence
-          the "events in this period" sub-lines. Completed Bookings is a count
-          rather than an amount, but it belongs here because it is the volume
-          those money figures are earned on. */}
       <section>
-        <h2 className={SECTION_HEAD}>Financial</h2>
-        <div className={SECTION_GRID}>
-        {/* "Estimated", because the figure deliberately includes bookings that
-            have not been approved yet. The sub-line names the AMOUNT: "2 of 8"
-            reads as a quarter of the records and says nothing about the pesos,
-            which can be far more. The headline is unchanged. */}
-        <StatCard label="Estimated Gross Revenue" value={formatCurrency(financialSummary.contractValue)} sub={`Events in this period${pendingContractValue > 0 ? ` · ${formatCurrency(pendingContractValue)} from ${pendingInRangeCount} not yet approved` : ''}`} color="green" onClick={() => onCardClick('revenue')} />
-        {/* Same qualification as the Financial tab's Paid to Date: named only
-            when a request not yet approved carries a verified payment. */}
-        <StatCard label="Paid to Date" value={formatCurrency(financialSummary.paidAgainstEvents)} sub={`Against those events${financialSummary.paidAgainstEvents - financialSummary.acceptedPaid > 0 ? ` · ${formatCurrency(financialSummary.paidAgainstEvents - financialSummary.acceptedPaid)} on requests not yet approved` : ''}`} color="teal" onClick={() => onCardClick('collected')} />
-        {/* An amount under "Unpaid" reads as something to chase. The part owed
-            on requests not yet approved cannot be — nothing can be collected
-            before approval — so it is named. */}
-        <StatCard label="Unpaid on These Events" value={formatCurrency(financialSummary.outstanding)} sub={`Of the events in this period${financialSummary.outstanding - financialSummary.acceptedOutstanding > 0 ? ` · ${formatCurrency(financialSummary.outstanding - financialSummary.acceptedOutstanding)} not collectable until approved` : ''}`} color="amber" onClick={() => onCardClick('outstanding')} />
-        <StatCard
-          label="Completed Bookings"
-          count
-          value={totalCompletedBookings}
-          sub="In selected period"
-          color="blue"
-          onClick={() => onOpenDetail({
-            title: 'Completed Bookings',
-            description: `Completed bookings with an event date in the selected period. ${bookingSummaryData.length} month${bookingSummaryData.length === 1 ? '' : 's'} had at least one.`,
-            fields: [{ label: 'Completed bookings', value: totalCompletedBookings, emphasis: true }],
-          })}
-        />
+        <h2 className={SECTION_HEAD}>The money that matters</h2>
+        <div className={ROW_GRID}>
+          {/* Contracted work only — Confirmed and Completed. A Pending request
+              is not revenue, and it is not folded in under any label. */}
+          <StatCard
+            label="Estimated Gross Revenue"
+            value={formatCurrency(financialSummary.grossContracted)}
+            sub={`Contracted for ${period} · by service date`}
+            color="green"
+            onClick={() => onCardClick('revenue')}
+          />
+          {/* The same figure, by the same definition, as Cash Receipts on the
+              Receivables page. Both read f_report_period / v_payment_ledger. */}
+          <StatCard
+            label="Cash Receipts"
+            value={formatCurrency(financialSummary.cashReceipts)}
+            sub={`Collected during ${period} · by payment date`}
+            color="teal"
+            onClick={() => onOpenDetail({
+              title: 'Cash Receipts',
+              description: 'Verified receipts, counted on the day the money moved. Claims awaiting verification, reversals, and receipts that have been reversed are all excluded — the same rule the Receivables page uses.',
+              fields: [
+                { label: 'Cash receipts', value: formatCurrency(financialSummary.cashReceipts), emphasis: true },
+                { label: 'Receipts counted', value: financialSummary.receiptCount },
+                { label: 'Refunds issued', value: formatCurrency(financialSummary.refundsIssued) },
+                { label: 'Reversals recorded', value: formatCurrency(financialSummary.reversalsRecorded) },
+              ],
+            })}
+          />
+          {/* One term, one number, both pages: Approved, Confirmed and
+              Completed, exactly as Receivables counts it. */}
+          <StatCard
+            label="Total Receivables"
+            value={formatCurrency(financialSummary.outstandingReceivable)}
+            sub={`Still to collect for ${period} · by service date`}
+            color="amber"
+            onClick={() => onCardClick('outstanding')}
+          />
         </div>
       </section>
 
       <section>
-        <h2 className={SECTION_HEAD}>Operations</h2>
-        <div className={SECTION_GRID_FIXED}>
-        <StatCard
-          label="Bookings & Orders Submitted"
-          count
-          value={totalSubmitted}
-          sub="All statuses"
-          color="purple"
-          onClick={() => onOpenDetail({
-            title: 'Bookings & Orders Submitted',
-            description: 'Every booking submitted in the selected period, counted by its submission date, whatever status it reached later.',
-            fields: [{ label: 'Total submitted', value: totalSubmitted, emphasis: true }],
-          })}
-        />
-        <StatCard
-          label="Vehicles Dispatched"
-          value={`${dispatchedVehicles} / ${totalVehicles}`}
-          sub="On the road now"
-          color="teal"
-          onClick={() => onOpenDetail({
-            title: 'Vehicles Dispatched',
-            description: 'Vehicles whose trip window covers this moment. A vehicle booked for a later event is committed, not on the road, and is counted separately.',
-            fields: [
-              { label: 'Dispatched', value: dispatchedVehicles, emphasis: true },
-              { label: 'Total fleet', value: totalVehicles },
-            ],
-          })}
-        />
+        <h2 className={SECTION_HEAD}>Supporting</h2>
+        <div className={ROW_GRID}>
+          <StatCard
+            secondary
+            label="Approved, Not Yet Confirmed"
+            value={formatCurrency(financialSummary.grossApproved)}
+            sub={`Accepted, awaiting confirmation · for ${period}`}
+            color="blue"
+            onClick={() => onCardClick('approved')}
+          />
+          {/* Money the business kept when a booking fell through. It is income,
+              but not of the same kind as contracted work, so it is never folded
+              into Estimated Gross Revenue. */}
+          <StatCard
+            secondary
+            label="Forfeited Deposits"
+            value={formatCurrency(financialSummary.forfeitedDeposits)}
+            sub={`Retained from cancellations · for ${period}`}
+            color="red"
+            onClick={() => onCardClick('forfeited')}
+          />
+          {/* The one card whose number IS a count, so a countable word is
+              right here. */}
+          <StatCard
+            secondary
+            count
+            label="Completed Bookings"
+            value={financialSummary.completedCount}
+            sub={`Finished during ${period}`}
+            color="purple"
+            onClick={() => onOpenDetail({
+              title: 'Completed Bookings',
+              description: 'Bookings marked Completed whose service date falls in the selected period.',
+              fields: [{ label: 'Completed bookings', value: financialSummary.completedCount, emphasis: true }],
+            })}
+          />
         </div>
       </section>
 

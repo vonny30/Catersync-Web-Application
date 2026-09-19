@@ -6,25 +6,18 @@ import { useNavigate } from 'react-router-dom';
 import { ExternalLink } from 'lucide-react';
 import { formatCurrency, formatPercent, formatDate } from './helpers';
 
-export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
+export default function FinancialTab({ derived, period, onCardClick, onOpenDetail }) {
   const navigate = useNavigate();
-  const { financialSummary, monthlyFinancialTrend, paymentMethodData, refunds, totalRefunded, bookingSummaryData } = derived;
+  const { financialSummary, monthlyFinancialTrend, paymentMethodData, refunds, reversals, bookingSummaryData } = derived;
 
-  // Share of estimated gross revenue that has been paid. BOTH sides are
-  // event-anchored (the estimate and the payments against those same events),
-  // so the ratio is like-for-like. It deliberately does NOT use
-  // paymentsReceived: that figure is anchored on payment date and counts cash
-  // from events outside this period, so dividing it by this period's estimate
-  // would compare two different populations and produce a number that means
-  // nothing.
-  //
-  // The denominator is ACCEPTED work only. A Pending request cannot be
-  // collected on until it is approved, so counting it made the rate measure
-  // the approval backlog and collection performance mixed together. The
-  // numerator is paid against those same accepted bookings, which equals
-  // paidAgainstEvents whenever no Pending booking carries a verified payment.
-  const collectedPct = financialSummary.acceptedContractValue > 0
-    ? (financialSummary.acceptedPaid / financialSummary.acceptedContractValue) * 100
+  // Share of accepted work that has been collected. Both sides are
+  // event-anchored and come from f_report_period: money paid against those
+  // same bookings, over the accepted gross (Approved, Confirmed, Completed).
+  // It deliberately does NOT use Cash Receipts — that is anchored on payment
+  // date and includes cash for services outside this period, so dividing it
+  // by this period's contracted work would compare two different populations.
+  const collectedPct = financialSummary.grossTotalAccepted > 0
+    ? (financialSummary.paidAgainstEvents / financialSummary.grossTotalAccepted) * 100
     : 0;
 
   // Shared class string for the three event-anchored figures.
@@ -37,133 +30,74 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
 
   return (
     <>
-      {/* One section instead of four hero cards, but the two anchors stay
-          visually separated by a rule and each keeps its own heading.
-          Collapsing them into a single undifferentiated block is what
-          reportMetrics.js warns against: cash received in a period and the
-          value of events in that period are different questions, and the page
-          disagreed with the Dashboard for exactly that reason. */}
+      {/* Two anchors, stated separately and never mixed: cash that MOVED in
+          this period, and the services that HAPPEN in it. Conflating them is
+          what made this page disagree with Receivables. Cash Receipts is the
+          headline because it is the figure both pages must agree on. */}
       <section className="bg-white border border-slate-200/70 rounded-2xl p-6 mb-[18px]">
         <div>
-          <span className="block text-[13px] font-semibold text-slate-600 mb-2.5">Payments Received</span>
+          <span className="block text-[13px] font-semibold text-slate-600 mb-2.5">Cash Receipts</span>
           <span className="block text-[38px] font-semibold tracking-[-0.035em] leading-none tabular-nums text-slate-900">
-            {formatCurrency(financialSummary.revenueReceived)}
+            {formatCurrency(financialSummary.cashReceipts)}
           </span>
           <span className="block text-[13.5px] text-slate-600 mt-3">
-            Paid in this period on confirmed &amp; completed bookings
-            {financialSummary.refundsNettedAgainstReceived > 0
-              ? `, after ${formatCurrency(financialSummary.refundsNettedAgainstReceived)} refunded`
-              : ''}
+            Collected during {period} · by payment date
           </span>
-          {/* The two figures the headline excludes. Both are real cash, so
-              neither is dropped: one is on a booking not yet confirmed, the
-              other was kept when a booking was cancelled. Stated rather than
-              folded in, and in the same order on all three pages that show
-              this number. */}
-          {financialSummary.awaitingConfirmation > 0 && (
-            <span className="block text-[13px] text-slate-600 mt-1.5">
-              + {formatCurrency(financialSummary.awaitingConfirmation)} paid on bookings not yet confirmed
-            </span>
-          )}
-          {financialSummary.retainedFromCancellations > 0 && (
-            <span className="block text-[13px] text-slate-600 mt-1.5">
-              + {formatCurrency(financialSummary.retainedFromCancellations)} kept from cancelled bookings
-            </span>
-          )}
         </div>
 
         <div className="h-px bg-slate-100 my-[22px]" />
 
         <div>
           <span className="block text-[13px] font-bold text-slate-600 tracking-[0.04em] mb-4">
-            Events happening in this period
+            Services happening in {period}
           </span>
           <div className="flex flex-wrap gap-8">
             <button onClick={() => onCardClick('revenue')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
               <span className="block text-[13px] text-slate-600 mb-1.5">Estimated Gross Revenue</span>
-              <span className={`${FIG} text-slate-900`}>{formatCurrency(financialSummary.contractValue)}</span>
-              {/* The collection rate below divides by ACCEPTED gross revenue, so
-                  that figure has to be on screen here, or the division under
-                  the bar uses a number nothing above it shows. The headline
-                  stays the whole estimate. */}
-              {financialSummary.pendingContractValue > 0 && (
-                <span className="block text-[12.5px] text-slate-500 mt-1 tabular-nums">
-                  {formatCurrency(financialSummary.acceptedContractValue)} accepted · {formatCurrency(financialSummary.pendingContractValue)} awaiting approval
-                </span>
-              )}
+              <span className={`${FIG} text-slate-900`}>{formatCurrency(financialSummary.grossContracted)}</span>
+              <span className="block text-[12.5px] text-slate-500 mt-1">Contracted · by service date</span>
             </button>
             <button onClick={() => onCardClick('collected')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
               {/* Same colour roles as the Equipment page: green for what is in
-                  hand (available there, paid here), red for what is not (damaged
-                  there, unpaid here). Label dot and figure share the colour, so
-                  the bar below reads against them. */}
+                  hand, orange for what is not. */}
               <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
                 <span className="w-2 h-2 rounded-full bg-[#009E73] shrink-0" aria-hidden="true" />
-                Paid to Date
+                Collected Against These Services
               </span>
               <span className={`${FIG} text-[#009E73]`}>{formatCurrency(financialSummary.paidAgainstEvents)}</span>
-              {/* The rate below divides money paid on ACCEPTED bookings. That
-                  equals this figure until a pending request carries a verified
-                  payment (the mobile app takes proof at request time), and from
-                  then on the division's numerator would appear nowhere above
-                  it. Guarded on the difference, not on pending requests
-                  existing: "₱0 on requests" is noise. */}
-              {financialSummary.paidAgainstEvents - financialSummary.acceptedPaid > 0 && (
-                <span className="block text-[12.5px] text-slate-500 mt-1 tabular-nums">
-                  {formatCurrency(financialSummary.acceptedPaid)} on accepted · {formatCurrency(financialSummary.paidAgainstEvents - financialSummary.acceptedPaid)} on requests not yet approved
-                </span>
-              )}
+              <span className="block text-[12.5px] text-slate-500 mt-1">By service date</span>
             </button>
             <button onClick={() => onCardClick('outstanding')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
               <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
                 <span className="w-2 h-2 rounded-full bg-[#D55E00] shrink-0" aria-hidden="true" />
-                Unpaid on These Events
+                Total Receivables
               </span>
-              <span className={`${FIG} text-[#D55E00]`}>{formatCurrency(financialSummary.outstanding)}</span>
+              <span className={`${FIG} text-[#D55E00]`}>{formatCurrency(financialSummary.outstandingReceivable)}</span>
+              <span className="block text-[12.5px] text-slate-500 mt-1">Still to collect · by service date</span>
             </button>
           </div>
 
-          {/* The relationship the three separate cards never showed. Width is
-              clamped at 100% so an overpaid booking cannot render a bar wider
-              than its track, while the printed percentage stays truthful. */}
+          {/* The relationship the separate figures never showed. Clamped at
+              100% so an overpaid booking cannot draw a bar wider than its
+              track, while the printed percentage stays truthful. */}
           <div className="mt-[22px] mb-2.5 h-2 rounded-full bg-slate-100 overflow-hidden">
             <div className="h-full rounded-full bg-[#009E73]" style={{ width: `${Math.min(100, Math.max(0, collectedPct))}%` }} />
           </div>
-          {/* The figure alone invites "where does that number come from?", so
-              the division that produced it is printed underneath, and both of
-              its sides appear on screen in either data state.
-                - Numerator: paid against ACCEPTED bookings only. It equals Paid
-                  to Date whenever no pending request carries a verified payment;
-                  when one does, the difference is named in the sub-line under
-                  Paid to Date.
-                - Denominator: accepted gross revenue. It equals the headline
-                  when there are no pending requests; otherwise it is the
-                  sub-line under Estimated Gross Revenue.
-              Both sides are event-anchored, which is what makes the ratio
-              meaningful. */}
-          {financialSummary.acceptedContractValue > 0 ? (
+          {financialSummary.grossTotalAccepted > 0 ? (
             <>
               <span className="block text-[13px] text-slate-600 tabular-nums">
-                {formatPercent(collectedPct)} of accepted gross revenue paid for these events
+                {formatPercent(collectedPct)} of accepted work collected
               </span>
               <span className="block text-[12.5px] text-slate-500 mt-1 tabular-nums">
-                {formatCurrency(financialSummary.acceptedPaid)} paid ÷ {formatCurrency(financialSummary.acceptedContractValue)} accepted gross revenue
+                {formatCurrency(financialSummary.paidAgainstEvents)} collected ÷ {formatCurrency(financialSummary.grossTotalAccepted)} accepted, which is contracted plus approved
               </span>
-              {financialSummary.pendingContractValue > 0 && (
-                <span className="block text-[12.5px] text-slate-500 mt-1 tabular-nums">
-                  Requests not yet approved are excluded — nothing can be collected on those yet.
-                </span>
-              )}
+              <span className="block text-[12.5px] text-slate-500 mt-1">
+                Requests still awaiting approval are excluded — nothing is owed until a booking is accepted.
+              </span>
             </>
-          ) : financialSummary.contractValue > 0 ? (
-            // Every event in the period is still a request. The old zero-state
-            // ("no events fall in this period") would be false here.
-            <span className="block text-[13px] text-slate-600">
-              Every event in this period is still awaiting approval, so nothing can be collected on them yet.
-            </span>
           ) : (
             <span className="block text-[13px] text-slate-600">
-              No events fall in this period, so there is no estimated gross revenue to measure against.
+              No accepted work falls in this period, so there is nothing to measure collection against.
             </span>
           )}
         </div>
@@ -171,8 +105,8 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
 
       <div className="bg-white border border-slate-200/70 rounded-2xl p-6">
         <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
-          <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Money by event month</h3>
-          <span className="text-[13px] text-slate-600">Broken down by event month, using the same three figures as the cards above.</span>
+          <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Money by service month</h3>
+          <span className="text-[13px] text-slate-600">Broken down by service month, using the same figures as above.</span>
         </div>
         {/* REQUIRED SENTENCE. This chart deliberately ignores the period filter
             sitting above it, and a chart that ignores a nearby control reads as
@@ -253,9 +187,9 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
           </ResponsiveContainer>
         )}
         <p className="mt-2 text-[13px] text-slate-600">
-          Each month is the events happening THAT month — not the cash taken that month. Estimated Gross Revenue
-          includes bookings not yet approved, exactly as the card above does, so a month can carry an estimate for
-          work PG&#39;s has not accepted yet. Unpaid is the estimate minus what has been paid against those same events.
+          Each month is the services happening THAT month — not the cash taken that month. Estimated Gross Revenue is
+          contracted work only, exactly as the figure above, so a request still awaiting approval never appears here.
+          Still to collect is that estimate minus what has been collected against the same services.
         </p>
       </div>
 
@@ -279,7 +213,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
                     key={m.method}
                     onClick={() => onOpenDetail({
                       title: m.method,
-                      description: 'Payments made by this method in the selected period.',
+                      description: 'Receipts collected by this method in the selected period. Refunds and reversals are not counted here.',
                       fields: [
                         { label: 'Total collected', value: formatCurrency(m.total), emphasis: true },
                         { label: 'Number of payments', value: m.count },
@@ -300,7 +234,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
         <div className="bg-white border border-slate-200/70 rounded-2xl overflow-hidden">
           <div className="px-5 pt-[18px] pb-4 border-b border-slate-100 flex items-center justify-between">
             <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Refunds</h3>
-            <span className="text-[13px] font-semibold text-red-700 tabular-nums">{formatCurrency(totalRefunded)} total</span>
+            <span className="text-[13px] font-semibold text-red-700 tabular-nums">{formatCurrency(financialSummary.refundsIssued)} total</span>
           </div>
           {refunds.length === 0 ? (
             <div className="p-8 text-center text-slate-500 text-sm">No refunds in this period.</div>
@@ -315,6 +249,8 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
+                {/* entry_type Refund only. A reversal is a correction, not
+                    money returned to a customer, and has its own table. */}
                 {refunds.map((r) => (
                   <tr
                     key={r.payment_id}
@@ -353,6 +289,51 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
           )}
         </div>
       </div>
+
+      {/* Corrections, not transactions. A reversal cancels a receipt that
+          should not have been recorded; neither row counts toward any figure
+          on this page. Shown only when there are any. */}
+      {reversals.length > 0 && (
+        <div className="bg-white border border-slate-200/70 rounded-2xl overflow-hidden">
+          <div className="px-5 pt-[18px] pb-4 border-b border-slate-100 flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Reversals</h3>
+              <p className="text-[13px] text-slate-600 mt-1">Receipts corrected in this period. A reversal is not a refund: no money went back to the customer, and neither entry counts toward any figure above.</p>
+            </div>
+            <span className="text-[13px] font-semibold text-slate-600 tabular-nums shrink-0">{formatCurrency(financialSummary.reversalsRecorded)} total</span>
+          </div>
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-[#fbfcfd] border-b border-slate-100">
+                <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Booking</th>
+                <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Date</th>
+                <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-sm">
+              {reversals.map((r) => (
+                <tr key={r.payment_id} className="hover:bg-[#fbfcfd]">
+                  <td className="px-5 py-[15px]">
+                    {r.bookingRef ? (
+                      <button
+                        onClick={() => goToBookingDetails(r.booking_id, r.bookingType)}
+                        className="font-mono text-xs font-bold text-[#008A45] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                        title="View full booking details"
+                      >
+                        {r.bookingRef} <ExternalLink size={10} />
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-400">Unknown</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-[15px] text-sm text-slate-800 tabular-nums">{formatDate(r.pay_datetime)}</td>
+                  <td className="px-5 py-[15px] text-right font-semibold text-slate-600 tabular-nums">−{formatCurrency(Math.abs(r.amount_paid))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div className="bg-white border border-slate-200/70 rounded-2xl overflow-hidden">
         <div className="px-5 pt-[18px] pb-4 border-b border-slate-100"><h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Recent Months (Completed)</h3>

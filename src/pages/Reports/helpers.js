@@ -47,6 +47,28 @@ export const DATE_RANGE_PRESETS = ['All Time', 'This Month', 'This Year', 'Last 
 // month must not be hidden behind a filter nobody chose.
 export const DEFAULT_DATE_PRESET = 'This Month';
 
+// The selected period, named, for a card subtext: "September", "2026",
+// "the last 30 days", "all time", "1–15 September".
+//
+// A card subtext on Reports and Receivables may not contain a digit that is
+// money or a count, and may not say "events" — the panel's rule. A month name
+// is not a number, so naming the period is how a card says WHEN without
+// putting a second figure under the first.
+export function periodLabel(preset, start, end) {
+  if (preset === 'This Month' && start) return start.toLocaleString('en-PH', { month: 'long' });
+  if (preset === 'This Year' && start) return String(start.getFullYear());
+  if (preset === 'Last 30 Days') return 'the last 30 days';
+  if (preset === 'All Time') return 'all time';
+  if (start && end) {
+    const sameMonth = start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth();
+    const month = (d) => d.toLocaleString('en-PH', { month: 'long' });
+    return sameMonth
+      ? `${start.getDate()}–${end.getDate()} ${month(end)}`
+      : `${start.getDate()} ${month(start)} – ${end.getDate()} ${month(end)}`;
+  }
+  return 'the selected range';
+}
+
 // ---------------------------------------------------------------------------
 // TWO DIFFERENT QUESTIONS. Do not use this constant for the second one.
 // ---------------------------------------------------------------------------
