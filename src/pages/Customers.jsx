@@ -7,6 +7,14 @@
 // app already has several client-side definitions of "paid" that disagree, and
 // this page is not to become another. A figure that is missing belongs in the
 // view.
+//
+// ONE CAVEAT ON WHICH COLUMN TO READ. Every view here still exposes a
+// combined unpaid figure (lifetime_outstanding, total_outstanding,
+// with_balance, has_outstanding_balance, balance_due) that adds pending and
+// approved work to money that can actually be collected. They are kept for
+// compatibility and are deprecated for display: bind to receivable_due /
+// pipeline_due and their totals instead, so this page agrees with
+// Receivables and Reports.
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -106,14 +114,20 @@ const SORT_DEFAULT_DIRECTION = {
   full_name: 'asc',
   total_bookings: 'desc',
   lifetime_gross: 'desc',
-  lifetime_outstanding: 'desc',
+  receivable_due: 'desc',
+  pipeline_due: 'desc',
   next_event_at: 'asc',
 };
 
+// receivable_due / pipeline_due, never lifetime_outstanding: the lifetime
+// figure adds pending and approved work to money that can actually be
+// collected, which made one customer read as owing half a million. The split
+// columns come from v_customer_summary and agree row for row with
+// v_customer_balance, which is what the drawer reads.
 const LIST_COLUMNS = [
   'customer_id', 'first_name', 'last_name', 'full_name', 'email_address', 'contact_no', 'cus_address',
   'account_status', 'status_reason', 'source', 'has_login', 'total_bookings', 'package_bookings',
-  'short_orders', 'lifetime_gross', 'lifetime_outstanding', 'next_event_at', 'is_deletable',
+  'short_orders', 'lifetime_gross', 'receivable_due', 'pipeline_due', 'next_event_at', 'is_deletable',
 ].join(', ');
 
 const inputClass = (hasError) => `w-full border rounded-[10px] px-3 py-2.5 text-sm text-slate-800 outline-none transition-colors ${
@@ -559,7 +573,11 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
                       <th className="px-3 py-2.5 whitespace-nowrap">Event</th>
                       <th className="px-3 py-2.5 whitespace-nowrap text-right">Contract Amount</th>
                       <th className="px-3 py-2.5 whitespace-nowrap text-right">Collected</th>
-                      <th className="px-3 py-2.5 whitespace-nowrap text-right">Balance Due</th>
+                      {/* "Receivables" would be wrong here: this table lists
+                          pending and approved bookings too, and their balances
+                          are not collectible. Outstanding is the booking-level
+                          word, and the one v_booking_money uses. */}
+                      <th className="px-3 py-2.5 whitespace-nowrap text-right">Outstanding</th>
                       <th className="px-3 py-2.5 whitespace-nowrap">Status</th>
                     </tr>
                   </thead>
@@ -591,11 +609,11 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
                           )}
                         </td>
                         <td className="px-3 py-3 align-top text-right tabular-nums whitespace-nowrap">
-                          {/* A rejected or cancelled booking is not owed, and
-                              the balances above leave it out; say so rather
-                              than print a figure nobody will collect. */}
+                          {/* A rejected or cancelled booking is not collectible,
+                              and the figures above leave it out; say so rather
+                              than print an amount nobody will collect. */}
                           {b.is_closed ? (
-                            <span className="text-slate-400" title="Rejected or cancelled — no balance due, and not counted in Balance Due">—</span>
+                            <span className="text-slate-400" title="Rejected or cancelled — nothing to collect, and not counted above">—</span>
                           ) : Number(b.outstanding) > 0 ? (
                             <span className="font-semibold text-amber-700">{peso(b.outstanding)}</span>
                           ) : (
@@ -802,8 +820,11 @@ export default function Customers() {
       }
       if (f.status !== 'All') query = query.eq('account_status', f.status);
       if (f.source !== 'All') query = query.eq('source', f.source);
-      if (f.balance === 'Has balance') query = query.eq('has_outstanding_balance', true);
-      if (f.balance === 'Settled') query = query.eq('has_outstanding_balance', false);
+      // has_receivable_due, not has_outstanding_balance: the filter must select
+      // the same population the column shows, or the card that sets it lands on
+      // a list whose figures do not add up to the card.
+      if (f.balance === 'Has receivables') query = query.eq('has_receivable_due', true);
+      if (f.balance === 'Settled') query = query.eq('has_receivable_due', false);
       if (f.repeatOnly) query = query.eq('is_repeat', true);
       if (f.joinedStart) query = query.gte('created_at', f.joinedStart);
       if (f.joinedEnd) query = query.lte('created_at', f.joinedEnd);
@@ -1019,14 +1040,15 @@ export default function Customers() {
     },
     {
       key: 'balance',
-      label: 'With Outstanding Balance',
-      value: t?.with_balance,
-      // v_customer_totals has no receivable/pipeline split, so this is every
-      // unpaid booking including work not yet contracted. Worded to say that,
-      // rather than claiming it is all collectible.
-      sub: t ? `${peso(t.total_outstanding)} unpaid across all open bookings` : '',
+      label: 'With Receivables',
+      // with_receivable and total_receivable are the same money Total
+      // Receivables adds up on the Receivables and Reports pages. with_balance
+      // and total_outstanding still exist and still count pending and approved
+      // work; nothing on this page binds to them any more.
+      value: t?.with_receivable,
+      sub: 'Customers with collectible catering',
       accent: 'bg-amber-500',
-      onClick: () => { clearFilters(); setBalanceFilter('Has balance'); scrollToTable(); },
+      onClick: () => { clearFilters(); setBalanceFilter('Has receivables'); scrollToTable(); },
     },
     {
       key: 'repeat',
@@ -1180,10 +1202,10 @@ export default function Customers() {
           </div>
 
           <div>
-            <label className={`block text-[13px] font-semibold mb-1 ${balanceFilter !== 'All' ? 'text-[#007038]' : 'text-slate-600'}`}>Balance</label>
+            <label className={`block text-[13px] font-semibold mb-1 ${balanceFilter !== 'All' ? 'text-[#007038]' : 'text-slate-600'}`}>Receivables</label>
             <Select value={balanceFilter} onChange={(e) => setBalanceFilter(e.target.value)} className={filterControlClass(balanceFilter !== 'All')}>
               <option value="All">All</option>
-              <option value="Has balance">Has balance</option>
+              <option value="Has receivables">Has receivables</option>
               <option value="Settled">Settled</option>
             </Select>
           </div>
@@ -1215,10 +1237,13 @@ export default function Customers() {
                 <th className="px-4 py-3 whitespace-nowrap">Contact</th>
                 <th className="px-4 py-3">{renderSortHeader('total_bookings', 'Bookings')}</th>
                 <th className="px-4 py-3 text-right">{renderSortHeader('lifetime_gross', 'Lifetime Value', 'right')}</th>
-                {/* Same caveat as the card: v_customer_summary exposes only
-                    lifetime_outstanding, which includes pending and approved
-                    work. The drawer splits it; this column cannot. */}
-                <th className="px-4 py-3 text-right" title="Unpaid across all open bookings, including pending and approved work. Open a customer to see what is collectible now.">{renderSortHeader('lifetime_outstanding', 'Unpaid', 'right')}</th>
+                {/* Collectible now. Same measure and same word as the card
+                    above and as the Receivables page. */}
+                <th className="px-4 py-3 text-right">{renderSortHeader('receivable_due', 'Receivables', 'right')}</th>
+                {/* Secondary on purpose — real money, but nobody can collect it
+                    until the customer confirms. Muted so the eye lands on the
+                    column to its left. */}
+                <th className="px-4 py-3 text-right font-semibold text-slate-500">{renderSortHeader('pipeline_due', 'Pipeline', 'right')}</th>
                 <th className="px-4 py-3">{renderSortHeader('next_event_at', 'Next Event')}</th>
                 <th className="px-4 py-3 whitespace-nowrap">Status</th>
                 <th className="px-4 py-3 whitespace-nowrap text-right">Actions</th>
@@ -1226,9 +1251,9 @@ export default function Customers() {
             </thead>
             <tbody className={`divide-y divide-slate-100 text-sm text-slate-700 transition-opacity ${listLoading && hasListLoaded ? 'opacity-60' : ''}`}>
               {!hasListLoaded ? (
-                <SkeletonRows columns={8} />
+                <SkeletonRows columns={9} />
               ) : list.rows.length === 0 ? (
-                <tr><td colSpan="8" className="p-8 text-center text-slate-500 italic">No customers match these filters.</td></tr>
+                <tr><td colSpan="9" className="p-8 text-center text-slate-500 italic">No customers match these filters.</td></tr>
               ) : (
                 list.rows.map((c) => (
                   <tr key={c.customer_id} onClick={() => openDrawer(c.customer_id)} className="hover:bg-[#fbfcfd] transition-colors cursor-pointer">
@@ -1246,8 +1271,13 @@ export default function Customers() {
                     </td>
                     <td className="px-4 py-[15px] text-right text-[15px] font-semibold text-slate-900 tabular-nums whitespace-nowrap">{peso(c.lifetime_gross)}</td>
                     <td className="px-4 py-[15px] text-right tabular-nums whitespace-nowrap">
-                      {Number(c.lifetime_outstanding) > 0
-                        ? <span className="text-[15px] font-semibold text-amber-700">{peso(c.lifetime_outstanding)}</span>
+                      {Number(c.receivable_due) > 0
+                        ? <span className="text-[15px] font-semibold text-amber-700">{peso(c.receivable_due)}</span>
+                        : <span className="text-slate-400">—</span>}
+                    </td>
+                    <td className="px-4 py-[15px] text-right tabular-nums whitespace-nowrap">
+                      {Number(c.pipeline_due) > 0
+                        ? <span className="text-[13.5px] text-slate-500">{peso(c.pipeline_due)}</span>
                         : <span className="text-slate-400">—</span>}
                     </td>
                     <td className="px-4 py-[15px] text-sm text-slate-700 tabular-nums whitespace-nowrap">{dateOrDash(c.next_event_at)}</td>
