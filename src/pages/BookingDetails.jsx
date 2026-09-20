@@ -20,7 +20,7 @@ import { useCancellationHandlers } from '../hooks/useCancellationHandlers';
 import { useVerificationHandlers } from '../hooks/useVerificationHandlers';
 import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
-import { allocateEquipmentForBooking, getDailyEquipmentSnapshot, computeEquipmentDemand } from '../utils/equipment';
+import { allocateEquipmentForBooking } from '../utils/equipment';
 import { TRIP_LEG, countDistinctVehicles, groupDispatchRuns, hasRunDeparted, removeScheduledRun, runRemovalMessage } from '../utils/vehicle';
 import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumDepositsCollected, isPaymentLedgerLocked, formatPaymentDeletionWarning, movesBooks, isRefundEntry, ledgerEntryBadge, PENDING_VERIFICATION, REFUNDED_STATUS, ENTRY_TYPES, RECEIPT_METHODS, REFUND_METHOD_MESSAGE } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
@@ -28,6 +28,9 @@ import { isResourceLocked, resourceLockReason } from '../utils/resourceLock';
 import ReviewFlagBanner from '../components/ReviewFlagBanner';
 import StatusHistory from '../components/StatusHistory';
 import OverrideStatusModal from '../components/OverrideStatusModal';
+import {
+  fetchEquipmentAvailability, eventDayLabel, overAllocationWarning,
+} from '../utils/equipmentAvailability';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
 import { validatePaxForPackage } from '../utils/packageRules';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
@@ -176,6 +179,15 @@ export default function BookingDetails() {
   // completion paths; what it must NOT do is decide for itself whether the
   // system flagged this booking or what the outstanding balance is.
   const [money, setMoney] = useState(null);
+  // What the package template says this booking should take, per item, from
+  // v_booking_equipment_required — the view that owns that rule (per_pax ->
+  // ceil(pax / pax_per_unit), otherwise the package's included_quantity).
+  // Shown as a SUGGESTION the manager can overrule, never as a cap.
+  const [suggestedById, setSuggestedById] = useState({});
+  // usable / committed / free per item on the event's own date, from
+  // f_equipment_availability. One source for the panel, the Assign modal's
+  // labels and both write guards.
+  const [availability, setAvailability] = useState({ status: 'idle', byId: {} });
   const [isOverrideOpen, setIsOverrideOpen] = useState(false);
   // Bumped after anything that can change the status, so the history list
   // re-reads without this page owning its rows.
@@ -281,6 +293,21 @@ export default function BookingDetails() {
         setMenuSelections([]);
       }
 
+      // The template's suggested quantities and the day's availability. Both
+      // are read from the database rather than derived here: the suggestion is
+      // a package rule and the availability is a question about every booking
+      // on that date, neither of which this page can answer on its own.
+      const { data: requiredRows, error: requiredError } = await supabase
+        .from('v_booking_equipment_required')
+        .select('equipment_id, eqm_name, required_qty, per_pax, pax_per_unit, included_quantity')
+        .eq('booking_id', id);
+      if (requiredError) console.error('Could not read the suggested equipment for this booking:', requiredError);
+      setSuggestedById(Object.fromEntries((requiredRows || [])
+        .filter(r => r.equipment_id)
+        .map(r => [r.equipment_id, r])));
+
+      setAvailability(await fetchEquipmentAvailability(bookingData.event_datetime));
+
       // Equipment
       const { data: equipData } = await supabase
         .from('booking_equipment')
@@ -298,20 +325,17 @@ export default function BookingDetails() {
         })) || []
       );
       setAllocationLog(await fetchAllocationLog(id));
-      // What approval would allocate from the package template, so the panel
-      // can tell template rows from ones a manager added. booking_equipment has
-      // no column for this and gets none (no schema changes): the template is
-      // the source of truth. computeEquipmentDemand requires a package id, so a
-      // booking without one is given the empty demand an empty template already
-      // returns — every row then reads "Added by manager" either way.
-      try {
-        setTemplateDemand(bookingData.package_id
-          ? await computeEquipmentDemand(bookingData.package_id, bookingData.pax_count)
-          : {});
-      } catch (demandError) {
-        console.error('Could not derive the package template for the Equipment panel:', demandError);
-        setTemplateDemand(null);
-      }
+      // Which rows came from the package template and which a manager added.
+      // booking_equipment has no column saying so and gets none (no schema
+      // changes), so the template itself is the authority — and it is now the
+      // SAME template the Suggested figures come from,
+      // v_booking_equipment_required, rather than a second client-side
+      // derivation of the same rule sitting a few lines away from it. An
+      // empty result (no package, or a package with no template) sends every
+      // row to "Added by manager", which is what it already did.
+      setTemplateDemand(Object.fromEntries((requiredRows || [])
+        .filter(r => r.equipment_id)
+        .map(r => [r.equipment_id, Number(r.required_qty) || 0])));
       // Dispatch — what is actually carrying this event. The page could
       // previously only mention a vehicle in its delete warning, so a manager
       // had to open Vehicles and search for the reference to answer "is there
@@ -1179,15 +1203,12 @@ export default function BookingDetails() {
     // the data.
     if (booking.event_datetime) {
       setAssignSnapshot({ status: 'loading', freeById: {} });
-      getDailyEquipmentSnapshot(booking.event_datetime)
-        .then(({ items }) => setAssignSnapshot({
-          status: 'ready',
-          freeById: Object.fromEntries((items || []).map(item => [item.equipment_id, item.free])),
-        }))
-        .catch((snapshotError) => {
-          console.error('Could not load equipment availability for the event date:', snapshotError);
-          setAssignSnapshot({ status: 'failed', freeById: {} });
-        });
+      const fresh = await fetchEquipmentAvailability(booking.event_datetime);
+      setAvailability(fresh);
+      setAssignSnapshot({
+        status: fresh.status === 'ready' ? 'ready' : 'failed',
+        freeById: Object.fromEntries(Object.entries(fresh.byId).map(([eid, v]) => [eid, v.free])),
+      });
     } else {
       setAssignSnapshot({ status: 'failed', freeById: {} });
     }
@@ -1223,33 +1244,53 @@ export default function BookingDetails() {
       const selectedEquip = equipmentList.find(eq => eq.equipment_id === assignEquipData.equipment_id);
       if (!selectedEquip) throw new Error('Equipment not found');
 
-      // Quantity-aware stock check — equipment isn't exclusive to one event
-      // per day, there's just a finite amount of it in total. Same check
-      // the Edit Equipment flow does for a quantity increase; this Assign
-      // flow never had it, so a fresh assignment could silently oversell
-      // the equipment for the date.
+      // OVER-ALLOCATION WARNS, IT DOES NOT BLOCK. Asking for more than is
+      // free on the date is sometimes a real decision — units coming back
+      // early, one borrowed from another site — and refusing it sends the
+      // manager to a spreadsheet, which is worse than a system that knows
+      // what was promised. Read fresh: the last read may be minutes old and
+      // another manager may have committed the same units since.
       if (booking?.event_datetime) {
-        const eventDate = new Date(booking.event_datetime);
-        const { data: otherAssignments, error: otherError } = await supabase
-          .from('booking_equipment')
-          .select('quantity, booking:booking_id (event_datetime)')
-          .eq('equipment_id', assignEquipData.equipment_id)
-          .eq('returned', false);
-        if (otherError) throw otherError;
-
-        const alreadyCommitted = (otherAssignments || [])
-          .filter(a => a.booking?.event_datetime && new Date(a.booking.event_datetime).toDateString() === eventDate.toDateString())
-          .reduce((sum, a) => sum + (a.quantity || 0), 0);
-
-        const totalNeeded = alreadyCommitted + quantity;
-        if (totalNeeded > selectedEquip.quantity_available) {
-          toast.error(
-            `"${selectedEquip.eqm_name}": ${alreadyCommitted} already committed to other events on ${eventDate.toLocaleDateString()}, ` +
-            `plus ${quantity} requested exceeds the ${selectedEquip.quantity_available} in stock.`
-          );
-          setIsAssignSubmitting(false);
-          return;
+        const fresh = await fetchEquipmentAvailability(booking.event_datetime);
+        setAvailability(fresh);
+        const free = fresh.byId[assignEquipData.equipment_id]?.free;
+        if (fresh.status === 'ready' && typeof free === 'number' && quantity > free) {
+          const ok = await showConfirm(overAllocationWarning({
+            name: selectedEquip.eqm_name,
+            requested: quantity,
+            free,
+            dayLabel: eventDayLabel(booking.event_datetime),
+          }));
+          if (!ok) {
+            setIsAssignSubmitting(false);
+            return;
+          }
         }
+      }
+
+      // ONE ROW PER ITEM PER BOOKING — booking_equipment now carries a unique
+      // key on (booking_id, equipment_id), so a second assignment of the same
+      // item is an increase of the existing line, not another row. Read the
+      // line first and add to it; a blind insert would now be rejected.
+      const { data: existingLine, error: existingError } = await supabase
+        .from('booking_equipment')
+        .select('assignment_id, quantity')
+        .eq('booking_id', id)
+        .eq('equipment_id', assignEquipData.equipment_id)
+        .maybeSingle();
+      if (existingError) throw existingError;
+
+      if (existingLine) {
+        const combined = (Number(existingLine.quantity) || 0) + quantity;
+        const { error: bumpError } = await supabase
+          .from('booking_equipment')
+          .update({ quantity: combined })
+          .eq('assignment_id', existingLine.assignment_id);
+        if (bumpError) throw bumpError;
+        setIsAssignEquipModalOpen(false);
+        fetchBooking();
+        toast.success(`${selectedEquip.eqm_name} increased to ${combined}.`);
+        return;
       }
 
       const { error: insertError } = await supabase
@@ -1271,6 +1312,64 @@ export default function BookingDetails() {
       toast.error('Failed to assign equipment.');
     } finally {
       setIsAssignSubmitting(false);
+    }
+  };
+
+  /**
+   * Set one item to the quantity the package template suggests.
+   *
+   * A shortcut, not a rule: the suggestion is what the package implies for
+   * this guest count, and the manager stays free to type any number after.
+   * Written through the unique key (booking_id, equipment_id) so it works the
+   * same whether the line exists or not.
+   */
+  const applySuggestedQuantity = async (equipmentId, suggested, name) => {
+    if (isResourceLocked(booking.booking_status)) {
+      toast.error(resourceLockReason(booking.booking_status));
+      return;
+    }
+    if (!(await confirmConfirmedEquipmentEdit())) return;
+    const qty = Number(suggested) || 0;
+    if (qty < 1) {
+      toast.error('The template suggests nothing for this item.');
+      return;
+    }
+    try {
+      const existing = equipment.find(e => e.equipment_id === equipmentId);
+      if (existing && (existing.returned_quantity || 0) > qty) {
+        toast.error(`Can't set ${name} to ${qty} — ${existing.returned_quantity} unit(s) are already recorded as returned.`);
+        return;
+      }
+
+      // Warn once if the suggestion itself exceeds what is free that day.
+      if (booking?.event_datetime) {
+        const fresh = await fetchEquipmentAvailability(booking.event_datetime);
+        setAvailability(fresh);
+        const entry = fresh.byId[equipmentId];
+        const increase = qty - (Number(existing?.quantity) || 0);
+        if (fresh.status === 'ready' && entry && increase > entry.free) {
+          const ok = await showConfirm(overAllocationWarning({
+            name,
+            requested: qty,
+            free: (Number(existing?.quantity) || 0) + entry.free,
+            dayLabel: eventDayLabel(booking.event_datetime),
+          }));
+          if (!ok) return;
+        }
+      }
+
+      const { error } = await supabase
+        .from('booking_equipment')
+        .upsert(
+          { booking_id: id, equipment_id: equipmentId, quantity: qty, returned: false },
+          { onConflict: 'booking_id,equipment_id' },
+        );
+      if (error) throw error;
+      fetchBooking();
+      toast.success(`${name} set to the suggested ${qty}.`);
+    } catch (error) {
+      console.error(error);
+      toast.error('Could not apply the suggested quantity.');
     }
   };
 
@@ -1384,43 +1483,29 @@ export default function BookingDetails() {
         return;
       }
 
-      // Quantity-aware stock check — equipment isn't exclusive to one
-      // event per day, there's just a finite amount of it in total. Same
-      // check the Assign Equipment flow already does; this edit path
-      // never had it, so bumping a quantity up here could silently
-      // oversell the equipment for the date.
-      const { data: equipRow, error: equipError } = await supabase
-        .from('equipment')
-        .select('quantity_available, eqm_name')
-        .eq('equipment_id', editingAssignment.equipment_id)
-        .maybeSingle();
-      if (equipError) throw equipError;
-
-      // Availability binds only when more is being committed. Lowering frees
-      // stock; checking it would refuse a decrease on a date that is already
-      // oversold, which is exactly when the manager most needs to make one.
-      if (equipRow && booking?.event_datetime && newQuantity > current.quantity) {
-        const eventDate = new Date(booking.event_datetime);
-        const { data: otherAssignments, error: otherError } = await supabase
-          .from('booking_equipment')
-          .select('quantity, booking:booking_id (event_datetime)')
-          .eq('equipment_id', editingAssignment.equipment_id)
-          .eq('returned', false)
-          .neq('assignment_id', editingAssignment.assignment_id);
-        if (otherError) throw otherError;
-
-        const alreadyCommitted = (otherAssignments || [])
-          .filter(a => a.booking?.event_datetime && new Date(a.booking.event_datetime).toDateString() === eventDate.toDateString())
-          .reduce((sum, a) => sum + (a.quantity || 0), 0);
-
-        const totalNeeded = alreadyCommitted + newQuantity;
-        if (totalNeeded > equipRow.quantity_available) {
-          toast.error(
-            `"${equipRow.eqm_name}": ${alreadyCommitted} already committed to other events on ${eventDate.toLocaleDateString()}, ` +
-            `plus ${newQuantity} requested exceeds the ${equipRow.quantity_available} in stock.`
-          );
-          setIsAssignSubmitting(false);
-          return;
+      // Availability binds only when MORE is being committed. Lowering frees
+      // stock; warning about a decrease on an already-oversold date is noise
+      // at exactly the moment the manager is fixing it.
+      //
+      // And it warns rather than refuses — same reasoning as the Assign flow.
+      // `free` nets off every commitment that day including this line, so the
+      // question asked is about the increase: how much more is being taken.
+      if (booking?.event_datetime && newQuantity > current.quantity) {
+        const fresh = await fetchEquipmentAvailability(booking.event_datetime);
+        setAvailability(fresh);
+        const entry = fresh.byId[editingAssignment.equipment_id];
+        const increase = newQuantity - current.quantity;
+        if (fresh.status === 'ready' && entry && increase > entry.free) {
+          const ok = await showConfirm(overAllocationWarning({
+            name: entry.eqm_name || editingAssignment.eqm_name,
+            requested: newQuantity,
+            free: (Number(current.quantity) || 0) + entry.free,
+            dayLabel: eventDayLabel(booking.event_datetime),
+          }));
+          if (!ok) {
+            setIsAssignSubmitting(false);
+            return;
+          }
         }
       }
 
@@ -1534,11 +1619,35 @@ export default function BookingDetails() {
   // One row of the Equipment panel, shared by both groups and the flat
   // fallback so the Assigned badge and the edit/delete controls stay
   // identical wherever a row appears.
-  const renderEquipmentRow = (item, idx, note) => (
+  const renderEquipmentRow = (item, idx, note) => {
+    // The two facts a manager needs beside a line: what the package implies
+    // for this guest count, and how much of the item is free on the day.
+    // Both are read — the suggestion from v_booking_equipment_required, the
+    // availability from f_equipment_availability — so neither can drift from
+    // the rules the rest of the system enforces.
+    const suggestion = suggestedById[item.equipment_id];
+    const suggested = Number(suggestion?.required_qty) || 0;
+    const offSuggestion = suggested > 0 && suggested !== (Number(item.quantity) || 0);
+    const free = availability.status === 'ready' ? availability.byId[item.equipment_id]?.free : null;
+    return (
       <div key={item.assignment_id ?? idx} className="flex justify-between items-center gap-3 px-1 py-3">
         <span className="min-w-0">
           <span className="block text-sm font-semibold text-slate-800 truncate">{item.eqm_name}</span>
           {note && <span className="block text-xs text-slate-500">{note}</span>}
+          <span className="block text-xs text-slate-500">
+            {suggested > 0 && <>Suggested {suggested}</>}
+            {suggested > 0 && free !== null && ' · '}
+            {free !== null && <>{free} free on {eventDayLabel(booking.event_datetime)}</>}
+          </span>
+          {offSuggestion && !item.returned && !isResourceLocked(booking.booking_status) && (
+            <button
+              type="button"
+              onClick={() => applySuggestedQuantity(item.equipment_id, suggested, item.eqm_name)}
+              className="mt-1 text-[12px] font-semibold text-[#007038] hover:underline"
+            >
+              Use suggested ({suggested})
+            </button>
+          )}
         </span>
         <div className="flex items-center gap-3 shrink-0">
           <span className="text-sm font-bold tabular-nums text-slate-700">× {item.quantity}</span>
@@ -1565,6 +1674,14 @@ export default function BookingDetails() {
           )}
         </div>
       </div>
+    );
+  };
+
+  // Items the package template implies that carry no line at all. Without
+  // this they are invisible: the panel lists what IS assigned, so something
+  // the manager removed, or that approval never allocated, simply vanishes.
+  const missingSuggested = Object.values(suggestedById).filter(
+    r => r.equipment_id && Number(r.required_qty) > 0 && !equipment.some(e => e.equipment_id === r.equipment_id),
   );
 
   // --- PAYMENT CALCULATIONS (including Cancelled) ---
@@ -2179,6 +2296,40 @@ export default function BookingDetails() {
                 )}
                 </CardScrollArea>
               )}
+              {/* In the package, not on this booking. Listed so a manager can
+                  see what the template implies and put it back in one click;
+                  it is not an error state, and nothing here is enforced. */}
+              {missingSuggested.length > 0 && !isResourceLocked(booking.booking_status) && (
+                <div className="mt-3.5 pt-3 border-t border-slate-100">
+                  <p className="text-xs font-semibold uppercase tracking-[0.05em] text-slate-500 mb-1.5">
+                    In the package, not assigned
+                  </p>
+                  <div className="divide-y divide-slate-100">
+                    {missingSuggested.map(r => {
+                      const free = availability.status === 'ready' ? availability.byId[r.equipment_id]?.free : null;
+                      return (
+                        <div key={r.equipment_id} className="flex justify-between items-center gap-3 px-1 py-2.5">
+                          <span className="min-w-0">
+                            <span className="block text-sm font-semibold text-slate-700 truncate">{r.eqm_name}</span>
+                            <span className="block text-xs text-slate-500">
+                              Suggested {r.required_qty}
+                              {free !== null && <> · {free} free on {eventDayLabel(booking.event_datetime)}</>}
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => applySuggestedQuantity(r.equipment_id, r.required_qty, r.eqm_name)}
+                            className="shrink-0 text-[12px] font-semibold text-[#007038] hover:underline"
+                          >
+                            Use suggested ({r.required_qty})
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Line items and units are different quantities and were never
                   both stated — the header said "3 items" of a 109-unit
                   allocation. */}
