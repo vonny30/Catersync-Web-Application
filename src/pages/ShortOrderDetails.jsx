@@ -970,7 +970,11 @@ export default function ShortOrderDetails() {
 
   // Cancellation only opens up once the order is genuinely locked in
   // (Confirmed) — not while it's merely Approved-but-unpaid.
-  const canCancel = order.booking_status === 'Confirmed';
+  // Confirmed, or Approved-and-lapsed: see the fuller note in
+  // BookingDetails.jsx. Without the second case a lapsed order has no ending
+  // short of a manager override.
+  const canCancel = order.booking_status === 'Confirmed'
+    || (order.booking_status === 'Approved' && !!money?.is_lapsed);
   const showAddRefund = (order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') && remainingRefundableAmount > 0;
   const canRecordPayment = ['Approved', 'Confirmed', 'Completed'].includes(order.booking_status);
 
@@ -1114,6 +1118,7 @@ export default function ShortOrderDetails() {
           {canCancel && (
             <button
               onClick={openCancelModal}
+              title={money?.is_lapsed ? 'The event date has passed, so this can no longer be confirmed. Cancelling closes the record.' : undefined}
               className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
             >
               <X size={18} /> Cancel Order

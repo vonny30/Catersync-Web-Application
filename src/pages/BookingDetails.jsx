@@ -1761,9 +1761,18 @@ export default function BookingDetails() {
     }
   }
 
-  // Cancellation only opens up once the event is genuinely locked in
-  // (Confirmed) — not while it's merely Approved-but-unpaid.
-  const canCancel = booking.booking_status === 'Confirmed';
+  // Cancellation opens up once the event is genuinely locked in (Confirmed)
+  // — not while it is merely Approved-but-unpaid.
+  //
+  // WITH ONE EXCEPTION: an Approved booking whose event date has passed. It
+  // can no longer be confirmed, so under the old rule it had no ending at all
+  // — not Confirm, not Complete, not Cancel, not Reject — and a manager could
+  // only close it through a manager override. Overrides are for corrections
+  // and for recording something genuinely unusual; a request that went stale
+  // waiting for an answer is neither, and a log full of routine overrides
+  // stops meaning anything. So a lapsed booking can be cancelled outright.
+  const canCancel = booking.booking_status === 'Confirmed'
+    || (booking.booking_status === 'Approved' && !!money?.is_lapsed);
   const showAddRefund = (booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') && remainingRefundableAmount > 0;
   // Payments only open up once a booking has been approved (Updated Flow:
   // Pending -> Approve/Reject -> Proceed to Payment). Confirmed/Completed
@@ -1926,6 +1935,7 @@ export default function BookingDetails() {
           {canCancel && (
             <button
               onClick={openCancelModal}
+              title={money?.is_lapsed ? 'The event date has passed, so this can no longer be confirmed. Cancelling closes the record.' : undefined}
               className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
             >
               <X size={18} /> Cancel Booking
