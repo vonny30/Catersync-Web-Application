@@ -1046,6 +1046,9 @@ export default function Customers() {
       // and total_outstanding still exist and still count pending and approved
       // work; nothing on this page binds to them any more.
       value: t?.with_receivable,
+      // The money behind the count, on its own line: the subtext carries no
+      // digits, and a count of customers without the amount is half the answer.
+      amount: t ? peso(t.total_receivable) : null,
       sub: 'Customers with collectible catering',
       accent: 'bg-amber-500',
       onClick: () => { clearFilters(); setBalanceFilter('Has receivables'); scrollToTable(); },
