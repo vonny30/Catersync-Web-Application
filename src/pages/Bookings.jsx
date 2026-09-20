@@ -633,7 +633,14 @@ export default function Bookings() {
   // before that the subscription never fired at all.
   useRealtimeRefresh(
     'bookings-page',
-    [{ table: 'booking', filter: 'booking_type=eq.Package' }],
+    // `payment` as well as `booking`: the Balance column and the Overdue
+    // treatment move when a receipt is recorded, verified or reversed on the
+    // Receivables page, and none of those touch the booking row. Without this
+    // the list would keep showing a balance that has already been collected.
+    [
+      { table: 'booking', filter: 'booking_type=eq.Package' },
+      { table: 'payment' },
+    ],
     fetchData
   );
 

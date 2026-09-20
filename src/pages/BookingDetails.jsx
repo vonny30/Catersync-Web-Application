@@ -4,7 +4,7 @@ import Select from '../components/Select';
 import AssignVehicleModal from '../components/AssignVehicleModal';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Search,
-  MapPin, Calendar, User, Phone, Mail, Pencil, UtensilsCrossed, Briefcase, CreditCard, Truck, ArrowUpRight, ArrowDownLeft, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
+  MapPin, Calendar, User, Phone, Mail, Pencil, UtensilsCrossed, Briefcase, CreditCard, Truck, ArrowUpRight, ArrowDownLeft, AlertTriangle, ChevronDown, ChevronRight, ShieldAlert } from 'lucide-react';
 import { SectionHeader, SectionCard, Field, CardScrollArea } from '../components/DetailPrimitives';
 import { initialsOf, fmtDateTime, fmtShortDate, fmtTime, displayNotes } from '../utils/detailFormat';
 import { createPortal } from 'react-dom';
@@ -25,6 +25,9 @@ import { TRIP_LEG, countDistinctVehicles, groupDispatchRuns, hasRunDeparted, rem
 import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumDepositsCollected, isPaymentLedgerLocked, formatPaymentDeletionWarning, movesBooks, isRefundEntry, ledgerEntryBadge, PENDING_VERIFICATION, REFUNDED_STATUS, ENTRY_TYPES, RECEIPT_METHODS, REFUND_METHOD_MESSAGE } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
 import { isResourceLocked, resourceLockReason } from '../utils/resourceLock';
+import ReviewFlagBanner from '../components/ReviewFlagBanner';
+import StatusHistory from '../components/StatusHistory';
+import OverrideStatusModal from '../components/OverrideStatusModal';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
 import { validatePaxForPackage } from '../utils/packageRules';
 import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
@@ -168,6 +171,16 @@ export default function BookingDetails() {
   const [refundModalMethod, setRefundModalMethod] = useState('');
   const [isRefundSubmitting, setIsRefundSubmitting] = useState(false);
 
+  // The booking's money and its two review flags, from v_booking_money.
+  // This page computes plenty of its own payment figures for the refund and
+  // completion paths; what it must NOT do is decide for itself whether the
+  // system flagged this booking or what the outstanding balance is.
+  const [money, setMoney] = useState(null);
+  const [isOverrideOpen, setIsOverrideOpen] = useState(false);
+  // Bumped after anything that can change the status, so the history list
+  // re-reads without this page owning its rows.
+  const [historyKey, setHistoryKey] = useState(0);
+
   // --- Proof Image Modal state ---
   const [isProofModalOpen, setIsProofModalOpen] = useState(false);
   const [proofModalUrl, setProofModalUrl] = useState('');
@@ -199,6 +212,16 @@ export default function BookingDetails() {
         await supabase.from('booking').update({ is_read: true }).eq('booking_id', id);
         setBooking(prev => ({ ...prev, is_read: true }));
       }
+
+      // The money row, including flagged_for_review / flag_reason: what the
+      // database believes about this booking right now.
+      const { data: moneyRow, error: moneyError } = await supabase
+        .from('v_booking_money')
+        .select('booking_id, outstanding, net_paid, verified_paid, awaiting_verification, is_overdue, days_overdue, flagged_for_review, flag_reason, flagged_at')
+        .eq('booking_id', id)
+        .maybeSingle();
+      if (moneyError) console.error('Could not read the booking money row:', moneyError);
+      setMoney(moneyRow || null);
 
       // Payments
       // From v_payment_ledger, not the table: it carries counts_in_ledger and
@@ -349,7 +372,9 @@ export default function BookingDetails() {
       { table: 'booking_equipment', filter: `booking_id=eq.${id}` },
       { table: 'vehicle_assign', filter: `booking_id=eq.${id}` },
     ],
-    fetchBooking,
+    // Re-read rather than patch: after a reversal the status, the balance and
+    // the review flag can all have moved, and only the database knows which.
+    () => { setHistoryKey(k => k + 1); fetchBooking(); },
     { enabled: !!id }
   );
 
@@ -1787,6 +1812,16 @@ export default function BookingDetails() {
           >
             {(isPaymentLedgerLocked(booking.booking_status) || editWouldLoseTotal() > 0) ? <Lock size={16} /> : <Edit size={16} />} Edit
           </button>
+          {/* The sanctioned exception path. Goes through the RPC, never a
+              direct status write, so the reason is captured and the log
+              records an override rather than an ordinary manual change. */}
+          <button
+            onClick={() => setIsOverrideOpen(true)}
+            className="bg-white border border-blue-300 text-blue-700 font-bold text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 hover:bg-blue-50 transition-colors"
+            title="Set any status, with a recorded reason"
+          >
+            <ShieldAlert size={16} /> Override Status
+          </button>
           <button
             onClick={handleDelete}
             className="bg-white border border-red-300 text-red-600 font-bold text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 hover:bg-red-50 transition-colors"
@@ -1799,6 +1834,18 @@ export default function BookingDetails() {
           </button>
       </div>
 
+
+      {/* The system changed this booking and wants a person to look. Sits
+          above the payment banner because it is about the booking itself,
+          not about one receipt. */}
+      {money?.flagged_for_review && (
+        <ReviewFlagBanner
+          bookingId={booking.booking_id}
+          reason={money.flag_reason}
+          flaggedAt={money.flagged_at}
+          onCleared={fetchBooking}
+        />
+      )}
 
       {/* Mobile payment(s) awaiting verification — a manually recorded
           payment is verified by definition, so this only ever fires for
@@ -2175,6 +2222,11 @@ export default function BookingDetails() {
           </div>
 
           <div className="min-[980px]:col-span-5 flex flex-col gap-6 min-w-0">
+            {/* Why the status is what it is — including changes nobody on this
+                page made. Sits above Menu Selections because it is the first
+                question asked of a booking that moved on its own. */}
+            <StatusHistory bookingId={booking.booking_id} refreshKey={historyKey} />
+
             {/* Menu Selections */}
             <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
               <div className="flex justify-between items-center mb-4">
@@ -3420,6 +3472,14 @@ export default function BookingDetails() {
           onAssigned={fetchBooking}
         />
       )}
+
+      <OverrideStatusModal
+        booking={booking}
+        isOpen={isOverrideOpen}
+        onClose={() => setIsOverrideOpen(false)}
+        verifiedPaid={Number(money?.verified_paid) || 0}
+        onDone={() => { setHistoryKey(k => k + 1); fetchBooking(); }}
+      />
     </div>
   );
 }

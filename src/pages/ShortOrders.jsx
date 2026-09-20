@@ -525,7 +525,12 @@ export default function ShortOrders() {
   // later page.
   useRealtimeRefresh(
     'short-orders-page',
-    [{ table: 'booking', filter: 'booking_type=eq.Short Order' }],
+    // See Bookings.jsx: a payment recorded or reversed elsewhere changes this
+    // list's Balance column without touching the booking row.
+    [
+      { table: 'booking', filter: 'booking_type=eq.Short Order' },
+      { table: 'payment' },
+    ],
     fetchData
   );
 
