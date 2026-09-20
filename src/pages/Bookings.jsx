@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Search, Check, Edit, Trash2, Lock, ChevronLeft, ChevronRight,
   Filter, X, RefreshCw, RotateCcw, UserPlus, User, Users,
-  LayoutGrid, CalendarClock, Plus, Eye
+  LayoutGrid, CalendarClock, Plus, Eye, ArrowUp, ArrowDown, ArrowUpDown
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
@@ -24,9 +24,13 @@ import {
   isPaymentLedgerLocked, formatPaymentDeletionWarning, carriedAdjustment, totalWithCarried, carriedTotalShortfall, carriedTotalShortfallMessage, movesBooks, isRefundEntry, RECEIPT_STAGES,
 } from '../utils/payments';
 import { bookingEditLockedMessage, STATUS_ORDER, findStatusOrderDrift } from '../utils/bookingStatus';
+import {
+  OVERDUE_ROW_CLASS, OVERDUE_EDGE_CLASS, OVERDUE_AMOUNT_CLASS,
+  OVERDUE_CHIP_CLASS, FLAGGED_CHIP_CLASS, overdueChipLabel, AWAITING_VERIFICATION_HINT,
+} from '../utils/overdue';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
 import { validatePaxForPackage } from '../utils/packageRules';
-import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
+import { autoCompletePastEvents } from '../utils/autoComplete';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds } from './Reports/helpers';
 import { fetchAllRows } from '../utils/fetchAllRows';
@@ -86,6 +90,18 @@ export default function Bookings() {
   // current month would hide next month's events behind a filter nobody chose.
   // Do not "make this consistent" without deciding that first.
   const [datePreset, setDatePreset] = useState('All Time');
+  // Quick filters that live in v_booking_money rather than on `booking`:
+  // null | 'overdue' | 'flagged'. Applied as an id list, the same way the
+  // customer search already narrows the query.
+  const [moneyFilter, setMoneyFilter] = useState(null);
+  // null | 'desc' | 'asc'. Off by default: the list's own order (status group,
+  // then unread, then newest) is the page's spine, and a balance sort replaces
+  // it wholesale rather than sitting underneath it.
+  const [balanceSort, setBalanceSort] = useState(null);
+  // is_overdue / flagged_for_review for every package booking, for the two
+  // quick-filter counts. The per-row money is attached to each booking in
+  // fetchData; this is only the counts.
+  const [flagRows, setFlagRows] = useState([]);
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   // Which date column the range filter above applies to — the event date
@@ -164,7 +180,25 @@ export default function Bookings() {
   // its status counts and select-all all read this, so the list and
   // select-all can never disagree about what "matching" means. Moved out of
   // fetchData unchanged; async because the search resolves customer ids first.
+  // The ids behind the Overdue / Flagged quick filters. Both live in
+  // v_booking_money, not on `booking`, so neither can be expressed as a column
+  // filter on the list query — they arrive as an id list, exactly like the
+  // customer search does. An empty result must stay an empty array rather than
+  // null: null means "no filter", [] means "nothing matches".
+  const fetchMoneyFilterIds = async () => {
+    if (!moneyFilter) return null;
+    const column = moneyFilter === 'overdue' ? 'is_overdue' : 'flagged_for_review';
+    const rows = await fetchAllRows(() => supabase
+      .from('v_booking_money')
+      .select('booking_id')
+      .eq('booking_type', 'Package')
+      .eq(column, true)
+      .order('booking_id', { ascending: true }), `${moneyFilter} booking ids`);
+    return (rows || []).map(r => r.booking_id);
+  };
+
   const buildCommonFilters = async () => {
+    const moneyFilterIds = await fetchMoneyFilterIds();
     const { start: dateStart, end: dateEnd } = getRangeBounds(datePreset, customStart, customEnd);
 
     // --- SEARCH: resolve once, reused by both the main query and the
@@ -203,6 +237,7 @@ export default function Bookings() {
       if (filters.packageId) q = q.eq('package_id', filters.packageId);
       if (filters.venue) q = q.ilike('venue', `%${filters.venue}%`);
       if (searchCustomerIds) q = q.in('customer_id', searchCustomerIds);
+      if (moneyFilterIds) q = q.in('booking_id', moneyFilterIds);
       return q;
     };
     return applyCommonFilters;
@@ -225,7 +260,7 @@ export default function Bookings() {
   // change it is cleared, so a manager never bulk-deletes rows chosen under a
   // filter they are no longer looking at. Reset during render (React's own
   // pattern for this) rather than in an effect.
-  const selectionFilterKey = JSON.stringify([activeTab, searchTerm, filters, datePreset, customStart, customEnd, dateFilterField]);
+  const selectionFilterKey = JSON.stringify([activeTab, searchTerm, filters, datePreset, customStart, customEnd, dateFilterField, moneyFilter]);
   const [selectionMadeUnder, setSelectionMadeUnder] = useState(selectionFilterKey);
   if (selectionMadeUnder !== selectionFilterKey) {
     setSelectionMadeUnder(selectionFilterKey);
@@ -248,6 +283,34 @@ export default function Bookings() {
       let query = applyCommonFilters(supabase.from('booking').select('*', { count: 'exact' }));
       query = applyStatusTab(query);
 
+      // SORTING BY BALANCE replaces the page's ordering rather than extending
+      // it, and it cannot be done on the list query: `outstanding` lives in
+      // v_booking_money, and PostgREST will not order one relation by
+      // another's column. So the order is decided in the view, across every
+      // row matching the current filters — not just the page — and this page
+      // is then read back by id. Ordering only the rows already on screen
+      // would be worse than no sort at all: the manager would believe they
+      // were looking at the largest balances.
+      let balanceOrderedIds = null;
+      let balanceTotal = 0;
+      if (balanceSort) {
+        const matchingIds = await fetchMatchingIds();
+        balanceTotal = matchingIds.length;
+        if (matchingIds.length === 0) {
+          setBookings([]);
+          setTotalCount(0);
+          setTotalPages(0);
+          return;
+        }
+        const ordered = await fetchAllRows(() => supabase
+          .from('v_booking_money')
+          .select('booking_id, outstanding')
+          .in('booking_id', matchingIds)
+          .order('outstanding', { ascending: balanceSort === 'asc' })
+          .order('booking_id', { ascending: true }), 'booking balance order');
+        balanceOrderedIds = (ordered || []).slice(from, to + 1).map(r => r.booking_id);
+      }
+
       // Unread ("NEW") bookings float above read ones first — is_read is
       // false/true, and false sorts before true ascending, so new bookings
       // land on top regardless of status. Everything below that still
@@ -268,15 +331,25 @@ export default function Bookings() {
       // nullsFirst matters here: the NEW badge treats a null is_read the same
       // as false (`!booking.is_read`), so the sort has to agree, or an unset
       // row would show "NEW" while sinking below the read ones in its group.
-      query = query
-        .order('status_order', { ascending: true })
-        .order('is_read', { ascending: true, nullsFirst: true })
-        .order('book_datetime', { ascending: false })
-        .order('booking_id', { ascending: false })
-        .range(from, to);
+      if (balanceOrderedIds) {
+        // The page is already chosen; the database just fetches those rows.
+        query = query.in('booking_id', balanceOrderedIds);
+      } else {
+        query = query
+          .order('status_order', { ascending: true })
+          .order('is_read', { ascending: true, nullsFirst: true })
+          .order('book_datetime', { ascending: false })
+          .order('booking_id', { ascending: false })
+          .range(from, to);
+      }
 
-      const { data: bookingsData, count, error: bookingsError } = await query;
+      const { data: rawBookings, count: rawCount, error: bookingsError } = await query;
       if (bookingsError) throw bookingsError;
+      // `.in()` returns its own order, so the balance order is re-imposed here.
+      const bookingsData = balanceOrderedIds
+        ? balanceOrderedIds.map(id => (rawBookings || []).find(b => b.booking_id === id)).filter(Boolean)
+        : rawBookings;
+      const count = balanceOrderedIds ? balanceTotal : rawCount;
 
       // Self-heal rows whose status_order contradicts their status. Nothing
       // in the database keeps the two in step, and the customer mobile app
@@ -360,6 +433,22 @@ export default function Bookings() {
         }
 
         const now = new Date();
+        // The row's money, from the view that owns those definitions.
+        // outstanding, is_overdue, days_overdue, flagged_for_review and
+        // awaiting_verification are READ here, never derived: the page below
+        // still computes positivePayments for the refund and delete paths,
+        // and the point of taking these from the view is that the Balance
+        // column, Receivables and Reports cannot disagree.
+        let moneyMap = {};
+        if (bookingIds.length > 0) {
+          const { data: moneyRows, error: moneyError } = await supabase
+            .from('v_booking_money')
+            .select('booking_id, outstanding, net_paid, awaiting_verification, is_overdue, days_overdue, flagged_for_review, flag_reason')
+            .in('booking_id', bookingIds);
+          if (moneyError) throw moneyError;
+          moneyMap = Object.fromEntries((moneyRows || []).map(m => [m.booking_id, m]));
+        }
+
         const enriched = bookingsData.map(booking => {
           const p = paymentsMap[booking.booking_id] || { positive: 0, refunded: 0, downpayment: 0, rows: 0 };
           const positivePayments = p.positive;
@@ -394,6 +483,7 @@ export default function Bookings() {
             ...booking,
             customer: customersMap[booking.customer_id] || null,
             package: packagesMap[booking.package_id] || null,
+            money: moneyMap[booking.booking_id] || null,
             positivePayments,
             paymentRowCount,
             totalRefunded,
@@ -439,6 +529,16 @@ export default function Bookings() {
         supabase.from('booking').select('booking_id, booking_status, event_datetime')
       ).order('booking_id', { ascending: true }), 'booking status counts');
       setStatusCountRows(countRows || []);
+
+      // The flags behind the Overdue and Flagged quick-filter counts. Read
+      // for every package booking and intersected with the filtered ids
+      // above, so each count means "matching the filters AND overdue".
+      const flagged = await fetchAllRows(() => supabase
+        .from('v_booking_money')
+        .select('booking_id, is_overdue, flagged_for_review')
+        .eq('booking_type', 'Package')
+        .order('booking_id', { ascending: true }), 'booking money flags');
+      setFlagRows(flagged || []);
 
     } catch (error) {
       handleError(error, 'Unable to load bookings. Please refresh the page.');
@@ -518,7 +618,7 @@ export default function Bookings() {
 
   useEffect(() => {
     fetchData();
-  }, [currentPage, activeTab, searchTerm, filters, datePreset, customStart, customEnd, dateFilterField]);
+  }, [currentPage, activeTab, searchTerm, filters, datePreset, customStart, customEnd, dateFilterField, moneyFilter, balanceSort]);
 
   const goToPrevPage = () => { if (currentPage > 1) setCurrentPage(currentPage - 1); };
   const goToNextPage = () => { if (currentPage < totalPages) setCurrentPage(currentPage + 1); };
@@ -1307,6 +1407,21 @@ const handleMarkCompleted = async (id) => {
   };
 
   const STATUS_LIST = ['Pending', 'Approved', 'Confirmed', 'Completed', 'Rejected', 'Cancelled'];
+  // Counted against the same rows the list is showing, so pressing a quick
+  // filter lands on exactly the number on its badge.
+  const matchingIdSet = useMemo(
+    () => new Set((statusCountRows || []).map(r => r.booking_id)),
+    [statusCountRows],
+  );
+  const overdueCount = useMemo(
+    () => (flagRows || []).filter(f => f.is_overdue && matchingIdSet.has(f.booking_id)).length,
+    [flagRows, matchingIdSet],
+  );
+  const flaggedCount = useMemo(
+    () => (flagRows || []).filter(f => f.flagged_for_review && matchingIdSet.has(f.booking_id)).length,
+    [flagRows, matchingIdSet],
+  );
+
   const hasActiveFilters = datePreset !== 'All Time' || filters.customerId || filters.packageId || filters.venue;
   const activeFilterCount = [!!searchTerm, datePreset !== 'All Time', !!filters.customerId, !!filters.packageId, !!filters.venue].filter(Boolean).length;
 
@@ -1419,6 +1534,31 @@ const handleMarkCompleted = async (id) => {
           >
             Upcoming Confirmed
             <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-emerald-100 text-emerald-700 text-[12.5px] tabular-nums font-bold">{upcomingConfirmedCount}</span>
+          </button>
+          {/* Past due: served, still owing. A toggle rather than a jump, since
+              a manager works this list rather than glancing at it. */}
+          <button
+            onClick={() => { setMoneyFilter(moneyFilter === 'overdue' ? null : 'overdue'); setCurrentPage(1); }}
+            className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
+              moneyFilter === 'overdue'
+                ? 'border-rose-400 bg-rose-50 text-rose-800'
+                : 'border-slate-200 bg-white text-slate-700 hover:border-rose-200 hover:text-rose-700'
+            }`}
+          >
+            Overdue
+            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-rose-100 text-rose-700 text-[12.5px] tabular-nums font-bold">{overdueCount}</span>
+          </button>
+          {/* Changed by the system, awaiting a manager's eye. */}
+          <button
+            onClick={() => { setMoneyFilter(moneyFilter === 'flagged' ? null : 'flagged'); setCurrentPage(1); }}
+            className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
+              moneyFilter === 'flagged'
+                ? 'border-amber-400 bg-amber-50 text-amber-800'
+                : 'border-slate-200 bg-white text-slate-700 hover:border-amber-200 hover:text-amber-700'
+            }`}
+          >
+            Flagged
+            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-amber-100 text-amber-700 text-[12.5px] tabular-nums font-bold">{flaggedCount}</span>
           </button>
         </div>
       </div>
@@ -1598,10 +1738,13 @@ const handleMarkCompleted = async (id) => {
             bookings.map((booking) => {
               const cardFullyPaid = (booking.positivePayments || 0) >= (booking.total_amount || 0);
               const cardOwed = Math.max(0, (booking.total_amount || 0) - (booking.positivePayments || 0));
+              const cardMoney = booking.money;
+              const cardOverdue = !!cardMoney?.is_overdue;
+              const cardBalance = Number(cardMoney?.outstanding) || 0;
               return (
                 <div
                   key={booking.booking_id}
-                  className={`p-4 transition-colors hover:bg-[#fbfcfd] ${!booking.is_read ? 'bg-[#EAF3F2]/30' : ''}`}
+                  className={`p-4 transition-colors ${cardOverdue ? `${OVERDUE_ROW_CLASS} ${OVERDUE_EDGE_CLASS}` : `hover:bg-[#fbfcfd] ${!booking.is_read ? 'bg-[#EAF3F2]/30' : ''}`}`}
                   onClick={() => { if (!booking.is_read) markAsRead(booking.booking_id); }}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -1626,6 +1769,12 @@ const handleMarkCompleted = async (id) => {
                               NEW
                             </span>
                           )}
+                          {cardOverdue && (
+                            <span className={OVERDUE_CHIP_CLASS}>{overdueChipLabel(cardMoney.days_overdue)}</span>
+                          )}
+                          {cardMoney?.flagged_for_review && (
+                            <span className={FLAGGED_CHIP_CLASS} title={cardMoney.flag_reason || 'Changed by the system — needs review'}>Flagged</span>
+                          )}
                         </div>
                         <p className="text-[13.5px] text-slate-500 mt-[3px] tabular-nums">
                           {booking.event_datetime ? new Date(booking.event_datetime).toLocaleDateString() : 'No date'}
@@ -1641,14 +1790,20 @@ const handleMarkCompleted = async (id) => {
                       <span className="text-[15px] font-semibold text-slate-900 tabular-nums">
                         ₱{booking.total_amount?.toLocaleString() || '0'}
                       </span>
+                      {/* The table's Balance column, in the card's shape. */}
+                      <span className={`text-[13px] tabular-nums ${cardOverdue ? OVERDUE_AMOUNT_CLASS : 'text-slate-600'}`}>
+                        {cardBalance > 0 ? (
+                          <>
+                            ₱{cardBalance.toLocaleString()} balance
+                            {Number(cardMoney?.awaiting_verification) > 0 && (
+                              <span className="text-slate-400 cursor-help" title={AWAITING_VERIFICATION_HINT}>*</span>
+                            )}
+                          </>
+                        ) : 'Settled'}
+                      </span>
                       <span className={`px-[11px] py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${getStatusBadgeSoft(booking.booking_status)}`}>
                         {booking.booking_status}
                       </span>
-                      {hasUnpaidPastEvent(booking) && (
-                        <span className="px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap bg-red-50 text-red-700" title={`Event passed with ₱${cardOwed.toLocaleString()} balance due`}>
-                          Past Due
-                        </span>
-                      )}
                       {(booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') && booking.refundStatus && (
                         <span className={`px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap ${getRefundStatusBadge(booking.refundStatus)}`}>
                           {booking.refundStatus}
@@ -1727,15 +1882,36 @@ const handleMarkCompleted = async (id) => {
                 <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[4%] text-right">Pax</th>
                 <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[10%]">Package</th>
                 <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[10%] min-[1920px]:w-[8%] text-right">Amount</th>
+                {/* One money column beside the contract amount, and one only:
+                    what is still to collect on this booking, from
+                    v_booking_money.outstanding. Sorting it brings the
+                    unsettled records to the top, which is the whole reason a
+                    balance belongs in a list rather than in a total. */}
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[8%] text-right">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBalanceSort(balanceSort === 'desc' ? 'asc' : balanceSort === 'asc' ? null : 'desc');
+                      setCurrentPage(1);
+                    }}
+                    className={`inline-flex items-center gap-1 uppercase tracking-[0.05em] ${balanceSort ? 'text-[#007038]' : 'text-slate-700 hover:text-[#007038]'}`}
+                    title={balanceSort === 'desc' ? 'Largest balance first — click for smallest first'
+                      : balanceSort === 'asc' ? 'Smallest balance first — click to restore the default order'
+                      : 'Sort by balance, largest first'}
+                  >
+                    Balance
+                    {balanceSort === 'desc' ? <ArrowDown size={12} /> : balanceSort === 'asc' ? <ArrowUp size={12} /> : <ArrowUpDown size={12} className="opacity-40" />}
+                  </button>
+                </th>
                 <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[9%] min-[1920px]:w-[8%]">Status</th>
                 <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[22%] min-[1920px]:w-[25%] text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
               {loading ? (
-                <tr><td colSpan="10" className="p-6 text-center text-slate-400">Loading bookings...</td></tr>
+                <tr><td colSpan="11" className="p-6 text-center text-slate-400">Loading bookings...</td></tr>
               ) : bookings.length === 0 ? (
-                <tr><td colSpan="10" className="p-6 text-center text-slate-500 italic">No package bookings found.</td></tr>
+                <tr><td colSpan="11" className="p-6 text-center text-slate-500 italic">No package bookings found.</td></tr>
               ) : (
                 bookings.map((booking) => {
                   // Hoisted: the Complete button and the Past Due pill both
@@ -1743,17 +1919,24 @@ const handleMarkCompleted = async (id) => {
                   // disagree.
                   const bookingFullyPaid = (booking.positivePayments || 0) >= (booking.total_amount || 0);
                   const bookingOwed = Math.max(0, (booking.total_amount || 0) - (booking.positivePayments || 0));
+                  // The row's own money. is_overdue is the view's answer, and
+                  // it is only ever true for a Confirmed or Completed booking
+                  // whose event has passed with a balance — so the tint can
+                  // never contradict the status badge beside it.
+                  const money = booking.money;
+                  const isOverdue = !!money?.is_overdue;
+                  const balance = Number(money?.outstanding) || 0;
                   return (
                   <tr
                     key={booking.booking_id}
-                    className={`hover:bg-[#fbfcfd] transition-colors ${!booking.is_read ? 'font-bold' : ''}`}
+                    className={`transition-colors ${!booking.is_read ? 'font-bold' : ''} ${isOverdue ? OVERDUE_ROW_CLASS : 'hover:bg-[#fbfcfd]'}`}
                     onClick={() => {
                       if (!booking.is_read) {
                         markAsRead(booking.booking_id);
                       }
                     }}
                   >
-                    <td className="px-3 py-[15px]" onClick={(e) => e.stopPropagation()}>
+                    <td className={`px-3 py-[15px] ${isOverdue ? OVERDUE_EDGE_CLASS : ''}`} onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={selectedBookings.includes(booking.booking_id)}
@@ -1777,6 +1960,12 @@ const handleMarkCompleted = async (id) => {
                             NEW
                           </span>
                         )}
+                        {isOverdue && (
+                          <span className={OVERDUE_CHIP_CLASS}>{overdueChipLabel(money.days_overdue)}</span>
+                        )}
+                        {money?.flagged_for_review && (
+                          <span className={FLAGGED_CHIP_CLASS} title={money.flag_reason || 'Changed by the system — needs review'}>Flagged</span>
+                        )}
                       </div>
                     </td>
                     <td className="px-3 py-[15px] text-sm text-slate-600 tabular-nums">
@@ -1789,21 +1978,33 @@ const handleMarkCompleted = async (id) => {
                     <td className="px-3 py-[15px] text-sm text-slate-800 text-right tabular-nums">{booking.pax_count || 0}</td>
                     <td className="px-3 py-[15px] text-sm text-slate-800 break-words" title={booking.package?.pkg_name || 'N/A'}>{booking.package?.pkg_name || 'N/A'}</td>
                     <td className="px-3 py-[15px] text-[15px] font-semibold text-slate-900 text-right tabular-nums">₱{booking.total_amount?.toLocaleString() || '0'}</td>
+                    {/* An em dash, not ₱0: a settled booking should read as
+                        settled rather than as a figure to check. */}
+                    <td className={`px-3 py-[15px] text-[15px] text-right tabular-nums ${isOverdue ? OVERDUE_AMOUNT_CLASS : 'text-slate-800'}`}>
+                      {balance > 0 ? (
+                        <span className="inline-flex items-center gap-1 justify-end">
+                          ₱{balance.toLocaleString()}
+                          {Number(money?.awaiting_verification) > 0 && (
+                            <span className="text-slate-400 cursor-help" title={AWAITING_VERIFICATION_HINT}>*</span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
                     <td className="px-3 py-[15px]">
                       <div className="flex flex-col items-start gap-1.5">
                         <span className={`px-[11px] py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${getStatusBadgeSoft(booking.booking_status)}`}>
                           {booking.booking_status}
                         </span>
-                        {booking.booking_status === 'Completed' && booking.positivePayments < (booking.total_amount || 0) && (
-                          <span className="px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap bg-amber-50 text-amber-700">
-                            Balance Remaining
-                          </span>
-                        )}
-                        {hasUnpaidPastEvent(booking) && (
-                          <span className="px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap bg-red-50 text-red-700" title={`Event passed with ₱${bookingOwed.toLocaleString()} balance due`}>
-                            Past Due
-                          </span>
-                        )}
+                        {/* "Balance Remaining" and "Past Due" used to sit
+                            here, each deciding for itself what was unpaid and
+                            what was late from the row's own payment sum. Both
+                            facts now come from v_booking_money: the amount is
+                            the Balance column, and lateness is the Overdue
+                            chip beside the customer's name. Two more pills
+                            saying the same thing in different words is what
+                            the panel asked us to stop doing. */}
                         {(booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') && booking.refundStatus && (
                           <span className={`px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap ${getRefundStatusBadge(booking.refundStatus)}`}>
                             {booking.refundStatus}

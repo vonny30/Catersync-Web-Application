@@ -6,7 +6,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   Search, Check, Edit, Trash2, Lock, ChevronLeft, ChevronRight,
   Filter, X, RefreshCw, RotateCcw, UserPlus, Users,
-  LayoutGrid, CalendarClock, Plus, Eye, Truck, AlertTriangle, Package as PackageIcon
+  LayoutGrid, CalendarClock, Plus, Eye, Truck, AlertTriangle, Package as PackageIcon,
+  ArrowUp, ArrowDown, ArrowUpDown
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
@@ -22,8 +23,12 @@ import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
 import { isPaymentLedgerLocked, totalLossOnRecompute, totalLossLockedMessage, formatPaymentDeletionWarning, movesBooks, isRefundEntry, RECEIPT_STAGES } from '../utils/payments';
 import { bookingEditLockedMessage, MAX_SHORT_ORDERS_PER_DAY, STATUS_ORDER, findStatusOrderDrift } from '../utils/bookingStatus';
+import {
+  OVERDUE_ROW_CLASS, OVERDUE_EDGE_CLASS, OVERDUE_AMOUNT_CLASS,
+  OVERDUE_CHIP_CLASS, FLAGGED_CHIP_CLASS, overdueChipLabel, AWAITING_VERIFICATION_HINT,
+} from '../utils/overdue';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
-import { autoCompletePastEvents, hasUnpaidPastEvent } from '../utils/autoComplete';
+import { autoCompletePastEvents } from '../utils/autoComplete';
 import { getBookingsOnDate } from '../utils/availability';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds } from './Reports/helpers';
@@ -71,6 +76,12 @@ export default function ShortOrders() {
   // current month would hide next month's events behind a filter nobody chose.
   // Do not "make this consistent" without deciding that first.
   const [datePreset, setDatePreset] = useState('All Time');
+  // Same two quick filters and the same balance sort as the Bookings page —
+  // a short order is a booking, and a manager chasing balances should not
+  // have to learn two interfaces. See Bookings.jsx for the reasoning.
+  const [moneyFilter, setMoneyFilter] = useState(null);
+  const [balanceSort, setBalanceSort] = useState(null);
+  const [flagRows, setFlagRows] = useState([]);
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   // Which date column the range filter above applies to — the event date
@@ -129,7 +140,22 @@ export default function ShortOrders() {
   // its status counts and select-all all read this, so the list and
   // select-all can never disagree about what "matching" means. Moved out of
   // fetchData unchanged; async because the search resolves customer ids first.
+  // Overdue / Flagged live in v_booking_money, so they arrive as an id list
+  // rather than a column filter — see the fuller note in Bookings.jsx.
+  const fetchMoneyFilterIds = async () => {
+    if (!moneyFilter) return null;
+    const column = moneyFilter === 'overdue' ? 'is_overdue' : 'flagged_for_review';
+    const rows = await fetchAllRows(() => supabase
+      .from('v_booking_money')
+      .select('booking_id')
+      .eq('booking_type', 'Short Order')
+      .eq(column, true)
+      .order('booking_id', { ascending: true }), `${moneyFilter} short order ids`);
+    return (rows || []).map(r => r.booking_id);
+  };
+
   const buildCommonFilters = async () => {
+    const moneyFilterIds = await fetchMoneyFilterIds();
     const { start: dateStart, end: dateEnd } = getRangeBounds(datePreset, customStart, customEnd);
 
     // --- SEARCH: resolve once, reused by both the main query and the
@@ -166,6 +192,7 @@ export default function ShortOrders() {
       if (filters.customerId) q = q.eq('customer_id', filters.customerId);
       if (filters.venue) q = q.ilike('venue', `%${filters.venue}%`);
       if (searchCustomerIds) q = q.in('customer_id', searchCustomerIds);
+      if (moneyFilterIds) q = q.in('booking_id', moneyFilterIds);
       return q;
     };
     return applyCommonFilters;
@@ -188,7 +215,7 @@ export default function ShortOrders() {
   // change it is cleared, so a manager never bulk-deletes rows chosen under a
   // filter they are no longer looking at. Reset during render (React's own
   // pattern for this) rather than in an effect.
-  const selectionFilterKey = JSON.stringify([activeTab, searchTerm, filters, datePreset, customStart, customEnd, dateFilterField]);
+  const selectionFilterKey = JSON.stringify([activeTab, searchTerm, filters, datePreset, customStart, customEnd, dateFilterField, moneyFilter]);
   const [selectionMadeUnder, setSelectionMadeUnder] = useState(selectionFilterKey);
   if (selectionMadeUnder !== selectionFilterKey) {
     setSelectionMadeUnder(selectionFilterKey);
@@ -213,6 +240,29 @@ export default function ShortOrders() {
       );
       query = applyStatusTab(query);
 
+      // Sorting by balance is decided in v_booking_money over every matching
+      // row, then this page is read back by id — the same approach, and the
+      // same reason, as the Bookings page.
+      let balanceOrderedIds = null;
+      let balanceTotal = 0;
+      if (balanceSort) {
+        const matchingIds = await fetchMatchingIds();
+        balanceTotal = matchingIds.length;
+        if (matchingIds.length === 0) {
+          setOrders([]);
+          setTotalCount(0);
+          setTotalPages(0);
+          return;
+        }
+        const ordered = await fetchAllRows(() => supabase
+          .from('v_booking_money')
+          .select('booking_id, outstanding')
+          .in('booking_id', matchingIds)
+          .order('outstanding', { ascending: balanceSort === 'asc' })
+          .order('booking_id', { ascending: true }), 'short order balance order');
+        balanceOrderedIds = (ordered || []).slice(from, to + 1).map(r => r.booking_id);
+      }
+
       // Unread ("NEW") orders float above read ones first — is_read is
       // false/true, and false sorts before true ascending, so new orders
       // land on top regardless of status. nullsFirst matters too: the NEW
@@ -225,18 +275,26 @@ export default function ShortOrders() {
       // (status_order encodes exactly this priority), then most-recently-
       // created first within each status group. That sequence is
       // unchanged — is_read is only an extra sort key ahead of it.
-      query = query
-        // Status is the PRIMARY grouping, is_read only breaks ties inside it —
-        // see the matching note in Bookings.jsx. Reversed, it split every
-        // status in two, so the same status appeared twice down the list.
-        .order('status_order', { ascending: true })
-        .order('is_read', { ascending: true, nullsFirst: true })
-        .order('book_datetime', { ascending: false })
-        .order('booking_id', { ascending: false })
-        .range(from, to);
+      if (balanceOrderedIds) {
+        query = query.in('booking_id', balanceOrderedIds);
+      } else {
+        query = query
+          // Status is the PRIMARY grouping, is_read only breaks ties inside it —
+          // see the matching note in Bookings.jsx. Reversed, it split every
+          // status in two, so the same status appeared twice down the list.
+          .order('status_order', { ascending: true })
+          .order('is_read', { ascending: true, nullsFirst: true })
+          .order('book_datetime', { ascending: false })
+          .order('booking_id', { ascending: false })
+          .range(from, to);
+      }
 
-      const { data: ordersData, count, error: ordersError } = await query;
+      const { data: rawOrders, count: rawCount, error: ordersError } = await query;
       if (ordersError) throw ordersError;
+      const ordersData = balanceOrderedIds
+        ? balanceOrderedIds.map(id => (rawOrders || []).find(o => o.booking_id === id)).filter(Boolean)
+        : rawOrders;
+      const count = balanceOrderedIds ? balanceTotal : rawCount;
 
       // Self-heal rows whose status_order contradicts their status — same
       // reasoning as Bookings.jsx: nothing in the database keeps the two in
@@ -282,6 +340,14 @@ export default function ShortOrders() {
           }
         });
 
+        // The order's money, read from the view that defines it.
+        const { data: moneyRows, error: moneyError } = await supabase
+          .from('v_booking_money')
+          .select('booking_id, outstanding, net_paid, awaiting_verification, is_overdue, days_overdue, flagged_for_review, flag_reason')
+          .in('booking_id', bookingIds);
+        if (moneyError) throw moneyError;
+        const moneyMap = Object.fromEntries((moneyRows || []).map(m => [m.booking_id, m]));
+
         const now = new Date();
         const enriched = ordersData.map(order => {
           const p = paymentMap[order.booking_id] || { positive: 0, refunded: 0, downpayment: 0, rows: 0 };
@@ -306,7 +372,7 @@ export default function ShortOrders() {
               refundStatus = 'No Payments';
             }
           }
-          return { ...order, positivePayments: p.positive, paymentRowCount: p.rows || 0, totalRefunded: p.refunded, downpaymentPaid: p.downpayment, refundStatus };
+          return { ...order, money: moneyMap[order.booking_id] || null, positivePayments: p.positive, paymentRowCount: p.rows || 0, totalRefunded: p.refunded, downpaymentPaid: p.downpayment, refundStatus };
         });
         setOrders(enriched);
 
@@ -345,6 +411,14 @@ export default function ShortOrders() {
         supabase.from('booking').select('booking_id, booking_status, event_datetime')
       ).order('booking_id', { ascending: true }), 'short order status counts');
       setStatusCountRows(countRows || []);
+
+      // Flags for the two quick-filter counts.
+      const flagged = await fetchAllRows(() => supabase
+        .from('v_booking_money')
+        .select('booking_id, is_overdue, flagged_for_review')
+        .eq('booking_type', 'Short Order')
+        .order('booking_id', { ascending: true }), 'short order money flags');
+      setFlagRows(flagged || []);
 
     } catch (error) {
       handleError(error, 'Unable to load short orders. Please refresh the page.');
@@ -419,7 +493,7 @@ export default function ShortOrders() {
   // 4. Fetch data when dependencies change
   useEffect(() => {
     fetchData();
-  }, [currentPage, activeTab, searchTerm, filters, datePreset, customStart, customEnd, dateFilterField]);
+  }, [currentPage, activeTab, searchTerm, filters, datePreset, customStart, customEnd, dateFilterField, moneyFilter, balanceSort]);
 
   // Live count of other active Short Orders on the date picked in the
   // New/Edit form, so the daily cap is visible before submitting.
@@ -1218,6 +1292,21 @@ export default function ShortOrders() {
   // server-side in fetchData; `orders` already reflects every active
   // filter for the current page) ---
   const STATUS_LIST = ['Pending', 'Approved', 'Confirmed', 'Completed', 'Rejected', 'Cancelled'];
+  // Counted against the rows the list is showing, so the badge matches what
+  // pressing it produces.
+  const matchingIdSet = useMemo(
+    () => new Set((statusCountRows || []).map(r => r.booking_id)),
+    [statusCountRows],
+  );
+  const overdueCount = useMemo(
+    () => (flagRows || []).filter(f => f.is_overdue && matchingIdSet.has(f.booking_id)).length,
+    [flagRows, matchingIdSet],
+  );
+  const flaggedCount = useMemo(
+    () => (flagRows || []).filter(f => f.flagged_for_review && matchingIdSet.has(f.booking_id)).length,
+    [flagRows, matchingIdSet],
+  );
+
   const hasActiveFilters = datePreset !== 'All Time' || filters.customerId || filters.venue;
   const activeFilterCount = [!!searchTerm, datePreset !== 'All Time', !!filters.customerId, !!filters.venue].filter(Boolean).length;
 
@@ -1331,6 +1420,28 @@ export default function ShortOrders() {
           >
             Upcoming Confirmed
             <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-emerald-100 text-emerald-700 text-[12.5px] tabular-nums font-bold">{upcomingConfirmedCount}</span>
+          </button>
+          <button
+            onClick={() => { setMoneyFilter(moneyFilter === 'overdue' ? null : 'overdue'); setCurrentPage(1); }}
+            className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
+              moneyFilter === 'overdue'
+                ? 'border-rose-400 bg-rose-50 text-rose-800'
+                : 'border-slate-200 bg-white text-slate-700 hover:border-rose-200 hover:text-rose-700'
+            }`}
+          >
+            Overdue
+            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-rose-100 text-rose-700 text-[12.5px] tabular-nums font-bold">{overdueCount}</span>
+          </button>
+          <button
+            onClick={() => { setMoneyFilter(moneyFilter === 'flagged' ? null : 'flagged'); setCurrentPage(1); }}
+            className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
+              moneyFilter === 'flagged'
+                ? 'border-amber-400 bg-amber-50 text-amber-800'
+                : 'border-slate-200 bg-white text-slate-700 hover:border-amber-200 hover:text-amber-700'
+            }`}
+          >
+            Flagged
+            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-amber-100 text-amber-700 text-[12.5px] tabular-nums font-bold">{flaggedCount}</span>
           </button>
         </div>
       </div>
@@ -1502,10 +1613,13 @@ export default function ShortOrders() {
               } catch (e) { cardTrays = 0; }
               const cardFullyPaid = (order.positivePayments || 0) >= (order.total_amount || 0);
               const cardOwed = Math.max(0, (order.total_amount || 0) - (order.positivePayments || 0));
+              const cardMoney = order.money;
+              const cardOverdue = !!cardMoney?.is_overdue;
+              const cardBalance = Number(cardMoney?.outstanding) || 0;
               return (
                 <div
                   key={order.booking_id}
-                  className={`p-4 transition-colors hover:bg-[#fbfcfd] ${!order.is_read ? 'bg-[#EAF3F2]/30' : ''}`}
+                  className={`p-4 transition-colors ${cardOverdue ? `${OVERDUE_ROW_CLASS} ${OVERDUE_EDGE_CLASS}` : `hover:bg-[#fbfcfd] ${!order.is_read ? 'bg-[#EAF3F2]/30' : ''}`}`}
                   onClick={() => { if (!order.is_read) markAsRead(order.booking_id); }}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -1530,6 +1644,12 @@ export default function ShortOrders() {
                               NEW
                             </span>
                           )}
+                          {cardOverdue && (
+                            <span className={OVERDUE_CHIP_CLASS}>{overdueChipLabel(cardMoney.days_overdue)}</span>
+                          )}
+                          {cardMoney?.flagged_for_review && (
+                            <span className={FLAGGED_CHIP_CLASS} title={cardMoney.flag_reason || 'Changed by the system — needs review'}>Flagged</span>
+                          )}
                         </div>
                         <p className="text-[13.5px] text-slate-500 mt-[3px] tabular-nums">
                           {order.event_datetime ? new Date(order.event_datetime).toLocaleDateString() : 'No date'}
@@ -1542,14 +1662,20 @@ export default function ShortOrders() {
                       <span className="text-[15px] font-semibold text-slate-900 tabular-nums">
                         ₱{order.total_amount?.toLocaleString() || '0'}
                       </span>
+                      {/* The table's Balance column, in the card's shape. */}
+                      <span className={`text-[13px] tabular-nums ${cardOverdue ? OVERDUE_AMOUNT_CLASS : 'text-slate-600'}`}>
+                        {cardBalance > 0 ? (
+                          <>
+                            ₱{cardBalance.toLocaleString()} balance
+                            {Number(cardMoney?.awaiting_verification) > 0 && (
+                              <span className="text-slate-400 cursor-help" title={AWAITING_VERIFICATION_HINT}>*</span>
+                            )}
+                          </>
+                        ) : 'Settled'}
+                      </span>
                       <span className={`px-[11px] py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${getStatusBadgeSoft(order.booking_status)}`}>
                         {order.booking_status}
                       </span>
-                      {hasUnpaidPastEvent(order) && (
-                        <span className="px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap bg-red-50 text-red-700" title={`Event passed with ₱${cardOwed.toLocaleString()} balance due`}>
-                          Past Due
-                        </span>
-                      )}
                       {(order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') && order.refundStatus && (
                         <span className={`px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap ${getRefundStatusBadge(order.refundStatus)}`}>
                           {order.refundStatus}
@@ -1627,15 +1753,34 @@ export default function ShortOrders() {
                 <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[12%] min-[1920px]:w-[14%]">Venue</th>
                 <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[5%] text-right">Trays</th>
                 <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[11%] min-[1920px]:w-[9%] text-right">Amount</th>
+                {/* What is still to collect, from v_booking_money.outstanding
+                    — the same column, sorted the same way, as the Bookings
+                    page. */}
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[9%] text-right">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBalanceSort(balanceSort === 'desc' ? 'asc' : balanceSort === 'asc' ? null : 'desc');
+                      setCurrentPage(1);
+                    }}
+                    className={`inline-flex items-center gap-1 uppercase tracking-[0.05em] ${balanceSort ? 'text-[#007038]' : 'text-slate-700 hover:text-[#007038]'}`}
+                    title={balanceSort === 'desc' ? 'Largest balance first — click for smallest first'
+                      : balanceSort === 'asc' ? 'Smallest balance first — click to restore the default order'
+                      : 'Sort by balance, largest first'}
+                  >
+                    Balance
+                    {balanceSort === 'desc' ? <ArrowDown size={12} /> : balanceSort === 'asc' ? <ArrowUp size={12} /> : <ArrowUpDown size={12} className="opacity-40" />}
+                  </button>
+                </th>
                 <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[10%] min-[1920px]:w-[12%]">Status</th>
                 <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[21%] min-[1920px]:w-[23%] text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
               {loading ? (
-                <tr><td colSpan="9" className="p-6 text-center text-slate-400">Loading orders...</td></tr>
+                <tr><td colSpan="10" className="p-6 text-center text-slate-400">Loading orders...</td></tr>
               ) : orders.length === 0 ? (
-                <tr><td colSpan="9" className="p-6 text-center text-slate-500 italic">No short orders found.</td></tr>
+                <tr><td colSpan="10" className="p-6 text-center text-slate-500 italic">No short orders found.</td></tr>
               ) : (
                 orders.map((order) => {
                   let totalTrays = 0;
@@ -1651,13 +1796,16 @@ export default function ShortOrders() {
                   // disagree.
                   const orderFullyPaid = (order.positivePayments || 0) >= (order.total_amount || 0);
                   const orderOwed = Math.max(0, (order.total_amount || 0) - (order.positivePayments || 0));
+                  const money = order.money;
+                  const isOverdue = !!money?.is_overdue;
+                  const balance = Number(money?.outstanding) || 0;
                   return (
                     <tr
                       key={order.booking_id}
-                      className={`hover:bg-[#fbfcfd] transition-colors ${!order.is_read ? 'font-bold' : ''}`}
+                      className={`transition-colors ${!order.is_read ? 'font-bold' : ''} ${isOverdue ? OVERDUE_ROW_CLASS : 'hover:bg-[#fbfcfd]'}`}
                       onClick={() => { if (!order.is_read) markAsRead(order.booking_id); }}
                     >
-                      <td className="px-3 py-[15px]" onClick={(e) => e.stopPropagation()}>
+                      <td className={`px-3 py-[15px] ${isOverdue ? OVERDUE_EDGE_CLASS : ''}`} onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={selectedOrders.includes(order.booking_id)}
@@ -1677,6 +1825,12 @@ export default function ShortOrders() {
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-[#EAF3F2] text-[#00703a] text-[11px] font-bold tracking-[0.04em]">
                               NEW
                             </span>
+                          )}
+                          {isOverdue && (
+                            <span className={OVERDUE_CHIP_CLASS}>{overdueChipLabel(money.days_overdue)}</span>
+                          )}
+                          {money?.flagged_for_review && (
+                            <span className={FLAGGED_CHIP_CLASS} title={money.flag_reason || 'Changed by the system — needs review'}>Flagged</span>
                           )}
                         </div>
                       </td>
@@ -1717,21 +1871,29 @@ export default function ShortOrders() {
                       </td>
                       <td className="px-3 py-[15px] text-sm text-slate-800 text-right tabular-nums">{totalTrays}</td>
                       <td className="px-3 py-[15px] text-[15px] font-semibold text-slate-900 text-right tabular-nums">₱{order.total_amount?.toLocaleString() || '0'}</td>
+                      {/* An em dash, not ₱0: a settled order reads as settled. */}
+                      <td className={`px-3 py-[15px] text-[15px] text-right tabular-nums ${isOverdue ? OVERDUE_AMOUNT_CLASS : 'text-slate-800'}`}>
+                        {balance > 0 ? (
+                          <span className="inline-flex items-center gap-1 justify-end">
+                            ₱{balance.toLocaleString()}
+                            {Number(money?.awaiting_verification) > 0 && (
+                              <span className="text-slate-400 cursor-help" title={AWAITING_VERIFICATION_HINT}>*</span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
                       <td className="px-3 py-[15px]">
                         <div className="flex flex-col items-start gap-1.5">
                           <span className={`px-[11px] py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${getStatusBadgeSoft(order.booking_status)}`}>
                             {order.booking_status}
                           </span>
-                          {order.booking_status === 'Completed' && order.positivePayments < (order.total_amount || 0) && (
-                            <span className="px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap bg-amber-50 text-amber-700">
-                              Balance Remaining
-                            </span>
-                          )}
-                          {hasUnpaidPastEvent(order) && (
-                            <span className="px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap bg-red-50 text-red-700" title={`Event passed with ₱${orderOwed.toLocaleString()} balance due`}>
-                              Past Due
-                            </span>
-                          )}
+                          {/* "Balance Remaining" and "Past Due" lived here and
+                              each decided for itself what was unpaid and what
+                              was late. Both now come from v_booking_money: the
+                              amount is the Balance column, lateness is the
+                              Overdue chip beside the customer's name. */}
                           {(order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') && order.refundStatus && (
                             <span className={`px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap ${getRefundStatusBadge(order.refundStatus)}`}>
                               {order.refundStatus}
