@@ -37,6 +37,21 @@ one:** `booking.menu_selections` holds a different JSON *shape* per booking type
 — an array for short orders, an object for packages. Reading one as the other
 returns nothing and raises nothing, so a prep list simply comes up empty. **§5.1.**
 
+**New 20 Sep 2026, and it affects the customer app directly:** a booking whose
+event date has passed can no longer be accepted. A `BEFORE UPDATE` trigger
+(`trg_block_lapsed_acceptance`) rejects any transition into `Approved` or
+`Confirmed` with SQLSTATE `23514` and a message written for a person to read;
+`f_maybe_confirm_booking` skips its automatic promotion for the same reason, so
+a payment against such a booking still saves. `v_booking_money.is_lapsed` is the
+flag (Pending or Approved, event already past).
+
+**Any screen offering "pay to confirm", or a status the customer can move, must
+read `is_lapsed` before it offers the action** — not only handle the error
+afterwards. The admin app shipped that mistake for one build: the write was
+refused correctly, but the UI still invited the manager to confirm, which is a
+worse experience than the bug it replaced. The one exempt path is
+`f_override_booking_status`, which is manager-only.
+
 ---
 
 ## 1. Stored values are the contract. Labels are not.

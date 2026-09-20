@@ -223,6 +223,32 @@ usable figure.
 
 ## Things that will bite you
 
+- **Every client-side "can I?" check has to mirror the server-side guards, or
+  the UI will offer actions the database refuses.** This is the running cost of
+  keeping the rules in the database, and it is still the right trade — but a
+  rule that only exists in the write path protects the data while teaching the
+  manager that the app is unreliable.
+
+  Found on the lapsed work, 20 Sep 2026: `trg_block_lapsed_acceptance` rejects
+  a transition into Approved or Confirmed once the event date has passed. The
+  write was safe immediately. What was not safe was `getConfirmEligibility`,
+  which judged on status and amount alone — so recording a 50% deposit on a
+  lapsed booking still offered "Confirm this event?", and saying yes produced
+  an error for something the app had just invited. Inviting someone into a
+  guaranteed failure is worse than the silent bug it replaced.
+
+  So when a guard is added in the database, find the matching question in the
+  client and answer it there too:
+  - `getConfirmEligibility` (`utils/confirmBooking.js`) — the "can this be
+    confirmed?" question, used by both detail pages and Receivables. The two
+    list pages still carry their own copies of the 50% rule and need the same
+    edits.
+  - `isResourceLocked` (`utils/resourceLock.js`) — equipment and vehicles.
+  - `isPaymentLedgerLocked` (`utils/payments.js`) — booking edits only.
+  The same applies to the customer mobile app: anything offering "pay to
+  confirm" needs the `is_lapsed` check, or it will send customers into the
+  same wall. See `docs/mobile-contract.md`.
+
 - **The Supabase anon key is in the client bundle. RLS is what protects it, and
   as of 3 Sep 2026 it does.** `VITE_`-prefixed variables are inlined at build
   time, so `VITE_SUPABASE_ANON_KEY` ships in the JavaScript Vercel serves to
