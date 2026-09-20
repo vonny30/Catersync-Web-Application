@@ -1952,7 +1952,10 @@ const handleMarkCompleted = async (id) => {
                       />
                     </td>
                     <td className="px-3 py-[15px]">
-                      <div className="flex items-center gap-2">
+                      {/* wraps: the overdue/flagged chips share this cell with the
+                          name, and a nowrap chip in a 13%-wide column spilled over
+                          the Created date beside it. */}
+                      <div className="flex items-center gap-2 flex-wrap">
                         <p
                           onClick={(e) => {
                             e.stopPropagation();
