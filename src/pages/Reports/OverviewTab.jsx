@@ -93,27 +93,34 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
             color="blue"
             onClick={() => onCardClick('approved')}
           />
-          {/* One term, one number, both pages: Approved, Confirmed and
-              Completed, exactly as Receivables counts it. */}
+          {/* THE BRIDGE. Cash Receipts answers "what came in"; this answers
+              "how much of THIS period's contracted work has been paid for".
+              Same population as Estimated Gross Revenue (paid_contracted, not
+              paid_against_events), which is what makes the identity below
+              hold: collections + receivables = revenue. */}
+          <StatCard
+            label="Collections Applied to This Period"
+            value={formatCurrency(financialSummary.paidContracted)}
+            sub="Collections applied to date against this period's contracted service"
+            color="teal"
+            onClick={() => onCardClick('collected')}
+          />
+          {/* outstanding_contracted, never outstanding_receivable: an Approved
+              booking is not contracted and is already on the card above. And
+              never Confirmed alone — a Completed event with a balance is the
+              truest receivable here, since the service was already delivered. */}
           <StatCard
             label="Total Receivables"
-            value={formatCurrency(financialSummary.outstandingReceivable)}
-            sub={`Still to collect ${forPeriod(period)} · by service date`}
+            value={formatCurrency(financialSummary.outstandingContracted)}
+            sub="Collectibles on this period's contracted service"
             color="amber"
             onClick={() => onCardClick('outstanding')}
           />
-          {/* Belongs HERE, not with the cash figures: forfeited_deposits is
-              filtered on the cancelled booking's EVENT date, not on when the
-              deposit was taken. Under a cash-flow heading it would assert a
-              basis the number does not have. */}
-          <StatCard
-            label="Forfeited Deposits"
-            value={formatCurrency(financialSummary.forfeitedDeposits)}
-            sub={`Retained from cancellations · ${forPeriod(period)}`}
-            color="red"
-            onClick={() => onCardClick('forfeited')}
-          />
         </div>
+        {/* The identity the two middle cards exist to make visible. */}
+        <p className="text-[12.5px] text-slate-500 mt-3">
+          Collections Applied to This Period plus Total Receivables is Estimated Gross Revenue — the same contracted work, split into what has been collected and what has not.
+        </p>
       </section>
 
       {/* The sentence that stops a reader adding the two blocks together. Cash
@@ -122,6 +129,12 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
           that as well as saying it in the open. */}
       <p className="text-[13px] text-slate-600 border-l-2 border-slate-200 pl-3.5">
         These two sections answer different questions. Their totals are not meant to add up.
+      </p>
+      {/* Deliberately not "the difference is advance deposits": the gap also
+          holds collections on approved bookings and on bookings later
+          cancelled, so naming it as one thing would be wrong. */}
+      <p className="text-[13px] text-slate-600 border-l-2 border-slate-200 pl-3.5">
+        Cash Receipts is usually larger, because it also includes deposits for events in later periods and for bookings not yet confirmed.
       </p>
 
       {/* SECTION 2 — anchored on the PAYMENT date: cash that actually moved. */}
@@ -169,21 +182,35 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
         </div>
       </section>
 
-      <div className={ROW_GRID}>
-        {/* A count, not money, so it sits with neither money section. */}
-        <StatCard
-          count
-          label="Completed Bookings"
-          value={financialSummary.completedCount}
-          sub={`Finished ${duringPeriod(period)}`}
-          color="purple"
-          onClick={() => onOpenDetail({
-            title: 'Completed Bookings',
-            description: 'Bookings marked Completed whose service date falls in the selected period.',
-            fields: [{ label: 'Completed bookings', value: financialSummary.completedCount, emphasis: true }],
-          })}
-        />
-      </div>
+      {/* Neither block: one is a count, and the other is money on bookings
+          that never happened — it is anchored on the cancelled booking's
+          service date, so it must not sit under the cash heading, and it is
+          not part of the revenue identity above. */}
+      <section>
+        <h2 className={SECTION_HEAD}>Also {forPeriod(period)}</h2>
+        <p className={SECTION_SUB}>Work that did not happen, and work that finished.</p>
+        <div className={ROW_GRID}>
+          <StatCard
+            label="Forfeited Deposits"
+            value={formatCurrency(financialSummary.forfeitedDeposits)}
+            sub={`Retained from cancellations · ${forPeriod(period)}`}
+            color="red"
+            onClick={() => onCardClick('forfeited')}
+          />
+          <StatCard
+            count
+            label="Completed Bookings"
+            value={financialSummary.completedCount}
+            sub={`Finished ${duringPeriod(period)}`}
+            color="purple"
+            onClick={() => onOpenDetail({
+              title: 'Completed Bookings',
+              description: 'Bookings marked Completed whose service date falls in the selected period.',
+              fields: [{ label: 'Completed bookings', value: financialSummary.completedCount, emphasis: true }],
+            })}
+          />
+        </div>
+      </section>
 
       <div className="grid gap-[18px] [grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))]">
         <button

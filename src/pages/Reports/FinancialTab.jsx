@@ -11,14 +11,14 @@ export default function FinancialTab({ derived, period, onCardClick, onOpenDetai
   const navigate = useNavigate();
   const { financialSummary, monthlyFinancialTrend, paymentMethodData, refunds, reversals, bookingSummaryData } = derived;
 
-  // Share of accepted work that has been collected. Both sides are
-  // event-anchored and come from f_report_period: money paid against those
-  // same bookings, over the accepted gross (Approved, Confirmed, Completed).
-  // It deliberately does NOT use Cash Receipts — that is anchored on payment
-  // date and includes cash for services outside this period, so dividing it
-  // by this period's contracted work would compare two different populations.
-  const collectedPct = financialSummary.grossTotalAccepted > 0
-    ? (financialSummary.paidAgainstEvents / financialSummary.grossTotalAccepted) * 100
+  // Share of this period's CONTRACTED work that has been collected. Both
+  // sides are the same population (Confirmed + Completed) and both come from
+  // f_report_period, so the bar is the identity on screen: collections plus
+  // receivables is the whole bar. It deliberately does NOT use Cash Receipts —
+  // that is anchored on payment date and includes cash for services outside
+  // this period, so dividing it here would compare two different populations.
+  const collectedPct = financialSummary.grossContracted > 0
+    ? (financialSummary.paidContracted / financialSummary.grossContracted) * 100
     : 0;
 
   // Shared class string for the three event-anchored figures.
@@ -47,18 +47,18 @@ export default function FinancialTab({ derived, period, onCardClick, onOpenDetai
                 hand, orange for what is not. */}
             <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
               <span className="w-2 h-2 rounded-full bg-[#009E73] shrink-0" aria-hidden="true" />
-              Collected Against These Services
+              Collections Applied to This Period
             </span>
-            <span className={`${FIG} text-[#009E73]`}>{formatCurrency(financialSummary.paidAgainstEvents)}</span>
-            <span className="block text-[12.5px] text-slate-500 mt-1">By service date</span>
+            <span className={`${FIG} text-[#009E73]`}>{formatCurrency(financialSummary.paidContracted)}</span>
+            <span className="block text-[12.5px] text-slate-500 mt-1">Applied to date against contracted service</span>
           </button>
           <button onClick={() => onCardClick('outstanding')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
             <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
               <span className="w-2 h-2 rounded-full bg-[#D55E00] shrink-0" aria-hidden="true" />
               Total Receivables
             </span>
-            <span className={`${FIG} text-[#D55E00]`}>{formatCurrency(financialSummary.outstandingReceivable)}</span>
-            <span className="block text-[12.5px] text-slate-500 mt-1">Still to collect · by service date</span>
+            <span className={`${FIG} text-[#D55E00]`}>{formatCurrency(financialSummary.outstandingContracted)}</span>
+            <span className="block text-[12.5px] text-slate-500 mt-1">Collectibles on contracted service</span>
           </button>
         </div>
 
@@ -68,29 +68,32 @@ export default function FinancialTab({ derived, period, onCardClick, onOpenDetai
         <div className="mt-[22px] mb-2.5 h-2 rounded-full bg-slate-100 overflow-hidden">
           <div className="h-full rounded-full bg-[#009E73]" style={{ width: `${Math.min(100, Math.max(0, collectedPct))}%` }} />
         </div>
-        {financialSummary.grossTotalAccepted > 0 ? (
+        {financialSummary.grossContracted > 0 ? (
           <>
             <span className="block text-[13px] text-slate-600 tabular-nums">
-              {formatPercent(collectedPct)} of accepted work collected
+              {formatPercent(collectedPct)} of contracted work collected
             </span>
             <span className="block text-[12.5px] text-slate-500 mt-1 tabular-nums">
-              {formatCurrency(financialSummary.paidAgainstEvents)} collected ÷ {formatCurrency(financialSummary.grossTotalAccepted)} accepted, which is contracted plus approved
+              {formatCurrency(financialSummary.paidContracted)} collected ÷ {formatCurrency(financialSummary.grossContracted)} contracted — the rest, {formatCurrency(financialSummary.outstandingContracted)}, is Total Receivables
             </span>
             <span className="block text-[12.5px] text-slate-500 mt-1">
-              Requests still awaiting approval are excluded — nothing is owed until a booking is accepted.
+              Approved bookings are excluded: they are pipeline until confirmed, and their figure is its own card on the Overview tab.
             </span>
           </>
         ) : (
           <span className="block text-[13px] text-slate-600">
-            No accepted work falls in this period, so there is nothing to measure collection against.
+            No contracted work falls in this period, so there is nothing to measure collection against.
           </span>
         )}
       </section>
 
       {/* Whitespace and weight separate the two, never a rule or a coloured
           bar. This sentence is the part that stops the reconciling. */}
-      <p className="text-[13px] text-slate-600 border-l-2 border-slate-200 pl-3.5 mb-5">
+      <p className="text-[13px] text-slate-600 border-l-2 border-slate-200 pl-3.5 mb-2">
         These two sections answer different questions. Their totals are not meant to add up.
+      </p>
+      <p className="text-[13px] text-slate-600 border-l-2 border-slate-200 pl-3.5 mb-5">
+        Cash Receipts is usually larger, because it also includes deposits for events in later periods and for bookings not yet confirmed.
       </p>
 
       <section className="bg-white border border-slate-200/70 rounded-2xl p-6 mb-[18px]">

@@ -214,6 +214,13 @@ export default function Reports() {
       grossTotalAccepted: Number(periodTotals?.gross_total_accepted) || 0,
       outstandingReceivable: Number(periodTotals?.outstanding_receivable) || 0,
       outstandingContracted: Number(periodTotals?.outstanding_contracted) || 0,
+      // TWO SIMILAR COLUMNS, and the difference matters.
+      //   paid_contracted      — Confirmed + Completed, the SAME population as
+      //                          Estimated Gross Revenue. This is the one the
+      //                          bridge card shows, and it is what makes
+      //                          collections + receivables = revenue hold.
+      //   paid_against_events  — adds Approved. Kept for reference only.
+      paidContracted: Number(periodTotals?.paid_contracted) || 0,
       paidAgainstEvents: Number(periodTotals?.paid_against_events) || 0,
       completedCount: Number(periodTotals?.completed_count) || 0,
       contractedCount: Number(periodTotals?.contracted_count) || 0,
@@ -227,8 +234,9 @@ export default function Reports() {
       forfeitedDeposits: Number(periodTotals?.forfeited_deposits) || 0,
       forfeitedCount: Number(periodTotals?.forfeited_count) || 0,
       _revenueBreakdown: moneyInEventRange.filter(m => m.counts_toward_revenue).map(breakdownRow),
-      _collectedBreakdown: moneyInEventRange.filter(m => m.is_receivable && Number(m.net_paid) > 0).map(breakdownRow),
-      _outstandingBreakdown: moneyInEventRange.filter(m => m.is_receivable && Number(m.outstanding) > 0).map(breakdownRow),
+      // Same population as the cards they open: contracted work only.
+      _collectedBreakdown: moneyInEventRange.filter(m => m.counts_toward_revenue && Number(m.net_paid) > 0).map(breakdownRow),
+      _outstandingBreakdown: moneyInEventRange.filter(m => m.counts_toward_revenue && Number(m.outstanding) > 0).map(breakdownRow),
       _approvedBreakdown: moneyInEventRange.filter(m => m.booking_status === 'Approved').map(breakdownRow),
       _forfeitedBreakdown: moneyInEventRange.filter(m => m.is_closed && Number(m.net_paid) > 0).map(breakdownRow),
     };
@@ -519,8 +527,8 @@ export default function Reports() {
     if (!derived) return;
     const breakdowns = {
       revenue: { data: derived.financialSummary._revenueBreakdown, title: `Estimated Gross Revenue — contracted for ${period}` },
-      collected: { data: derived.financialSummary._collectedBreakdown, title: `Collected against services in ${period}` },
-      outstanding: { data: derived.financialSummary._outstandingBreakdown, title: `Total Receivables — still to collect for ${period}` },
+      collected: { data: derived.financialSummary._collectedBreakdown, title: `Collections applied to ${period}` },
+      outstanding: { data: derived.financialSummary._outstandingBreakdown, title: `Total Receivables — collectibles on contracted service in ${period}` },
       approved: { data: derived.financialSummary._approvedBreakdown, title: `Approved, not yet confirmed — for ${period}` },
       forfeited: { data: derived.financialSummary._forfeitedBreakdown, title: `Forfeited deposits — retained from cancellations for ${period}` },
     };
