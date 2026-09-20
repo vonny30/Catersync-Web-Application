@@ -33,6 +33,15 @@ export function getConfirmEligibility(booking, paid) {
   if (booking.booking_status !== 'Approved') {
     return { eligible: false, reason: 'not-approved' };
   }
+  // A booking whose event date has passed can no longer be accepted, and the
+  // database refuses the write (trg_block_lapsed_acceptance). Without this,
+  // paying the deposit on such a booking still offered "Confirm this event?",
+  // and saying yes produced an error for something the manager was invited to
+  // do. `is_lapsed` is read from v_booking_money; a caller that cannot supply
+  // it (a raw booking row) is unchanged.
+  if (booking.is_lapsed) {
+    return { eligible: false, reason: 'lapsed' };
+  }
   const totalAmount = booking.total_amount || 0;
   const required = totalAmount * CONFIRM_PAID_FRACTION;
   if (paid < required) {

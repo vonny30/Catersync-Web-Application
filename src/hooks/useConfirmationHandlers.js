@@ -12,7 +12,7 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { supabase } from '../supabase';
-import { statusWriteErrorMessage } from '../utils/lapsed';
+import { statusWriteErrorMessage, LAPSED_ACCEPT_TOOLTIP } from '../utils/lapsed';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { sumVerifiedPositivePayments } from '../utils/payments';
 import {
@@ -64,7 +64,7 @@ export function useConfirmationHandlers({ booking, payments, fetchData }) {
     // the read fails, fall back to the prop: a stale offer beats no offer.
     const { data: fresh, error: freshError } = await supabase
       .from('v_booking_money')
-      .select('booking_id, booking_number, booking_type, booking_status, total_amount, verified_paid')
+      .select('booking_id, booking_number, booking_type, booking_status, total_amount, verified_paid, is_lapsed')
       .eq('booking_id', booking.booking_id)
       .maybeSingle();
     if (freshError) console.error('Could not re-read the booking before confirming:', freshError);
@@ -82,6 +82,8 @@ export function useConfirmationHandlers({ booking, payments, fetchData }) {
       if (silentIfIneligible) return false;
       if (eligibility.reason === 'underpaid') {
         toast.error(underpaidMessage(eligibility.paid, eligibility.required));
+      } else if (eligibility.reason === 'lapsed') {
+        toast.error(LAPSED_ACCEPT_TOOLTIP);
       } else if (eligibility.reason === 'not-approved' && current.booking_status !== booking.booking_status) {
         // The manager pressed the button against a status this page no longer
         // holds — the trigger got there first. Not a failure; say what it is

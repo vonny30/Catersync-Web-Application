@@ -1078,6 +1078,11 @@ export default function ShortOrders() {
       toast.error('Order not found.');
       return;
     }
+    // Belt to the disabled button's braces — see Bookings.jsx.
+    if (order.money?.is_lapsed) {
+      toast.error(LAPSED_ACCEPT_TOOLTIP);
+      return;
+    }
     const totalAmount = order.total_amount || 0;
     const paid = order.positivePayments || 0;
     const required = totalAmount * 0.5;

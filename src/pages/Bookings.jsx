@@ -1189,6 +1189,13 @@ export default function Bookings() {
       toast.error('Booking not found.');
       return;
     }
+    // Belt to the disabled button's braces: this list can be minutes old, and
+    // a booking that lapsed in the meantime would otherwise reach a write the
+    // database refuses.
+    if (booking.money?.is_lapsed) {
+      toast.error(LAPSED_ACCEPT_TOOLTIP);
+      return;
+    }
     const totalAmount = booking.total_amount || 0;
     const paid = booking.positivePayments || 0;
     const required = totalAmount * 0.5;
