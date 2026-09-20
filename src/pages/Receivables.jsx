@@ -32,6 +32,7 @@ import ReceiptFields from '../components/ReceiptFields';
 import InfoHint from '../components/InfoHint';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, formatDate, periodLabel, forPeriod, duringPeriod } from './Reports/helpers';
+import { statusWriteErrorMessage } from '../utils/lapsed';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
@@ -815,7 +816,7 @@ export default function Receivables() {
       toast.success('Booking confirmed.');
     } catch (error) {
       console.error(error);
-      toast.error('Failed to confirm booking.');
+      toast.error(statusWriteErrorMessage(error, 'Failed to confirm booking.'), { duration: 8000 });
     } finally {
       refresh();
     }

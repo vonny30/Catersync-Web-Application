@@ -12,6 +12,7 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { supabase } from '../supabase';
+import { statusWriteErrorMessage } from '../utils/lapsed';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { sumVerifiedPositivePayments } from '../utils/payments';
 import {
@@ -104,7 +105,10 @@ export function useConfirmationHandlers({ booking, payments, fetchData }) {
       return true;
     } catch (error) {
       console.error(error);
-      toast.error('Failed to confirm booking.');
+      // Includes the lapsed guard: a booking whose event passed while this
+      // page was open cannot be confirmed, and the database says so in a
+      // sentence written for the manager.
+      toast.error(statusWriteErrorMessage(error, 'Failed to confirm booking.'), { duration: 8000 });
       return false;
     } finally {
       setIsConfirming(false);

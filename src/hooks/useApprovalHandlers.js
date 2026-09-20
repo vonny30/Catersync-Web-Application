@@ -8,6 +8,7 @@ import { allocateVehiclesForBooking } from '../utils/vehicle';
 import { validatePaxForPackage } from '../utils/packageRules';
 import { sumVerifiedPositivePayments, restageReceipts } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, MAX_SHORT_ORDERS_PER_DAY, STATUS_ORDER } from '../utils/bookingStatus';
+import { statusWriteErrorMessage } from '../utils/lapsed';
 
 /**
  * What one extra guest costs on a package.
@@ -359,7 +360,10 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
       toast.success(paidTotal > 0 ? `${noun} approved. The account is ${newStatus} against the new total.` : `${noun} approved. The customer can now proceed to payment.`);
     } catch (error) {
       console.error(error);
-      toast.error('Failed to approve booking.');
+      // A booking can lapse while this modal is open, and two other apps write
+      // this table. When the database refuses the write it says why in a
+      // sentence written for a manager — show that, not "failed to save".
+      toast.error(statusWriteErrorMessage(error, 'Failed to approve booking.'), { duration: 8000 });
     } finally {
       setIsSubmitting(false);
     }

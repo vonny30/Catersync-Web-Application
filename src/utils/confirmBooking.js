@@ -83,5 +83,8 @@ export async function applyConfirmation(bookingId) {
     .from('booking')
     .update({ booking_status: 'Confirmed', status_order: STATUS_ORDER.Confirmed, is_read: true })
     .eq('booking_id', bookingId);
+  // The database refuses a transition into Confirmed once the event date has
+  // passed (trg_block_lapsed_acceptance) and explains why in language meant
+  // for a person. Callers surface that message rather than a generic failure.
   if (error) throw error;
 }

@@ -26,6 +26,9 @@ import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePaymen
 import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
 import { isResourceLocked, resourceLockReason } from '../utils/resourceLock';
 import ReviewFlagBanner from '../components/ReviewFlagBanner';
+import {
+  lapsedChipLabel, LAPSED_ACCEPT_TOOLTIP, LAPSED_DECLINE_REASON,
+} from '../utils/lapsed';
 import StatusHistory from '../components/StatusHistory';
 import OverrideStatusModal from '../components/OverrideStatusModal';
 import {
@@ -229,7 +232,7 @@ export default function BookingDetails() {
       // database believes about this booking right now.
       const { data: moneyRow, error: moneyError } = await supabase
         .from('v_booking_money')
-        .select('booking_id, outstanding, net_paid, verified_paid, awaiting_verification, is_overdue, days_overdue, flagged_for_review, flag_reason, flagged_at')
+        .select('booking_id, outstanding, net_paid, verified_paid, awaiting_verification, is_overdue, days_overdue, flagged_for_review, flag_reason, flagged_at, is_lapsed')
         .eq('booking_id', id)
         .maybeSingle();
       if (moneyError) console.error('Could not read the booking money row:', moneyError);
@@ -1814,6 +1817,14 @@ export default function BookingDetails() {
           {booking.booking_status}
         </span>
 
+        {/* Grey, and never the rose used for overdue: this request is dead,
+            not urgent. See utils/lapsed.js. */}
+        {money?.is_lapsed && (
+          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-slate-100 border-slate-300 text-slate-600" title={LAPSED_ACCEPT_TOOLTIP}>
+            {lapsedChipLabel(booking.event_datetime)}
+          </span>
+        )}
+
         {hasUnpaidPastEvent({ booking_status: booking.booking_status, event_datetime: booking.event_datetime, total_amount: booking.total_amount, positivePayments }) && (
           <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
             Past Event — ₱{remainingBalance.toLocaleString()} Remaining
@@ -1875,21 +1886,31 @@ export default function BookingDetails() {
       <div className="flex items-center gap-3 flex-wrap bg-white border border-slate-200 rounded-2xl px-[18px] py-3.5 shadow-xs">
           {booking.booking_status === 'Pending' && (
             <>
-              <button onClick={() => openApprovalModal(booking, 'package')} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm">
-                <Check size={18} /> Approve
+              {/* Approving is the accepting act, so a passed event date takes
+                  it away. Reject stays, with the reason already written. */}
+              <button
+                onClick={() => openApprovalModal(booking, 'package')}
+                disabled={!!money?.is_lapsed}
+                title={money?.is_lapsed ? LAPSED_ACCEPT_TOOLTIP : undefined}
+                className={`font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm ${money?.is_lapsed ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-[#008A45] hover:bg-[#007038] text-white'}`}
+              >
+                {money?.is_lapsed ? <Lock size={18} /> : <Check size={18} />} Approve
               </button>
-              <button onClick={() => openRejectionModal(booking.booking_id)} className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm">
+              <button onClick={() => openRejectionModal(booking.booking_id, money?.is_lapsed ? LAPSED_DECLINE_REASON : '')} className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm">
                 <X size={18} /> Reject
               </button>
             </>
           )}
           {canConfirmBooking && (
+            /* Confirming is an acceptance too — the guard refuses entry to
+               Approved OR Confirmed once the date has gone. */
             <button
               onClick={handleConfirmBooking}
-              disabled={isConfirming}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50"
+              disabled={isConfirming || !!money?.is_lapsed}
+              title={money?.is_lapsed ? LAPSED_ACCEPT_TOOLTIP : undefined}
+              className={`font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50 ${money?.is_lapsed ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
             >
-              <Check size={18} /> {isConfirming ? 'Confirming...' : 'Confirm Event'}
+              {money?.is_lapsed ? <Lock size={18} /> : <Check size={18} />} {isConfirming ? 'Confirming...' : 'Confirm Event'}
             </button>
           )}
           {canMarkCompleted && (
@@ -3629,6 +3650,7 @@ export default function BookingDetails() {
         isOpen={isOverrideOpen}
         onClose={() => setIsOverrideOpen(false)}
         verifiedPaid={Number(money?.verified_paid) || 0}
+        isLapsed={!!money?.is_lapsed}
         onDone={() => { setHistoryKey(k => k + 1); fetchBooking(); }}
       />
     </div>

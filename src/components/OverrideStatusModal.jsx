@@ -19,6 +19,7 @@ import toast from 'react-hot-toast';
 import { supabase } from '../supabase';
 import { STATUS_ORDER } from '../utils/bookingStatus';
 import { CONFIRM_PAID_FRACTION } from '../utils/confirmBooking';
+import { LAPSED_OVERRIDE_WARNING } from '../utils/lapsed';
 
 const ALL_STATUSES = Object.keys(STATUS_ORDER);
 
@@ -31,7 +32,7 @@ const peso = (n) => `₱${(Number(n) || 0).toLocaleString()}`;
  *                     policy warning can be stated in figures rather than as
  *                     a vague caution. Read from v_booking_money by the page.
  */
-export default function OverrideStatusModal({ booking, isOpen, onClose, onDone, verifiedPaid = 0 }) {
+export default function OverrideStatusModal({ booking, isOpen, onClose, onDone, verifiedPaid = 0, isLapsed = false }) {
   const [newStatus, setNewStatus] = useState(booking?.booking_status || 'Pending');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -120,6 +121,15 @@ export default function OverrideStatusModal({ booking, isOpen, onClose, onDone, 
               ))}
             </div>
           </div>
+
+          {/* The override is the ONE path the lapsed guard exempts, which is
+              how a past event gets recorded retroactively. Said plainly, and
+              it does not block — that is the point of an override. */}
+          {isLapsed && (newStatus === 'Approved' || newStatus === 'Confirmed') && (
+            <p className="text-[13px] text-slate-700 bg-slate-50 border border-slate-300 rounded-[10px] px-3.5 py-2.5">
+              {LAPSED_OVERRIDE_WARNING}
+            </p>
+          )}
 
           {policyConflict && (
             <p className="text-[13px] text-amber-800 bg-amber-50 border border-amber-200 rounded-[10px] px-3.5 py-2.5">

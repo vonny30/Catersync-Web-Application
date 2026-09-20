@@ -20,7 +20,14 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
   const [showRejectionRefund, setShowRejectionRefund] = useState(false);
   const [rejectionMaxRefundable, setRejectionMaxRefundable] = useState(0);
 
-  const openRejectionModal = async (id) => {
+  /**
+   * @param reasonPrefill
+   *   Filled in when the caller already knows why — today only a lapsed
+   *   booking, where the reason is a fact rather than a judgement. It lands in
+   *   the field EDITABLE: the manager may have a better sentence for the
+   *   customer, and the prefill is a starting point, not a decision.
+   */
+  const openRejectionModal = async (id, reasonPrefill = '') => {
     const booking = getBooking(id);
     if (!booking) {
       toast.error('Booking not found.');
@@ -68,7 +75,7 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
     setRejectionBookingId(id);
     setRejectionMaxRefundable(maxRefundable);
     setShowRejectionRefund(maxRefundable > 0);
-    setRejectionReason('');
+    setRejectionReason(reasonPrefill);
     setRejectionRefundAmount('');
     setRejectionRefundRemarks('');
     setRejectionRefundFile(null);

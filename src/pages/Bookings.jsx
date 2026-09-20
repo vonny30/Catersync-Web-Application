@@ -28,6 +28,10 @@ import {
   OVERDUE_ROW_CLASS, OVERDUE_EDGE_CLASS, OVERDUE_AMOUNT_CLASS,
   OVERDUE_CHIP_CLASS, FLAGGED_CHIP_CLASS, overdueChipLabel, AWAITING_VERIFICATION_HINT,
 } from '../utils/overdue';
+import {
+  LAPSED_CHIP_CLASS, lapsedChipLabel, LAPSED_ACCEPT_TOOLTIP, LAPSED_DECLINE_REASON,
+  statusWriteErrorMessage,
+} from '../utils/lapsed';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
 import { validatePaxForPackage } from '../utils/packageRules';
 import { autoCompletePastEvents } from '../utils/autoComplete';
@@ -187,7 +191,9 @@ export default function Bookings() {
   // null: null means "no filter", [] means "nothing matches".
   const fetchMoneyFilterIds = async () => {
     if (!moneyFilter) return null;
-    const column = moneyFilter === 'overdue' ? 'is_overdue' : 'flagged_for_review';
+    const column = moneyFilter === 'overdue' ? 'is_overdue'
+      : moneyFilter === 'lapsed' ? 'is_lapsed'
+        : 'flagged_for_review';
     const rows = await fetchAllRows(() => supabase
       .from('v_booking_money')
       .select('booking_id')
@@ -443,7 +449,7 @@ export default function Bookings() {
         if (bookingIds.length > 0) {
           const { data: moneyRows, error: moneyError } = await supabase
             .from('v_booking_money')
-            .select('booking_id, outstanding, net_paid, awaiting_verification, is_overdue, days_overdue, flagged_for_review, flag_reason')
+            .select('booking_id, outstanding, net_paid, awaiting_verification, is_overdue, days_overdue, flagged_for_review, flag_reason, is_lapsed')
             .in('booking_id', bookingIds);
           if (moneyError) throw moneyError;
           moneyMap = Object.fromEntries((moneyRows || []).map(m => [m.booking_id, m]));
@@ -535,7 +541,7 @@ export default function Bookings() {
       // above, so each count means "matching the filters AND overdue".
       const flagged = await fetchAllRows(() => supabase
         .from('v_booking_money')
-        .select('booking_id, is_overdue, flagged_for_review')
+        .select('booking_id, is_overdue, flagged_for_review, is_lapsed')
         .eq('booking_type', 'Package')
         .order('booking_id', { ascending: true }), 'booking money flags');
       setFlagRows(flagged || []);
@@ -1208,7 +1214,7 @@ export default function Bookings() {
       toast.success('Booking confirmed.');
       fetchData();
     } catch (error) {
-      handleError(error, 'Failed to confirm booking.');
+      handleError(error, statusWriteErrorMessage(error, 'Failed to confirm booking.'));
     }
   };
 
@@ -1428,6 +1434,17 @@ const handleMarkCompleted = async (id) => {
     () => (flagRows || []).filter(f => f.flagged_for_review && matchingIdSet.has(f.booking_id)).length,
     [flagRows, matchingIdSet],
   );
+  const lapsedCount = useMemo(
+    () => (flagRows || []).filter(f => f.is_lapsed && matchingIdSet.has(f.booking_id)).length,
+    [flagRows, matchingIdSet],
+  );
+  // How many of the PENDING requests have gone stale. The status cards are
+  // where a manager looks to decide what to work on, and a request quietly
+  // dying in that pile is the failure this whole task exists to prevent.
+  const pendingLapsedCount = useMemo(() => {
+    const lapsed = new Set((flagRows || []).filter(f => f.is_lapsed).map(f => f.booking_id));
+    return (statusCountRows || []).filter(r => r.booking_status === 'Pending' && lapsed.has(r.booking_id)).length;
+  }, [flagRows, statusCountRows]);
 
   const hasActiveFilters = datePreset !== 'All Time' || filters.customerId || filters.packageId || filters.venue;
   const activeFilterCount = [!!searchTerm, datePreset !== 'All Time', !!filters.customerId, !!filters.packageId, !!filters.venue].filter(Boolean).length;
@@ -1520,6 +1537,16 @@ const handleMarkCompleted = async (id) => {
               <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${STATUS_CARD_BAR[s.key]}`} />
               <p className="text-[13px] font-semibold text-slate-600 mb-1.5 whitespace-nowrap">{s.key === 'All' ? 'All Bookings' : s.key}</p>
               <p className={`text-[23px] font-semibold tracking-[-0.02em] tabular-nums ${STATUS_CARD_TEXT[s.key]}`}>{s.count}</p>
+              {/* Said on the Pending card and nowhere else: this is the pile a
+                  manager works through, and a request that can no longer be
+                  accepted needs to leave it. Grey, like every other lapsed
+                  signal — it is a closing job, not an emergency. */}
+              {s.key === 'Pending' && pendingLapsedCount > 0 && (
+                <span className="mt-1 inline-flex items-center gap-1 text-[11.5px] font-bold text-slate-600 tabular-nums">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-400" />
+                  {pendingLapsedCount} lapsed
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -1566,6 +1593,19 @@ const handleMarkCompleted = async (id) => {
           >
             Flagged
             <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-amber-100 text-amber-700 text-[12.5px] tabular-nums font-bold">{flaggedCount}</span>
+          </button>
+          {/* Grey, not red: a lapsed request is dead, not urgent. It must not
+              read as another Overdue. */}
+          <button
+            onClick={() => { setMoneyFilter(moneyFilter === 'lapsed' ? null : 'lapsed'); setCurrentPage(1); }}
+            className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
+              moneyFilter === 'lapsed'
+                ? 'border-slate-400 bg-slate-100 text-slate-800'
+                : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+            }`}
+          >
+            Lapsed
+            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-slate-200 text-slate-700 text-[12.5px] tabular-nums font-bold">{lapsedCount}</span>
           </button>
         </div>
       </div>
@@ -1747,6 +1787,10 @@ const handleMarkCompleted = async (id) => {
               const cardOwed = Math.max(0, (booking.total_amount || 0) - (booking.positivePayments || 0));
               const cardMoney = booking.money;
               const cardOverdue = !!cardMoney?.is_overdue;
+              // Pending or Approved with the event already past: nothing left
+              // to accept. The database refuses the write too; this is so the
+              // manager is not sent into an error to find that out.
+              const cardLapsed = !!cardMoney?.is_lapsed;
               const cardBalance = Number(cardMoney?.outstanding) || 0;
               return (
                 <div
@@ -1811,6 +1855,9 @@ const handleMarkCompleted = async (id) => {
                       <span className={`px-[11px] py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${getStatusBadgeSoft(booking.booking_status)}`}>
                         {booking.booking_status}
                       </span>
+                      {cardLapsed && (
+                        <span className={LAPSED_CHIP_CLASS} title={LAPSED_ACCEPT_TOOLTIP}>{lapsedChipLabel(booking.event_datetime)}</span>
+                      )}
                       {(booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') && booking.refundStatus && (
                         <span className={`px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap ${getRefundStatusBadge(booking.refundStatus)}`}>
                           {booking.refundStatus}
@@ -1822,17 +1869,33 @@ const handleMarkCompleted = async (id) => {
                   <div className="flex flex-wrap items-center gap-1.5 mt-3" onClick={(e) => e.stopPropagation()}>
                     {booking.booking_status === 'Pending' && (
                       <>
-                        <button onClick={() => openApprovalModal(booking)} className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors">
-                          <Check size={13} /> Approve
+                        {/* Approve is the accepting act, so it is what a
+                            lapsed date takes away. Reject stays: a request is
+                            answered by a person, not left to rot. */}
+                        <button
+                          onClick={() => openApprovalModal(booking)}
+                          disabled={cardLapsed}
+                          title={cardLapsed ? LAPSED_ACCEPT_TOOLTIP : undefined}
+                          className={`font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors ${cardLapsed ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-[#008A45] hover:bg-[#007038] text-white'}`}
+                        >
+                          {cardLapsed ? <Lock size={13} /> : <Check size={13} />} Approve
                         </button>
-                        <button onClick={() => openRejectionModal(booking.booking_id)} className="bg-red-100 hover:bg-red-200 border border-red-200 text-red-700 font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors">
+                        <button onClick={() => openRejectionModal(booking.booking_id, cardLapsed ? LAPSED_DECLINE_REASON : '')} className="bg-red-100 hover:bg-red-200 border border-red-200 text-red-700 font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors">
                           <X size={13} /> Reject
                         </button>
                       </>
                     )}
                     {booking.booking_status === 'Approved' && (
-                      <button onClick={() => handleConfirmBooking(booking.booking_id)} className="bg-[#EAF3F2] hover:bg-[#ddeee5] border border-[#c9dfd4] text-[#00703a] font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors">
-                        <Check size={13} /> Confirm
+                      /* Confirm is an acceptance too — the guard refuses a
+                         transition into Approved OR Confirmed — so a lapsed
+                         Approved booking cannot be confirmed either. */
+                      <button
+                        onClick={() => handleConfirmBooking(booking.booking_id)}
+                        disabled={cardLapsed}
+                        title={cardLapsed ? LAPSED_ACCEPT_TOOLTIP : undefined}
+                        className={`font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 border transition-colors ${cardLapsed ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-[#EAF3F2] hover:bg-[#ddeee5] border-[#c9dfd4] text-[#00703a]'}`}
+                      >
+                        {cardLapsed ? <Lock size={13} /> : <Check size={13} />} Confirm
                       </button>
                     )}
                     {booking.booking_status === 'Confirmed' && (
@@ -1932,6 +1995,7 @@ const handleMarkCompleted = async (id) => {
                   // never contradict the status badge beside it.
                   const money = booking.money;
                   const isOverdue = !!money?.is_overdue;
+                  const isLapsed = !!money?.is_lapsed;
                   const balance = Number(money?.outstanding) || 0;
                   return (
                   <tr
@@ -2007,6 +2071,11 @@ const handleMarkCompleted = async (id) => {
                         <span className={`px-[11px] py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${getStatusBadgeSoft(booking.booking_status)}`}>
                           {booking.booking_status}
                         </span>
+                        {/* Beside the status badge, deliberately in the
+                            quietest grey on the page — see utils/lapsed.js. */}
+                        {isLapsed && (
+                          <span className={LAPSED_CHIP_CLASS} title={LAPSED_ACCEPT_TOOLTIP}>{lapsedChipLabel(booking.event_datetime)}</span>
+                        )}
                         {/* "Balance Remaining" and "Past Due" used to sit
                             here, each deciding for itself what was unpaid and
                             what was late from the row's own payment sum. Both
@@ -2033,13 +2102,14 @@ const handleMarkCompleted = async (id) => {
                             <>
                               <button
                                 onClick={() => openApprovalModal(booking)}
-                                title="Approve"
-                                className="w-[30px] min-[1920px]:w-[106px] shrink-0 justify-center bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-[12.5px] px-0 min-[1920px]:px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors"
+                                disabled={isLapsed}
+                                title={isLapsed ? LAPSED_ACCEPT_TOOLTIP : 'Approve'}
+                                className={`w-[30px] min-[1920px]:w-[106px] shrink-0 justify-center font-semibold text-[12.5px] px-0 min-[1920px]:px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors ${isLapsed ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-[#008A45] hover:bg-[#007038] text-white'}`}
                               >
-                                <Check size={13} /> <span className="hidden min-[1920px]:inline">Approve</span>
+                                {isLapsed ? <Lock size={13} /> : <Check size={13} />} <span className="hidden min-[1920px]:inline">Approve</span>
                               </button>
                               <button
-                                onClick={() => openRejectionModal(booking.booking_id)}
+                                onClick={() => openRejectionModal(booking.booking_id, isLapsed ? LAPSED_DECLINE_REASON : '')}
                                 title="Reject"
                                 className="w-[30px] min-[1920px]:w-[92px] shrink-0 justify-center bg-red-100 hover:bg-red-200 border border-red-200 text-red-700 font-semibold text-[12.5px] px-0 min-[1920px]:px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors"
                               >
@@ -2050,10 +2120,11 @@ const handleMarkCompleted = async (id) => {
                           {booking.booking_status === 'Approved' && (
                             <button
                               onClick={() => handleConfirmBooking(booking.booking_id)}
-                              title="Confirm"
-                              className="w-[30px] min-[1920px]:w-[106px] shrink-0 justify-center bg-[#EAF3F2] hover:bg-[#ddeee5] border border-[#c9dfd4] text-[#00703a] font-semibold text-[12.5px] px-0 min-[1920px]:px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 transition-colors"
+                              disabled={isLapsed}
+                              title={isLapsed ? LAPSED_ACCEPT_TOOLTIP : 'Confirm'}
+                              className={`w-[30px] min-[1920px]:w-[106px] shrink-0 justify-center font-semibold text-[12.5px] px-0 min-[1920px]:px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 border transition-colors ${isLapsed ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-[#EAF3F2] hover:bg-[#ddeee5] border-[#c9dfd4] text-[#00703a]'}`}
                             >
-                              <Check size={13} /> <span className="hidden min-[1920px]:inline">Confirm</span>
+                              {isLapsed ? <Lock size={13} /> : <Check size={13} />} <span className="hidden min-[1920px]:inline">Confirm</span>
                             </button>
                           )}
                           {booking.booking_status === 'Confirmed' && (

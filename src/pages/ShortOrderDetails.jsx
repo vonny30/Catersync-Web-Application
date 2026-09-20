@@ -24,6 +24,9 @@ import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePaymen
 import { getServiceMethod, reconcileServiceMethodChange, PICKUP_VENUE_MARKER, TRIP_LEG, countDistinctVehicles, groupDispatchRuns, hasRunDeparted, removeScheduledRun, runRemovalMessage } from '../utils/vehicle';
 import { isResourceLocked, resourceLockReason } from '../utils/resourceLock';
 import ReviewFlagBanner from '../components/ReviewFlagBanner';
+import {
+  lapsedChipLabel, LAPSED_ACCEPT_TOOLTIP, LAPSED_DECLINE_REASON,
+} from '../utils/lapsed';
 import StatusHistory from '../components/StatusHistory';
 import OverrideStatusModal from '../components/OverrideStatusModal';
 import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
@@ -134,7 +137,7 @@ export default function ShortOrderDetails() {
       // The money row, including the review flags.
       const { data: moneyRow, error: moneyError } = await supabase
         .from('v_booking_money')
-        .select('booking_id, outstanding, net_paid, verified_paid, awaiting_verification, is_overdue, days_overdue, flagged_for_review, flag_reason, flagged_at')
+        .select('booking_id, outstanding, net_paid, verified_paid, awaiting_verification, is_overdue, days_overdue, flagged_for_review, flag_reason, flagged_at, is_lapsed')
         .eq('booking_id', id)
         .maybeSingle();
       if (moneyError) console.error('Could not read the order money row:', moneyError);
@@ -1012,6 +1015,12 @@ export default function ShortOrderDetails() {
         }`}>
           {order.booking_status}
         </span>
+        {/* Grey, never the rose used for overdue — see utils/lapsed.js. */}
+        {money?.is_lapsed && (
+          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-slate-100 border-slate-300 text-slate-600" title={LAPSED_ACCEPT_TOOLTIP}>
+            {lapsedChipLabel(order.event_datetime)}
+          </span>
+        )}
         {hasUnpaidPastEvent({ booking_status: order.booking_status, event_datetime: order.event_datetime, total_amount: order.total_amount, positivePayments }) && (
           <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
             Past Event — ₱{remainingBalance.toLocaleString()} Remaining
@@ -1069,10 +1078,15 @@ export default function ShortOrderDetails() {
       <div className="flex items-center gap-3 flex-wrap bg-white border border-slate-200 rounded-2xl px-[18px] py-3.5 shadow-xs">
           {order.booking_status === 'Pending' && (
             <>
-              <button onClick={() => openApprovalModal(order, 'shortorder')} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm">
+              <button
+                onClick={() => openApprovalModal(order, 'shortorder')}
+                disabled={!!money?.is_lapsed}
+                title={money?.is_lapsed ? LAPSED_ACCEPT_TOOLTIP : undefined}
+                className={`font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm ${money?.is_lapsed ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-[#008A45] hover:bg-[#007038] text-white'}`}
+              >
                 <Check size={18} /> Approve
               </button>
-              <button onClick={() => openRejectionModal(order.booking_id)} className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm">
+              <button onClick={() => openRejectionModal(order.booking_id, money?.is_lapsed ? LAPSED_DECLINE_REASON : '')} className="bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm">
                 <X size={18} /> Reject
               </button>
             </>
@@ -1080,10 +1094,11 @@ export default function ShortOrderDetails() {
           {canConfirmBooking && (
             <button
               onClick={handleConfirmBooking}
-              disabled={isConfirming}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50"
+              disabled={isConfirming || !!money?.is_lapsed}
+              title={money?.is_lapsed ? LAPSED_ACCEPT_TOOLTIP : undefined}
+              className={`font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50 ${money?.is_lapsed ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
             >
-              <Check size={18} /> {isConfirming ? 'Confirming...' : 'Confirm Order'}
+              {money?.is_lapsed ? <Lock size={18} /> : <Check size={18} />} {isConfirming ? 'Confirming...' : 'Confirm Order'}
             </button>
           )}
           {canMarkCompleted && (
@@ -2440,6 +2455,7 @@ export default function ShortOrderDetails() {
         isOpen={isOverrideOpen}
         onClose={() => setIsOverrideOpen(false)}
         verifiedPaid={Number(money?.verified_paid) || 0}
+        isLapsed={!!money?.is_lapsed}
         onDone={() => { setHistoryKey(k => k + 1); fetchOrder(); }}
       />
     </div>
