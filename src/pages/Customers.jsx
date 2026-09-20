@@ -1116,6 +1116,9 @@ export default function Customers() {
             ) : (
               <div className="h-[28px] w-16 rounded bg-slate-100 animate-pulse" />
             )}
+            {card.amount && (
+              <p className="text-[14px] font-semibold text-amber-700 tabular-nums mt-1.5">{card.amount} collectible</p>
+            )}
             <p className="text-[13px] text-slate-600 mt-2.5">{t ? card.sub : ' '}</p>
           </button>
         ))}
