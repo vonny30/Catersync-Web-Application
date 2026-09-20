@@ -11,6 +11,7 @@
 // without a fourth copy of it.
 import { useState } from 'react';
 import toast from 'react-hot-toast';
+import { supabase } from '../supabase';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { sumVerifiedPositivePayments } from '../utils/payments';
 import {
@@ -52,25 +53,52 @@ export function useConfirmationHandlers({ booking, payments, fetchData }) {
     fromVerification = false,
   } = {}) => {
     if (!booking) return false;
-    const paid = paidOverride != null ? paidOverride : sumVerifiedPositivePayments(payments);
-    const eligibility = getConfirmEligibility(booking, paid);
+
+    // Test the booking's CURRENT state, not the one this page was holding
+    // before the receipt was written. A database trigger
+    // (trg_confirm_on_payment) promotes Approved -> Confirmed the moment a
+    // verified receipt reaches half the contracted amount, so by the time this
+    // runs the row may already be Confirmed — and offering to confirm an
+    // already-confirmed booking is exactly the stale dialog this avoids. If
+    // the read fails, fall back to the prop: a stale offer beats no offer.
+    const { data: fresh, error: freshError } = await supabase
+      .from('v_booking_money')
+      .select('booking_id, booking_number, booking_type, booking_status, total_amount, verified_paid')
+      .eq('booking_id', booking.booking_id)
+      .maybeSingle();
+    if (freshError) console.error('Could not re-read the booking before confirming:', freshError);
+    const current = fresh || booking;
+
+    // paidOverride still wins: on the verify -> confirm chain the caller knows
+    // a total this hook cannot see. Otherwise prefer the freshly read
+    // verified_paid over the `payments` prop, which is one fetch behind.
+    const paid = paidOverride != null
+      ? paidOverride
+      : (fresh ? Number(fresh.verified_paid) || 0 : sumVerifiedPositivePayments(payments));
+    const eligibility = getConfirmEligibility(current, paid);
 
     if (!eligibility.eligible) {
       if (silentIfIneligible) return false;
       if (eligibility.reason === 'underpaid') {
         toast.error(underpaidMessage(eligibility.paid, eligibility.required));
+      } else if (eligibility.reason === 'not-approved' && current.booking_status !== booking.booking_status) {
+        // The manager pressed the button against a status this page no longer
+        // holds — the trigger got there first. Not a failure; say what it is
+        // and refresh so the button disappears.
+        toast(`Already ${current.booking_status}.`);
+        fetchData();
       }
       return false;
     }
 
     const confirmed = await showConfirm(
-      buildConfirmDialog(booking, eligibility, { fromVerification })
+      buildConfirmDialog(current, eligibility, { fromVerification })
     );
     if (!confirmed) return false;
 
     setIsConfirming(true);
     try {
-      await applyConfirmation(booking.booking_id);
+      await applyConfirmation(current.booking_id);
       toast.success('Booking confirmed.');
       fetchData();
       return true;

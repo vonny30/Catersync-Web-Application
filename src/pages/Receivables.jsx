@@ -478,8 +478,8 @@ function RejectClaimModal({ claim, onClose, onDone }) {
 }
 
 // Where Total Receivables comes from: every agreed booking with an event in the
-// period and money still owed, one row each. The Owed column adds up to the
-// card. Rows come from v_booking_money exactly as the card does.
+// period and money still owed, one row each. The Balance Due column adds up
+// to the card. Rows come from v_booking_money exactly as the card does.
 function ReceivablesBreakdown({ bookings, period, total, onClose, onOpenBooking }) {
   return (
     <ModalShell
@@ -794,7 +794,7 @@ export default function Receivables() {
   const offerConfirmation = async (booking, paidAfter) => {
     if (!booking?.booking_id) return;
     // Re-read the booking rather than trusting the status held before the
-    // write. A database trigger (enforce_confirm_at_fifty_percent) promotes
+    // write. A database trigger (trg_confirm_on_payment) promotes
     // Approved to Confirmed the moment a verified receipt reaches half the
     // contracted amount, so the row this page was holding may already be
     // Confirmed — in which case there is nothing to offer.
@@ -867,7 +867,10 @@ export default function Receivables() {
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500" />
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Total Receivables</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(totalReceivables) : '—'}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">Collectibles on confirmed and completed catering</p>
+          {/* Same shape as the card beside it: what, which period, which
+              basis. Service date, not payment date — this is what is owed on
+              catering held in the period, however late it is collected. */}
+          <p className="text-[13px] text-slate-600 mt-2.5">Collectibles on confirmed and completed catering {forPeriod(period)} · by service date</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show balances due <ChevronRight size={13} /></span>
         </button>
       </div>

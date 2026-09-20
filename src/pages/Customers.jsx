@@ -475,8 +475,18 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
           ) : tab === 'Overview' ? (
             <div className="space-y-4">
               {/* Money, from v_customer_balance. Rejected and Cancelled
-                  bookings are excluded there. */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  bookings are excluded there.
+
+                  THE SPLIT MATTERS. balance_due lumps every unpaid booking
+                  together, so a customer with one ₱11,000 receivable and half
+                  a million in pending enquiries read as owing half a million —
+                  a figure no one could collect on. receivable_due is the money
+                  actually collectible (Confirmed + Completed, the same
+                  population Total Receivables uses on the Receivables page);
+                  pipeline_due is work that has not been contracted yet
+                  (Pending + Approved). Shown together so the pipeline is not
+                  hidden, but never added up into one "balance". */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                 <div className="rounded-xl border border-slate-200/70 bg-white p-3.5">
                   <p className="text-[12.5px] font-semibold text-slate-600 mb-1">Total Billed</p>
                   <p className="text-[19px] font-semibold tabular-nums text-slate-900">{peso(balance?.total_billed)}</p>
@@ -485,10 +495,18 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
                   <p className="text-[12.5px] font-semibold text-slate-600 mb-1">Total Collected</p>
                   <p className="text-[19px] font-semibold tabular-nums text-slate-900">{peso(balance?.total_paid)}</p>
                 </div>
-                <div className={`relative overflow-hidden rounded-xl border p-3.5 ${Number(balance?.balance_due) > 0 ? 'border-amber-200 bg-amber-50/60' : 'border-slate-200/70 bg-white'}`}>
-                  <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${Number(balance?.balance_due) > 0 ? 'bg-amber-500' : 'bg-[#008A45]'}`} />
-                  <p className="text-[12.5px] font-bold text-slate-700 mb-1">Balance Due</p>
-                  <p className={`text-[21px] font-bold tabular-nums ${Number(balance?.balance_due) > 0 ? 'text-amber-700' : 'text-slate-900'}`}>{peso(balance?.balance_due)}</p>
+                <div className={`relative overflow-hidden rounded-xl border p-3.5 ${Number(balance?.receivable_due) > 0 ? 'border-amber-200 bg-amber-50/60' : 'border-slate-200/70 bg-white'}`}>
+                  <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${Number(balance?.receivable_due) > 0 ? 'bg-amber-500' : 'bg-[#008A45]'}`} />
+                  <p className="text-[12.5px] font-bold text-slate-700 mb-1">Receivables</p>
+                  <p className={`text-[21px] font-bold tabular-nums ${Number(balance?.receivable_due) > 0 ? 'text-amber-700' : 'text-slate-900'}`}>{peso(balance?.receivable_due)}</p>
+                  <p className="text-[11.5px] text-slate-500 mt-1 leading-snug">Collectible now, on confirmed and completed catering.</p>
+                </div>
+                {/* Secondary on purpose: real money, but not yet collectible —
+                    the customer has not committed to it. */}
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3.5">
+                  <p className="text-[12.5px] font-semibold text-slate-500 mb-1">Pipeline</p>
+                  <p className="text-[19px] font-medium tabular-nums text-slate-500">{peso(balance?.pipeline_due)}</p>
+                  <p className="text-[11.5px] text-slate-500 mt-1 leading-snug">On pending and approved bookings, not yet collectible.</p>
                 </div>
                 {/* Claimed, not received. Kept apart from Total Collected on
                     purpose — it must never read as money in hand. */}
@@ -1003,7 +1021,10 @@ export default function Customers() {
       key: 'balance',
       label: 'With Outstanding Balance',
       value: t?.with_balance,
-      sub: t ? `${peso(t.total_outstanding)} still to collect` : '',
+      // v_customer_totals has no receivable/pipeline split, so this is every
+      // unpaid booking including work not yet contracted. Worded to say that,
+      // rather than claiming it is all collectible.
+      sub: t ? `${peso(t.total_outstanding)} unpaid across all open bookings` : '',
       accent: 'bg-amber-500',
       onClick: () => { clearFilters(); setBalanceFilter('Has balance'); scrollToTable(); },
     },
@@ -1194,7 +1215,10 @@ export default function Customers() {
                 <th className="px-4 py-3 whitespace-nowrap">Contact</th>
                 <th className="px-4 py-3">{renderSortHeader('total_bookings', 'Bookings')}</th>
                 <th className="px-4 py-3 text-right">{renderSortHeader('lifetime_gross', 'Lifetime Value', 'right')}</th>
-                <th className="px-4 py-3 text-right">{renderSortHeader('lifetime_outstanding', 'Balance', 'right')}</th>
+                {/* Same caveat as the card: v_customer_summary exposes only
+                    lifetime_outstanding, which includes pending and approved
+                    work. The drawer splits it; this column cannot. */}
+                <th className="px-4 py-3 text-right" title="Unpaid across all open bookings, including pending and approved work. Open a customer to see what is collectible now.">{renderSortHeader('lifetime_outstanding', 'Unpaid', 'right')}</th>
                 <th className="px-4 py-3">{renderSortHeader('next_event_at', 'Next Event')}</th>
                 <th className="px-4 py-3 whitespace-nowrap">Status</th>
                 <th className="px-4 py-3 whitespace-nowrap text-right">Actions</th>
