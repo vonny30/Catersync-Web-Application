@@ -21,58 +21,12 @@ const SOURCE_TONE = {
   Manual: 'bg-slate-100 text-slate-600 border-slate-200',
 };
 
-/**
- * Put rows that share a timestamp back into the order they happened.
- *
- * changed_at is now(), which is the TRANSACTION's clock — so a chain that
- * runs inside one transaction (approve, the 50% auto-confirm it triggers, the
- * auto-revert a reversal triggers) writes several rows carrying the exact same
- * instant. Sorting those by log_id is meaningless: it is a random uuid. Left
- * alone the card printed "Approved -> Confirmed" above "Pending -> Approved",
- * which reads as history in the wrong order.
- *
- * The rows describe a chain, so the chain itself supplies the order: the row
- * nothing else leads into is first, and each row's to_status names the next
- * row's from_status. Where that walk is ambiguous — a status repeated inside
- * one group, a cycle — the group is left exactly as the database returned it
- * rather than guessed at.
- *
- * This is a display repair, not a record. The durable fix is a monotonic
- * column on booking_status_log to sort by; see docs/ops-manager-sync.md.
- */
-function orderTiedGroup(group) {
-  if (group.length < 2) return group;
-  const destinations = new Set(group.map(r => r.to_status));
-  const heads = group.filter(r => !destinations.has(r.from_status));
-  if (heads.length !== 1) return group;
-  const byFrom = new Map();
-  for (const row of group) {
-    if (byFrom.has(row.from_status)) return group; // two rows leave the same status
-    byFrom.set(row.from_status, row);
-  }
-  const chain = [];
-  const seen = new Set();
-  let current = heads[0];
-  while (current && !seen.has(current)) {
-    chain.push(current);
-    seen.add(current);
-    current = byFrom.get(current.to_status);
-  }
-  if (chain.length !== group.length) return group;
-  return chain.reverse(); // newest first, like the rest of the list
-}
-
-function orderForDisplay(rows) {
-  const out = [];
-  let i = 0;
-  while (i < rows.length) {
-    let j = i;
-    while (j + 1 < rows.length && rows[j + 1].changed_at === rows[i].changed_at) j += 1;
-    out.push(...orderTiedGroup(rows.slice(i, j + 1)));
-    i = j + 1;
-  }
-  return out;
-}
+// ORDER BY seq, NOT changed_at. changed_at is now(), the transaction clock,
+// so every row written inside one transaction carries the identical instant —
+// approve, the 50% auto-confirm it fires, the auto-revert a reversal fires.
+// Sorted by time with a uuid tiebreak, a three-step chain printed in a random
+// order, which is how this was found. `seq` is an identity column added for
+// exactly this; its own column comment says not to sort by changed_at.
 
 const formatWhen = (value) => {
   if (!value) return '';
@@ -89,14 +43,13 @@ export default function StatusHistory({ bookingId, refreshKey = 0, limit = 5 }) 
     (async () => {
       const { data, error } = await supabase
         .from('booking_status_log')
-        .select('log_id, from_status, to_status, source, reason, changed_at')
+        .select('log_id, seq, from_status, to_status, source, reason, changed_at')
         .eq('booking_id', bookingId)
-        .order('changed_at', { ascending: false })
-        .order('log_id', { ascending: false })
+        .order('seq', { ascending: false })
         .limit(limit);
       if (ignore) return;
       if (error) console.error('Could not load the status history:', error);
-      setRows(orderForDisplay(data || []));
+      setRows(data || []);
       setLoaded(true);
     })();
     return () => { ignore = true; };
