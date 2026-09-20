@@ -12,7 +12,9 @@
 //
 // Every figure is read from the database's own definitions:
 //   v_payment_ledger.counts_in_ledger — whether an entry moves the books
-//   v_booking_money.is_receivable / outstanding — what is owed
+//   v_booking_money.counts_toward_revenue / outstanding — what is owed on
+//     committed work (Confirmed and Completed). An Approved booking is
+//     accepted but not committed: its balance is pipeline, not a collectible.
 // This page filters and adds those up; it does not decide them.
 //
 // Receipts are never edited or deleted. A wrong one is reversed: a new
@@ -487,7 +489,12 @@ function ReceivablesBreakdown({ bookings, period, total, onClose, onOpenBooking 
       footer={<button type="button" onClick={onClose} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-5 py-2.5 rounded-lg border border-slate-300 transition-colors">Close</button>}
     >
       <p className="text-[13px] text-slate-600 mb-3">
-        Still to collect {forPeriod(period)}, by service date. Approved, Confirmed and Completed bookings only: a Pending request has no agreement yet, so no receivable exists yet.
+        Still to collect {forPeriod(period)}, by service date. Confirmed and completed catering only.
+      </p>
+      {/* Said here because it is where a reader looks for a booking and does
+          not find it. No figure: this is an explanation, not a second total. */}
+      <p className="text-[12.5px] text-slate-500 mb-3">
+        Approved bookings are not counted in Total Receivables until they are confirmed.
       </p>
       {bookings.length === 0 ? (
         <p className="text-sm text-slate-500 italic text-center py-6">No balances due for services in this period.</p>
@@ -673,12 +680,16 @@ export default function Receivables() {
             `)
             .order('pay_datetime', { ascending: false })
             .order('payment_id', { ascending: true }), 'payment ledger'),
-          // What is owed, per booking. is_receivable is the one definition.
+          // What is owed, per booking. Two flags, two jobs: counts_toward_revenue
+          // (Confirmed + Completed) scopes Total Receivables; is_receivable
+          // (which adds Approved) still decides which bookings a receipt can be
+          // recorded against, because an Approved booking can and does take
+          // deposits.
           fetchAllRows(() => supabase
             .from('v_booking_money')
             .select(`
               booking_id, booking_number, booking_type, booking_status, customer_id, event_datetime, total_amount,
-              verified_paid, net_paid, outstanding, awaiting_count, is_receivable,
+              verified_paid, net_paid, outstanding, awaiting_count, is_receivable, counts_toward_revenue,
               customer:customer_id (first_name, last_name)
             `)
             .order('event_datetime', { ascending: true, nullsFirst: false })
@@ -713,7 +724,12 @@ export default function Receivables() {
     .filter(e => e.counts_in_ledger === true && Number(e.amount_paid) > 0 && inPeriod(e.pay_datetime))
     .reduce((sum, e) => sum + Number(e.amount_paid), 0);
   // Total Receivables: what is owed on agreed bookings, by service date.
-  const receivablesInPeriod = money.filter(b => b.is_receivable && inPeriod(b.event_datetime));
+  // A receivable is money owed under a contract the business is committed to
+  // perform: Confirmed, or Completed and already delivered. An Approved
+  // booking has been accepted but not confirmed, so its unpaid balance is
+  // pipeline. Its DEPOSITS are untouched by this — they are cash, and Cash
+  // Receipts counts them on the day they arrived whatever the booking status.
+  const receivablesInPeriod = money.filter(b => b.counts_toward_revenue && inPeriod(b.event_datetime));
   const totalReceivables = receivablesInPeriod.reduce((sum, b) => sum + Number(b.outstanding || 0), 0);
   // The rows behind the card: only those still owing anything, largest first.
   const owingInPeriod = receivablesInPeriod
@@ -776,7 +792,19 @@ export default function Receivables() {
   const moneyFor = (bookingId) => money.find(b => b.booking_id === bookingId) || null;
 
   const offerConfirmation = async (booking, paidAfter) => {
-    const b = booking && (moneyFor(booking.booking_id) || booking);
+    if (!booking?.booking_id) return;
+    // Re-read the booking rather than trusting the status held before the
+    // write. A database trigger (enforce_confirm_at_fifty_percent) promotes
+    // Approved to Confirmed the moment a verified receipt reaches half the
+    // contracted amount, so the row this page was holding may already be
+    // Confirmed — in which case there is nothing to offer.
+    const { data: fresh, error: freshError } = await supabase
+      .from('v_booking_money')
+      .select('booking_id, booking_number, booking_type, booking_status, total_amount, verified_paid')
+      .eq('booking_id', booking.booking_id)
+      .maybeSingle();
+    if (freshError) console.error('Could not re-read the booking after the receipt:', freshError);
+    const b = fresh || moneyFor(booking.booking_id) || booking;
     if (!b) return;
     const eligibility = getConfirmEligibility(b, paidAfter);
     if (!eligibility.eligible) return;
@@ -839,7 +867,7 @@ export default function Receivables() {
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500" />
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Total Receivables</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(totalReceivables) : '—'}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">Still to collect {forPeriod(period)} · by service date</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">Collectibles on confirmed and completed catering</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show balances due <ChevronRight size={13} /></span>
         </button>
       </div>
