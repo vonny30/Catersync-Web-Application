@@ -69,7 +69,6 @@ const upcomingWindowLabel = () => {
 };
 
 // The current month's name, for the Cash Receipts subtext.
-const thisMonthName = () => new Date().toLocaleString('en-PH', { month: 'long' });
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -772,7 +771,7 @@ export default function Dashboard() {
             headline excludes is explained in the modal behind it. */}
         <button
           onClick={handleRevenueClick}
-          title="What is in this figure?"
+          title="Open Receivables for this month"
           className="relative overflow-hidden bg-white border border-slate-200/70 rounded-2xl p-[22px] flex flex-col items-center justify-center text-center hover:shadow-[0_4px_14px_rgba(15,23,42,0.06)] hover:-translate-y-0.5 hover:border-[#008A45]/30 transition-all cursor-pointer group"
         >
           <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#006634]" />
@@ -784,10 +783,10 @@ export default function Dashboard() {
           </span>
           <span className="text-[15px] font-semibold text-slate-600">Cash Receipts</span>
           <span className="text-[12.5px] text-slate-400 mt-1">
-            Collected during {thisMonthName()} · by payment date
+            Money received
           </span>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">
-            What is in this figure? <ChevronRight size={13} />
+            Show these receipts <ChevronRight size={13} />
           </span>
         </button>
       </div>
