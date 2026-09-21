@@ -40,6 +40,7 @@ import { FilterBar, QuickFilters, EmptyResult, FILTER_LABEL_ROW } from '../compo
 import { getRangeBounds } from './Reports/helpers';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { buildBookingSearch } from '../utils/bookingSearch';
+import { filterCustomersForPicker } from '../utils/customerPicker';
 import { bulkDeleteBookings } from '../utils/bulkDeleteBookings';
 import ImageUploadField from '../components/ImageUploadField';
 import RefundMethodField from '../components/RefundMethodField';
@@ -606,15 +607,11 @@ export default function Bookings() {
   // meant every keystroke rendered twice — once with the stale list, once with
   // the new one — and left a window where the input and the dropdown
   // disagreed. Computing it during render removes both.
-  const filteredCustomers = useMemo(() => {
-    if (customerSearch.trim() === '') return customers.slice(0, 10);
-    const search = customerSearch.toLowerCase();
-    return customers.filter(c =>
-      `${c.first_name} ${c.last_name}`.toLowerCase().includes(search) ||
-      c.contact_no?.includes(search) ||
-      c.email_address?.toLowerCase().includes(search)
-    ).slice(0, 15);
-  }, [customerSearch, customers]);
+  // Every match, not the first 10 / 15 — see utils/customerPicker.
+  const filteredCustomers = useMemo(
+    () => filterCustomersForPicker(customers, customerSearch),
+    [customerSearch, customers],
+  );
 
   useEffect(() => {
     fetchData();
@@ -2272,7 +2269,16 @@ const handleMarkCompleted = async (id) => {
                           </div>
                           {fieldErrors.customer_id && <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.customer_id}</p>}
                           {showCustomerList && (
-                            <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-72 overflow-y-auto">
+                              {/* How many there are, so a short visible list is
+                                  never mistaken for the whole customer base. */}
+                              {filteredCustomers.length > 0 && (
+                                <p className="sticky top-0 bg-slate-50 border-b border-slate-100 px-4 py-1.5 text-[11.5px] font-semibold text-slate-500">
+                                  {customerSearch.trim()
+                                    ? `${filteredCustomers.length} matching customer${filteredCustomers.length === 1 ? '' : 's'}`
+                                    : `All ${filteredCustomers.length} active customers — scroll or type to search`}
+                                </p>
+                              )}
                               {filteredCustomers.length > 0 ? (
                                 filteredCustomers.map(customer => (
                                   <button
