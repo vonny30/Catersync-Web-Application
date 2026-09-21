@@ -74,7 +74,9 @@ export default function DetailModal({ detailModal, onClose }) {
             <p className="text-xs text-slate-500 mt-0.5">
               {detailModal.type === 'forfeited'
                 ? 'Cancelled and rejected bookings that kept money • '
-                : 'Accepted work only • '}
+                : detailModal.type === 'revenue' || detailModal.type === 'collected'
+                  ? 'Confirmed and completed, plus kept deposits • '
+                  : 'Confirmed and completed • '}
               {filteredData.length} of {detailModal.data.length} booking{detailModal.data.length === 1 ? '' : 's'} shown
             </p>
           </div>
@@ -104,9 +106,11 @@ export default function DetailModal({ detailModal, onClose }) {
             {hasStatusFilter && (
               <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={popupSelectClass(statusFilter !== 'All')}>
                 <option value="All">All statuses</option>
-                <option value="Approved">Approved</option>
                 <option value="Confirmed">Confirmed</option>
                 <option value="Completed">Completed</option>
+                {/* Revenue also lists deposits kept on cancelled or rejected bookings. */}
+                {detailModal.type === 'revenue' && <option value="Cancelled">Cancelled (kept deposit)</option>}
+                {detailModal.type === 'revenue' && <option value="Rejected">Rejected (kept deposit)</option>}
               </Select>
             )}
           </PopupFilters>
@@ -253,49 +257,6 @@ export default function DetailModal({ detailModal, onClose }) {
                 </table>
               )}
 
-              {/* Approved, not yet confirmed: the sales pipeline. A manager
-                  opens this to see whose confirmation to chase, so the balance
-                  due matters as much as the contract amount. */}
-              {detailModal.type === 'approved' && (
-                <table className="w-full text-left border-separate border-spacing-0 bg-white rounded-2xl border border-slate-200 overflow-hidden">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
-                      <th className={HEAD_CLASS}>Reference</th>
-                      <th className={HEAD_CLASS}>Customer</th>
-                      <th className={HEAD_CLASS}>Type</th>
-                      <th className={HEAD_CLASS}>Event Date</th>
-                      <th className={`${HEAD_CLASS} text-right`}>Contract Amount</th>
-                      <th className={`${HEAD_CLASS} text-right`}>Collected</th>
-                      <th className={`${HEAD_CLASS} text-right`}>Balance Due</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-sm">
-                    {filteredData.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-50">
-                        <td className="px-5 py-[15px]">
-                          <button
-                            onClick={() => goToBookingDetails(item.id, item.type)}
-                            className="font-mono text-xs font-bold text-[#008A45] hover:underline inline-flex items-center gap-1 cursor-pointer"
-                            title="View full booking details"
-                          >
-                            {item.bookingRef} <ExternalLink size={10} />
-                          </button>
-                        </td>
-                        <td className="px-5 py-[15px] font-medium text-slate-900">{item.customer}</td>
-                        <td className="px-5 py-[15px] whitespace-nowrap">
-                          <span className={`inline-block whitespace-nowrap px-2 py-0.5 rounded-full text-xs font-medium ${item.type === 'Short Order' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
-                            {item.type === 'Short Order' ? 'Short Order' : 'Package'}
-                          </span>
-                        </td>
-                        <td className="px-5 py-[15px] text-slate-600">{formatDate(item.eventDate)}</td>
-                        <td className="px-5 py-[15px] text-right font-bold text-slate-900">{formatCurrency(item.total)}</td>
-                        <td className="px-5 py-[15px] text-right text-emerald-600">{formatCurrency(item.paid)}</td>
-                        <td className="px-5 py-[15px] text-right font-bold text-amber-700">{formatCurrency(item.outstanding)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
 
               {/* Forfeited deposits: money the business kept when a booking
                   fell through. It is realised income, so it is audited exactly
@@ -350,7 +311,9 @@ export default function DetailModal({ detailModal, onClose }) {
                   {detailModal.type === 'forfeited' ? (
                     <><strong>Note:</strong> These bookings were cancelled or rejected. The amount retained is money already collected that was not refunded — realised income, kept out of Estimated Gross Revenue on purpose.</>
                   ) : (
-                    <><strong>Note:</strong> This breakdown excludes bookings that were rejected, cancelled, or not yet approved — accepted work only.</>
+                    detailModal.type === 'revenue' || detailModal.type === 'collected'
+                      ? <><strong>Note:</strong> Confirmed and completed bookings, plus deposits kept on cancelled or rejected bookings, listed at the amount kept. Pending and approved bookings are not included.</>
+                      : <><strong>Note:</strong> Confirmed and completed bookings only. Pending and approved bookings are not included.</>
                   )}
                 </p>
               </div>
@@ -378,13 +341,6 @@ export default function DetailModal({ detailModal, onClose }) {
               />
             </div>
           )}
-          {detailModal.type === 'approved' && (
-            <ModalTotal
-              label="Total approved"
-              value={formatCurrency(filteredData.reduce((sum, item) => sum + item.total, 0))}
-              hint={`${filteredData.length} booking${filteredData.length === 1 ? '' : 's'} awaiting confirmation`}
-            />
-          )}
           {detailModal.type === 'forfeited' && (
             <ModalTotal
               label="Total retained"
@@ -392,7 +348,7 @@ export default function DetailModal({ detailModal, onClose }) {
               hint={`${filteredData.length} cancelled booking${filteredData.length === 1 ? '' : 's'}`}
             />
           )}
-          {!['revenue', 'outstanding', 'approved', 'forfeited'].includes(detailModal.type) && <span />}
+          {!['revenue', 'outstanding', 'forfeited'].includes(detailModal.type) && <span />}
           <button
             onClick={onClose}
             className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"

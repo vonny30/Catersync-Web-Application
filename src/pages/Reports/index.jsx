@@ -265,7 +265,6 @@ export default function Reports() {
         ...moneyInEventRange.filter(m => m.is_closed && Number(m.net_paid) > 0).map(keptDepositRow),
       ],
       _outstandingBreakdown: moneyInEventRange.filter(m => m.counts_toward_revenue && Number(m.outstanding) > 0).map(breakdownRow),
-      _approvedBreakdown: moneyInEventRange.filter(m => m.booking_status === 'Approved').map(breakdownRow),
     };
 
     // --- PAYMENT METHOD & REFUNDS ---
@@ -556,7 +555,6 @@ export default function Reports() {
       revenue: { data: derived.financialSummary._revenueBreakdown, title: `Estimated Gross Revenue — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
       collected: { data: derived.financialSummary._collectedBreakdown, title: `Paid on These Events — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
       outstanding: { data: derived.financialSummary._outstandingBreakdown, title: `Collectible — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
-      approved: { data: derived.financialSummary._approvedBreakdown, title: `Approved — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
     };
     const entry = breakdowns[type];
     if (!entry) return;

@@ -88,13 +88,6 @@ export default function OverviewTab({ derived, period, span, onCardClick, onOpen
             color="green"
             onClick={() => onCardClick('revenue')}
           />
-          <StatCard
-            label="Approved"
-            value={formatCurrency(financialSummary.grossApproved)}
-            sub={span ? `Not yet confirmed, services ${span}` : 'Not yet confirmed'}
-            color="blue"
-            onClick={() => onCardClick('approved')}
-          />
           {/* THE BRIDGE. Cash Receipts answers "what came in"; this answers
               "how much of THIS period's contracted work has been paid for".
               Same population as Estimated Gross Revenue (paid_contracted, not
@@ -108,7 +101,7 @@ export default function OverviewTab({ derived, period, span, onCardClick, onOpen
             onClick={() => onCardClick('collected')}
           />
           {/* outstanding_contracted, never outstanding_receivable: an Approved
-              booking is not contracted and is already on the card above. And
+              booking is not contracted, so it is owed nothing yet. And
               never Confirmed alone — a Completed event with a balance is the
               truest receivable here, since the service was already delivered. */}
           <StatCard
@@ -121,10 +114,13 @@ export default function OverviewTab({ derived, period, span, onCardClick, onOpen
         </div>
       </section>
 
+      {/* SECTION 2 and 3 on one row: the cash that moved, and a count. Two
+          headed groups side by side rather than two single-card rows. */}
+      <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))]">
       {/* SECTION 2 — anchored on the PAYMENT date: cash that actually moved. */}
       <section>
         <h2 className={SECTION_HEAD}>By payment date<span className={BASIS_LABEL}>Cash basis</span></h2>
-        <div className={ROW_GRID}>
+        <div className="grid">
           {/* The same figure, by the same definition, as Cash Receipts on the
               Receivables page. Both read f_report_period / v_payment_ledger. */}
           <StatCard
@@ -154,7 +150,7 @@ export default function OverviewTab({ derived, period, span, onCardClick, onOpen
           on the Financial tab. */}
       <section>
         <h2 className={SECTION_HEAD}>Also {forPeriod(period)}</h2>
-        <div className={ROW_GRID}>
+        <div className="grid">
           <StatCard
             count
             label="Completed Bookings"
@@ -169,6 +165,7 @@ export default function OverviewTab({ derived, period, span, onCardClick, onOpen
           />
         </div>
       </section>
+      </div>
 
       <div className="grid gap-[18px] [grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))]">
         <button
