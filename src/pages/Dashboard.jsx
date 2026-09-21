@@ -665,7 +665,7 @@ export default function Dashboard() {
     const itemType = item.booking_type === 'Short Order' ? 'Short Order' : 'Package';
     if (statsTypeFilter !== 'All' && itemType !== statsTypeFilter) return false;
     if (statsSearchTerm.trim()) {
-      const term = statsSearchTerm.toLowerCase();
+      const term = statsSearchTerm.trim().toLowerCase();
       const customerName = getClientName(item).toLowerCase();
       const ref = getBookingRef(item).toLowerCase();
       const venue = (item.venue || '').toLowerCase();

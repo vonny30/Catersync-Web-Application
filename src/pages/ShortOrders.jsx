@@ -38,6 +38,7 @@ import DateRangeFilter from './Reports/DateRangeFilter';
 import { FilterBar, QuickFilters, EmptyResult, FILTER_LABEL_ROW } from '../components/FilterBar';
 import { getRangeBounds } from './Reports/helpers';
 import { fetchAllRows } from '../utils/fetchAllRows';
+import { buildBookingSearch } from '../utils/bookingSearch';
 import { bulkDeleteBookings } from '../utils/bulkDeleteBookings';
 import ImageUploadField from '../components/ImageUploadField';
 import RefundMethodField from '../components/RefundMethodField';
@@ -166,29 +167,9 @@ export default function ShortOrders() {
     const { start: dateStart, end: dateEnd } = getRangeBounds(datePreset, customStart, customEnd);
 
     // --- SEARCH: resolve once, reused by both the main query and the
-    // status-count query below, so a search term narrows both. ---
-    let searchCustomerIds = null;
-    const search = searchTerm.trim();
-    if (search) {
-      const parts = search.split(' ').filter(p => p.length > 0);
-      const conditions = [];
-      parts.forEach(part => {
-        conditions.push(`first_name.ilike.%${part}%`);
-        conditions.push(`last_name.ilike.%${part}%`);
-      });
-      try {
-        const matchingCustomers = await fetchAllRows(() => supabase
-          .from('customer')
-          .select('customer_id')
-          .or(conditions.join(','))
-          .order('customer_id', { ascending: true }), 'customer name search');
-        searchCustomerIds = (matchingCustomers || []).map(c => c.customer_id);
-      } catch (e) {
-        console.warn('Customer search failed:', e);
-        searchCustomerIds = [];
-      }
-      if (searchCustomerIds.length === 0) searchCustomerIds = ['00000000-0000-0000-0000-000000000000'];
-    }
+    // status-count query below, so a search term narrows both. Customer
+    // name (every word) or booking reference — utils/bookingSearch.
+    const applySearch = await buildBookingSearch(searchTerm);
 
     // Every filter except status and pagination — shared by the main
     // paginated query and the lightweight status-count query.
@@ -198,7 +179,7 @@ export default function ShortOrders() {
       if (dateEnd) q = q.lte(dateFilterField, dateEnd.toISOString());
       if (filters.customerId) q = q.eq('customer_id', filters.customerId);
       if (filters.venue) q = q.ilike('venue', `%${filters.venue}%`);
-      if (searchCustomerIds) q = q.in('customer_id', searchCustomerIds);
+      if (applySearch) q = applySearch(q);
       if (moneyFilterIds) q = q.in('booking_id', moneyFilterIds);
       return q;
     };
@@ -1405,7 +1386,11 @@ export default function ShortOrders() {
 
   const todayStr = new Date().toDateString();
   const todaysEventsCount = statusCountRows.filter(r => r.event_datetime && new Date(r.event_datetime).toDateString() === todayStr).length;
-  const upcomingConfirmedCount = statusCountRows.filter(r => r.booking_status === 'Confirmed' && r.event_datetime && new Date(r.event_datetime) >= new Date()).length;
+  // From the start of today — the same window the chip applies (Custom, today
+  // onward). Counting from "now" left out an event earlier today that the
+  // chip then listed.
+  const upcomingFrom = getRangeBounds('Custom', todayKey, '').start;
+  const upcomingConfirmedCount = statusCountRows.filter(r => r.booking_status === 'Confirmed' && r.event_datetime && new Date(r.event_datetime) >= upcomingFrom).length;
 
   // --- RENDER ---
   return (

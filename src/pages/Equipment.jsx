@@ -1653,7 +1653,7 @@ export default function Equipment() {
     if (availabilityStatusFilter === 'tight' && !['tight', 'fully'].includes(statusKey)) return false;
     if (availabilityStatusFilter !== 'All' && availabilityStatusFilter !== 'tight' && statusKey !== availabilityStatusFilter) return false;
     if (availabilitySearch) {
-      const term = availabilitySearch.toLowerCase();
+      const term = availabilitySearch.trim().toLowerCase();
       if (!item.eqm_name.toLowerCase().includes(term)) return false;
     }
     return true;
@@ -1683,7 +1683,7 @@ export default function Equipment() {
     if (inventoryNeedsAttentionOnly && !needsAttention(item)) return false;
     if (inventoryTypeFilter !== 'All' && item.equipment_type !== inventoryTypeFilter) return false;
     if (inventorySearch) {
-      const term = inventorySearch.toLowerCase();
+      const term = inventorySearch.trim().toLowerCase();
       if (!item.eqm_name.toLowerCase().includes(term) && !(item.eqm_description || '').toLowerCase().includes(term)) return false;
     }
     return true;
@@ -1757,7 +1757,7 @@ export default function Equipment() {
     if (assignmentSectionFilter === 'Upcoming' && (g.isOverdue || g.isToday)) return false;
     if (assignmentDatePreset !== 'All Time' && !isWithinRange(g.eventDate, assignmentRangeStart, assignmentRangeEnd)) return false;
     if (assignmentSearchTerm.trim()) {
-      const term = assignmentSearchTerm.toLowerCase();
+      const term = assignmentSearchTerm.trim().toLowerCase();
       const ref = (g.booking ? getBookingRef(g.booking) : '').toLowerCase();
       const customerName = (g.booking?.customer ? `${g.booking.customer.first_name} ${g.booking.customer.last_name}` : '').toLowerCase();
       const venue = (g.booking?.venue || '').toLowerCase();
@@ -1800,7 +1800,7 @@ export default function Equipment() {
       }
       if (historyDatePreset !== 'All Time' && !isWithinRange(a.booking?.event_datetime, historyRangeStart, historyRangeEnd)) return false;
       if (historySearch.trim()) {
-        const term = historySearch.toLowerCase();
+        const term = historySearch.trim().toLowerCase();
         const eqName = (a.equipment?.eqm_name || '').toLowerCase();
         const ref = (a.booking ? getBookingRef(a.booking) : '').toLowerCase();
         const customerName = (a.booking?.customer ? `${a.booking.customer.first_name} ${a.booking.customer.last_name}` : '').toLowerCase();

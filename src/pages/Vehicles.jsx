@@ -1318,7 +1318,7 @@ export default function Vehicles() {
   // ============================================================
   const filteredInventory = vehicles.filter(v => {
     if (inventoryTypeFilter !== 'All' && v.vehicle_type !== inventoryTypeFilter) return false;
-    if (inventorySearch && !v.plate_number.toLowerCase().includes(inventorySearch.toLowerCase())) return false;
+    if (inventorySearch.trim() && !v.plate_number.toLowerCase().includes(inventorySearch.trim().toLowerCase())) return false;
     return true;
   });
   const activeInventoryFilterCount = (inventorySearch.trim() ? 1 : 0) + (inventoryTypeFilter !== 'All' ? 1 : 0);
@@ -1393,7 +1393,7 @@ export default function Vehicles() {
     if (assignmentSectionFilter === 'Upcoming' && (g.isOverdue || g.isToday)) return false;
     if (assignmentDatePreset !== 'All Time' && !isWithinRange(g.eventDate, assignmentRangeStart, assignmentRangeEnd)) return false;
     if (assignmentSearchTerm.trim()) {
-      const term = assignmentSearchTerm.toLowerCase();
+      const term = assignmentSearchTerm.trim().toLowerCase();
       const ref = (g.booking ? getBookingRef(g.booking) : '').toLowerCase();
       const customerName = (g.booking?.customer ? `${g.booking.customer.first_name} ${g.booking.customer.last_name}` : '').toLowerCase();
       const venue = (g.booking?.venue || '').toLowerCase();
@@ -1439,7 +1439,7 @@ export default function Vehicles() {
       if (historyStatusFilter !== 'All' && state.key !== historyStatusFilter) return false;
       if (historyDatePreset !== 'All Time' && !isWithinRange(a.booking?.event_datetime, historyRangeStart, historyRangeEnd)) return false;
       if (historySearch.trim()) {
-        const term = historySearch.toLowerCase();
+        const term = historySearch.trim().toLowerCase();
         const plate = (a.vehicle?.plate_number || '').toLowerCase();
         const ref = (a.booking ? getBookingRef(a.booking) : '').toLowerCase();
         const customerName = (a.booking?.customer ? `${a.booking.customer.first_name} ${a.booking.customer.last_name}` : '').toLowerCase();
@@ -2867,11 +2867,11 @@ export default function Vehicles() {
                   />
                 </div>
                 <div className="border border-slate-200 rounded-lg max-h-48 overflow-y-auto p-2 bg-slate-50">
-                  {vehicles.filter(v => v.vehicle_status === 'Available' && v.plate_number.toLowerCase().includes(vehiclePickerSearch.toLowerCase())).length === 0 ? (
+                  {vehicles.filter(v => v.vehicle_status === 'Available' && v.plate_number.toLowerCase().includes(vehiclePickerSearch.trim().toLowerCase())).length === 0 ? (
                     <p className="text-sm text-slate-500 italic p-2">No available vehicles match your search.</p>
                   ) : (
                     vehicles
-                      .filter(v => v.vehicle_status === 'Available' && v.plate_number.toLowerCase().includes(vehiclePickerSearch.toLowerCase()))
+                      .filter(v => v.vehicle_status === 'Available' && v.plate_number.toLowerCase().includes(vehiclePickerSearch.trim().toLowerCase()))
                       .map((v) => {
                         const clashingTrip = conflictingTripFor(v.vehicle_id, selectedBooking, assignForm.dispatch_datetime, assignLeg);
                         const alreadyAssigned = !!clashingTrip;
