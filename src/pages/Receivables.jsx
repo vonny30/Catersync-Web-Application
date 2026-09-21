@@ -756,6 +756,15 @@ export default function Receivables() {
     if (term && !`${customerName(e)} ${bookingRef(e.booking)}`.toLowerCase().includes(term)) return false;
     return true;
   };
+  // A reversed receipt keeps the stage it was recorded with, so filtering on
+  // that stage used to list it among the live ones (BKG-103's reversed 7,500
+  // under Fully Settled). It has its own option now, and the three stages
+  // show only receipts that still count.
+  const matchesStage = (e) => {
+    if (stageFilter === 'All') return true;
+    if (stageFilter === REVERSED_STATUS) return e.is_reversed === true;
+    return e.pay_status === stageFilter && e.is_reversed !== true;
+  };
   const reversalOf = Object.fromEntries(entries.filter(isReversalEntry).map(r => [r.reverses_payment_id, r]));
 
   let rows;
@@ -769,7 +778,7 @@ export default function Receivables() {
     rows = entries
       .filter(e => e.entry_type === ENTRY_TYPES.receipt && e.is_unverified === false
         && inPeriod(e.pay_datetime) && passesCommon(e)
-        && (stageFilter === 'All' || e.pay_status === stageFilter))
+        && matchesStage(e))
       .map(entry => ({ entry, reversal: reversalOf[entry.payment_id] || null }));
   }
 
@@ -896,6 +905,7 @@ export default function Receivables() {
             <Select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} className={filterControl(stageFilter !== 'All')}>
               <option value="All">All</option>
               {RECEIPT_STAGE_ORDER.map(st => <option key={st} value={st}>{st}</option>)}
+              <option value={REVERSED_STATUS}>{REVERSED_STATUS}</option>
             </Select>
           </FilterField>
         )}
