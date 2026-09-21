@@ -246,7 +246,7 @@ function RecordReceiptModal({ receivables, onClose, onRecorded }) {
     try {
       // null, not a placeholder: payment_evidence_check needs real evidence.
       let proof = null;
-      if (file && !methodNeedsReceiptNumber(form.pay_method)) {
+      if (file) {
         const ext = file.name.split('.').pop();
         const path = `payments/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
         const { error: uploadError } = await supabase.storage.from('images').upload(path, file);

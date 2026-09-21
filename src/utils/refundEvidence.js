@@ -4,7 +4,7 @@
 // rule receipts already follow (methodNeedsReceiptNumber in utils/payments):
 //
 //   Cash                  the number on the paper receipt given to the
-//                         customer. Required, and the only evidence — no image.
+//                         customer. Required. An image is optional.
 //   GCash, Bank Transfer  a screenshot of the transfer. Required.
 //
 // Every refund flow — cancelling, rejecting, and adding a refund to an already
@@ -30,7 +30,7 @@ export async function prepareRefundEvidence({ method, file, receiptNo }) {
   if (!cash && !file) return { error: 'Please upload a proof of refund image.' };
 
   let proofUrl = null;
-  if (file && !cash) {
+  if (file) {
     if (!ALLOWED_PROOF_TYPES.includes(file.type)) {
       return { error: 'Invalid file type. Please upload a JPEG, PNG, WebP, or GIF image.' };
     }
