@@ -111,7 +111,7 @@ const STATUS_CARD_TEXT = { All: 'text-slate-900', Active: 'text-[#007038]', Inac
 const SORT_DEFAULT_DIRECTION = {
   full_name: 'asc',
   total_bookings: 'desc',
-  lifetime_gross: 'desc',
+  contracted_gross: 'desc',
   receivable_due: 'desc',
   pipeline_due: 'desc',
   next_event_at: 'asc',
@@ -125,7 +125,7 @@ const SORT_DEFAULT_DIRECTION = {
 const LIST_COLUMNS = [
   'customer_id', 'first_name', 'last_name', 'full_name', 'email_address', 'contact_no', 'cus_address',
   'account_status', 'status_reason', 'source', 'has_login', 'total_bookings', 'package_bookings',
-  'short_orders', 'lifetime_gross', 'receivable_due', 'pipeline_due', 'next_event_at', 'is_deletable',
+  'short_orders', 'contracted_gross', 'receivable_due', 'pipeline_due', 'next_event_at', 'is_deletable',
 ].join(', ');
 
 const inputClass = (hasError) => `w-full border rounded-[10px] px-3 py-2.5 text-sm text-slate-800 outline-none transition-colors ${
@@ -737,7 +737,8 @@ export default function Customers() {
   const [datePreset, setDatePreset] = useState(ALL_TIME);
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
-  const [sort, setSort] = useState({ field: 'full_name', direction: 'asc' });
+  // A subsidiary ledger opens on who owes the most, not on the alphabet.
+  const [sort, setSort] = useState({ field: 'receivable_due', direction: 'desc' });
   const [page, setPage] = useState(1);
   // Bumped by Refresh, realtime and every write; every read is keyed on it.
   const [refreshTick, setRefreshTick] = useState(0);
@@ -1020,7 +1021,21 @@ export default function Customers() {
     );
   };
 
+  // TWO CARDS. This page is the receivables subsidiary ledger: the sum of the
+  // Receivables column is the Total Receivables figure carried on Receivables
+  // and Reports, and the card above the table is that same control total. A
+  // card that supports neither the tie nor the size of the customer base does
+  // not belong here — Repeat Customers is a filter (it is one, below), and
+  // New This Month measured seeded data more than it measured the business.
   const summaryCards = [
+    {
+      key: 'balance',
+      label: 'Total Receivables',
+      value: t ? peso(t.total_receivable) : null,
+      sub: 'Still collectible',
+      accent: 'bg-amber-500',
+      onClick: () => { clearFilters(); setBalanceFilter('Has receivables'); scrollToTable(); },
+    },
     {
       key: 'total',
       label: 'Total Customers',
@@ -1028,41 +1043,6 @@ export default function Customers() {
       sub: 'Accounts on record',
       accent: 'bg-[#008A45]',
       onClick: () => { clearFilters(); scrollToTable(); },
-    },
-    {
-      key: 'balance',
-      label: 'Total Receivables',
-      // with_receivable and total_receivable are the same money Total
-      // Receivables adds up on the Receivables and Reports pages. with_balance
-      // and total_outstanding still exist and still count pending and approved
-      // work; nothing on this page binds to them any more.
-      // THE AMOUNT IS THE HEADLINE, not the count. The card is named Total
-      // Receivables — the same name, and the same figure, as the card on
-      // Receivables and Reports — so the number under that name has to be the
-      // money. How many customers it is spread across is the smaller fact and
-      // reads underneath.
-      value: t ? peso(t.total_receivable) : null,
-      note: t ? `${t.with_receivable} customer${t.with_receivable === 1 ? '' : 's'}` : null,
-      sub: 'Still collectible',
-      accent: 'bg-amber-500',
-      onClick: () => { clearFilters(); setBalanceFilter('Has receivables'); scrollToTable(); },
-    },
-    {
-      key: 'repeat',
-      label: 'Repeat Customers',
-      value: t?.repeat_customers,
-      sub: 'Booked more than once',
-      accent: 'bg-blue-500',
-      onClick: () => { clearFilters(); setRepeatOnly(true); scrollToTable(); },
-    },
-    {
-      key: 'new',
-      label: 'New This Month',
-      value: t?.new_this_month,
-      sub: 'Joined this month',
-      accent: 'bg-purple-600',
-      title: "created_at was backfilled from each customer's first booking on 17 September 2026, so this count is exact only for customers created after that date.",
-      onClick: () => { clearFilters(); setDatePreset('This Month'); scrollToTable(); },
     },
   ];
 
@@ -1098,7 +1078,7 @@ export default function Customers() {
       </div>
 
       {/* SUMMARY CARDS — each opens a filtered view of the table below. */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
         {summaryCards.map((card) => (
           <button
             key={card.key}
@@ -1112,9 +1092,6 @@ export default function Customers() {
               <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{card.value}</h3>
             ) : (
               <div className="h-[28px] w-16 rounded bg-slate-100 animate-pulse" />
-            )}
-            {card.note && (
-              <p className="text-[13px] text-slate-500 tabular-nums mt-1.5">{card.note}</p>
             )}
             <p className="text-[13px] text-slate-600 mt-2.5">{t ? card.sub : ' '}</p>
           </button>
@@ -1201,6 +1178,17 @@ export default function Customers() {
             </Select>
           </div>
 
+          {/* Where the Repeat Customers card's information went. It answers
+              "who comes back", which is a way of narrowing the list, not a
+              headline the page needed to carry. */}
+          <div>
+            <label className={`block text-[13px] font-semibold mb-1 ${repeatOnly ? 'text-[#007038]' : 'text-slate-600'}`}>Repeat customer</label>
+            <Select value={repeatOnly ? 'Repeat' : 'All'} onChange={(e) => { setRepeatOnly(e.target.value === 'Repeat'); setPage(1); }} className={filterControlClass(repeatOnly)}>
+              <option value="All">All</option>
+              <option value="Repeat">Booked more than once</option>
+            </Select>
+          </div>
+
           <div>
             <label className={`block text-[13px] font-semibold mb-1 ${balanceFilter !== 'All' ? 'text-[#007038]' : 'text-slate-600'}`}>Receivables</label>
             <Select value={balanceFilter} onChange={(e) => setBalanceFilter(e.target.value)} className={filterControlClass(balanceFilter !== 'All')}>
@@ -1236,7 +1224,12 @@ export default function Customers() {
                 <th className="px-4 py-3">{renderSortHeader('full_name', 'Customer')}</th>
                 <th className="px-4 py-3 whitespace-nowrap">Contact</th>
                 <th className="px-4 py-3">{renderSortHeader('total_bookings', 'Bookings')}</th>
-                <th className="px-4 py-3 text-right">{renderSortHeader('lifetime_gross', 'Lifetime Value', 'right')}</th>
+                {/* contracted_gross, never lifetime_gross: the lifetime figure
+                    counted Pending requests, so one customer read as worth
+                    PHP 603,400 against PHP 46,000 actually contracted — and
+                    led the list on it. Contracted Value is what the business
+                    committed to perform: Confirmed and Completed only. */}
+                <th className="px-4 py-3 text-right">{renderSortHeader('contracted_gross', 'Contracted Value', 'right')}</th>
                 {/* Collectible now. Same measure and same word as the card
                     above and as the Receivables page. */}
                 <th className="px-4 py-3 text-right">{renderSortHeader('receivable_due', 'Receivables', 'right')}</th>
@@ -1269,7 +1262,11 @@ export default function Customers() {
                       <p className="text-[15px] font-semibold text-slate-900 tabular-nums">{c.total_bookings}</p>
                       <p className="text-[12.5px] text-slate-500 whitespace-nowrap">{c.package_bookings} package · {c.short_orders} short order</p>
                     </td>
-                    <td className="px-4 py-[15px] text-right text-[15px] font-semibold text-slate-900 tabular-nums whitespace-nowrap">{peso(c.lifetime_gross)}</td>
+                    <td className="px-4 py-[15px] text-right text-[15px] font-semibold text-slate-900 tabular-nums whitespace-nowrap">
+                      {Number(c.contracted_gross) > 0
+                        ? peso(c.contracted_gross)
+                        : <span className="text-slate-400">—</span>}
+                    </td>
                     <td className="px-4 py-[15px] text-right tabular-nums whitespace-nowrap">
                       {Number(c.receivable_due) > 0
                         ? <span className="text-[15px] font-semibold text-amber-700">{peso(c.receivable_due)}</span>
