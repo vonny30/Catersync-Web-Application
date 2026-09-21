@@ -850,8 +850,20 @@ export default function Bookings() {
     setCurrentPage(1);
   };
 
+  // ONE QUICK FILTER AT A TIME. Today's Events, Upcoming Confirmed, Overdue,
+  // Flagged and Lapsed are alternatives, not layers: switching one on switches
+  // the others off. Combining them produced lists nobody asked for (today's
+  // events that are also overdue) and badges that no longer described them.
+  const applyMoneyChip = (key) => {
+    const turningOn = moneyFilter !== key;
+    if (turningOn && (todayChipActive || upcomingChipActive)) undoDateChip();
+    setMoneyFilter(turningOn ? key : null);
+    setCurrentPage(1);
+  };
+
   const applyTodayFilter = () => {
     if (todayChipActive) { undoDateChip(); return; }
+    setMoneyFilter(null);
     // LOCAL date. toISOString() is UTC, so before 8 AM in Manila it named
     // yesterday: the badge counted today's events and the click showed
     // yesterday's.
@@ -870,6 +882,7 @@ export default function Bookings() {
   // come.
   const applyUpcomingConfirmedFilter = () => {
     if (upcomingChipActive) { undoDateChip(); return; }
+    setMoneyFilter(null);
     // LOCAL date. toISOString() is UTC, so before 8 AM in Manila it named
     // yesterday: the badge counted today's events and the click showed
     // yesterday's.
@@ -1654,7 +1667,7 @@ const handleMarkCompleted = async (id) => {
           {/* Past due: served, still owing. A toggle rather than a jump, since
               a manager works this list rather than glancing at it. */}
           <button
-            onClick={() => { setMoneyFilter(moneyFilter === 'overdue' ? null : 'overdue'); setCurrentPage(1); }}
+            onClick={() => applyMoneyChip('overdue')}
             className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
               moneyFilter === 'overdue'
                 ? 'border-rose-400 bg-rose-50 text-rose-800'
@@ -1666,7 +1679,7 @@ const handleMarkCompleted = async (id) => {
           </button>
           {/* Changed by the system, awaiting a manager's eye. */}
           <button
-            onClick={() => { setMoneyFilter(moneyFilter === 'flagged' ? null : 'flagged'); setCurrentPage(1); }}
+            onClick={() => applyMoneyChip('flagged')}
             className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
               moneyFilter === 'flagged'
                 ? 'border-amber-400 bg-amber-50 text-amber-800'
@@ -1679,7 +1692,7 @@ const handleMarkCompleted = async (id) => {
           {/* Grey, not red: a lapsed request is dead, not urgent. It must not
               read as another Overdue. */}
           <button
-            onClick={() => { setMoneyFilter(moneyFilter === 'lapsed' ? null : 'lapsed'); setCurrentPage(1); }}
+            onClick={() => applyMoneyChip('lapsed')}
             className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
               moneyFilter === 'lapsed'
                 ? 'border-slate-400 bg-slate-100 text-slate-800'

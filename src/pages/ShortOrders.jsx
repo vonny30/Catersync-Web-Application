@@ -783,8 +783,20 @@ export default function ShortOrders() {
     setCurrentPage(1);
   };
 
+  // ONE QUICK FILTER AT A TIME. Today's Events, Upcoming Confirmed, Overdue,
+  // Flagged and Lapsed are alternatives, not layers: switching one on switches
+  // the others off. Combining them produced lists nobody asked for (today's
+  // events that are also overdue) and badges that no longer described them.
+  const applyMoneyChip = (key) => {
+    const turningOn = moneyFilter !== key;
+    if (turningOn && (todayChipActive || upcomingChipActive)) undoDateChip();
+    setMoneyFilter(turningOn ? key : null);
+    setCurrentPage(1);
+  };
+
   const applyTodayFilter = () => {
     if (todayChipActive) { undoDateChip(); return; }
+    setMoneyFilter(null);
     // LOCAL date. toISOString() is UTC, so before 8 AM in Manila it named
     // yesterday: the badge counted today's events and the click showed
     // yesterday's.
@@ -803,6 +815,7 @@ export default function ShortOrders() {
   // come.
   const applyUpcomingConfirmedFilter = () => {
     if (upcomingChipActive) { undoDateChip(); return; }
+    setMoneyFilter(null);
     // LOCAL date. toISOString() is UTC, so before 8 AM in Manila it named
     // yesterday: the badge counted today's events and the click showed
     // yesterday's.
@@ -1513,7 +1526,7 @@ export default function ShortOrders() {
             <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-emerald-100 text-emerald-700 text-[12.5px] tabular-nums font-bold">{upcomingConfirmedCount}</span>
           </button>
           <button
-            onClick={() => { setMoneyFilter(moneyFilter === 'overdue' ? null : 'overdue'); setCurrentPage(1); }}
+            onClick={() => applyMoneyChip('overdue')}
             className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
               moneyFilter === 'overdue'
                 ? 'border-rose-400 bg-rose-50 text-rose-800'
@@ -1524,7 +1537,7 @@ export default function ShortOrders() {
             <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-rose-100 text-rose-700 text-[12.5px] tabular-nums font-bold">{overdueCount}</span>
           </button>
           <button
-            onClick={() => { setMoneyFilter(moneyFilter === 'flagged' ? null : 'flagged'); setCurrentPage(1); }}
+            onClick={() => applyMoneyChip('flagged')}
             className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
               moneyFilter === 'flagged'
                 ? 'border-amber-400 bg-amber-50 text-amber-800'
@@ -1536,7 +1549,7 @@ export default function ShortOrders() {
           </button>
           {/* Grey, like every lapsed signal: a dead request, not an urgent one. */}
           <button
-            onClick={() => { setMoneyFilter(moneyFilter === 'lapsed' ? null : 'lapsed'); setCurrentPage(1); }}
+            onClick={() => applyMoneyChip('lapsed')}
             className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
               moneyFilter === 'lapsed'
                 ? 'border-slate-400 bg-slate-100 text-slate-800'
