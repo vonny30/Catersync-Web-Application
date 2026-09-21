@@ -29,7 +29,10 @@ export const getBookingRef = (booking) => {
   return `${prefix}-${booking.booking_id.slice(0, 8)}`;
 };
 
-export const DATE_RANGE_PRESETS = ['All Time', 'This Month', 'This Year', 'Last 30 Days', 'Custom'];
+// Calendar periods only. "Last 30 Days" is gone: accounting periods are
+// calendar months, and a rolling thirty days names no month and never matches a
+// monthly statement, so its figures could not be compared with anything.
+export const DATE_RANGE_PRESETS = ['This Month', 'Last Month', 'This Year', 'All Time', 'Custom'];
 
 // What a page opens on, and what "clear the filter" returns it to.
 //
@@ -65,9 +68,10 @@ export const duringPeriod = (period) => (period === ALL_TIME_LABEL ? ALL_TIME_LA
 export const inPeriod = (period) => (period === ALL_TIME_LABEL ? ALL_TIME_LABEL : `in ${period}`);
 
 export function periodLabel(preset, start, end) {
-  if (preset === 'This Month' && start) return start.toLocaleString('en-PH', { month: 'long' });
-  if (preset === 'This Year' && start) return String(start.getFullYear());
-  if (preset === 'Last 30 Days') return 'the last 30 days';
+  if ((preset === 'This Month' || preset === 'Last Month') && start) {
+    return start.toLocaleString('en-PH', { month: 'long', timeZone: MANILA });
+  }
+  if (preset === 'This Year' && start) return String(manilaParts(start).y);
   if (preset === 'All Time') return 'all time';
   if (start && end) {
     const sameMonth = start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth();
@@ -77,6 +81,38 @@ export function periodLabel(preset, start, end) {
       : `${start.getDate()} ${month(start)} – ${end.getDate()} ${month(end)}`;
   }
   return 'the selected range';
+}
+
+/**
+ * The period title: the one place on a page that names the month.
+ *
+ *   This Month  -> September 2026        This Year -> 2026
+ *   Last Month  -> August 2026           All Time  -> All time
+ *   Custom      -> 25 Aug – 10 Sep 2026  (both years when they differ)
+ *
+ * Shown once, under the filter bar, on the pages whose figures depend on a
+ * period. Cards never repeat it: a month word on a card fails for any range
+ * that is not a single month, and the title works for all of them.
+ */
+export function periodTitle(preset, start, end) {
+  if (preset === 'All Time' || (!start && !end)) return 'All time';
+  if ((preset === 'This Month' || preset === 'Last Month') && start) {
+    return start.toLocaleString('en-PH', { month: 'long', year: 'numeric', timeZone: MANILA });
+  }
+  if (preset === 'This Year' && start) return String(manilaParts(start).y);
+  // A fixed list, not toLocaleString: locale data abbreviates September as
+  // "Sept" in some runtimes and "Sep" in others.
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const day = (d) => { const p = manilaParts(d); return `${p.d} ${MONTHS[p.m]}`; };
+  if (start && end) {
+    const ys = manilaParts(start).y;
+    const ye = manilaParts(end).y;
+    return ys === ye
+      ? `${day(start)} – ${day(end)} ${ye}`
+      : `${day(start)} ${ys} – ${day(end)} ${ye}`;
+  }
+  if (start) return `From ${day(start)} ${manilaParts(start).y}`;
+  return `Until ${day(end)} ${manilaParts(end).y}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,45 +139,56 @@ export function periodLabel(preset, start, end) {
 // nobody thinks to test.
 // ---------------------------------------------------------------------------
 
+// MANILA TIME, EXPLICITLY. Every period is a Philippine calendar period, so
+// its bounds are computed in Asia/Manila whatever the device's own timezone
+// is. They used to be built with local-time constructors, which were right only
+// on a computer set to the Philippines: anywhere else every month started and
+// ended eight hours off, and a receipt taken on the 1st could fall into the
+// previous month. This Month is 2026-09-01 00:00 +08 up to, and not including,
+// 2026-10-01 00:00 +08 — expressed here as an inclusive end one millisecond
+// earlier, because isWithinRange and the list queries compare with <=.
+export const MANILA = 'Asia/Manila';
+const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000; // the Philippines has no DST
+
+// Year / month / day of a moment, as read on a Manila calendar.
+function manilaParts(date) {
+  const shifted = new Date(date.getTime() + MANILA_OFFSET_MS);
+  return { y: shifted.getUTCFullYear(), m: shifted.getUTCMonth(), d: shifted.getUTCDate() };
+}
+
+// Midnight Manila on a calendar day, as a real instant. Month and day may
+// overflow (month 12, day 0); Date.UTC normalises them.
+const manilaMidnight = (y, m, d = 1) => new Date(Date.UTC(y, m, d) - MANILA_OFFSET_MS);
+const justBefore = (date) => new Date(date.getTime() - 1);
+
 // Returns { start: Date|null, end: Date|null } — null on either side means
 // "unbounded" (used for 'All Time' or an incomplete custom range).
 export function getRangeBounds(preset, customStart, customEnd) {
-  const now = new Date();
+  const { y, m } = manilaParts(new Date());
 
   if (preset === 'This Month') {
-    const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-    return { start, end };
+    return { start: manilaMidnight(y, m), end: justBefore(manilaMidnight(y, m + 1)) };
+  }
+
+  if (preset === 'Last Month') {
+    return { start: manilaMidnight(y, m - 1), end: justBefore(manilaMidnight(y, m)) };
   }
 
   if (preset === 'This Year') {
-    const start = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
-    const end = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
-    return { start, end };
-  }
-
-  if (preset === 'Last 30 Days') {
-    const end = new Date(now);
-    end.setHours(23, 59, 59, 999);
-    const start = new Date(now);
-    start.setDate(start.getDate() - 29);
-    start.setHours(0, 0, 0, 0);
-    return { start, end };
+    return { start: manilaMidnight(y, 0), end: justBefore(manilaMidnight(y + 1, 0)) };
   }
 
   if (preset === 'Custom') {
-    const start = customStart ? new Date(`${customStart}T00:00:00`) : null;
-    const end = customEnd ? new Date(`${customEnd}T23:59:59.999`) : null;
-    // DateRangeFilter traps the pickers so an end before a start can't be
-    // chosen, but a value can still arrive inverted — typed directly into the
-    // native input, restored from stale state, or set by a future caller. Swap
-    // rather than returning a window that matches nothing: an empty table with
-    // no explanation is the worst of the available answers, and a manager who
-    // managed to invert the pair plainly meant the range between the two.
+    // Both dates inclusive, both Manila days. DateRangeFilter refuses an end
+    // before the start, so an inverted pair should never reach here; if one
+    // does (a stale value, a future caller), it is swapped rather than
+    // returning a window that matches nothing.
+    const start = customStart ? new Date(`${customStart}T00:00:00+08:00`) : null;
+    const end = customEnd ? new Date(`${customEnd}T23:59:59.999+08:00`) : null;
     if (start && end && end < start) {
       return {
-        start: new Date(`${customEnd}T00:00:00`),
-        end: new Date(`${customStart}T23:59:59.999`),
+        start: new Date(`${customEnd}T00:00:00+08:00`),
+        end: new Date(`${customStart}T23:59:59.999+08:00`),
       };
     }
     return { start, end };

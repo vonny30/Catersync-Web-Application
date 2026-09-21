@@ -1,12 +1,28 @@
 // src/pages/Reports/DateRangeFilter.jsx
+import { useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { DATE_RANGE_PRESETS, formatDate } from './helpers';
 
+/**
+ * One date-range control for the whole app — the Period on Reports and
+ * Receivables, and every record date filter (Event date, Created, Joined, …).
+ *
+ * @param defaultPreset  what this control opens on and returns to. "Filtered"
+ *                       styling means "moved off the default", so a Period that
+ *                       opens on This Month is not shown as filtered.
+ * @param showSummary    the "Showing … · dates" line under the control. Off on
+ *                       pages with a period title, which names the period once.
+ * @param showClear      the control's own Clear button. Off where the page's
+ *                       filter bar has a Clear filters that resets everything.
+ */
 export default function DateRangeFilter({
   preset, customStart, customEnd, rangeStart, rangeEnd,
   onPresetChange, onCustomStartChange, onCustomEndChange, onClear,
+  defaultPreset = 'All Time', showSummary = true, showClear = true,
 }) {
-  const isFiltered = preset !== 'All Time';
+  const isFiltered = preset !== defaultPreset;
+  // Set when an end date before the start was typed in and refused.
+  const [refusedEnd, setRefusedEnd] = useState(false);
 
   // `min` on the end input stops the range being inverted from that side. This
   // covers the other side: moving the start past an end that is already set
@@ -15,8 +31,21 @@ export default function DateRangeFilter({
   // range forward without clearing the end first. Carrying the end along keeps
   // the range valid and moving.
   const handleStartChange = (nextStart) => {
+    setRefusedEnd(false);
     onCustomStartChange(nextStart);
     if (nextStart && customEnd && customEnd < nextStart) onCustomEndChange(nextStart);
+  };
+
+  // REFUSED, not swapped. The calendar's `min` stops an end before the start
+  // being picked, but a date can still be typed into the field. An inverted
+  // pair is not a range anyone meant, so it is not applied at all.
+  const handleEndChange = (nextEnd) => {
+    if (nextEnd && customStart && nextEnd < customStart) {
+      setRefusedEnd(true);
+      return;
+    }
+    setRefusedEnd(false);
+    onCustomEndChange(nextEnd);
   };
 
   // A custom range with only one side filled matches nothing useful, so say so
@@ -62,13 +91,13 @@ export default function DateRangeFilter({
               type="date"
               value={customEnd}
               min={customStart || undefined}
-              onChange={(e) => onCustomEndChange(e.target.value)}
+              onChange={(e) => handleEndChange(e.target.value)}
               aria-label="Range end date"
               className="border border-slate-300 rounded-md px-2 py-1 text-xs focus:ring-2 focus:ring-[#008A45] outline-none"
             />
           </div>
         )}
-        {isFiltered && (
+        {isFiltered && showClear && (
           <button
             onClick={onClear}
             className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors border-l border-slate-200 ml-1 pl-3"
@@ -89,6 +118,10 @@ export default function DateRangeFilter({
           spells out its window: "This Month" alone leaves the reader to work
           out what it covers, and an empty table is alarming until you can see
           the period that produced it. */}
+      {refusedEnd && (
+        <p className="text-[12.5px] font-semibold text-red-600 pr-1">End date is before the start date</p>
+      )}
+      {(showSummary || isIncomplete) && (
       <p className="text-[12.5px] font-medium text-slate-500 pr-1">
         {isIncomplete ? (
           <span className="text-amber-600 font-semibold">
@@ -108,6 +141,7 @@ export default function DateRangeFilter({
           <>Showing <span className="font-semibold text-slate-600">all time</span> — every record, no date limit</>
         )}
       </p>
+      )}
     </div>
   );
 }

@@ -5,8 +5,8 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
   Search, Check, Edit, Trash2, Lock, ChevronLeft, ChevronRight,
-  Filter, X, RefreshCw, RotateCcw, UserPlus, Users,
-  LayoutGrid, CalendarClock, Plus, Eye, Truck, AlertTriangle, Package as PackageIcon,
+  X, RefreshCw, UserPlus, Users,
+  LayoutGrid, Plus, Eye, Truck, AlertTriangle, Package as PackageIcon,
   ArrowUp, ArrowDown, ArrowUpDown
 } from 'lucide-react';
 import { supabase } from '../supabase';
@@ -35,6 +35,7 @@ import { toDateTimeLocalValue } from '../utils/datetimeLocal';
 import { autoCompletePastEvents } from '../utils/autoComplete';
 import { getBookingsOnDate } from '../utils/availability';
 import DateRangeFilter from './Reports/DateRangeFilter';
+import { FilterBar, QuickFilters, EmptyResult } from '../components/FilterBar';
 import { getRangeBounds } from './Reports/helpers';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { bulkDeleteBookings } from '../utils/bulkDeleteBookings';
@@ -761,13 +762,30 @@ export default function ShortOrders() {
     setCustomEnd('');
     setDateFilterField('event_datetime');
     setSearchTerm('');
+    // Everything, in one click: the quick filters and the status card too.
+    // Sort is not a filter and is left alone.
+    setMoneyFilter(null);
+    setActiveTab('All');
     setCurrentPage(1);
   };
 
   // "Today's Events" — every order happening today, any status, so a
   // manager can see the full day at a glance regardless of where each
   // order is in the pipeline.
+  // Is a date chip the thing currently applied? Clicking it again undoes it.
+  const todayKey = toDateTimeLocalValue(new Date()).slice(0, 10);
+  const todayChipActive = datePreset === 'Custom' && customStart === todayKey && customEnd === todayKey && dateFilterField === 'event_datetime';
+  const upcomingChipActive = datePreset === 'Custom' && customStart === todayKey && customEnd === '' && dateFilterField === 'event_datetime' && activeTab === 'Confirmed';
+  const undoDateChip = () => {
+    setDatePreset('All Time');
+    setCustomStart('');
+    setCustomEnd('');
+    setActiveTab('All');
+    setCurrentPage(1);
+  };
+
   const applyTodayFilter = () => {
+    if (todayChipActive) { undoDateChip(); return; }
     // LOCAL date. toISOString() is UTC, so before 8 AM in Manila it named
     // yesterday: the badge counted today's events and the click showed
     // yesterday's.
@@ -785,6 +803,7 @@ export default function ShortOrders() {
   // end date), since those are the ones genuinely locked in and still to
   // come.
   const applyUpcomingConfirmedFilter = () => {
+    if (upcomingChipActive) { undoDateChip(); return; }
     // LOCAL date. toISOString() is UTC, so before 8 AM in Manila it named
     // yesterday: the badge counted today's events and the click showed
     // yesterday's.
@@ -1328,7 +1347,9 @@ export default function ShortOrders() {
   );
 
   const hasActiveFilters = datePreset !== 'All Time' || filters.customerId || filters.venue;
-  const activeFilterCount = [!!searchTerm, datePreset !== 'All Time', !!filters.customerId, !!filters.venue].filter(Boolean).length;
+  // Whether anything differs from the page's defaults — the test behind the
+  // single Clear filters on the bar.
+  const canClearFilters = !!(hasActiveFilters || searchTerm || moneyFilter || activeTab !== 'All');
 
   // The only status pill map on this page. Payments.jsx keeps a bordered
   // variant alongside its soft one because its modals put pills on coloured
@@ -1401,122 +1422,11 @@ export default function ShortOrders() {
         </button>
       </div>
 
-      {/* STATUS OVERVIEW + QUICK FILTERS */}
-      <div className="bg-white rounded-2xl border border-slate-200/70 p-5">
-        <div className="flex items-center gap-1.5 mb-3">
-          <LayoutGrid size={13} className="text-slate-500" />
-          <span className="text-[13px] font-bold text-slate-600 tracking-[0.04em] whitespace-nowrap">Status Overview</span>
-        </div>
-        <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,132px),1fr))]">
-          {statusCards.map((s) => (
-            <button
-              key={s.key}
-              onClick={() => { setActiveTab(s.key); setCurrentPage(1); scrollToTable(); }}
-              className={`text-left rounded-xl border border-slate-100 bg-[#fbfcfd] p-3.5 relative overflow-hidden transition-all ${
-                activeTab === s.key ? 'ring-2 ring-[#008A45]/20 shadow-sm' : 'hover:shadow-[0_4px_14px_rgba(15,23,42,0.06)] hover:-translate-y-0.5 hover:border-[#008A45]/30'
-              }`}
-            >
-              <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${STATUS_CARD_BAR[s.key]}`} />
-              <p className="text-[13px] font-semibold text-slate-600 mb-1.5 whitespace-nowrap">{s.key === 'All' ? 'All Orders' : s.key}</p>
-              <p className={`text-[23px] font-semibold tracking-[-0.02em] tabular-nums ${STATUS_CARD_TEXT[s.key]}`}>{s.count}</p>
-            </button>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t border-slate-100">
-          <span className="flex items-center gap-1.5 text-[13px] font-bold text-slate-600 tracking-[0.04em] whitespace-nowrap">
-            <CalendarClock size={13} /> Quick filters
-          </span>
-          <button
-            onClick={applyTodayFilter}
-            className="flex items-center gap-2 rounded-[10px] border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 whitespace-nowrap hover:border-[#c9dfd4] hover:text-[#007038] transition-all"
-          >
-            Today's Events
-            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-slate-100 text-slate-700 text-[12.5px] tabular-nums font-bold">{todaysEventsCount}</span>
-          </button>
-          <button
-            onClick={applyUpcomingConfirmedFilter}
-            className="flex items-center gap-2 rounded-[10px] border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 whitespace-nowrap hover:border-[#c9dfd4] hover:text-[#007038] transition-all"
-          >
-            Upcoming Confirmed
-            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-emerald-100 text-emerald-700 text-[12.5px] tabular-nums font-bold">{upcomingConfirmedCount}</span>
-          </button>
-          <button
-            onClick={() => { setMoneyFilter(moneyFilter === 'overdue' ? null : 'overdue'); setCurrentPage(1); }}
-            className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
-              moneyFilter === 'overdue'
-                ? 'border-rose-400 bg-rose-50 text-rose-800'
-                : 'border-slate-200 bg-white text-slate-700 hover:border-rose-200 hover:text-rose-700'
-            }`}
-          >
-            Overdue
-            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-rose-100 text-rose-700 text-[12.5px] tabular-nums font-bold">{overdueCount}</span>
-          </button>
-          <button
-            onClick={() => { setMoneyFilter(moneyFilter === 'flagged' ? null : 'flagged'); setCurrentPage(1); }}
-            className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
-              moneyFilter === 'flagged'
-                ? 'border-amber-400 bg-amber-50 text-amber-800'
-                : 'border-slate-200 bg-white text-slate-700 hover:border-amber-200 hover:text-amber-700'
-            }`}
-          >
-            Flagged
-            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-amber-100 text-amber-700 text-[12.5px] tabular-nums font-bold">{flaggedCount}</span>
-          </button>
-          {/* Grey, like every lapsed signal: a dead request, not an urgent one. */}
-          <button
-            onClick={() => { setMoneyFilter(moneyFilter === 'lapsed' ? null : 'lapsed'); setCurrentPage(1); }}
-            className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
-              moneyFilter === 'lapsed'
-                ? 'border-slate-400 bg-slate-100 text-slate-800'
-                : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-            }`}
-          >
-            Lapsed
-            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-slate-200 text-slate-700 text-[12.5px] tabular-nums font-bold">{lapsedCount}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* FILTERS */}
-      <div className={`bg-white rounded-2xl border p-5 transition-colors ${activeFilterCount > 0 ? 'border-[#008A45]/30' : 'border-slate-200/70'}`}>
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <Filter size={13} className="text-slate-500" />
-            <span className="text-[13px] font-bold text-slate-600 tracking-[0.04em] whitespace-nowrap">Filters</span>
-            {activeFilterCount > 0 && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#EAF3F2] text-[#007038] text-[10px] font-bold border border-[#008A45]/30">
-                {activeFilterCount} active
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {(hasActiveFilters || searchTerm) && (
-              <button
-                onClick={clearFilters}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
-              >
-                <RotateCcw size={13} /> Clear all
-              </button>
-            )}
-            {selectedOrders.length > 0 && (
-              <button
-                onClick={handleBulkDelete}
-                className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1.5 text-xs shadow-sm"
-              >
-                <Trash2 size={14} /> Delete Selected ({selectedOrders.length})
-              </button>
-            )}
-            <button
-              onClick={fetchData}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 rounded-[9px] text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
-            </button>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-start gap-3">
+      {/* FILTER BAR, then the quick-filter chips directly under it, then the
+          status cards and the table. The same order and components as every
+          other page (components/FilterBar). Refresh and bulk delete are actions,
+          not filters, so they sit on the table's own header. */}
+      <FilterBar canClear={canClearFilters} onClear={clearFilters}>
           <div className="relative flex-1 min-w-[220px]">
             <label className={`block text-[13px] font-semibold mb-1 ${searchTerm ? 'text-[#007038]' : 'text-slate-600'}`}>Search</label>
             <div className="relative">
@@ -1582,14 +1492,103 @@ export default function ShortOrders() {
               onClear={() => { setDatePreset('All Time'); setCustomStart(''); setCustomEnd(''); setCurrentPage(1); }}
             />
           </div>
+      </FilterBar>
+      <QuickFilters>
+          <button
+            onClick={applyTodayFilter}
+            className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${todayChipActive ? 'border-[#008A45] bg-[#EAF3F2] text-[#007038]' : 'border-slate-200 bg-white text-slate-700 hover:border-[#c9dfd4] hover:text-[#007038]'}`}
+          >
+            Today's Events
+            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-slate-100 text-slate-700 text-[12.5px] tabular-nums font-bold">{todaysEventsCount}</span>
+          </button>
+          <button
+            onClick={applyUpcomingConfirmedFilter}
+            className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${upcomingChipActive ? 'border-[#008A45] bg-[#EAF3F2] text-[#007038]' : 'border-slate-200 bg-white text-slate-700 hover:border-[#c9dfd4] hover:text-[#007038]'}`}
+          >
+            Upcoming Confirmed
+            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-emerald-100 text-emerald-700 text-[12.5px] tabular-nums font-bold">{upcomingConfirmedCount}</span>
+          </button>
+          <button
+            onClick={() => { setMoneyFilter(moneyFilter === 'overdue' ? null : 'overdue'); setCurrentPage(1); }}
+            className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
+              moneyFilter === 'overdue'
+                ? 'border-rose-400 bg-rose-50 text-rose-800'
+                : 'border-slate-200 bg-white text-slate-700 hover:border-rose-200 hover:text-rose-700'
+            }`}
+          >
+            Overdue
+            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-rose-100 text-rose-700 text-[12.5px] tabular-nums font-bold">{overdueCount}</span>
+          </button>
+          <button
+            onClick={() => { setMoneyFilter(moneyFilter === 'flagged' ? null : 'flagged'); setCurrentPage(1); }}
+            className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
+              moneyFilter === 'flagged'
+                ? 'border-amber-400 bg-amber-50 text-amber-800'
+                : 'border-slate-200 bg-white text-slate-700 hover:border-amber-200 hover:text-amber-700'
+            }`}
+          >
+            Flagged
+            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-amber-100 text-amber-700 text-[12.5px] tabular-nums font-bold">{flaggedCount}</span>
+          </button>
+          {/* Grey, like every lapsed signal: a dead request, not an urgent one. */}
+          <button
+            onClick={() => { setMoneyFilter(moneyFilter === 'lapsed' ? null : 'lapsed'); setCurrentPage(1); }}
+            className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
+              moneyFilter === 'lapsed'
+                ? 'border-slate-400 bg-slate-100 text-slate-800'
+                : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+            }`}
+          >
+            Lapsed
+            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-slate-200 text-slate-700 text-[12.5px] tabular-nums font-bold">{lapsedCount}</span>
+          </button>
+      </QuickFilters>
+
+      {/* STATUS OVERVIEW + QUICK FILTERS */}
+      <div className="bg-white rounded-2xl border border-slate-200/70 p-5">
+        <div className="flex items-center gap-1.5 mb-3">
+          <LayoutGrid size={13} className="text-slate-500" />
+          <span className="text-[13px] font-bold text-slate-600 tracking-[0.04em] whitespace-nowrap">Status Overview</span>
         </div>
+        <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,132px),1fr))]">
+          {statusCards.map((s) => (
+            <button
+              key={s.key}
+              onClick={() => { setActiveTab(activeTab === s.key ? 'All' : s.key); setCurrentPage(1); scrollToTable(); }}
+              className={`text-left rounded-xl border border-slate-100 bg-[#fbfcfd] p-3.5 relative overflow-hidden transition-all ${
+                activeTab === s.key ? 'ring-2 ring-[#008A45]/20 shadow-sm' : 'hover:shadow-[0_4px_14px_rgba(15,23,42,0.06)] hover:-translate-y-0.5 hover:border-[#008A45]/30'
+              }`}
+            >
+              <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${STATUS_CARD_BAR[s.key]}`} />
+              <p className="text-[13px] font-semibold text-slate-600 mb-1.5 whitespace-nowrap">{s.key === 'All' ? 'All Orders' : s.key}</p>
+              <p className={`text-[23px] font-semibold tracking-[-0.02em] tabular-nums ${STATUS_CARD_TEXT[s.key]}`}>{s.count}</p>
+            </button>
+          ))}
+        </div>
+
       </div>
 
       {/* TABLE */}
       <div ref={tableRef} className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden scroll-mt-4">
         <div className="px-5 py-4 border-b border-slate-100 font-bold text-base tracking-[-0.01em] text-slate-900 flex justify-between items-center">
           <span>{activeTab === 'All' ? 'All Short Orders' : `${activeTab} Short Orders`}</span>
-          <span className="text-sm font-normal text-slate-600 tabular-nums whitespace-nowrap">{totalCount} result{totalCount === 1 ? '' : 's'}</span>
+          <div className="flex items-center gap-2">
+            {selectedOrders.length > 0 && (
+                <button
+                  onClick={handleBulkDelete}
+                  className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg font-semibold transition-colors flex items-center gap-1.5 text-xs shadow-sm"
+                >
+                  <Trash2 size={14} /> Delete Selected ({selectedOrders.length})
+                </button>
+              )}
+            <button
+                onClick={fetchData}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 rounded-[9px] text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
+              </button>
+            <span className="text-sm font-normal text-slate-600 tabular-nums whitespace-nowrap">{totalCount} result{totalCount === 1 ? '' : 's'}</span>
+          </div>
         </div>
         {/* What a bulk action would act on. Selections can now span pages, so
             "Delete Selected" alone no longer says whether that is ten records
@@ -1632,7 +1631,7 @@ export default function ShortOrders() {
           {loading ? (
             <p className="p-6 text-center text-slate-400 text-sm">Loading orders...</p>
           ) : orders.length === 0 ? (
-            <p className="p-6 text-center text-slate-500 italic text-sm">No short orders found.</p>
+            <EmptyResult canClear={canClearFilters} onClear={clearFilters} />
           ) : (
             orders.map((order) => {
               let cardTrays = 0;
@@ -1826,7 +1825,7 @@ export default function ShortOrders() {
               {loading ? (
                 <tr><td colSpan="10" className="p-6 text-center text-slate-400">Loading orders...</td></tr>
               ) : orders.length === 0 ? (
-                <tr><td colSpan="10" className="p-6 text-center text-slate-500 italic">No short orders found.</td></tr>
+                <tr><td colSpan="10"><EmptyResult canClear={canClearFilters} onClear={clearFilters} /></td></tr>
               ) : (
                 orders.map((order) => {
                   let totalTrays = 0;

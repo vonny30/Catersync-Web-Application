@@ -5,8 +5,9 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { ExternalLink } from 'lucide-react';
 import { formatCurrency, formatPercent, formatDate } from './helpers';
+import { EmptyResult } from '../../components/FilterBar';
 
-export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
+export default function FinancialTab({ derived, onCardClick, onOpenDetail, canClearFilters, onClearFilters }) {
   const navigate = useNavigate();
   const { financialSummary, monthlyFinancialTrend, paymentMethodData, refunds, reversals, bookingSummaryData } = derived;
 
@@ -45,7 +46,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
                 hand, orange for what is not. */}
             <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
               <span className="w-2 h-2 rounded-full bg-[#009E73] shrink-0" aria-hidden="true" />
-              Collections Applied to This Period
+              Collections Applied
             </span>
             <span className={`${FIG} text-[#009E73]`}>{formatCurrency(financialSummary.paidContracted)}</span>
             <span className="block text-[12.5px] text-slate-500 mt-1">Already collected</span>
@@ -73,7 +74,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
             </span>
           </>
         ) : (
-          <span className="block text-[13px] text-slate-600">Nothing contracted this period.</span>
+          <span className="block text-[13px] text-slate-600">Nothing contracted.</span>
         )}
       </section>
 
@@ -194,7 +195,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
         <div className="bg-white border border-slate-200/70 rounded-2xl overflow-hidden">
           <div className="px-5 pt-[18px] pb-4 border-b border-slate-100"><h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Payment Methods</h3></div>
           {paymentMethodData.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 text-sm">No payments in this period.</div>
+            <EmptyResult canClear={canClearFilters} onClear={onClearFilters} />
           ) : (
             <table className="w-full text-left border-collapse">
               <thead>
@@ -234,7 +235,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
             <span className="text-[13px] font-semibold text-red-700 tabular-nums">{formatCurrency(financialSummary.refundsIssued)} total</span>
           </div>
           {refunds.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 text-sm">No refunds in this period.</div>
+            <EmptyResult canClear={canClearFilters} onClear={onClearFilters} />
           ) : (
             <table className="w-full text-left border-collapse">
               <thead>

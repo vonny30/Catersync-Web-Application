@@ -1,7 +1,8 @@
 // src/pages/Reports/BookingSummaryTab.jsx
 import { formatCurrency, cardColorClasses, cardAccentClass } from './helpers';
+import { EmptyResult } from '../../components/FilterBar';
 
-export default function BookingSummaryTab({ derived, onOpenDetail }) {
+export default function BookingSummaryTab({ derived, onOpenDetail, canClearFilters, onClearFilters }) {
   const { bookingSummaryData } = derived;
 
   // Every row is already summed; the table just never showed the totals. These
@@ -26,7 +27,7 @@ export default function BookingSummaryTab({ derived, onOpenDetail }) {
           <span className={cardAccentClass('blue')} />
           <p className={LABEL}>Completed Bookings</p>
           <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{totalCompleted}</h3>
-          <p className={SUB}>Bookings &amp; orders in this period, now marked Completed</p>
+          <p className={SUB}>Bookings &amp; orders now marked Completed</p>
         </div>
         <div className={CARD}>
           <span className={cardAccentClass('green')} />
@@ -50,7 +51,7 @@ export default function BookingSummaryTab({ derived, onOpenDetail }) {
         <p className="text-[13.5px] text-slate-600 mt-1.5">Bookings whose <span className="font-semibold text-slate-700">event date</span> falls in the selected period and are now marked Completed. The period filters the event date, not the day it was marked.</p>
       </div>
       {bookingSummaryData.length === 0 ? (
-        <div className="p-8 text-center text-slate-500 text-sm">No completed bookings found.</div>
+        <EmptyResult canClear={canClearFilters} onClear={onClearFilters} />
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">

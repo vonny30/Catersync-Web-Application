@@ -29,6 +29,7 @@
 // Every figure comes from f_report_period. Pending bookings are in none of
 // them: a request nobody has agreed to is not revenue.
 import { formatCurrency, formatPercent, cardColorClasses, cardAccentClass, forPeriod } from './helpers';
+import { EmptyResult } from '../../components/FilterBar';
 
 // The hint sits OUTSIDE the card's button (a button inside a button is
 // invalid, and the click would go to the card), so the card is a positioned
@@ -59,7 +60,7 @@ const SECTION_HEAD = 'text-[15px] font-bold tracking-[-0.01em] text-slate-900 mb
 // they need, and a reader who does not is not slowed down by it.
 const BASIS_LABEL = 'ml-2 text-[11.5px] font-semibold uppercase tracking-[0.06em] text-slate-400';
 
-export default function OverviewTab({ derived, period, onCardClick, onOpenDetail }) {
+export default function OverviewTab({ derived, period, onCardClick, onOpenDetail, canClearFilters, onClearFilters }) {
   const {
     financialSummary, packageMix, menuItemMix, topSellingItem,
     totalCustomers, repeatCustomers, oneTimeCustomers,
@@ -100,7 +101,7 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
               paid_against_events), which is what makes the identity below
               hold: collections + receivables = revenue. */}
           <StatCard
-            label="Collections Applied to This Period"
+            label="Collections Applied"
             value={formatCurrency(financialSummary.paidContracted)}
             sub="Already collected"
             color="teal"
@@ -149,7 +150,7 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
             color="red"
             onClick={() => onOpenDetail({
               title: 'Refunds Issued',
-              description: 'Money returned to customers during this period, counted on the day it went back. A reversal is a correction to a receipt recorded in error, not money returned, and is listed separately on the Financial tab.',
+              description: 'Money returned to customers counted on the day it went back. A reversal is a correction to a receipt recorded in error, not money returned, and is listed separately on the Financial tab.',
               fields: [
                 { label: 'Refunds issued', value: formatCurrency(financialSummary.refundsIssued), emphasis: true },
                 { label: 'Reversals recorded', value: formatCurrency(financialSummary.reversalsRecorded) },
@@ -240,7 +241,7 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
               <p className="text-[12.5px] text-slate-600 pt-1">Each share is of its own product line's revenue.</p>
             </div>
           ) : (
-            <p className="text-sm text-slate-500">No sales data in this period.</p>
+            <EmptyResult canClear={canClearFilters} onClear={onClearFilters} />
           )}
         </button>
         <button

@@ -15,6 +15,7 @@
 // item are usually different items — the question the old single "Popularity
 // Metric" column could not answer.
 import { formatCurrency, formatPercent, cardColorClasses } from './helpers';
+import { EmptyResult } from '../../components/FilterBar';
 
 const PARETO_LINE = 80;
 // Below this many rows a Pareto split says nothing you cannot see by reading
@@ -51,9 +52,8 @@ function Panel({ title, description, children }) {
 }
 
 const TH = 'bg-[#fbfcfd] border-b border-slate-100';
-const EMPTY = 'p-8 text-center text-slate-500 text-sm';
 
-export default function MenuPerformanceTab({ derived, onOpenDetail }) {
+export default function MenuPerformanceTab({ derived, onOpenDetail, canClearFilters, onClearFilters }) {
   const {
     productLineMix, packageMix, menuItemMix, categoryDemandData,
     packageRevenue, shortOrderRevenue, combinedRevenue,
@@ -76,7 +76,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
         description="Packages and short orders side by side. Every panel below this one keeps them apart."
       >
         {combinedRevenue === 0 ? (
-          <div className={EMPTY}>No revenue in this period.</div>
+          <EmptyResult canClear={canClearFilters} onClear={onClearFilters} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
@@ -132,7 +132,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
         description={`Every package measured against total package revenue. The column adds up to 100%, so the top package's share is a real number rather than an automatic full bar.`}
       >
         {packageMix.length === 0 ? (
-          <div className={EMPTY}>No package bookings in this period.</div>
+          <EmptyResult canClear={canClearFilters} onClear={onClearFilters} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
@@ -197,7 +197,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
         description="Short order items measured against total menu item revenue. Dishes served inside a package are not counted here, because a package is sold once per event while a tray is sold by the tray. Trays sold and revenue sit side by side because the item ordered most and the item that earns most are rarely the same one."
       >
         {menuItemMix.length === 0 ? (
-          <div className={EMPTY}>No short order items in this period.</div>
+          <EmptyResult canClear={canClearFilters} onClear={onClearFilters} />
         ) : (
           <>
             <div className="overflow-x-auto">
@@ -278,7 +278,7 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
               </div>
               {unattributedFoodRevenue > 0 && (
                 <p className="pt-2 text-slate-500">
-                  Some short orders in this period have no readable item list, so their food
+                  Some short orders have no readable item list, so their food
                   revenue cannot be split across dishes. It is shown on its own line so the
                   three figures still reconcile.
                 </p>
@@ -300,14 +300,14 @@ export default function MenuPerformanceTab({ derived, onOpenDetail }) {
       >
         <div className="p-5 space-y-3">
           {categoryDemandData.length === 0 ? (
-            <p className="text-sm text-slate-500 text-center py-4">No category data for this period.</p>
+            <EmptyResult canClear={canClearFilters} onClear={onClearFilters} />
           ) : (
             categoryDemandData.map((cat) => (
               <button
                 key={cat.name}
                 onClick={() => onOpenDetail({
                   title: cat.name,
-                  description: 'Package bookings in this period whose package includes this category.',
+                  description: 'Package bookings whose package includes this category.',
                   fields: [
                     { label: 'Bookings including this category', value: cat.bookings, emphasis: true },
                     { label: 'Share of all package bookings', value: formatPercent(cat.share) },

@@ -19,7 +19,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
-  Search, Filter, LayoutGrid, RefreshCw, UserPlus, X, ChevronLeft, ChevronRight,
+  Search, LayoutGrid, RefreshCw, UserPlus, X, ChevronLeft, ChevronRight,
   ArrowUp, ArrowDown, ArrowUpDown, Eye, Edit, Ban, ShieldCheck, Trash2,
   CalendarDays, ShoppingBag, Wallet, Undo2, Mail, Phone, MapPin, ExternalLink,
   StickyNote, Clock,
@@ -28,6 +28,7 @@ import toast from 'react-hot-toast';
 import { supabase } from '../supabase';
 import Select from '../components/Select';
 import DateRangeFilter from './Reports/DateRangeFilter';
+import { FilterBar, FilterField, PeriodTitle, EmptyResult } from '../components/FilterBar';
 import { getRangeBounds, formatDate } from './Reports/helpers';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -842,6 +843,35 @@ export default function Customers() {
     })();
     return () => { ignore = true; };
   }, [listKey]);
+  // The account-status counts under the current filters, status aside.
+  const statusCountKey = JSON.stringify({ ...filters, status: 'All', refreshTick });
+  const [statusCountState, setStatusCountState] = useState({ key: null, counts: null });
+  useEffect(() => {
+    const f = JSON.parse(statusCountKey);
+    let ignore = false;
+    (async () => {
+      let query = supabase.from('v_customer_summary').select('customer_id, account_status');
+      if (f.search) {
+        const like = `"*${f.search}*"`;
+        query = query.or(`full_name.ilike.${like},email_address.ilike.${like},contact_no.ilike.${like}`);
+      }
+      if (f.source !== 'All') query = query.eq('source', f.source);
+      if (f.balance === 'Has receivables') query = query.eq('has_receivable_due', true);
+      if (f.balance === 'Settled') query = query.eq('has_receivable_due', false);
+      if (f.repeatOnly) query = query.eq('is_repeat', true);
+      if (f.joinedStart) query = query.gte('created_at', f.joinedStart);
+      if (f.joinedEnd) query = query.lte('created_at', f.joinedEnd);
+      const { data, error } = await query.order('customer_id', { ascending: true });
+      if (ignore) return;
+      if (error) { console.error('Status counts failed:', error); return; }
+      const counts = { All: 0, Active: 0, Inactive: 0, Blocked: 0 };
+      (data || []).forEach(r => { counts.All += 1; if (counts[r.account_status] !== undefined) counts[r.account_status] += 1; });
+      setStatusCountState({ key: statusCountKey, counts });
+    })();
+    return () => { ignore = true; };
+  }, [statusCountKey]);
+  const statusCounts = statusCountState.counts;
+
   const listLoading = list.key !== listKey;
   const hasListLoaded = list.key !== null;
   const totalPages = Math.max(1, Math.ceil(list.count / PAGE_SIZE));
@@ -1046,11 +1076,14 @@ export default function Customers() {
     },
   ];
 
+  // Counts follow every OTHER active filter — search, type, repeat,
+  // receivables, joined — so a card's number is what clicking it will show.
+  // They used to be the unfiltered totals from v_customer_totals.
   const statusCards = [
-    { key: 'All', label: 'All', count: t?.total_customers },
-    { key: 'Active', label: 'Active', count: t?.active_accounts },
-    { key: 'Inactive', label: 'Inactive', count: t?.inactive_accounts },
-    { key: 'Blocked', label: 'Blocked', count: t?.blocked_accounts },
+    { key: 'All', label: 'All', count: statusCounts?.All },
+    { key: 'Active', label: 'Active', count: statusCounts?.Active },
+    { key: 'Inactive', label: 'Inactive', count: statusCounts?.Inactive },
+    { key: 'Blocked', label: 'Blocked', count: statusCounts?.Blocked },
   ];
 
   return (
@@ -1076,6 +1109,67 @@ export default function Customers() {
           </button>
         </div>
       </div>
+
+      {/* FILTER BAR — the same component and order as every other page. No
+          Account status select here: the status cards below are that filter,
+          as they are on Bookings, and two controls for one filter could only
+          disagree. */}
+      <FilterBar canClear={hasFilters} onClear={clearFilters}>
+        <FilterField label="Search" active={!!search.trim()}>
+          <div className="relative min-w-[220px]">
+            <input
+              id="customer-search"
+              type="text"
+              placeholder="Name, email, or contact number"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className={`w-full pl-4 pr-10 ${filterControlClass(!!search.trim())}`}
+            />
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+          </div>
+        </FilterField>
+        <FilterField label="Customer type" active={sourceFilter !== 'All'}>
+          <Select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className={filterControlClass(sourceFilter !== 'All')}>
+            <option value="All">All</option>
+            <option value="Mobile">Mobile</option>
+            <option value="Walk-in">Walk-in</option>
+            <option value="Unknown">Unknown</option>
+          </Select>
+        </FilterField>
+        <FilterField label="Repeat customer" active={repeatOnly}>
+          <Select value={repeatOnly ? 'Repeat' : 'All'} onChange={(e) => { setRepeatOnly(e.target.value === 'Repeat'); setPage(1); }} className={filterControlClass(repeatOnly)}>
+            <option value="All">All</option>
+            <option value="Repeat">Booked more than once</option>
+          </Select>
+        </FilterField>
+        <FilterField label="Receivables" active={balanceFilter !== 'All'}>
+          <Select value={balanceFilter} onChange={(e) => setBalanceFilter(e.target.value)} className={filterControlClass(balanceFilter !== 'All')}>
+            <option value="All">All</option>
+            <option value="Has receivables">Has receivables</option>
+            <option value="Settled">Settled</option>
+          </Select>
+        </FilterField>
+        {/* A record filter, not a period: it chooses which customers are
+            listed, not which figures sum — so it produces no period title. */}
+        <FilterField label="Joined" active={datePreset !== ALL_TIME}>
+          <DateRangeFilter
+            preset={datePreset}
+            customStart={customStart}
+            customEnd={customEnd}
+            rangeStart={joinedStart}
+            rangeEnd={joinedEnd}
+            onPresetChange={setDatePreset}
+            onCustomStartChange={setCustomStart}
+            onCustomEndChange={setCustomEnd}
+            onClear={() => { setDatePreset(ALL_TIME); setCustomStart(''); setCustomEnd(''); }}
+            showClear={false}
+          />
+        </FilterField>
+      </FilterBar>
+      {/* A fixed period. Total Receivables reads PHP 92,800 here and PHP 55,950
+          on Receivables for September — same label, different scope. This
+          title is what stops that reading as a contradiction. */}
+      <PeriodTitle>All time</PeriodTitle>
 
       {/* SUMMARY CARDS — each opens a filtered view of the table below. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
@@ -1108,110 +1202,16 @@ export default function Customers() {
           {statusCards.map((s) => (
             <button
               key={s.key}
-              onClick={() => { setStatusFilter(s.key); scrollToTable(); }}
+              onClick={() => { setStatusFilter(statusFilter === s.key ? 'All' : s.key); scrollToTable(); }}
               className={`text-left rounded-xl border border-slate-100 bg-[#fbfcfd] p-3.5 relative overflow-hidden transition-all ${
                 statusFilter === s.key ? 'ring-2 ring-[#008A45]/20 shadow-sm' : 'hover:shadow-[0_4px_14px_rgba(15,23,42,0.06)] hover:-translate-y-0.5 hover:border-[#008A45]/30'
               }`}
             >
               <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${STATUS_CARD_BAR[s.key]}`} />
               <p className="text-[13px] font-semibold text-slate-600 mb-1.5 whitespace-nowrap">{s.label}</p>
-              <p className={`text-[23px] font-semibold tracking-[-0.02em] tabular-nums ${STATUS_CARD_TEXT[s.key]}`}>{t ? s.count : '—'}</p>
+              <p className={`text-[23px] font-semibold tracking-[-0.02em] tabular-nums ${STATUS_CARD_TEXT[s.key]}`}>{statusCounts ? s.count : '—'}</p>
             </button>
           ))}
-        </div>
-      </div>
-
-      {/* FILTERS */}
-      <div className={`bg-white rounded-2xl border p-5 transition-colors ${hasFilters ? 'border-[#008A45]/30' : 'border-slate-200/70'}`}>
-        <div className="flex items-center gap-2 mb-3">
-          <Filter size={13} className="text-slate-500" />
-          <span className="text-[13px] font-bold text-slate-600 tracking-[0.04em] whitespace-nowrap">Filters</span>
-          {repeatOnly && (
-            <span className="inline-flex items-center gap-1 pl-2.5 pr-1 py-0.5 rounded-full bg-[#EAF3F2] text-[#007038] text-[12px] font-semibold border border-[#008A45]/30">
-              Repeat customers only
-              <button onClick={() => setRepeatOnly(false)} aria-label="Remove repeat customers filter" className="p-0.5 rounded-full hover:bg-[#008A45]/10"><X size={12} /></button>
-            </span>
-          )}
-          <div className="ml-auto flex items-center gap-3">
-            {hasFilters && (
-              <button onClick={clearFilters} className="text-[13px] font-semibold text-slate-600 hover:text-red-600 transition-colors cursor-pointer">
-                Clear filters
-              </button>
-            )}
-            <span className="text-[13.5px] text-slate-600 tabular-nums whitespace-nowrap">
-              {hasListLoaded ? `${list.count} result${list.count === 1 ? '' : 's'}` : ' '}
-            </span>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-start gap-3">
-          <div className="relative flex-1 min-w-[220px]">
-            <label htmlFor="customer-search" className={`block text-[13px] font-semibold mb-1 ${search.trim() ? 'text-[#007038]' : 'text-slate-600'}`}>Search</label>
-            <div className="relative">
-              <input
-                id="customer-search"
-                type="text"
-                placeholder="Name, email, or contact number"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className={`w-full pl-4 pr-10 ${filterControlClass(!!search.trim())}`}
-              />
-              <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            </div>
-          </div>
-
-          <div>
-            <label className={`block text-[13px] font-semibold mb-1 ${statusFilter !== 'All' ? 'text-[#007038]' : 'text-slate-600'}`}>Account status</label>
-            <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={filterControlClass(statusFilter !== 'All')}>
-              <option value="All">All</option>
-              {ACCOUNT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-            </Select>
-          </div>
-
-          <div>
-            <label className={`block text-[13px] font-semibold mb-1 ${sourceFilter !== 'All' ? 'text-[#007038]' : 'text-slate-600'}`}>Customer type</label>
-            <Select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className={filterControlClass(sourceFilter !== 'All')}>
-              <option value="All">All</option>
-              <option value="Mobile">Mobile</option>
-              <option value="Walk-in">Walk-in</option>
-              <option value="Unknown">Unknown</option>
-            </Select>
-          </div>
-
-          {/* Where the Repeat Customers card's information went. It answers
-              "who comes back", which is a way of narrowing the list, not a
-              headline the page needed to carry. */}
-          <div>
-            <label className={`block text-[13px] font-semibold mb-1 ${repeatOnly ? 'text-[#007038]' : 'text-slate-600'}`}>Repeat customer</label>
-            <Select value={repeatOnly ? 'Repeat' : 'All'} onChange={(e) => { setRepeatOnly(e.target.value === 'Repeat'); setPage(1); }} className={filterControlClass(repeatOnly)}>
-              <option value="All">All</option>
-              <option value="Repeat">Booked more than once</option>
-            </Select>
-          </div>
-
-          <div>
-            <label className={`block text-[13px] font-semibold mb-1 ${balanceFilter !== 'All' ? 'text-[#007038]' : 'text-slate-600'}`}>Receivables</label>
-            <Select value={balanceFilter} onChange={(e) => setBalanceFilter(e.target.value)} className={filterControlClass(balanceFilter !== 'All')}>
-              <option value="All">All</option>
-              <option value="Has receivables">Has receivables</option>
-              <option value="Settled">Settled</option>
-            </Select>
-          </div>
-
-          <div>
-            <label className={`block text-[13px] font-semibold mb-1 ${datePreset !== ALL_TIME ? 'text-[#007038]' : 'text-slate-600'}`}>Joined</label>
-            <DateRangeFilter
-              preset={datePreset}
-              customStart={customStart}
-              customEnd={customEnd}
-              rangeStart={joinedStart}
-              rangeEnd={joinedEnd}
-              onPresetChange={setDatePreset}
-              onCustomStartChange={setCustomStart}
-              onCustomEndChange={setCustomEnd}
-              onClear={() => { setDatePreset(ALL_TIME); setCustomStart(''); setCustomEnd(''); }}
-            />
-          </div>
         </div>
       </div>
 
@@ -1246,7 +1246,7 @@ export default function Customers() {
               {!hasListLoaded ? (
                 <SkeletonRows columns={9} />
               ) : list.rows.length === 0 ? (
-                <tr><td colSpan="9" className="p-8 text-center text-slate-500 italic">No customers match these filters.</td></tr>
+                <tr><td colSpan="9"><EmptyResult canClear={hasFilters} onClear={clearFilters} /></td></tr>
               ) : (
                 list.rows.map((c) => (
                   <tr key={c.customer_id} onClick={() => openDrawer(c.customer_id)} className="hover:bg-[#fbfcfd] transition-colors cursor-pointer">

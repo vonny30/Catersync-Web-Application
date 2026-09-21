@@ -5,7 +5,7 @@ import ModalTotal from '../components/ModalTotal';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Calendar as CalendarIcon, Clock, CheckCircle, TrendingUp, ChevronLeft, ChevronRight, RefreshCw, X, Eye, Search } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, CheckCircle, TrendingUp, ChevronLeft, ChevronRight, RefreshCw, X, Eye } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -14,8 +14,7 @@ import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { sumVerifiedPositivePayments, sumDepositsCollected } from '../utils/payments';
 import { LAPSED_ACCEPT_TOOLTIP, LAPSED_DECLINE_REASON } from '../utils/lapsed';
-import DateRangeFilter from './Reports/DateRangeFilter';
-import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './Reports/helpers';
+import { PopupFilters, popupSelectClass, EmptyResult } from '../components/FilterBar';
 import ImageUploadField from '../components/ImageUploadField';
 import RefundMethodField from '../components/RefundMethodField';
 
@@ -112,9 +111,6 @@ export default function Dashboard() {
   const [statsModalType, setStatsModalType] = useState('');
   const [statsSearchTerm, setStatsSearchTerm] = useState('');
   const [statsTypeFilter, setStatsTypeFilter] = useState('All'); // 'All' | 'Package' | 'Short Order'
-  const [statsDatePreset, setStatsDatePreset] = useState(DEFAULT_DATE_PRESET);
-  const [statsDateCustomStart, setStatsDateCustomStart] = useState('');
-  const [statsDateCustomEnd, setStatsDateCustomEnd] = useState('');
 
   // --- Helper ---
   const handleError = (error, userMessage = 'Something went wrong. Please try again.') => {
@@ -651,9 +647,6 @@ export default function Dashboard() {
   const resetStatsFilters = () => {
     setStatsSearchTerm('');
     setStatsTypeFilter('All');
-    setStatsDatePreset(DEFAULT_DATE_PRESET);
-    setStatsDateCustomStart('');
-    setStatsDateCustomEnd('');
   };
 
   const closeStatsModal = () => {
@@ -664,12 +657,10 @@ export default function Dashboard() {
 
   // --- Stats modal search/filter — same pattern as Payments.jsx's summary
   // modals, applied here so every card-click record list filters the same way.
-  const { start: statsDateRangeStart, end: statsDateRangeEnd } = getRangeBounds(statsDatePreset, statsDateCustomStart, statsDateCustomEnd);
 
   const filteredStatsModalData = statsModalData.filter(item => {
     const itemType = item.booking_type === 'Short Order' ? 'Short Order' : 'Package';
     if (statsTypeFilter !== 'All' && itemType !== statsTypeFilter) return false;
-    if (statsDatePreset !== 'All Time' && !isWithinRange(item.event_datetime, statsDateRangeStart, statsDateRangeEnd)) return false;
     if (statsSearchTerm.trim()) {
       const term = statsSearchTerm.toLowerCase();
       const customerName = getClientName(item).toLowerCase();
@@ -687,7 +678,11 @@ export default function Dashboard() {
   // The Payments page solved this on 23 Aug by grouping on booking_id; this is
   // the same grouping, so the two screens describe the world the same way.
   //
-   const activeStatsFilterCount = (statsSearchTerm.trim() ? 1 : 0) + (statsTypeFilter !== 'All' ? 1 : 0) + (statsDatePreset !== DEFAULT_DATE_PRESET ? 1 : 0);
+   // No date filter in these pop-ups. Each lists the rows behind its card —
+   // today's events, every pending request, the next seven days — and the
+   // Pending one used to open on This Month, so the card said 8 pending while
+   // the pop-up behind it showed only those with an event this month.
+   const activeStatsFilterCount = (statsSearchTerm.trim() ? 1 : 0) + (statsTypeFilter !== 'All' ? 1 : 0);
 
   const getStatusBadge = (status) => {
     const map = {
@@ -792,7 +787,16 @@ export default function Dashboard() {
           <span className="text-[28px] font-semibold tracking-[-0.03em] tabular-nums text-slate-900 mb-2 leading-none">
             ₱{stats.cashReceipts.toLocaleString()}
           </span>
-          <span className="text-[15px] font-semibold text-slate-600">Cash Receipts</span>
+          {/* The only card in the app that names its period: the Dashboard has
+              no filter bar and no period title, and the other three cards are
+              about today and the week ahead, so a page title would mislabel
+              them. A small muted tag, and only here. */}
+          <span className="flex items-center gap-2">
+            <span className="text-[15px] font-semibold text-slate-600">Cash Receipts</span>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11.5px] font-semibold text-slate-500">
+              {new Date().toLocaleString('en-PH', { month: 'long', timeZone: 'Asia/Manila' })}
+            </span>
+          </span>
           <span className="text-[12.5px] text-slate-400 mt-1">
             Money received
           </span>
@@ -1060,80 +1064,24 @@ export default function Dashboard() {
             </div>
 
             {statsModalData.length > 0 && (
-              <div className={`px-6 py-3 border-b space-y-2 shrink-0 ${activeStatsFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-200'}`}>
-                <div className="flex flex-wrap items-center gap-3">
-                  {activeStatsFilterCount > 0 && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shrink-0">
-                      {activeStatsFilterCount} active
-                    </span>
-                  )}
-                  <div className="relative flex-1 min-w-[200px]">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                    <input
-                      type="text"
-                      placeholder="Search by customer name, reference, or venue"
-                      value={statsSearchTerm}
-                      onChange={(e) => setStatsSearchTerm(e.target.value)}
-                      className={`w-full pl-8 pr-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${statsSearchTerm.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
-                    />
-                  </div>
-                  <Select
-                    value={statsTypeFilter}
-                    onChange={(e) => setStatsTypeFilter(e.target.value)}
-                    className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${statsTypeFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
-                  >
-                    <option value="All">All types</option>
-                    <option value="Package">Package</option>
-                    <option value="Short Order">Short Order</option>
-                  </Select>
-                  {activeStatsFilterCount > 0 && (
-                    <button
-                      onClick={resetStatsFilters}
-                      className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors cursor-pointer"
-                    >
-                      Clear filters
-                    </button>
-                  )}
-                </div>
-                {/* Only the Pending modal gets a date filter, because it is
-                    the only one whose rows are not already scoped by date. The
-                    other three are queried inside a window — this month's
-                    payments, today's events, the next seven days — so a filter
-                    over them can narrow the set but never widen it, while
-                    DateRangeFilter announced the range it believed it had
-                    applied. Choosing "This Year" on the payments modal printed
-                    "Jan 1 – Dec 31, 2026" over September's rows alone: ₱11,400
-                    against a real ₱26,650. The default was the same lie in
-                    reverse — "Showing all-time data" over one month.
-
-                    Those three state their period in their own title, which is
-                    where a scope the reader cannot change belongs. */}
-                {statsModalType === 'pending' && (
-                <div className="flex flex-col items-start gap-1">
-                  <p className="text-xs font-semibold text-slate-600">
-                    Filter by event date:
-                  </p>
-                  <DateRangeFilter
-                    preset={statsDatePreset}
-                    customStart={statsDateCustomStart}
-                    customEnd={statsDateCustomEnd}
-                    rangeStart={statsDateRangeStart}
-                    rangeEnd={statsDateRangeEnd}
-                    onPresetChange={setStatsDatePreset}
-                    onCustomStartChange={setStatsDateCustomStart}
-                    onCustomEndChange={setStatsDateCustomEnd}
-                    onClear={() => { setStatsDatePreset(DEFAULT_DATE_PRESET); setStatsDateCustomStart(''); setStatsDateCustomEnd(''); }}
-                  />
-                </div>
-                )}
-              </div>
+              <PopupFilters
+                search={statsSearchTerm}
+                onSearch={setStatsSearchTerm}
+                searchPlaceholder="Search by customer name, reference, or venue"
+                canClear={activeStatsFilterCount > 0}
+                onClear={resetStatsFilters}
+              >
+                <Select value={statsTypeFilter} onChange={(e) => setStatsTypeFilter(e.target.value)} className={popupSelectClass(statsTypeFilter !== 'All')}>
+                  <option value="All">All types</option>
+                  <option value="Package">Package</option>
+                  <option value="Short Order">Short Order</option>
+                </Select>
+              </PopupFilters>
             )}
 
             <div className="p-6 overflow-y-auto flex-1 bg-[#fbfcfd]">
-              {statsModalData.length === 0 ? (
-                <div className="text-center py-10 text-slate-500">No records found for this category.</div>
-              ) : filteredStatsModalData.length === 0 ? (
-                <div className="text-center py-10 text-slate-500">No records match your search/filter.</div>
+              {statsModalData.length === 0 || filteredStatsModalData.length === 0 ? (
+                <EmptyResult canClear={activeStatsFilterCount > 0} onClear={resetStatsFilters} className="py-10" />
               ) : (
                 <>
                   {/* Today's Events / Pending / Upcoming - Booking list */}

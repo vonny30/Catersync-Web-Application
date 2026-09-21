@@ -3,12 +3,13 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabase';
 import toast from 'react-hot-toast';
 import {
-  getBookingRef, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, periodLabel,
+  getBookingRef, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, periodLabel, periodTitle,
   monthSortKey, monthLabel, buildMonthlyFinancialTrend,
 } from './helpers';
 import { movesBooks, isRefundEntry, isReversalEntry } from '../../utils/payments';
 import { fetchAllRows } from '../../utils/fetchAllRows';
 import DateRangeFilter from './DateRangeFilter';
+import { FilterBar, FilterField, PeriodTitle } from '../../components/FilterBar';
 import DetailModal from './DetailModal';
 import SimpleDetailModal from './SimpleDetailModal';
 import OverviewTab from './OverviewTab';
@@ -526,11 +527,11 @@ export default function Reports() {
   const handleCardClick = (type) => {
     if (!derived) return;
     const breakdowns = {
-      revenue: { data: derived.financialSummary._revenueBreakdown, title: `Estimated Gross Revenue — contracted for ${period}` },
-      collected: { data: derived.financialSummary._collectedBreakdown, title: `Collections applied to ${period}` },
-      outstanding: { data: derived.financialSummary._outstandingBreakdown, title: `Total Receivables — collectibles on contracted service in ${period}` },
-      approved: { data: derived.financialSummary._approvedBreakdown, title: `Approved, not yet confirmed — for ${period}` },
-      forfeited: { data: derived.financialSummary._forfeitedBreakdown, title: `Forfeited deposits — retained from cancellations for ${period}` },
+      revenue: { data: derived.financialSummary._revenueBreakdown, title: `Estimated Gross Revenue — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
+      collected: { data: derived.financialSummary._collectedBreakdown, title: `Collections Applied — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
+      outstanding: { data: derived.financialSummary._outstandingBreakdown, title: `Total Receivables — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
+      approved: { data: derived.financialSummary._approvedBreakdown, title: `Approved — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
+      forfeited: { data: derived.financialSummary._forfeitedBreakdown, title: `Forfeited Deposits — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
     };
     const entry = breakdowns[type];
     if (!entry) return;
@@ -561,18 +562,29 @@ export default function Reports() {
             Revenue, cash and menu performance.
           </p>
         </div>
-        <DateRangeFilter
-          preset={datePreset}
-          customStart={customStart}
-          customEnd={customEnd}
-          rangeStart={rangeStart}
-          rangeEnd={rangeEnd}
-          onPresetChange={setDatePreset}
-          onCustomStartChange={setCustomStart}
-          onCustomEndChange={setCustomEnd}
-          onClear={handleClearFilter}
-        />
       </div>
+
+      {/* Filter bar, then the period title, then the tabs. One Period for all
+          four tabs: switching tabs never changes which period is shown. */}
+      <FilterBar canClear={datePreset !== DEFAULT_DATE_PRESET} onClear={handleClearFilter}>
+        <FilterField label="Period" active={datePreset !== DEFAULT_DATE_PRESET}>
+          <DateRangeFilter
+            preset={datePreset}
+            customStart={customStart}
+            customEnd={customEnd}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            onPresetChange={setDatePreset}
+            onCustomStartChange={setCustomStart}
+            onCustomEndChange={setCustomEnd}
+            onClear={handleClearFilter}
+            defaultPreset={DEFAULT_DATE_PRESET}
+            showSummary={false}
+            showClear={false}
+          />
+        </FilterField>
+      </FilterBar>
+      <PeriodTitle>{periodTitle(datePreset, rangeStart, rangeEnd)}</PeriodTitle>
 
       <div className="border-b border-slate-200/80">
         <nav className="-mb-px flex gap-0.5 overflow-x-auto" aria-label="Tabs">
@@ -598,10 +610,10 @@ export default function Reports() {
         </div>
       ) : (
         <div className="animate-in fade-in duration-200 space-y-[18px]">
-          {activeTab === 'Overview' && <OverviewTab derived={derived} period={period} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
-          {activeTab === 'Financial' && <FinancialTab derived={derived} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
-          {activeTab === 'Menu & Packages' && <MenuPerformanceTab derived={derived} onOpenDetail={openSimpleModal} />}
-          {activeTab === 'Booking Summary' && <BookingSummaryTab derived={derived} onOpenDetail={openSimpleModal} />}
+          {activeTab === 'Overview' && <OverviewTab derived={derived} period={period} canClearFilters={datePreset !== DEFAULT_DATE_PRESET} onClearFilters={handleClearFilter} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
+          {activeTab === 'Financial' && <FinancialTab derived={derived} canClearFilters={datePreset !== DEFAULT_DATE_PRESET} onClearFilters={handleClearFilter} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
+          {activeTab === 'Menu & Packages' && <MenuPerformanceTab derived={derived} canClearFilters={datePreset !== DEFAULT_DATE_PRESET} onClearFilters={handleClearFilter} onOpenDetail={openSimpleModal} />}
+          {activeTab === 'Booking Summary' && <BookingSummaryTab derived={derived} canClearFilters={datePreset !== DEFAULT_DATE_PRESET} onClearFilters={handleClearFilter} onOpenDetail={openSimpleModal} />}
         </div>
       )}
 

@@ -23,14 +23,15 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  Search, X, RefreshCw, Filter, RotateCcw, ExternalLink, Undo2, AlertCircle, Check, ChevronRight,
+  Search, X, RefreshCw, ExternalLink, Undo2, AlertCircle, Check, ChevronRight,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../supabase';
 import Select from '../components/Select';
 import ReceiptFields from '../components/ReceiptFields';
 import DateRangeFilter from './Reports/DateRangeFilter';
-import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, formatDate, periodLabel, forPeriod } from './Reports/helpers';
+import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, formatDate, periodLabel, forPeriod, periodTitle } from './Reports/helpers';
+import { FilterBar, FilterField, PeriodTitle, EmptyResult } from '../components/FilterBar';
 import { statusWriteErrorMessage } from '../utils/lapsed';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -492,7 +493,7 @@ function ReceivablesBreakdown({ bookings, period, total, onClose, onOpenBooking 
         Confirmed and completed catering {forPeriod(period)}
       </p>
       {bookings.length === 0 ? (
-        <p className="text-sm text-slate-500 italic text-center py-6">No balances due for services in this period.</p>
+        <EmptyResult className="py-6" />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
           <table className="w-full text-left text-sm">
@@ -843,6 +844,57 @@ export default function Receivables() {
         </div>
       </div>
 
+      {/* FILTER BAR, then the period title, then the cards. The Period drives
+          both cards and the table, so it sits above all of them rather than in
+          the table's panel; the other filters sit beside it in the same row. */}
+      <FilterBar canClear={hasFilters} onClear={clearFilters}>
+        <FilterField label="Period" active={datePreset !== DEFAULT_DATE_PRESET}>
+          <DateRangeFilter
+            preset={datePreset}
+            customStart={customStart}
+            customEnd={customEnd}
+            rangeStart={start}
+            rangeEnd={end}
+            onPresetChange={setDatePreset}
+            onCustomStartChange={setCustomStart}
+            onCustomEndChange={setCustomEnd}
+            onClear={() => { setDatePreset(DEFAULT_DATE_PRESET); setCustomStart(''); setCustomEnd(''); }}
+            defaultPreset={DEFAULT_DATE_PRESET}
+            showSummary={false}
+            showClear={false}
+          />
+        </FilterField>
+        <FilterField label="Search" active={!!term}>
+          <div className="relative min-w-[220px]">
+            <input id="receivables-search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Customer name or reference" className={`w-full pl-4 pr-10 ${filterControl(!!term)}`} />
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+          </div>
+        </FilterField>
+        <FilterField label="Type" active={typeFilter !== 'All'}>
+          <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={filterControl(typeFilter !== 'All')}>
+            <option value="All">All</option>
+            <option value="Package">Packages</option>
+            <option value="Short Order">Short Orders</option>
+          </Select>
+        </FilterField>
+        <FilterField label="Method" active={methodFilter !== 'All'}>
+          <Select value={methodFilter} onChange={(e) => setMethodFilter(e.target.value)} className={filterControl(methodFilter !== 'All')}>
+            <option value="All">All</option>
+            {RECEIPT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+          </Select>
+        </FilterField>
+        {/* Stage belongs to receipts only; a refund has no settlement stage. */}
+        {!showClaims && tab === 'Receipts' && (
+          <FilterField label="Stage" active={stageFilter !== 'All'}>
+            <Select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} className={filterControl(stageFilter !== 'All')}>
+              <option value="All">All</option>
+              {RECEIPT_STAGE_ORDER.map(st => <option key={st} value={st}>{st}</option>)}
+            </Select>
+          </FilterField>
+        )}
+      </FilterBar>
+      <PeriodTitle>{periodTitle(datePreset, start, end)}</PeriodTitle>
+
       {/* THE TWO CARDS. Each states the question it answers. */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
         {/* Both open what they add up. */}
@@ -902,79 +954,15 @@ export default function Receivables() {
         </div>
       )}
 
-      {/* FILTERS */}
-      <div className={`bg-white rounded-2xl border p-5 transition-colors ${hasFilters ? 'border-[#008A45]/30' : 'border-slate-200/70'}`}>
-        <div className="flex items-center gap-2 mb-3">
-          <Filter size={13} className="text-slate-500" />
-          <span className="text-[13px] font-bold text-slate-600 tracking-[0.04em]">Filters</span>
-          <div className="ml-auto flex items-center gap-3">
-            {hasFilters && (
-              <button onClick={clearFilters} className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-600 hover:text-red-600 transition-colors">
-                <RotateCcw size={13} /> Clear filters
-              </button>
-            )}
-            <span className="text-[13.5px] text-slate-600 tabular-nums whitespace-nowrap">{loaded ? `${rows.length} result${rows.length === 1 ? '' : 's'}` : ''}</span>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-start gap-3">
-          <div className="relative flex-1 min-w-[220px]">
-            <label htmlFor="receivables-search" className={`block text-[13px] font-semibold mb-1 ${term ? 'text-[#007038]' : 'text-slate-600'}`}>Search</label>
-            <div className="relative">
-              <input id="receivables-search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Customer name or reference" className={`w-full pl-4 pr-10 ${filterControl(!!term)}`} />
-              <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            </div>
-          </div>
-          <div>
-            <label className={`block text-[13px] font-semibold mb-1 ${typeFilter !== 'All' ? 'text-[#007038]' : 'text-slate-600'}`}>Type</label>
-            <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={filterControl(typeFilter !== 'All')}>
-              <option value="All">All</option>
-              <option value="Package">Packages</option>
-              <option value="Short Order">Short Orders</option>
-            </Select>
-          </div>
-          <div>
-            <label className={`block text-[13px] font-semibold mb-1 ${methodFilter !== 'All' ? 'text-[#007038]' : 'text-slate-600'}`}>Method</label>
-            <Select value={methodFilter} onChange={(e) => setMethodFilter(e.target.value)} className={filterControl(methodFilter !== 'All')}>
-              <option value="All">All</option>
-              {RECEIPT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
-            </Select>
-          </div>
-          {/* The settlement stage is a FILTER, not a row of cards: no counts, no
-              amounts. The results line already says how many rows matched. */}
-          {!showClaims && tab === 'Receipts' && (
-            <div>
-              <label className={`block text-[13px] font-semibold mb-1 ${stageFilter !== 'All' ? 'text-[#007038]' : 'text-slate-600'}`}>Stage</label>
-              <Select value={stageFilter} onChange={(e) => setStageFilter(e.target.value)} className={filterControl(stageFilter !== 'All')}>
-                <option value="All">All</option>
-                {RECEIPT_STAGE_ORDER.map(s => <option key={s} value={s}>{s}</option>)}
-              </Select>
-            </div>
-          )}
-          {!showClaims && (
-            <div>
-              <label className={`block text-[13px] font-semibold mb-1 ${datePreset !== DEFAULT_DATE_PRESET ? 'text-[#007038]' : 'text-slate-600'}`}>Period</label>
-              <DateRangeFilter
-                preset={datePreset}
-                customStart={customStart}
-                customEnd={customEnd}
-                rangeStart={start}
-                rangeEnd={end}
-                onPresetChange={setDatePreset}
-                onCustomStartChange={setCustomStart}
-                onCustomEndChange={setCustomEnd}
-                onClear={() => { setDatePreset(DEFAULT_DATE_PRESET); setCustomStart(''); setCustomEnd(''); }}
-              />
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* TABLE */}
       <div id="receivables-table" className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden scroll-mt-4">
         <div className="px-5 py-4 border-b border-slate-100">
-          <span className="font-bold text-base tracking-[-0.01em] text-slate-900">
-            {showClaims ? 'Payment claims awaiting verification' : tab === 'Refunds' ? 'Refunds' : 'Receipts'}
-          </span>
+          <div className="flex items-center justify-between gap-3">
+            <span className="font-bold text-base tracking-[-0.01em] text-slate-900">
+              {showClaims ? 'Payment claims awaiting verification' : tab === 'Refunds' ? 'Refunds' : 'Receipts'}
+            </span>
+            <span className="text-[13.5px] text-slate-600 tabular-nums whitespace-nowrap">{loaded ? `${rows.length} result${rows.length === 1 ? '' : 's'}` : ''}</span>
+          </div>
           <p className="text-[13px] text-slate-600 mt-0.5">
             {showClaims
               ? 'Submitted from the mobile app'
@@ -986,7 +974,7 @@ export default function Receivables() {
         {!loaded ? (
           <p className="p-6 text-center text-slate-400">Loading…</p>
         ) : rows.length === 0 ? (
-          <p className="p-6 text-center text-slate-500 italic">{showClaims ? 'No claims awaiting verification.' : 'Nothing matches these filters.'}</p>
+          <EmptyResult canClear={hasFilters} onClear={clearFilters} />
         ) : (
           <LedgerTable
             rows={rows}

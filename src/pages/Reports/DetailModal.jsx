@@ -4,9 +4,9 @@ import ModalTotal from '../../components/ModalTotal';
 import Select from '../../components/Select';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { ExternalLink, Search } from 'lucide-react';
-import { formatCurrency, formatDate, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './helpers';
-import DateRangeFilter from './DateRangeFilter';
+import { ExternalLink } from 'lucide-react';
+import { formatCurrency, formatDate } from './helpers';
+import { PopupFilters, popupSelectClass, EmptyResult } from '../../components/FilterBar';
 
 const HEAD_CLASS = 'px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap';
 
@@ -19,17 +19,11 @@ export default function DetailModal({ detailModal, onClose }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('All'); // 'All' | 'Package' | 'Short Order'
   const [statusFilter, setStatusFilter] = useState('All'); // revenue and outstanding views
-  const [datePreset, setDatePreset] = useState(DEFAULT_DATE_PRESET);
-  const [dateCustomStart, setDateCustomStart] = useState('');
-  const [dateCustomEnd, setDateCustomEnd] = useState('');
 
   const resetFilters = () => {
     setSearchTerm('');
     setTypeFilter('All');
     setStatusFilter('All');
-    setDatePreset(detailModal.datePreset || DEFAULT_DATE_PRESET);
-    setDateCustomStart(detailModal.customStart || '');
-    setDateCustomEnd(detailModal.customEnd || '');
   };
 
   // Reset filters the moment the modal transitions closed -> open, without a
@@ -41,7 +35,9 @@ export default function DetailModal({ detailModal, onClose }) {
     if (detailModal.open) resetFilters();
   }
 
-  const { start: dateRangeStart, end: dateRangeEnd } = getRangeBounds(datePreset, dateCustomStart, dateCustomEnd);
+  // NO DATE FILTER HERE. The rows arrive already scoped to the page's Period —
+  // they are the rows behind the card that was clicked — so a second period
+  // inside the pop-up could only move them out of step with that card.
   // Outstanding needs it too: its card names what is not collectable until
   // approved, and the list has to be able to show exactly those rows.
   const hasStatusFilter = detailModal.type === 'revenue' || detailModal.type === 'outstanding';
@@ -52,7 +48,6 @@ export default function DetailModal({ detailModal, onClose }) {
       if (itemType !== typeFilter) return false;
     }
     if (hasStatusFilter && statusFilter !== 'All' && item.status !== statusFilter) return false;
-    if (datePreset !== 'All Time' && !isWithinRange(item.eventDate, dateRangeStart, dateRangeEnd)) return false;
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       const customer = (item.customer || '').toLowerCase();
@@ -61,7 +56,7 @@ export default function DetailModal({ detailModal, onClose }) {
     }
     return true;
   });
-  const activeFilterCount = (searchTerm.trim() ? 1 : 0) + (typeFilter !== 'All' ? 1 : 0) + (hasStatusFilter && statusFilter !== 'All' ? 1 : 0) + (datePreset !== DEFAULT_DATE_PRESET ? 1 : 0);
+  const activeFilterCount = (searchTerm.trim() ? 1 : 0) + (typeFilter !== 'All' ? 1 : 0) + (hasStatusFilter && statusFilter !== 'All' ? 1 : 0);
 
   if (!detailModal.open) return null;
 
@@ -94,75 +89,32 @@ export default function DetailModal({ detailModal, onClose }) {
         </div>
 
         {detailModal.data.length > 0 && (
-          <div className={`px-6 py-3 border-b space-y-2 shrink-0 ${activeFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-200'}`}>
-            <div className="flex flex-wrap items-center gap-3">
-              {activeFilterCount > 0 && (
-                <span className="inline-flex items-center gap-1 whitespace-nowrap px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shrink-0">
-                  {activeFilterCount} active
-                </span>
-              )}
-              <div className="relative flex-1 min-w-[200px]">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                <input
-                  type="text"
-                  placeholder="Search by customer or booking ref..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className={`w-full pl-8 pr-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none bg-white ${searchTerm.trim() ? 'border-emerald-300' : 'border-slate-300'}`}
-                />
-              </div>
-              <Select
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-                className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${typeFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
-              >
-                <option value="All">All types</option>
-                <option value="Package">Package</option>
-                <option value="Short Order">Short Order</option>
+          <PopupFilters
+            search={searchTerm}
+            onSearch={setSearchTerm}
+            searchPlaceholder="Search by customer or booking ref..."
+            canClear={activeFilterCount > 0}
+            onClear={resetFilters}
+          >
+            <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={popupSelectClass(typeFilter !== 'All')}>
+              <option value="All">All types</option>
+              <option value="Package">Package</option>
+              <option value="Short Order">Short Order</option>
+            </Select>
+            {hasStatusFilter && (
+              <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={popupSelectClass(statusFilter !== 'All')}>
+                <option value="All">All statuses</option>
+                <option value="Approved">Approved</option>
+                <option value="Confirmed">Confirmed</option>
+                <option value="Completed">Completed</option>
               </Select>
-              {hasStatusFilter && (
-                <Select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${statusFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
-                >
-                  <option value="All">All statuses</option>
-                  <option value="Approved">Approved</option>
-                  <option value="Confirmed">Confirmed</option>
-                  <option value="Completed">Completed</option>
-                </Select>
-              )}
-              {activeFilterCount > 0 && (
-                <button
-                  onClick={resetFilters}
-                  className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors cursor-pointer"
-                >
-                  Clear filters
-                </button>
-              )}
-            </div>
-            <div className="flex flex-col items-start gap-1">
-              <p className="text-xs font-semibold text-slate-600">Filter by service date:</p>
-              <DateRangeFilter
-                preset={datePreset}
-                customStart={dateCustomStart}
-                customEnd={dateCustomEnd}
-                rangeStart={dateRangeStart}
-                rangeEnd={dateRangeEnd}
-                onPresetChange={setDatePreset}
-                onCustomStartChange={setDateCustomStart}
-                onCustomEndChange={setDateCustomEnd}
-                onClear={() => { setDatePreset(DEFAULT_DATE_PRESET); setDateCustomStart(''); setDateCustomEnd(''); }}
-              />
-            </div>
-          </div>
+            )}
+          </PopupFilters>
         )}
 
         <div className="p-6 overflow-y-auto flex-1 bg-[#fbfcfd]">
-          {detailModal.data.length === 0 ? (
-            <div className="text-center py-10 text-slate-500">No records found for this category.</div>
-          ) : filteredData.length === 0 ? (
-            <div className="text-center py-10 text-slate-500">No records match your search/filter.</div>
+          {detailModal.data.length === 0 || filteredData.length === 0 ? (
+            <EmptyResult canClear={activeFilterCount > 0} onClear={resetFilters} className="py-10" />
           ) : (
             <div className="space-y-4">
               {detailModal.type === 'revenue' && (

@@ -21,6 +21,7 @@ import { errorInputClass } from '../utils/formErrors';
 import { getDailyEquipmentSnapshot, checkEquipmentAvailabilityImpact, getStockBreakdown, deriveEquipmentDemand, revalidateAssignmentCapacity } from '../utils/equipment.jsx';
 import { getAssignmentStatus, ASSIGNMENT_STAGES } from '../utils/statusLabels';
 import DateRangeFilter from './Reports/DateRangeFilter';
+import { PopupFilters, popupSelectClass, EmptyResult } from '../components/FilterBar';
 import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './Reports/helpers';
 import { fetchAllRows } from '../utils/fetchAllRows';
 
@@ -259,6 +260,7 @@ export default function Equipment() {
 
   const [isUsageModalOpen, setIsUsageModalOpen] = useState(false);
   const [usageStatusFilter, setUsageStatusFilter] = useState('All'); // 'All' | 'in_use' | 'assigned' | 'returned'
+  const [usageSearch, setUsageSearch] = useState('');
   const [selectedEquipment, setSelectedEquipment] = useState(null);
   const [equipmentUsage, setEquipmentUsage] = useState([]);
 
@@ -1267,6 +1269,7 @@ export default function Equipment() {
   const handleViewUsage = async (item) => {
     setSelectedEquipment(item);
     setUsageStatusFilter('All'); // fresh view per item, not the last one's filter
+    setUsageSearch('');
     await fetchEquipmentUsage(item.equipment_id);
     setIsUsageModalOpen(true);
   };
@@ -1297,8 +1300,15 @@ export default function Equipment() {
 
   const stageRank = (key) => (key === 'in_use' ? 0 : key === 'assigned' ? 1 : 2);
 
+  const usageTerm = usageSearch.trim().toLowerCase();
   const visibleUsageRecords = usageRecords
     .filter(r => usageStatusFilter === 'All' || r.stage.key === usageStatusFilter)
+    .filter(r => {
+      if (!usageTerm) return true;
+      const b = r.booking || {};
+      const name = b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : '';
+      return [name, b.booking_number, b.venue].some(v => (v || '').toLowerCase().includes(usageTerm));
+    })
     .sort((a, b) => {
       const byStage = stageRank(a.stage.key) - stageRank(b.stage.key);
       if (byStage !== 0) return byStage;
@@ -4007,40 +4017,27 @@ export default function Equipment() {
                 <X size={20} />
               </button>
             </div>
+            {/* The same pop-up filter row as every other pop-up: search, a
+                select, Clear filters. The per-stage counts stay, on the options. */}
             {usageRecords.length > 0 && (
-              <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 shrink-0">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {[
-                    { key: 'All', label: 'All' },
-                    { key: 'in_use', label: ASSIGNMENT_STAGES.in_use },
-                    { key: 'assigned', label: ASSIGNMENT_STAGES.assigned },
-                    { key: 'returned', label: ASSIGNMENT_STAGES.returned },
-                  ].map(opt => (
-                    <button
-                      key={opt.key}
-                      type="button"
-                      onClick={() => setUsageStatusFilter(opt.key)}
-                      disabled={usageStageCounts[opt.key] === 0}
-                      className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
-                        usageStatusFilter === opt.key
-                          ? 'bg-[#008A45] border-[#008A45] text-white'
-                          : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      {opt.label} ({usageStageCounts[opt.key]})
-                    </button>
-                  ))}
-                </div>
-                <p className="text-[13px] text-slate-600 mt-2">
-                  Still-out records first (longest outstanding at the top), then upcoming reservations, then returned — most recent first.
-                </p>
-              </div>
+              <PopupFilters
+                search={usageSearch}
+                onSearch={setUsageSearch}
+                searchPlaceholder="Search by customer, booking ref, or venue"
+                canClear={usageStatusFilter !== 'All' || !!usageTerm}
+                onClear={() => { setUsageStatusFilter('All'); setUsageSearch(''); }}
+              >
+                <Select value={usageStatusFilter} onChange={(e) => setUsageStatusFilter(e.target.value)} className={popupSelectClass(usageStatusFilter !== 'All')}>
+                  <option value="All">All statuses ({usageStageCounts.All})</option>
+                  <option value="in_use">{ASSIGNMENT_STAGES.in_use} ({usageStageCounts.in_use})</option>
+                  <option value="assigned">{ASSIGNMENT_STAGES.assigned} ({usageStageCounts.assigned})</option>
+                  <option value="returned">{ASSIGNMENT_STAGES.returned} ({usageStageCounts.returned})</option>
+                </Select>
+              </PopupFilters>
             )}
             <div className="p-4 overflow-y-auto flex-1">
-              {usageRecords.length === 0 ? (
-                <p className="text-sm text-slate-500 text-center py-8">No usage records found.</p>
-              ) : visibleUsageRecords.length === 0 ? (
-                <p className="text-sm text-slate-500 text-center py-8">No {ASSIGNMENT_STAGES[usageStatusFilter]?.toLowerCase() || ''} records for this item.</p>
+              {usageRecords.length === 0 || visibleUsageRecords.length === 0 ? (
+                <EmptyResult canClear={usageStatusFilter !== 'All' || !!usageTerm} onClear={() => { setUsageStatusFilter('All'); setUsageSearch(''); }} />
               ) : (
                 <div className="space-y-3">
                   {visibleUsageRecords.map(record => {
