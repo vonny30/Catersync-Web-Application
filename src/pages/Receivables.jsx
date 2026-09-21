@@ -947,7 +947,7 @@ export default function Receivables() {
           )}
           {!showClaims && (
             <div>
-              <label className={`block text-[13px] font-semibold mb-1 ${datePreset !== DEFAULT_DATE_PRESET ? 'text-[#007038]' : 'text-slate-600'}`}>Payment Date</label>
+              <label className={`block text-[13px] font-semibold mb-1 ${datePreset !== DEFAULT_DATE_PRESET ? 'text-[#007038]' : 'text-slate-600'}`}>Period</label>
               <DateRangeFilter
                 preset={datePreset}
                 customStart={customStart}
