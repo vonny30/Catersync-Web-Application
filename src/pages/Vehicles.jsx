@@ -371,7 +371,6 @@ export default function Vehicles() {
           .order('vehicle_id'),
         'vehicles'
       );
-      setVehicles(vehicleData);
 
       const bookingData = await fetchAllRows(
         () => supabase
@@ -385,7 +384,6 @@ export default function Vehicles() {
           .order('booking_id'),
         'active bookings'
       );
-      setBookings(bookingData);
 
       const assignData = await fetchAllRows(
         () => supabase
@@ -414,6 +412,13 @@ export default function Vehicles() {
       (assignData || []).forEach(a => {
         if (a.booking && lapsedIds.has(a.booking_id)) a.booking.is_lapsed = true;
       });
+      // ALL THREE AT ONCE. Bookings used to be set as soon as they arrived,
+      // before the assignments were read — so for that moment every upcoming
+      // delivery had no assignment, and "Awaiting vehicle" flashed a count and
+      // then vanished when the assignments landed. Set together, the page
+      // never renders bookings against assignments from a different read.
+      setVehicles(vehicleData);
+      setBookings(bookingData);
       setAssignments(assignData);
     } catch (error) {
       handleError(error, 'Unable to load vehicle data. Please refresh the page.');

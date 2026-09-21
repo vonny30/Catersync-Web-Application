@@ -412,7 +412,6 @@ export default function Equipment() {
         .select('*')
         .order('eqm_name')
         .order('equipment_id', { ascending: true }), 'equipment');
-      setEquipmentList(equipData || []);
 
       // package_id + package name come along for the Upcoming Prep tab,
       // which has to answer "which package is this event, and what does
@@ -428,7 +427,6 @@ export default function Equipment() {
         .in('booking_status', [...ACTIVE_BOOKING_STATUSES, 'Pending'])
         .order('event_datetime', { ascending: true });
       if (bookingError) throw bookingError;
-      setBookings(bookingData || []);
 
       // The whole package→equipment template table. It is small (one row
       // per equipment line per package) and fetching it once here lets the
@@ -441,7 +439,6 @@ export default function Equipment() {
         .select('package_id, equipment_id, included_quantity, per_pax')
         .order('package_id', { ascending: true })
         .order('equipment_id', { ascending: true }), 'package equipment templates');
-      setPackageEquipment(pkgEquipData || []);
 
       // Every assignment ever, and the availability maths on this page counts
       // them — truncated at 1000 it would report stock as free that is out.
@@ -458,13 +455,19 @@ export default function Equipment() {
         `)
         .order('assigned_at', { ascending: false })
         .order('assignment_id', { ascending: true }), 'equipment assignments');
-      setAssignments(assignData || []);
 
       const { data: lapsedRows, error: lapsedError } = await supabase
         .from('v_booking_money')
         .select('booking_id')
         .eq('is_lapsed', true);
       if (lapsedError) throw lapsedError;
+      // ALL AT ONCE, after every read — the same fix as Vehicles. Setting
+      // bookings before the assignments were read rendered every upcoming
+      // event as unassigned for a moment, then corrected itself.
+      setEquipmentList(equipData || []);
+      setBookings(bookingData || []);
+      setPackageEquipment(pkgEquipData || []);
+      setAssignments(assignData || []);
       setLapsedBookingIds(new Set((lapsedRows || []).map(r => r.booking_id)));
     } catch (error) {
       handleError(error, 'Unable to load equipment data. Please refresh the page.');

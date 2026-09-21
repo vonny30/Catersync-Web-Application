@@ -9,7 +9,7 @@ import { Calendar as CalendarIcon, Clock, CheckCircle, TrendingUp, ChevronLeft, 
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
-import { useApprovalHandlers, extraPaxRate } from '../hooks/useApprovalHandlers';
+import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { sumVerifiedPositivePayments, sumDepositsCollected } from '../utils/payments';
@@ -18,6 +18,7 @@ import { PopupFilters, popupSelectClass, EmptyResult } from '../components/Filte
 import { getRangeBounds, periodSpan, paymentsReceivedNet, paymentsReceivedSub } from './Reports/helpers';
 import ImageUploadField from '../components/ImageUploadField';
 import RefundMethodField from '../components/RefundMethodField';
+import ApprovalModal from '../components/ApprovalModal';
 
 // `date.toISOString().split('T')[0]` converts to UTC before slicing the
 // date portion — for any UTC+ timezone (PG's Catering is PHT, UTC+8),
@@ -222,8 +223,10 @@ export default function Dashboard() {
           booking_type,
           total_amount,
           notes,
+          package_id,
+          customer_id,
           customer:customer_id (first_name, last_name),
-          package:package_id (pkg_name, pkg_price, pricing_type, max_pax, extra_pax_price, minimum_pax)
+          package:package_id (package_id, pkg_name, pkg_price, pricing_type, max_pax, extra_pax_price, minimum_pax)
         `)
         .eq('booking_type', 'Package')
         .eq('booking_status', 'Pending')
@@ -245,6 +248,7 @@ export default function Dashboard() {
           total_amount,
           notes,
           delivery_fee,
+          customer_id,
           customer:customer_id (first_name, last_name)
         `)
         .eq('booking_type', 'Short Order')
@@ -349,6 +353,7 @@ export default function Dashboard() {
     openApprovalModal,
     handleApprovalInputChange,
     handleFinalizeApproval,
+    setApprovalVehicleIds,
   } = useApprovalHandlers({
     booking: null,
     payments: [],
@@ -1171,165 +1176,18 @@ export default function Dashboard() {
         document.body
       )}
 
-      {/* ===== APPROVAL MODAL ===== */}
-      {isApprovalModalOpen && approvalBooking && createPortal(
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
-              <h2 className="text-lg font-bold text-slate-900">
-                {approvalBooking.booking_type === 'Short Order' ? 'Approve Short Order – Adjust Fees' : 'Approve Booking – Adjust Fees'}
-              </h2>
-              <button
-                onClick={() => setIsApprovalModalOpen(false)}
-                className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto space-y-6 bg-[#fbfcfd] text-left">
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 text-sm">
-                <div className="grid grid-cols-2 gap-2">
-                  <span className="font-medium text-slate-600">Customer:</span>
-                  <span className="font-bold text-slate-900">
-                    {approvalBooking.customer?.first_name} {approvalBooking.customer?.last_name}
-                  </span>
-                  <span className="font-medium text-slate-600">Type:</span>
-                  <span className="font-bold text-slate-900">{approvalBooking.booking_type}</span>
-                  <span className="font-medium text-slate-600">Venue:</span>
-                  <span className="font-bold text-slate-900">{approvalBooking.venue || 'N/A'}</span>
-                  <span className="font-medium text-slate-600">Current Total:</span>
-                  <span className="font-bold text-slate-900">₱{approvalBooking.total_amount?.toLocaleString() || '0'}</span>
-                </div>
-                {approvalBooking.booking_type === 'Package' && (
-                  <p className="text-xs text-slate-500 mt-2">
-                  {/* The extra-pax input is hidden on a fixed package — it covers
-                      a band and refuses anything outside it — so this line must
-                      not keep offering it. Per-pax packages still have it. */}
-                  {approvalBooking.package?.pricing_type === 'fixed'
-                    ? '* Add fees below.'
-                    : '* Adjust extra pax or add fees below.'}
-                </p>
-                )}
-                {approvalBooking.booking_type === 'Short Order' && (
-                  <p className="text-xs text-slate-500 mt-2">* Short order pricing is per tray. You can add extra fees below.</p>
-                )}
-              </div>
-
-              <div className="space-y-4">
-                {approvalBooking.booking_type === 'Package' ? (
-                  <>
-                    {/* Hidden on a fixed package. It covers a band now, and a
-                        booking outside that band is refused — so extra guests
-                        cannot change the total, and a field that cannot change
-                        anything should not be asking for a number. Per-pax
-                        packages have no cap and keep it. */}
-                    {approvalBooking.package?.pricing_type !== 'fixed' && (
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Extra Pax (additional guests)</label>
-                      <input
-                        type="number"
-                        name="extraPax"
-                        min="0"
-                        value={approvalData.extraPax}
-                        onChange={handleApprovalInputChange}
-                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                      />
-                      <p className="text-xs text-slate-400 mt-1">
-                    Each extra guest costs ₱{extraPaxRate(approvalBooking.package).toLocaleString()}
-                    {approvalBooking.package?.pricing_type === 'per_pax'
-                      ? ' (this package is priced per guest).'
-                      : ' (the extra-guest rate for this fixed-price package).'}
-                  </p>
-                    </div>
-                    )}
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons, extra services)</label>
-                      <input
-                        type="number"
-                        name="additionalFee"
-                        min="0"
-                        step="0.01"
-                        value={approvalData.additionalFee}
-                        onChange={handleApprovalInputChange}
-                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                        placeholder="e.g. 2000"
-                      />
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Extra Quantity Fee (additional trays / items)</label>
-                      <input
-                        type="number"
-                        name="extraQuantity"
-                        min="0"
-                        step="0.01"
-                        value={approvalData.extraQuantity}
-                        onChange={handleApprovalInputChange}
-                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                        placeholder="e.g. 1000"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Additional Delivery Fee</label>
-                      <input
-                        type="number"
-                        name="extraDeliveryFee"
-                        min="0"
-                        step="0.01"
-                        value={approvalData.extraDeliveryFee}
-                        onChange={handleApprovalInputChange}
-                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                        placeholder="e.g. 500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons)</label>
-                      <input
-                        type="number"
-                        name="additionalFee"
-                        min="0"
-                        step="0.01"
-                        value={approvalData.additionalFee}
-                        onChange={handleApprovalInputChange}
-                        className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                        placeholder="e.g. 2000"
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <div className="bg-[#EAF3F2] border border-[#d2e8e5] rounded-lg p-4 flex justify-between items-center">
-                <span className="font-bold text-slate-800">New Total:</span>
-                <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-              </div>
-              <div className="text-sm text-slate-500">
-                <p>Deposit (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
-                <p className="text-xs mt-1">A deposit is required to secure the order. Non-refundable within 3 days of the event.</p>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setIsApprovalModalOpen(false)}
-                  className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleFinalizeApproval}
-                  disabled={isApprovalSubmitting}
-                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50"
-                >
-                  {isApprovalSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
+      {/* APPROVAL MODAL — the shared one (components/ApprovalModal). */}
+      {isApprovalModalOpen && approvalBooking && (
+        <ApprovalModal
+          key={approvalBooking.booking_id}
+          booking={approvalBooking}
+          data={approvalData}
+          onInputChange={handleApprovalInputChange}
+          onSubmit={handleFinalizeApproval}
+          onClose={() => setIsApprovalModalOpen(false)}
+          submitting={isApprovalSubmitting}
+          onVehicleSelectionChange={setApprovalVehicleIds}
+        />
       )}
 
       {/* ===== REJECTION REASON MODAL ===== */}

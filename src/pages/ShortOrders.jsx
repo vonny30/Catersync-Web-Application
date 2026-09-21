@@ -18,7 +18,7 @@ import { createWalkInCustomer } from '../utils/createWalkInCustomer';
 import { getServiceMethod, PICKUP_VENUE_MARKER, reconcileServiceMethodChange } from '../utils/vehicle';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
-import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
+import ApprovalModal from '../components/ApprovalModal';
 import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
 import { isPaymentLedgerLocked, totalLossOnRecompute, totalLossLockedMessage, formatPaymentDeletionWarning, movesBooks, isRefundEntry, RECEIPT_STAGES } from '../utils/payments';
@@ -2456,76 +2456,18 @@ export default function ShortOrders() {
         document.body
       )}
 
-      {/* ===== APPROVAL MODAL – Using the hook's state and handlers ===== */}
-      {isApprovalModalOpen && approvalOrder && createPortal(
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
-              <h2 className="text-lg font-bold text-slate-900">Approve Short Order – Adjust Fees</h2>
-              <button onClick={() => setIsApprovalModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto space-y-6 bg-[#fbfcfd] text-left">
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 text-sm">
-                <div className="grid grid-cols-2 gap-2">
-                  <span className="font-medium text-slate-600">Customer:</span>
-                  <span className="font-bold text-slate-900">
-                    {approvalOrder.customer?.first_name} {approvalOrder.customer?.last_name}
-                  </span>
-                  <span className="font-medium text-slate-600">Venue:</span>
-                  <span className="font-bold text-slate-900">{approvalOrder.venue || 'N/A'}</span>
-                  <span className="font-medium text-slate-600">Current Total:</span>
-                  <span className="font-bold text-slate-900">₱{approvalOrder.total_amount?.toLocaleString() || '0'}</span>
-                </div>
-                <p className="text-xs text-slate-500 mt-2">Short order pricing is per tray. You can add extra fees below.</p>
-              </div>
-
-              <ApprovalAvailabilityCheck
-                onVehicleSelectionChange={setApprovalVehicleIds}
-                booking={approvalOrder}
-                effectivePaxCount={0}
-              />
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Extra Quantity Fee (additional trays / items)</label>
-                  <input type="number" name="extraQuantity" min="0" step="0.01" value={approvalData.extraQuantity} onChange={handleApprovalInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" placeholder="e.g. 1000" />
-                </div>
-                {/* The other route to charging delivery on a collection.
-                    Same reasoning as the create form: withhold the field
-                    rather than flag the mistake later. */}
-                {getServiceMethod(approvalOrder)?.mode !== 'Pickup' && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Additional Delivery Fee</label>
-                    <input type="number" name="extraDeliveryFee" min="0" step="0.01" value={approvalData.extraDeliveryFee} onChange={handleApprovalInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" placeholder="e.g. 500" />
-                  </div>
-                )}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons)</label>
-                  <input type="number" name="additionalFee" min="0" step="0.01" value={approvalData.additionalFee} onChange={handleApprovalInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" placeholder="e.g. 2000" />
-                </div>
-              </div>
-
-              <div className="bg-[#EAF3F2] border border-[#d2e8e5] rounded-lg p-4 flex justify-between items-center">
-                <span className="font-bold text-slate-800">New Total:</span>
-                <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-              </div>
-              <div className="text-sm text-slate-500">
-                <p>Deposit (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
-                <p className="text-xs mt-1">A deposit may be required for large orders.</p>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-                <button type="button" onClick={() => setIsApprovalModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">Cancel</button>
-                <button onClick={handleFinalizeApproval} disabled={isApprovalSubmitting} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50">
-                  {isApprovalSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
+      {/* APPROVAL MODAL — the shared one (components/ApprovalModal). */}
+      {isApprovalModalOpen && approvalOrder && (
+        <ApprovalModal
+          key={approvalOrder.booking_id}
+          booking={approvalOrder}
+          data={approvalData}
+          onInputChange={handleApprovalInputChange}
+          onSubmit={handleFinalizeApproval}
+          onClose={() => setIsApprovalModalOpen(false)}
+          submitting={isApprovalSubmitting}
+          onVehicleSelectionChange={setApprovalVehicleIds}
+        />
       )}
 
       {/* ===== REJECTION REASON MODAL (using hook's state and handlers) ===== */}
