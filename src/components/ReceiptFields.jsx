@@ -4,9 +4,11 @@
 // method actually has. Shared by the Receivables page and both booking detail
 // pages so the three forms cannot drift apart.
 //
-// Cash has a paper receipt, so it asks for the receipt number (required) and
-// takes an image only if there is one. GCash and bank transfers have a digital
-// trail, so they require the screenshot and never ask for a number. Switching
+// Cash has a paper receipt, so it asks for the receipt number — and ONLY the
+// number (Vaughn, 22 Sep 2026): a cash payment is recorded by the manager from
+// the receipt they issued, never from a screenshot. GCash and bank transfers
+// have a digital trail, so they require the screenshot and never ask for a
+// number. Switching
 // method clears the field that no longer applies, so a stale value is never
 // saved (the parent does the clearing in onMethodChange).
 //
@@ -115,16 +117,17 @@ export default function ReceiptFields({
         </div>
       )}
 
-      <ImageUploadField
-        label="Proof of Payment"
-        required={!needsNumber}
-        note={needsNumber ? '(optional for cash)' : ''}
-        file={file}
-        onChange={onFileChange}
-        error={errors.file}
-        hint="PNG, JPG up to 5MB. Stored in Supabase Storage."
-        disabled={disabled}
-      />
+      {!needsNumber && (
+        <ImageUploadField
+          label="Proof of Payment"
+          required
+          file={file}
+          onChange={onFileChange}
+          error={errors.file}
+          hint="PNG, JPG up to 5MB. Stored in Supabase Storage."
+          disabled={disabled}
+        />
+      )}
     </div>
   );
 }

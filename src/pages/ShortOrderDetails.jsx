@@ -2059,13 +2059,15 @@ export default function ShortOrderDetails() {
       </div>
       <div className="mt-2">
         <RefundMethodField value={refundMethod} onChange={setRefundMethod} receiptNo={refundReceiptNo} onReceiptNoChange={setRefundReceiptNo} />
-        <ImageUploadField
-          label="Receipt / Proof of Refund"
-          required={refundMethod !== 'Cash'}
-          note={refundMethod === 'Cash' ? '(optional for cash)' : '(required if amount entered)'}
-          file={refundFile}
-          onChange={(e) => setRefundFile(e.target.files[0])}
-        />
+        {refundMethod !== 'Cash' && (
+          <ImageUploadField
+            label="Receipt / Proof of Refund"
+            required
+            note="(required if amount entered)"
+            file={refundFile}
+            onChange={(e) => setRefundFile(e.target.files[0])}
+          />
+        )}
       </div>
     </div>
   );
@@ -2133,13 +2135,15 @@ export default function ShortOrderDetails() {
                   </div>
                   <div className="mt-2">
                     <RefundMethodField value={rejectionRefundMethod} onChange={setRejectionRefundMethod} receiptNo={rejectionRefundReceiptNo} onReceiptNoChange={setRejectionRefundReceiptNo} />
-                    <ImageUploadField
-                      label="Receipt / Proof of Refund"
-                      required={rejectionRefundMethod !== 'Cash'}
-                      note={rejectionRefundMethod === 'Cash' ? '(optional for cash)' : '(required if amount entered)'}
-                      file={rejectionRefundFile}
-                      onChange={(e) => setRejectionRefundFile(e.target.files[0])}
-                    />
+                    {rejectionRefundMethod !== 'Cash' && (
+                      <ImageUploadField
+                        label="Receipt / Proof of Refund"
+                        required
+                        note="(required if amount entered)"
+                        file={rejectionRefundFile}
+                        onChange={(e) => setRejectionRefundFile(e.target.files[0])}
+                      />
+                    )}
                   </div>
                 </div>
               )}
@@ -2182,13 +2186,15 @@ export default function ShortOrderDetails() {
               </div>
 
               <RefundMethodField value={refundModalMethod} onChange={setRefundModalMethod} receiptNo={refundModalReceiptNo} onReceiptNoChange={setRefundModalReceiptNo} />
-              <ImageUploadField
-                label="Proof of Refund"
-                required={refundModalMethod !== 'Cash'}
-                file={refundModalFile}
-                onChange={(e) => setRefundModalFile(e.target.files[0])}
-                hint={refundModalMethod === 'Cash' ? 'Optional for cash — the receipt number is the proof.' : 'PNG, JPG up to 5MB. Proof image is required.'}
-              />
+              {refundModalMethod !== 'Cash' && (
+                <ImageUploadField
+                  label="Proof of Refund"
+                  required
+                  file={refundModalFile}
+                  onChange={(e) => setRefundModalFile(e.target.files[0])}
+                  hint="PNG, JPG up to 5MB. Proof image is required."
+                />
+              )}
 
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
                 <button type="button" onClick={() => setIsRefundModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2 rounded-lg border border-slate-300 transition-colors">Cancel</button>

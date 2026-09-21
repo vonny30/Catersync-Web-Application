@@ -1247,13 +1247,15 @@ export default function Dashboard() {
                   </div>
                   <div className="mt-2">
                     <RefundMethodField value={rejectionRefundMethod} onChange={setRejectionRefundMethod} receiptNo={rejectionRefundReceiptNo} onReceiptNoChange={setRejectionRefundReceiptNo} />
-                    <ImageUploadField
-                      label="Receipt / Proof of Refund"
-                      required={rejectionRefundMethod !== 'Cash'}
-                      note={rejectionRefundMethod === 'Cash' ? '(optional for cash)' : '(required if amount entered)'}
-                      file={rejectionRefundFile}
-                      onChange={(e) => setRejectionRefundFile(e.target.files[0])}
-                    />
+                    {rejectionRefundMethod !== 'Cash' && (
+                      <ImageUploadField
+                        label="Receipt / Proof of Refund"
+                        required
+                        note="(required if amount entered)"
+                        file={rejectionRefundFile}
+                        onChange={(e) => setRejectionRefundFile(e.target.files[0])}
+                      />
+                    )}
                   </div>
                 </div>
               )}

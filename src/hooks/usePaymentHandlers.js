@@ -157,7 +157,8 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       // null, not a placeholder: payment_evidence_check needs a receipt to carry
       // real evidence — an image, or (cash) the receipt number.
       let proofUrl = null;
-      if (selectedFile) {
+      // Cash is the receipt number only — no image, even a stale one.
+      if (selectedFile && !methodNeedsReceiptNumber(paymentFormData.pay_method)) {
         setUploading(true);
         const file = selectedFile;
         const fileExt = file.name.split('.').pop();
