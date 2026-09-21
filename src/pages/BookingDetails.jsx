@@ -1935,7 +1935,7 @@ export default function BookingDetails() {
           {canCancel && (
             <button
               onClick={openCancelModal}
-              title={money?.is_lapsed ? 'The event date has passed, so this can no longer be confirmed. Cancelling closes the record.' : undefined}
+              title={money?.is_lapsed ? 'Closes the record' : undefined}
               className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
             >
               <X size={18} /> Cancel Booking

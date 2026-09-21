@@ -58,7 +58,7 @@ export default function OverrideStatusModal({ booking, isOpen, onClose, onDone, 
     if (reasonMissing) {
       // Checked here as well as in the function: the manager should be told
       // before a round trip, and the function still refuses without one.
-      toast.error('A reason is required — it is what the override records.');
+      toast.error('A reason is required');
       return;
     }
     setSubmitting(true);
@@ -133,7 +133,7 @@ export default function OverrideStatusModal({ booking, isOpen, onClose, onDone, 
 
           {policyConflict && (
             <p className="text-[13px] text-amber-800 bg-amber-50 border border-amber-200 rounded-[10px] px-3.5 py-2.5">
-              This {noun} has not reached the 50% deposit policy ({peso(paid)} of {peso(required)}). The override will be recorded with your reason.
+              Below the 50% deposit policy — {peso(paid)} of {peso(required)}
             </p>
           )}
 
@@ -153,9 +153,7 @@ export default function OverrideStatusModal({ booking, isOpen, onClose, onDone, 
                   : 'border-slate-200 focus:ring-[3px] focus:ring-[#008A45]/12 focus:border-[#008A45]'
               }`}
             />
-            <p className="text-[12px] text-slate-500 mt-1">
-              Recorded against this {noun} in its status history. It is the record of why the policy was set aside.
-            </p>
+            <p className="text-[12px] text-slate-500 mt-1">Recorded in the status history.</p>
           </div>
         </div>
 

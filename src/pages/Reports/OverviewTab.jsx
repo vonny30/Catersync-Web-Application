@@ -28,8 +28,7 @@
 //
 // Every figure comes from f_report_period. Pending bookings are in none of
 // them: a request nobody has agreed to is not revenue.
-import { formatCurrency, formatPercent, cardColorClasses, cardAccentClass, forPeriod, duringPeriod, inPeriod } from './helpers';
-import InfoHint from '../../components/InfoHint';
+import { formatCurrency, formatPercent, cardColorClasses, cardAccentClass, forPeriod } from './helpers';
 
 // The hint sits OUTSIDE the card's button (a button inside a button is
 // invalid, and the click would go to the card), so the card is a positioned
@@ -54,8 +53,11 @@ function StatCard({ label, value, sub, color, onClick, count = false, hint = nul
 const ROW_GRID = 'grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))]';
 // Headings, not card labels: darker, larger, with the plain sentence under
 // them that says what the section answers.
-const SECTION_HEAD = 'text-[15px] font-bold tracking-[-0.01em] text-slate-900';
-const SECTION_SUB = 'text-[13px] text-slate-600 mt-0.5 mb-3.5';
+const SECTION_HEAD = 'text-[15px] font-bold tracking-[-0.01em] text-slate-900 mb-3.5';
+// Beside a section heading: which basis the figures under it are measured on.
+// Small and muted on purpose — a reader who knows the term is told everything
+// they need, and a reader who does not is not slowed down by it.
+const BASIS_LABEL = 'ml-2 text-[11.5px] font-semibold uppercase tracking-[0.06em] text-slate-400';
 
 export default function OverviewTab({ derived, period, onCardClick, onOpenDetail }) {
   const {
@@ -74,22 +76,21 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
       {/* SECTION 1 — anchored on the SERVICE date: what this period's catering
           is worth and what is still owed on it. */}
       <section>
-        <h2 className={SECTION_HEAD}>Work scheduled {forPeriod(period)}</h2>
-        <p className={SECTION_SUB}>What the scheduled catering is worth {forPeriod(period)}, and how much of it is still to collect.</p>
+        <h2 className={SECTION_HEAD}>By service date<span className={BASIS_LABEL}>Accrual basis</span></h2>
         <div className={ROW_GRID}>
           {/* Contracted work only — Confirmed and Completed. A Pending request
               is not revenue, and it is not folded in under any label. */}
           <StatCard
             label="Estimated Gross Revenue"
             value={formatCurrency(financialSummary.grossContracted)}
-            sub={`Contracted ${forPeriod(period)} · by service date`}
+            sub="Confirmed and completed"
             color="green"
             onClick={() => onCardClick('revenue')}
           />
           <StatCard
-            label="Approved, Not Yet Confirmed"
+            label="Approved"
             value={formatCurrency(financialSummary.grossApproved)}
-            sub={`Accepted, awaiting confirmation · ${forPeriod(period)}`}
+            sub="Not yet confirmed"
             color="blue"
             onClick={() => onCardClick('approved')}
           />
@@ -101,7 +102,7 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
           <StatCard
             label="Collections Applied to This Period"
             value={formatCurrency(financialSummary.paidContracted)}
-            sub="Collections applied to date against this period's contracted service"
+            sub="Already collected"
             color="teal"
             onClick={() => onCardClick('collected')}
           />
@@ -112,48 +113,24 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
           <StatCard
             label="Total Receivables"
             value={formatCurrency(financialSummary.outstandingContracted)}
-            sub="Collectibles on this period's contracted service"
+            sub="Still collectible"
             color="amber"
             onClick={() => onCardClick('outstanding')}
           />
         </div>
-        {/* The identity the two middle cards exist to make visible. */}
-        <p className="text-[12.5px] text-slate-500 mt-3">
-          Collections Applied to This Period plus Total Receivables is Estimated Gross Revenue — the same contracted work, split into what has been collected and what has not.
-        </p>
       </section>
-
-      {/* The sentence that stops a reader adding the two blocks together. Cash
-          Receipts can exceed a month's revenue — a deposit taken now for a
-          November wedding is in one and not the other — and no tooltip fixes
-          that as well as saying it in the open. */}
-      <p className="text-[13px] text-slate-600 border-l-2 border-slate-200 pl-3.5">
-        These two sections answer different questions. Their totals are not meant to add up.
-      </p>
-      {/* Deliberately not "the difference is advance deposits": the gap also
-          holds collections on approved bookings and on bookings later
-          cancelled, so naming it as one thing would be wrong. */}
-      <p className="text-[13px] text-slate-600 border-l-2 border-slate-200 pl-3.5">
-        Cash Receipts is usually larger, because it also includes deposits for events in later periods and for bookings not yet confirmed.
-      </p>
 
       {/* SECTION 2 — anchored on the PAYMENT date: cash that actually moved. */}
       <section>
-        <h2 className={SECTION_HEAD}>Money that moved {inPeriod(period)}</h2>
-        <p className={SECTION_SUB}>Cash in and out {duringPeriod(period)}, whatever month the catering happens.</p>
+        <h2 className={SECTION_HEAD}>By payment date<span className={BASIS_LABEL}>Cash basis</span></h2>
         <div className={ROW_GRID}>
           {/* The same figure, by the same definition, as Cash Receipts on the
               Receivables page. Both read f_report_period / v_payment_ledger. */}
           <StatCard
             label="Cash Receipts"
             value={formatCurrency(financialSummary.cashReceipts)}
-            sub={`Collected ${duringPeriod(period)} · by payment date`}
+            sub="Money received"
             color="teal"
-            hint={(
-              <InfoHint label="What Cash Receipts includes">
-                Includes deposits collected {duringPeriod(period)} for events happening later, which is why this can be larger than the revenue for the same period.
-              </InfoHint>
-            )}
             onClick={() => onOpenDetail({
               title: 'Cash Receipts',
               description: 'Verified receipts, counted on the day the money moved. Claims awaiting verification, reversals, and receipts that have been reversed are all excluded — the same rule the Receivables page uses.',
@@ -168,7 +145,7 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
           <StatCard
             label="Refunds Issued"
             value={formatCurrency(financialSummary.refundsIssued)}
-            sub={`Paid back ${duringPeriod(period)} · by payment date`}
+            sub="Money returned"
             color="red"
             onClick={() => onOpenDetail({
               title: 'Refunds Issued',
@@ -188,12 +165,11 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
           not part of the revenue identity above. */}
       <section>
         <h2 className={SECTION_HEAD}>Also {forPeriod(period)}</h2>
-        <p className={SECTION_SUB}>Work that did not happen, and work that finished.</p>
         <div className={ROW_GRID}>
           <StatCard
             label="Forfeited Deposits"
             value={formatCurrency(financialSummary.forfeitedDeposits)}
-            sub={`Retained from cancellations · ${forPeriod(period)}`}
+            sub="Kept on cancellations"
             color="red"
             onClick={() => onCardClick('forfeited')}
           />
@@ -201,7 +177,7 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
             count
             label="Completed Bookings"
             value={financialSummary.completedCount}
-            sub={`Finished ${duringPeriod(period)}`}
+            sub="Marked completed"
             color="purple"
             onClick={() => onOpenDetail({
               title: 'Completed Bookings',

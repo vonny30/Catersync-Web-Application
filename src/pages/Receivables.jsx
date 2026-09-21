@@ -29,9 +29,8 @@ import toast from 'react-hot-toast';
 import { supabase } from '../supabase';
 import Select from '../components/Select';
 import ReceiptFields from '../components/ReceiptFields';
-import InfoHint from '../components/InfoHint';
 import DateRangeFilter from './Reports/DateRangeFilter';
-import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, formatDate, periodLabel, forPeriod, duringPeriod } from './Reports/helpers';
+import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, formatDate, periodLabel, forPeriod } from './Reports/helpers';
 import { statusWriteErrorMessage } from '../utils/lapsed';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -326,7 +325,7 @@ function RecordReceiptModal({ receivables, onClose, onRecorded }) {
                   </button>
                 ))}
               </div>
-              <p className="text-[12px] text-slate-500 mt-1">Approved, Confirmed and Completed bookings with a balance due. A Pending request has no agreement yet, so no receivable exists yet.</p>
+              <p className="text-[12px] text-slate-500 mt-1">Approved, confirmed and completed</p>
             </>
           )}
         </div>
@@ -490,12 +489,7 @@ function ReceivablesBreakdown({ bookings, period, total, onClose, onOpenBooking 
       footer={<button type="button" onClick={onClose} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-5 py-2.5 rounded-lg border border-slate-300 transition-colors">Close</button>}
     >
       <p className="text-[13px] text-slate-600 mb-3">
-        Still to collect {forPeriod(period)}, by service date. Confirmed and completed catering only.
-      </p>
-      {/* Said here because it is where a reader looks for a booking and does
-          not find it. No figure: this is an explanation, not a second total. */}
-      <p className="text-[12.5px] text-slate-500 mb-3">
-        Approved bookings are not counted in Total Receivables until they are confirmed.
+        Confirmed and completed catering {forPeriod(period)}
       </p>
       {bookings.length === 0 ? (
         <p className="text-sm text-slate-500 italic text-center py-6">No balances due for services in this period.</p>
@@ -832,7 +826,7 @@ export default function Receivables() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Receivables</h1>
-          <p className="text-[14.5px] text-slate-600 mt-1.5">Money collected, and money still to collect.</p>
+          <p className="text-[14.5px] text-slate-600 mt-1.5">Money received, and still collectible.</p>
         </div>
         <div className="flex items-center gap-3">
           <button onClick={refresh} className="bg-white border border-slate-200 text-slate-700 px-4 py-2.5 rounded-[10px] font-semibold transition-colors flex items-center gap-2 text-sm whitespace-nowrap hover:border-[#c9dfd4] hover:text-[#007038]">
@@ -853,25 +847,20 @@ export default function Receivables() {
         <div className="relative">
         <button onClick={showCashReceipts} className="w-full h-full relative overflow-hidden flex flex-col justify-start text-left rounded-2xl border border-slate-200/70 bg-white p-5 transition-all cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]">
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
-          <p className="text-[13px] font-semibold text-slate-600 mb-2 pr-6">Cash Receipts</p>
+          <p className="text-[13px] font-semibold text-slate-600 mb-2 pr-6">Cash Receipts<span className="ml-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400">Cash basis</span></p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(cashReceipts) : '—'}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">Collected {duringPeriod(period)} · by payment date</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">Money received</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show these receipts <ChevronRight size={13} /></span>
         </button>
-        <span className="absolute top-[18px] right-[14px]">
-          <InfoHint label="What Cash Receipts includes">
-            Includes deposits collected {duringPeriod(period)} for events happening later, which is why this can be larger than the revenue for the same period.
-          </InfoHint>
-        </span>
         </div>
         <button onClick={() => setShowReceivablesBreakdown(true)} className="relative overflow-hidden flex flex-col justify-start text-left rounded-2xl border border-slate-200/70 bg-white p-5 transition-all cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]">
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500" />
-          <p className="text-[13px] font-semibold text-slate-600 mb-2">Total Receivables</p>
+          <p className="text-[13px] font-semibold text-slate-600 mb-2">Total Receivables<span className="ml-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400">Accrual basis</span></p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(totalReceivables) : '—'}</h3>
-          {/* Same shape as the card beside it: what, which period, which
-              basis. Service date, not payment date — this is what is owed on
-              catering held in the period, however late it is collected. */}
-          <p className="text-[13px] text-slate-600 mt-2.5">Collectibles on confirmed and completed catering {forPeriod(period)} · by service date</p>
+          {/* Two words, the same two used on Reports and on Customers. The
+              basis label beside the card's name carries what the old sentence
+              spelled out. */}
+          <p className="text-[13px] text-slate-600 mt-2.5">Still collectible</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show balances due <ChevronRight size={13} /></span>
         </button>
       </div>
@@ -983,10 +972,10 @@ export default function Receivables() {
           </span>
           <p className="text-[13px] text-slate-600 mt-0.5">
             {showClaims
-              ? 'Submitted from the mobile app. Verify to record one as a receipt, or reject it.'
+              ? 'Submitted from the mobile app'
               : tab === 'Refunds'
-                ? 'Money returned to customers. A reversal is a correction, not a refund, and is listed under Receipts.'
-                : 'Verified receipts only. A reversed receipt stays on record, struck through, with its reversal beneath it; neither counts toward any total.'}
+                ? 'Money returned to customers'
+                : 'Verified receipts only'}
           </p>
         </div>
         {!loaded ? (

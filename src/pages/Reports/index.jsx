@@ -558,7 +558,7 @@ export default function Reports() {
               an instruction for an affordance the cards already carry. The
               exclusion is kept -- it changes what the figures mean. */}
           <p className="text-[14.5px] text-slate-600 mt-1.5 max-w-[620px] [text-wrap:pretty]">
-            Bookings, payments, and menu popularity for PG's Catering. Figures exclude rejected and cancelled bookings.
+            Revenue, cash and menu performance.
           </p>
         </div>
         <DateRangeFilter
@@ -599,7 +599,7 @@ export default function Reports() {
       ) : (
         <div className="animate-in fade-in duration-200 space-y-[18px]">
           {activeTab === 'Overview' && <OverviewTab derived={derived} period={period} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
-          {activeTab === 'Financial' && <FinancialTab derived={derived} period={period} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
+          {activeTab === 'Financial' && <FinancialTab derived={derived} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Menu & Packages' && <MenuPerformanceTab derived={derived} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Booking Summary' && <BookingSummaryTab derived={derived} onOpenDetail={openSimpleModal} />}
         </div>

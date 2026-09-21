@@ -29,19 +29,17 @@ export function lapsedChipLabel(eventDatetime) {
 }
 
 /** On the disabled Approve / Confirm control. */
-export const LAPSED_ACCEPT_TOOLTIP =
-  'The event date has already passed, so this booking can no longer be accepted.';
+export const LAPSED_ACCEPT_TOOLTIP = 'Event date has passed';
 
 /**
  * Pre-filled into the rejection reason, and editable there. Declining stays
  * available on purpose: a customer's request is answered by a person, not
  * discarded silently.
  */
-export const LAPSED_DECLINE_REASON = 'Event date passed before the booking was accepted.';
+export const LAPSED_DECLINE_REASON = 'Event date passed before it was accepted.';
 
 /** Said in the override dialog, which is the one path that may still accept it. */
-export const LAPSED_OVERRIDE_WARNING =
-  'This event date has already passed. The override will be recorded with your reason.';
+export const LAPSED_OVERRIDE_WARNING = 'Event date has passed';
 
 // PostgreSQL check_violation. The lapsed guard raises it with a message
 // written for the manager to read, naming the booking and its event date.

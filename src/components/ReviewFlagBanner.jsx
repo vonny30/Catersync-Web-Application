@@ -39,9 +39,9 @@ export default function ReviewFlagBanner({ bookingId, reason, flaggedAt, onClear
       <div className="flex items-start gap-2.5 min-w-0">
         <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
         <div className="min-w-0">
-          <p className="text-[14px] font-bold text-amber-900">This booking needs a manager's review</p>
+          <p className="text-[14px] font-bold text-amber-900">Needs review</p>
           <p className="text-[13px] text-amber-900/90 mt-0.5">
-            {reason || 'The system changed this booking.'}
+            {reason || 'Changed by the system.'}
           </p>
           {flaggedAt && (
             <p className="text-[12px] text-amber-800/80 mt-0.5 tabular-nums">

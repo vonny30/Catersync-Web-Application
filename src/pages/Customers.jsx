@@ -47,8 +47,6 @@ const dateTime = (value) => (value
   ? new Date(value).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
   : '—');
 
-const currentMonthName = () => new Date().toLocaleString('en-PH', { month: 'long', year: 'numeric' });
-
 const RELATIVE = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
 const relativeTime = (value) => {
   const seconds = Math.round((new Date(value).getTime() - Date.now()) / 1000);
@@ -513,21 +511,21 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
                   <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${Number(balance?.receivable_due) > 0 ? 'bg-amber-500' : 'bg-[#008A45]'}`} />
                   <p className="text-[12.5px] font-bold text-slate-700 mb-1">Receivables</p>
                   <p className={`text-[21px] font-bold tabular-nums ${Number(balance?.receivable_due) > 0 ? 'text-amber-700' : 'text-slate-900'}`}>{peso(balance?.receivable_due)}</p>
-                  <p className="text-[11.5px] text-slate-500 mt-1 leading-snug">Collectible now, on confirmed and completed catering.</p>
+                  <p className="text-[11.5px] text-slate-500 mt-1 leading-snug">Still collectible</p>
                 </div>
                 {/* Secondary on purpose: real money, but not yet collectible —
                     the customer has not committed to it. */}
                 <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3.5">
                   <p className="text-[12.5px] font-semibold text-slate-500 mb-1">Pipeline</p>
                   <p className="text-[19px] font-medium tabular-nums text-slate-500">{peso(balance?.pipeline_due)}</p>
-                  <p className="text-[11.5px] text-slate-500 mt-1 leading-snug">On pending and approved bookings, not yet collectible.</p>
+                  <p className="text-[11.5px] text-slate-500 mt-1 leading-snug">Not yet collectible</p>
                 </div>
                 {/* Claimed, not received. Kept apart from Total Collected on
                     purpose — it must never read as money in hand. */}
                 <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3.5">
                   <p className="text-[12.5px] font-semibold text-slate-500 mb-1">Awaiting Verification</p>
                   <p className="text-[19px] font-medium tabular-nums text-slate-500">{peso(balance?.awaiting_verification)}</p>
-                  <p className="text-[11.5px] text-slate-500 mt-1 leading-snug">Claimed by the customer, not yet verified.</p>
+                  <p className="text-[11.5px] text-slate-500 mt-1 leading-snug">Not yet verified</p>
                 </div>
               </div>
 
@@ -1022,34 +1020,30 @@ export default function Customers() {
     );
   };
 
-  const sourceSegments = t
-    ? [[t.mobile_customers, 'mobile'], [t.walk_in_customers, 'walk-in'], [t.unknown_source_customers, 'unknown']]
-      .filter(([n]) => Number(n) > 0)
-      .map(([n, label]) => `${n} ${label}`)
-      .join(' · ')
-    : '';
-
   const summaryCards = [
     {
       key: 'total',
       label: 'Total Customers',
       value: t?.total_customers,
-      sub: sourceSegments || 'No customers yet',
+      sub: 'Accounts on record',
       accent: 'bg-[#008A45]',
       onClick: () => { clearFilters(); scrollToTable(); },
     },
     {
       key: 'balance',
-      label: 'With Receivables',
+      label: 'Total Receivables',
       // with_receivable and total_receivable are the same money Total
       // Receivables adds up on the Receivables and Reports pages. with_balance
       // and total_outstanding still exist and still count pending and approved
       // work; nothing on this page binds to them any more.
-      value: t?.with_receivable,
-      // The money behind the count, on its own line: the subtext carries no
-      // digits, and a count of customers without the amount is half the answer.
-      amount: t ? peso(t.total_receivable) : null,
-      sub: 'Customers with collectible catering',
+      // THE AMOUNT IS THE HEADLINE, not the count. The card is named Total
+      // Receivables — the same name, and the same figure, as the card on
+      // Receivables and Reports — so the number under that name has to be the
+      // money. How many customers it is spread across is the smaller fact and
+      // reads underneath.
+      value: t ? peso(t.total_receivable) : null,
+      note: t ? `${t.with_receivable} customer${t.with_receivable === 1 ? '' : 's'}` : null,
+      sub: 'Still collectible',
       accent: 'bg-amber-500',
       onClick: () => { clearFilters(); setBalanceFilter('Has receivables'); scrollToTable(); },
     },
@@ -1057,7 +1051,7 @@ export default function Customers() {
       key: 'repeat',
       label: 'Repeat Customers',
       value: t?.repeat_customers,
-      sub: t ? `${t.repeat_pct}% of all customers` : '',
+      sub: 'Booked more than once',
       accent: 'bg-blue-500',
       onClick: () => { clearFilters(); setRepeatOnly(true); scrollToTable(); },
     },
@@ -1065,7 +1059,7 @@ export default function Customers() {
       key: 'new',
       label: 'New This Month',
       value: t?.new_this_month,
-      sub: currentMonthName(),
+      sub: 'Joined this month',
       accent: 'bg-purple-600',
       title: "created_at was backfilled from each customer's first booking on 17 September 2026, so this count is exact only for customers created after that date.",
       onClick: () => { clearFilters(); setDatePreset('This Month'); scrollToTable(); },
@@ -1085,7 +1079,7 @@ export default function Customers() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Customers</h1>
-          <p className="text-[14.5px] text-slate-600 mt-1.5">Everyone who has booked with PG's Catering — their history, their balance, and their account.</p>
+          <p className="text-[14.5px] text-slate-600 mt-1.5">Accounts, receivables and history.</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -1119,8 +1113,8 @@ export default function Customers() {
             ) : (
               <div className="h-[28px] w-16 rounded bg-slate-100 animate-pulse" />
             )}
-            {card.amount && (
-              <p className="text-[14px] font-semibold text-amber-700 tabular-nums mt-1.5">{card.amount} collectible</p>
+            {card.note && (
+              <p className="text-[13px] text-slate-500 tabular-nums mt-1.5">{card.note}</p>
             )}
             <p className="text-[13px] text-slate-600 mt-2.5">{t ? card.sub : ' '}</p>
           </button>

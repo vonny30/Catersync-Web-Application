@@ -50,5 +50,4 @@ export const FLAGGED_CHIP_CLASS =
  * No figure in it on purpose: the balance is the number on the row, and a
  * second amount in a tooltip is a second number to reconcile.
  */
-export const AWAITING_VERIFICATION_HINT =
-  'Includes a payment awaiting verification, which is not yet deducted.';
+export const AWAITING_VERIFICATION_HINT = 'Payment awaiting verification';

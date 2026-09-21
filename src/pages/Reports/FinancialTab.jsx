@@ -4,10 +4,9 @@ import {
 } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 import { ExternalLink } from 'lucide-react';
-import { formatCurrency, formatPercent, formatDate, forPeriod, duringPeriod, inPeriod } from './helpers';
-import InfoHint from '../../components/InfoHint';
+import { formatCurrency, formatPercent, formatDate } from './helpers';
 
-export default function FinancialTab({ derived, period, onCardClick, onOpenDetail }) {
+export default function FinancialTab({ derived, onCardClick, onOpenDetail }) {
   const navigate = useNavigate();
   const { financialSummary, monthlyFinancialTrend, paymentMethodData, refunds, reversals, bookingSummaryData } = derived;
 
@@ -34,13 +33,12 @@ export default function FinancialTab({ derived, period, onCardClick, onOpenDetai
       {/* The same two sections as the Overview tab, so both tabs teach the
           same idea: service-date figures first, then the cash that moved. */}
       <section className="bg-white border border-slate-200/70 rounded-2xl p-6 mb-5">
-        <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Work scheduled {forPeriod(period)}</h2>
-        <p className="text-[13px] text-slate-600 mt-0.5 mb-5">What the scheduled catering is worth {forPeriod(period)}, and how much of it is still to collect.</p>
+        <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900 mb-5">By service date<span className="ml-2 text-[11.5px] font-semibold uppercase tracking-[0.06em] text-slate-400">Accrual basis</span></h2>
         <div className="flex flex-wrap gap-8">
           <button onClick={() => onCardClick('revenue')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
             <span className="block text-[13px] text-slate-600 mb-1.5">Estimated Gross Revenue</span>
             <span className={`${FIG} text-slate-900`}>{formatCurrency(financialSummary.grossContracted)}</span>
-            <span className="block text-[12.5px] text-slate-500 mt-1">Contracted · by service date</span>
+            <span className="block text-[12.5px] text-slate-500 mt-1">Confirmed and completed</span>
           </button>
           <button onClick={() => onCardClick('collected')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
             {/* Same colour roles as the Equipment page: green for what is in
@@ -50,7 +48,7 @@ export default function FinancialTab({ derived, period, onCardClick, onOpenDetai
               Collections Applied to This Period
             </span>
             <span className={`${FIG} text-[#009E73]`}>{formatCurrency(financialSummary.paidContracted)}</span>
-            <span className="block text-[12.5px] text-slate-500 mt-1">Applied to date against contracted service</span>
+            <span className="block text-[12.5px] text-slate-500 mt-1">Already collected</span>
           </button>
           <button onClick={() => onCardClick('outstanding')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
             <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
@@ -58,7 +56,7 @@ export default function FinancialTab({ derived, period, onCardClick, onOpenDetai
               Total Receivables
             </span>
             <span className={`${FIG} text-[#D55E00]`}>{formatCurrency(financialSummary.outstandingContracted)}</span>
-            <span className="block text-[12.5px] text-slate-500 mt-1">Collectibles on contracted service</span>
+            <span className="block text-[12.5px] text-slate-500 mt-1">Still collectible</span>
           </button>
         </div>
 
@@ -73,51 +71,31 @@ export default function FinancialTab({ derived, period, onCardClick, onOpenDetai
             <span className="block text-[13px] text-slate-600 tabular-nums">
               {formatPercent(collectedPct)} of contracted work collected
             </span>
-            <span className="block text-[12.5px] text-slate-500 mt-1 tabular-nums">
-              {formatCurrency(financialSummary.paidContracted)} collected ÷ {formatCurrency(financialSummary.grossContracted)} contracted — the rest, {formatCurrency(financialSummary.outstandingContracted)}, is Total Receivables
-            </span>
-            <span className="block text-[12.5px] text-slate-500 mt-1">
-              Approved bookings are excluded: they are pipeline until confirmed, and their figure is its own card on the Overview tab.
-            </span>
           </>
         ) : (
-          <span className="block text-[13px] text-slate-600">
-            No contracted work falls in this period, so there is nothing to measure collection against.
-          </span>
+          <span className="block text-[13px] text-slate-600">Nothing contracted this period.</span>
         )}
       </section>
 
       {/* Whitespace and weight separate the two, never a rule or a coloured
           bar. This sentence is the part that stops the reconciling. */}
-      <p className="text-[13px] text-slate-600 border-l-2 border-slate-200 pl-3.5 mb-2">
-        These two sections answer different questions. Their totals are not meant to add up.
-      </p>
-      <p className="text-[13px] text-slate-600 border-l-2 border-slate-200 pl-3.5 mb-5">
-        Cash Receipts is usually larger, because it also includes deposits for events in later periods and for bookings not yet confirmed.
-      </p>
 
       <section className="bg-white border border-slate-200/70 rounded-2xl p-6 mb-[18px]">
-        <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Money that moved {inPeriod(period)}</h2>
-        <p className="text-[13px] text-slate-600 mt-0.5 mb-5">Cash in and out {duringPeriod(period)}, whatever month the catering happens.</p>
+        <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900 mb-5">By payment date<span className="ml-2 text-[11.5px] font-semibold uppercase tracking-[0.06em] text-slate-400">Cash basis</span></h2>
         <div className="flex flex-wrap gap-10">
           <div>
             <span className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-600 mb-2.5">
               Cash Receipts
-              <InfoHint label="What Cash Receipts includes" align="left">
-                Includes deposits collected {duringPeriod(period)} for events happening later, which is why this can be larger than the revenue for the same period.
-              </InfoHint>
             </span>
             <span className="block text-[38px] font-semibold tracking-[-0.035em] leading-none tabular-nums text-slate-900">
               {formatCurrency(financialSummary.cashReceipts)}
             </span>
-            <span className="block text-[13.5px] text-slate-600 mt-3">
-              Collected {duringPeriod(period)} · by payment date
-            </span>
+            <span className="block text-[13.5px] text-slate-600 mt-3">Money received</span>
           </div>
           <div>
             <span className="block text-[13px] font-semibold text-slate-600 mb-2.5">Refunds Issued</span>
             <span className={`${FIG} text-[#D55E00]`}>{formatCurrency(financialSummary.refundsIssued)}</span>
-            <span className="block text-[12.5px] text-slate-500 mt-1">Paid back {duringPeriod(period)} · by payment date</span>
+            <span className="block text-[12.5px] text-slate-500 mt-1">Money returned</span>
           </div>
         </div>
       </section>
@@ -125,7 +103,7 @@ export default function FinancialTab({ derived, period, onCardClick, onOpenDetai
       <div className="bg-white border border-slate-200/70 rounded-2xl p-6">
         <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
           <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Money by service month</h3>
-          <span className="text-[13px] text-slate-600">Broken down by service month, using the same figures as above.</span>
+          <span className="text-[13px] text-slate-600">By service month</span>
         </div>
         {/* REQUIRED SENTENCE. This chart deliberately ignores the period filter
             sitting above it, and a chart that ignores a nearby control reads as
@@ -317,7 +295,7 @@ export default function FinancialTab({ derived, period, onCardClick, onOpenDetai
           <div className="px-5 pt-[18px] pb-4 border-b border-slate-100 flex items-center justify-between gap-3">
             <div>
               <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Reversals</h3>
-              <p className="text-[13px] text-slate-600 mt-1">Receipts corrected in this period. A reversal is not a refund: no money went back to the customer, and neither entry counts toward any figure above.</p>
+              <p className="text-[13px] text-slate-600 mt-1">Corrections, not refunds. Neither entry counts above.</p>
             </div>
             <span className="text-[13px] font-semibold text-slate-600 tabular-nums shrink-0">{formatCurrency(financialSummary.reversalsRecorded)} total</span>
           </div>
