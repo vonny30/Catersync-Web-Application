@@ -182,6 +182,10 @@ export default function BookingDetails() {
   // completion paths; what it must NOT do is decide for itself whether the
   // system flagged this booking or what the outstanding balance is.
   const [money, setMoney] = useState(null);
+  // Passed to isResourceLocked / resourceLockReason at every call site. A
+  // lapsed booking holds nothing live in the database, so nothing it holds is
+  // offered for change here.
+  const lapsedLock = { lapsed: !!money?.is_lapsed };
   // What the package template says this booking should take, per item, from
   // v_booking_equipment_required — the view that owns that rule (per_pax ->
   // ceil(pax / pax_per_unit), otherwise the package's included_quantity).
@@ -300,16 +304,26 @@ export default function BookingDetails() {
       // are read from the database rather than derived here: the suggestion is
       // a package rule and the availability is a question about every booking
       // on that date, neither of which this page can answer on its own.
-      const { data: requiredRows, error: requiredError } = await supabase
-        .from('v_booking_equipment_required')
-        .select('equipment_id, eqm_name, required_qty, per_pax, pax_per_unit, included_quantity')
-        .eq('booking_id', id);
+      // A LAPSED booking gets neither: no suggestions and no availability
+      // read. Its event date has gone, the database no longer counts what it
+      // holds as committed, and asking what is free on a day that has passed
+      // answers a question nobody can act on. Not fetched at all, so
+      // f_equipment_availability never fires for it.
+      const lapsedNow = !!moneyRow?.is_lapsed;
+      const { data: requiredRows, error: requiredError } = lapsedNow
+        ? { data: [], error: null }
+        : await supabase
+          .from('v_booking_equipment_required')
+          .select('equipment_id, eqm_name, required_qty, per_pax, pax_per_unit, included_quantity')
+          .eq('booking_id', id);
       if (requiredError) console.error('Could not read the suggested equipment for this booking:', requiredError);
       setSuggestedById(Object.fromEntries((requiredRows || [])
         .filter(r => r.equipment_id)
         .map(r => [r.equipment_id, r])));
 
-      setAvailability(await fetchEquipmentAvailability(bookingData.event_datetime));
+      setAvailability(lapsedNow
+        ? { status: 'idle', byId: {} }
+        : await fetchEquipmentAvailability(bookingData.event_datetime));
 
       // Equipment
       const { data: equipData } = await supabase
@@ -336,7 +350,7 @@ export default function BookingDetails() {
       // derivation of the same rule sitting a few lines away from it. An
       // empty result (no package, or a package with no template) sends every
       // row to "Added by manager", which is what it already did.
-      setTemplateDemand(Object.fromEntries((requiredRows || [])
+      setTemplateDemand(lapsedNow ? null : Object.fromEntries((requiredRows || [])
         .filter(r => r.equipment_id)
         .map(r => [r.equipment_id, Number(r.required_qty) || 0])));
       // Dispatch — what is actually carrying this event. The page could
@@ -1070,8 +1084,8 @@ export default function BookingDetails() {
   // The lock is not cosmetic — styling alone leaves the modal reachable, so
   // the handler refuses too. Same shape as openAssignEquipModal below.
   const openAssignVehicleModal = () => {
-    if (isResourceLocked(booking.booking_status)) {
-      toast.error(resourceLockReason(booking.booking_status, 'vehicles'));
+    if (isResourceLocked(booking.booking_status, lapsedLock)) {
+      toast.error(resourceLockReason(booking.booking_status, 'vehicles', lapsedLock));
       return;
     }
     setIsAssignVehicleOpen(true);
@@ -1081,8 +1095,8 @@ export default function BookingDetails() {
   // modal against fresh rows; these only stop a modal opening that could never
   // save.
   const openEditVehicleRun = (run) => {
-    if (isResourceLocked(booking.booking_status)) {
-      toast.error(resourceLockReason(booking.booking_status, 'vehicles'));
+    if (isResourceLocked(booking.booking_status, lapsedLock)) {
+      toast.error(resourceLockReason(booking.booking_status, 'vehicles', lapsedLock));
       return;
     }
     if (run.assignment_status === 'Completed') {
@@ -1097,8 +1111,8 @@ export default function BookingDetails() {
   };
 
   const handleRemoveVehicleRun = async (run, legLabel) => {
-    if (isResourceLocked(booking.booking_status)) {
-      toast.error(resourceLockReason(booking.booking_status, 'vehicles'));
+    if (isResourceLocked(booking.booking_status, lapsedLock)) {
+      toast.error(resourceLockReason(booking.booking_status, 'vehicles', lapsedLock));
       return;
     }
     if (run.assignment_status === 'Completed') {
@@ -1149,8 +1163,8 @@ export default function BookingDetails() {
   };
 
   const openAssignEquipModal = async () => {
-    if (isResourceLocked(booking.booking_status)) {
-      toast.error(resourceLockReason(booking.booking_status));
+    if (isResourceLocked(booking.booking_status, lapsedLock)) {
+      toast.error(resourceLockReason(booking.booking_status, 'equipment', lapsedLock));
       return;
     }
     if (!(await confirmConfirmedEquipmentEdit())) return;
@@ -1327,8 +1341,8 @@ export default function BookingDetails() {
    * same whether the line exists or not.
    */
   const applySuggestedQuantity = async (equipmentId, suggested, name) => {
-    if (isResourceLocked(booking.booking_status)) {
-      toast.error(resourceLockReason(booking.booking_status));
+    if (isResourceLocked(booking.booking_status, lapsedLock)) {
+      toast.error(resourceLockReason(booking.booking_status, 'equipment', lapsedLock));
       return;
     }
     if (!(await confirmConfirmedEquipmentEdit())) return;
@@ -1378,8 +1392,8 @@ export default function BookingDetails() {
 
   const handleRemoveEquipment = async (item) => {
     const assignmentId = item.assignment_id;
-    if (isResourceLocked(booking.booking_status)) {
-      toast.error(resourceLockReason(booking.booking_status));
+    if (isResourceLocked(booking.booking_status, lapsedLock)) {
+      toast.error(resourceLockReason(booking.booking_status, 'equipment', lapsedLock));
       return;
     }
     // Returned units are a record of what came back. Removing the line would
@@ -1441,8 +1455,8 @@ export default function BookingDetails() {
 
   // --- Edit Equipment Assignment ---
   const openEditEquipModal = async (assignment) => {
-    if (isResourceLocked(booking.booking_status)) {
-      toast.error(resourceLockReason(booking.booking_status));
+    if (isResourceLocked(booking.booking_status, lapsedLock)) {
+      toast.error(resourceLockReason(booking.booking_status, 'equipment', lapsedLock));
       return;
     }
     if (!(await confirmConfirmedEquipmentEdit())) return;
@@ -1642,7 +1656,7 @@ export default function BookingDetails() {
             {suggested > 0 && free !== null && ' · '}
             {free !== null && <>{free} free on {eventDayLabel(booking.event_datetime)}</>}
           </span>
-          {offSuggestion && !item.returned && !isResourceLocked(booking.booking_status) && (
+          {offSuggestion && !item.returned && !isResourceLocked(booking.booking_status, lapsedLock) && (
             <button
               type="button"
               onClick={() => applySuggestedQuantity(item.equipment_id, suggested, item.eqm_name)}
@@ -1654,24 +1668,29 @@ export default function BookingDetails() {
         </span>
         <div className="flex items-center gap-3 shrink-0">
           <span className="text-sm font-bold tabular-nums text-slate-700">× {item.quantity}</span>
+          {/* A lapsed booking lists what it holds and nothing else: no state
+              badge, no controls. Nothing on it is live, so nothing here is
+              offered for change — cancelling the booking is what releases it. */}
+          {!money?.is_lapsed && (
           <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${item.returned ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-slate-50 border border-slate-200 text-slate-600'}`}>
             {item.returned ? 'Returned' : 'Assigned'}
           </span>
-          {!item.returned && (
+          )}
+          {!item.returned && !money?.is_lapsed && (
             <div className="flex gap-2">
               <button
                 onClick={() => openEditEquipModal(item)}
-                className={isResourceLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-blue-500 hover:text-blue-700'}
-                title={isResourceLocked(booking.booking_status) ? resourceLockReason(booking.booking_status) : 'Edit quantity'}
+                className={isResourceLocked(booking.booking_status, lapsedLock) ? 'text-slate-400 hover:text-slate-600' : 'text-blue-500 hover:text-blue-700'}
+                title={isResourceLocked(booking.booking_status, lapsedLock) ? resourceLockReason(booking.booking_status, 'equipment', lapsedLock) : 'Edit quantity'}
               >
-                {isResourceLocked(booking.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
+                {isResourceLocked(booking.booking_status, lapsedLock) ? <Lock size={14} /> : <Edit size={14} />}
               </button>
               <button
                 onClick={() => handleRemoveEquipment(item)}
-                className={isResourceLocked(booking.booking_status) ? 'text-slate-400 hover:text-slate-600' : 'text-red-400 hover:text-red-600'}
-                title={isResourceLocked(booking.booking_status) ? resourceLockReason(booking.booking_status) : 'Remove'}
+                className={isResourceLocked(booking.booking_status, lapsedLock) ? 'text-slate-400 hover:text-slate-600' : 'text-red-400 hover:text-red-600'}
+                title={isResourceLocked(booking.booking_status, lapsedLock) ? resourceLockReason(booking.booking_status, 'equipment', lapsedLock) : 'Remove'}
               >
-                {isResourceLocked(booking.booking_status) ? <Lock size={14} /> : <Trash2 size={14} />}
+                {isResourceLocked(booking.booking_status, lapsedLock) ? <Lock size={14} /> : <Trash2 size={14} />}
               </button>
             </div>
           )}
@@ -2015,7 +2034,7 @@ export default function BookingDetails() {
       )}
 
       {/* Day / Equipment Availability — any Pending booking, same shared layout as the Approve modal */}
-      {booking.booking_status === 'Pending' && booking.event_datetime && (
+      {booking.booking_status === 'Pending' && booking.event_datetime && !money?.is_lapsed && (
         <ApprovalAvailabilityCheck
                 onVehicleSelectionChange={setApprovalVehicleIds}
           booking={booking}
@@ -2278,22 +2297,24 @@ export default function BookingDetails() {
                   {/* The count moved to the footer, where it sits beside the unit
                       total it belongs with. What earns space in the header is the
                       STATE: whether anything is still out. */}
-                  {equipment.length > 0 && (
+                  {equipment.length > 0 && !money?.is_lapsed && (
                     equipment.every(i => i.returned)
                       ? <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 whitespace-nowrap"><Check size={13} /> All returned</span>
                       : equipment.some(i => i.returned)
                         ? <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">{equipment.filter(i => i.returned).length} of {equipment.length} returned</span>
                         : <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 whitespace-nowrap"><Check size={13} /> All assigned</span>
                   )}
+                  {!money?.is_lapsed && (
                   <button
                     onClick={openAssignEquipModal}
-                    className={isResourceLocked(booking.booking_status)
+                    className={isResourceLocked(booking.booking_status, lapsedLock)
                       ? 'bg-slate-100 text-slate-400 font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors'
                       : 'bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm'}
-                    title={isResourceLocked(booking.booking_status) ? resourceLockReason(booking.booking_status) : undefined}
+                    title={isResourceLocked(booking.booking_status, lapsedLock) ? resourceLockReason(booking.booking_status, 'equipment', lapsedLock) : undefined}
                   >
-                    {isResourceLocked(booking.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} Assign Equipment
+                    {isResourceLocked(booking.booking_status, lapsedLock) ? <Lock size={14} /> : <ClipboardList size={14} />} Assign Equipment
                   </button>
+                  )}
                 </div>
               </div>
               {equipment.length === 0 ? (
@@ -2330,7 +2351,7 @@ export default function BookingDetails() {
               {/* In the package, not on this booking. Listed so a manager can
                   see what the template implies and put it back in one click;
                   it is not an error state, and nothing here is enforced. */}
-              {missingSuggested.length > 0 && !isResourceLocked(booking.booking_status) && (
+              {missingSuggested.length > 0 && !isResourceLocked(booking.booking_status, lapsedLock) && (
                 <div className="mt-3.5 pt-3 border-t border-slate-100">
                   <p className="text-xs font-semibold uppercase tracking-[0.05em] text-slate-500 mb-1.5">
                     In the package, not assigned
@@ -2461,12 +2482,12 @@ export default function BookingDetails() {
                       missing. */}
                   <button
                     onClick={openAssignVehicleModal}
-                    className={isResourceLocked(booking.booking_status)
+                    className={isResourceLocked(booking.booking_status, lapsedLock)
                       ? 'bg-slate-100 text-slate-400 font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors'
                       : 'bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm'}
-                    title={isResourceLocked(booking.booking_status) ? resourceLockReason(booking.booking_status, 'vehicles') : undefined}
+                    title={isResourceLocked(booking.booking_status, lapsedLock) ? resourceLockReason(booking.booking_status, 'vehicles', lapsedLock) : undefined}
                   >
-                    {isResourceLocked(booking.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
+                    {isResourceLocked(booking.booking_status, lapsedLock) ? <Lock size={14} /> : <ClipboardList size={14} />} {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
                   </button>
 
                 </div>
@@ -2492,7 +2513,9 @@ export default function BookingDetails() {
                   {dispatchRuns.map(run => {
                     const isCollection = run.leg === TRIP_LEG.pickup;
                     const stages = run.rows.map(r => getAssignmentStatus(r.assignment_status === 'Completed', booking?.event_datetime));
-                    const shared = stages.every(st => st.key === stages[0].key) ? stages[0] : null;
+                    // No stage pill on a lapsed booking: "In Use" would say a
+                    // van is out at an event that never happened.
+                    const shared = money?.is_lapsed ? null : (stages.every(st => st.key === stages[0].key) ? stages[0] : null);
                     const pill = (st) => `inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${
                       // One meaning per colour, and the EXPECTED state is the
                       // quiet one. "Assigned" is the normal condition of every
@@ -2554,10 +2577,10 @@ export default function BookingDetails() {
                                 <span className="text-[12.5px] text-slate-500 truncate">{d.vehicle?.vehicle_type || ''}</span>
                               </span>
                               <span className="flex items-center gap-3 shrink-0">
-                                {!shared && <span className={pill(stages[i])}>{stages[i].label}</span>}
+                                {!shared && !money?.is_lapsed && <span className={pill(stages[i])}>{stages[i].label}</span>}
                                 {/* A returned run is history; a locked booking
                                     says why on its Manage button. */}
-                                {d.assignment_status !== 'Completed' && !isResourceLocked(booking.booking_status) && (
+                                {d.assignment_status !== 'Completed' && !isResourceLocked(booking.booking_status, lapsedLock) && (
                                   <span className="flex items-center gap-2">
                                     <button
                                       onClick={() => openEditVehicleRun(d)}

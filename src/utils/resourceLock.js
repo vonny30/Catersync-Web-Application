@@ -18,13 +18,22 @@
 // before approval would be duplicated when approval allocates the template.
 export const RESOURCE_LOCKED_STATUSES = ['Pending', 'Completed', 'Cancelled', 'Rejected'];
 
-export function isResourceLocked(bookingStatus) {
-  return RESOURCE_LOCKED_STATUSES.includes(bookingStatus);
+// A LAPSED booking is locked too, whatever its status. The database treats a
+// booking whose event date passed before it was accepted as holding nothing
+// live (lapsed_bookings_hold_nothing_live): its equipment and vehicle rows
+// neither commit stock nor fall overdue. The page must not then offer to change
+// what it holds — that is the mirror-the-guard rule. `lapsed` is read from
+// v_booking_money.is_lapsed by the caller; this file never works it out.
+//
+// Status stays the first argument so every existing caller keeps its meaning.
+export function isResourceLocked(bookingStatus, { lapsed = false } = {}) {
+  return lapsed || RESOURCE_LOCKED_STATUSES.includes(bookingStatus);
 }
 
 // Why the lock applies, for the tooltip or toast. `resource` picks the wording:
 // 'equipment' (the default) or 'vehicles'.
-export function resourceLockReason(bookingStatus, resource = 'equipment') {
+export function resourceLockReason(bookingStatus, resource = 'equipment', { lapsed = false } = {}) {
+  if (lapsed) return 'Event date has passed';
   if (resource === 'vehicles') {
     if (bookingStatus === 'Pending') return 'Vehicles are assigned once this booking is approved.';
     if (bookingStatus === 'Completed') return 'This event is finished. Its trips are part of the dispatch history now.';

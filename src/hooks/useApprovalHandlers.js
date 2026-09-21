@@ -8,7 +8,7 @@ import { allocateVehiclesForBooking } from '../utils/vehicle';
 import { validatePaxForPackage } from '../utils/packageRules';
 import { sumVerifiedPositivePayments, restageReceipts } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, MAX_SHORT_ORDERS_PER_DAY, STATUS_ORDER } from '../utils/bookingStatus';
-import { statusWriteErrorMessage } from '../utils/lapsed';
+import { statusWriteErrorMessage, LAPSED_ACCEPT_TOOLTIP } from '../utils/lapsed';
 
 /**
  * What one extra guest costs on a package.
@@ -107,6 +107,21 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
   };
 
   const openApprovalModal = async (booking, type = 'package') => {
+    // Never opened for a lapsed booking. Every page disables Approve on one,
+    // but a list can be minutes old — and the modal runs an availability check
+    // and an equipment preview for the event date, which for a date that has
+    // passed is a question about stock nobody can use. Read fresh, not from
+    // the caller's row, for exactly that reason.
+    const { data: lapsedRow } = await supabase
+      .from('v_booking_money')
+      .select('is_lapsed')
+      .eq('booking_id', booking.booking_id)
+      .maybeSingle();
+    if (lapsedRow?.is_lapsed) {
+      toast.error(LAPSED_ACCEPT_TOOLTIP);
+      return;
+    }
+
     // Each approval starts from the suggestion again — a set chosen for the
     // last booking must not carry over to the next one.
     setApprovalVehicleIds(null);

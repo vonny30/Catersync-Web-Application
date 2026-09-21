@@ -100,6 +100,10 @@ export default function ShortOrderDetails() {
   // source the Bookings pages read, so a short order and a package booking
   // cannot tell a manager two different stories.
   const [money, setMoney] = useState(null);
+  // Passed to isResourceLocked / resourceLockReason at every call site. A
+  // lapsed booking holds nothing live in the database, so nothing it holds is
+  // offered for change here.
+  const lapsedLock = { lapsed: !!money?.is_lapsed };
   const [isOverrideOpen, setIsOverrideOpen] = useState(false);
   const [historyKey, setHistoryKey] = useState(0);
   const [isProofModalOpen, setIsProofModalOpen] = useState(false);
@@ -872,8 +876,8 @@ export default function ShortOrderDetails() {
   // lock (utils/resourceLock) rather than isPaymentLedgerLocked: open through
   // Approved and Confirmed.
   const openAssignVehicleModal = () => {
-    if (isResourceLocked(order.booking_status)) {
-      toast.error(resourceLockReason(order.booking_status, 'vehicles'));
+    if (isResourceLocked(order.booking_status, lapsedLock)) {
+      toast.error(resourceLockReason(order.booking_status, 'vehicles', lapsedLock));
       return;
     }
     setIsAssignVehicleOpen(true);
@@ -882,8 +886,8 @@ export default function ShortOrderDetails() {
   // Change one run's vehicle or departure time. The modal re-checks all of this
   // against fresh rows; these only stop a modal opening that could never save.
   const openEditVehicleRun = (run) => {
-    if (isResourceLocked(order.booking_status)) {
-      toast.error(resourceLockReason(order.booking_status, 'vehicles'));
+    if (isResourceLocked(order.booking_status, lapsedLock)) {
+      toast.error(resourceLockReason(order.booking_status, 'vehicles', lapsedLock));
       return;
     }
     if (run.assignment_status === 'Completed') {
@@ -898,8 +902,8 @@ export default function ShortOrderDetails() {
   };
 
   const handleRemoveVehicleRun = async (run, legLabel) => {
-    if (isResourceLocked(order.booking_status)) {
-      toast.error(resourceLockReason(order.booking_status, 'vehicles'));
+    if (isResourceLocked(order.booking_status, lapsedLock)) {
+      toast.error(resourceLockReason(order.booking_status, 'vehicles', lapsedLock));
       return;
     }
     if (run.assignment_status === 'Completed') {
@@ -1191,7 +1195,7 @@ export default function ShortOrderDetails() {
       )}
 
       {/* Day Availability — same shared layout as the Approve modal */}
-      {order.booking_status === 'Pending' && order.event_datetime && (
+      {order.booking_status === 'Pending' && order.event_datetime && !money?.is_lapsed && (
         <ApprovalAvailabilityCheck
                 onVehicleSelectionChange={setApprovalVehicleIds}
           booking={order}
@@ -1470,12 +1474,12 @@ export default function ShortOrderDetails() {
                   {!isCustomerPickup && (
                     <button
                       onClick={openAssignVehicleModal}
-                      className={isResourceLocked(order.booking_status)
+                      className={isResourceLocked(order.booking_status, lapsedLock)
                         ? 'bg-slate-100 text-slate-400 font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors'
                         : 'bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm'}
-                      title={isResourceLocked(order.booking_status) ? resourceLockReason(order.booking_status, 'vehicles') : undefined}
+                      title={isResourceLocked(order.booking_status, lapsedLock) ? resourceLockReason(order.booking_status, 'vehicles', lapsedLock) : undefined}
                     >
-                      {isResourceLocked(order.booking_status) ? <Lock size={14} /> : <ClipboardList size={14} />} {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
+                      {isResourceLocked(order.booking_status, lapsedLock) ? <Lock size={14} /> : <ClipboardList size={14} />} {dispatches.length === 0 ? 'Assign vehicle' : 'Manage'}
                     </button>
                   )}
 
@@ -1507,7 +1511,9 @@ export default function ShortOrderDetails() {
                   {dispatchRuns.map(run => {
                     const isCollection = run.leg === TRIP_LEG.pickup;
                     const stages = run.rows.map(r => getAssignmentStatus(r.assignment_status === 'Completed', order?.event_datetime));
-                    const shared = stages.every(st => st.key === stages[0].key) ? stages[0] : null;
+                    // No stage pill on a lapsed booking: "In Use" would say a
+                    // van is out at an event that never happened.
+                    const shared = money?.is_lapsed ? null : (stages.every(st => st.key === stages[0].key) ? stages[0] : null);
                     const pill = (st) => `inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12.5px] font-semibold whitespace-nowrap ${
                       // Same three states, same three colours as Booking
                       // Details: slate for the expected "Assigned", amber for
@@ -1565,8 +1571,8 @@ export default function ShortOrderDetails() {
                                 <span className="text-[12.5px] text-slate-500 truncate">{d.vehicle?.vehicle_type || ''}</span>
                               </span>
                               <span className="flex items-center gap-3 shrink-0">
-                                {!shared && <span className={pill(stages[i])}>{stages[i].label}</span>}
-                                {d.assignment_status !== 'Completed' && !isResourceLocked(order.booking_status) && (
+                                {!shared && !money?.is_lapsed && <span className={pill(stages[i])}>{stages[i].label}</span>}
+                                {d.assignment_status !== 'Completed' && !isResourceLocked(order.booking_status, lapsedLock) && (
                                   <span className="flex items-center gap-2">
                                     {/* A customer pickup needs no vehicle, so a
                                         stray run on one can only be removed. */}

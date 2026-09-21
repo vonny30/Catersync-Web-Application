@@ -553,6 +553,7 @@ export const TRIP_STATE = {
   back: 'Back at base',
   overdue: 'Overdue',
   cancelled: 'Booking cancelled',
+  lapsed: 'Lapsed',
   unscheduled: 'No event date',
 };
 
@@ -568,6 +569,12 @@ export function getTripState(assignment, booking, now = new Date()) {
   if (booking?.booking_status === 'Cancelled' || booking?.booking_status === 'Rejected') {
     return { key: 'cancelled', label: TRIP_STATE.cancelled };
   }
+
+  // A LAPSED booking's run never left: its event date passed before the
+  // booking was accepted, and v_vehicle_trip no longer calls it overdue. The
+  // caller sets booking.is_lapsed from v_booking_money; it is never worked out
+  // here. Checked before the date test, which would otherwise call it overdue.
+  if (booking?.is_lapsed) return { key: 'lapsed', label: TRIP_STATE.lapsed };
 
   const event = asDate(booking?.event_datetime);
   if (!event) return { key: 'unscheduled', label: TRIP_STATE.unscheduled };

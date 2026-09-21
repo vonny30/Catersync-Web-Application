@@ -13,6 +13,7 @@ import { useApprovalHandlers, extraPaxRate } from '../hooks/useApprovalHandlers'
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { sumVerifiedPositivePayments, sumDepositsCollected } from '../utils/payments';
+import { LAPSED_ACCEPT_TOOLTIP, LAPSED_DECLINE_REASON } from '../utils/lapsed';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './Reports/helpers';
 import ImageUploadField from '../components/ImageUploadField';
@@ -270,10 +271,20 @@ export default function Dashboard() {
           .select('booking_id, amount_paid, pay_status, counts_in_ledger')
           .in('booking_id', combined.map(b => b.booking_id));
         if (pendingPaymentsError) throw pendingPaymentsError;
+        // Which of these requests have lapsed — read from the view, never
+        // worked out here — so Approve is disabled on them the same way the
+        // list pages do it.
+        const { data: lapsedRows, error: lapsedError } = await supabase
+          .from('v_booking_money')
+          .select('booking_id, is_lapsed')
+          .in('booking_id', combined.map(b => b.booking_id));
+        if (lapsedError) throw lapsedError;
+        const lapsedIds = new Set((lapsedRows || []).filter(r => r.is_lapsed).map(r => r.booking_id));
         combined.forEach(item => {
           const itemPayments = (pendingPayments || []).filter(p => p.booking_id === item.booking_id);
           item.positivePayments = sumVerifiedPositivePayments(itemPayments);
           item.downpaymentPaid = sumDepositsCollected(itemPayments);
+          item.is_lapsed = lapsedIds.has(item.booking_id);
         });
       }
 
@@ -939,7 +950,9 @@ export default function Dashboard() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => openApprovalModal(item, isShortOrder ? 'shortorder' : 'package')}
-                        className="flex-1 bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-sm py-2 rounded-[10px] flex justify-center items-center gap-2 transition-colors"
+                        disabled={item.is_lapsed}
+                        title={item.is_lapsed ? LAPSED_ACCEPT_TOOLTIP : undefined}
+                        className={`flex-1 font-semibold text-sm py-2 rounded-[10px] flex justify-center items-center gap-2 transition-colors ${item.is_lapsed ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-[#008A45] hover:bg-[#007038] text-white'}`}
                       >
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -947,7 +960,7 @@ export default function Dashboard() {
                         Approve
                       </button>
                       <button
-                        onClick={() => openRejectionModal(item.booking_id)}
+                        onClick={() => openRejectionModal(item.booking_id, item.is_lapsed ? LAPSED_DECLINE_REASON : '')}
                         className="flex-1 bg-white border border-red-200 text-red-700 font-semibold text-sm py-2 rounded-[10px] hover:bg-red-50 transition-colors"
                       >
                         <svg className="w-4 h-4 inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">

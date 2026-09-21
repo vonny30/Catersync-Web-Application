@@ -172,6 +172,9 @@ export default function Equipment() {
   // --- STATE ---
   const [equipmentList, setEquipmentList] = useState([]);
   const [assignments, setAssignments] = useState([]); // ALL booking_equipment rows (returned + active) — feeds Usage history and the grouped Active Assignments section
+  // Bookings whose event passed before they were accepted. Their rows are inert
+  // — see isLiveCommitment.
+  const [lapsedBookingIds, setLapsedBookingIds] = useState(() => new Set());
   const [bookings, setBookings] = useState([]); // Package bookings, for the Assign modal's booking picker + the Upcoming Prep tab
   const [packageEquipment, setPackageEquipment] = useState([]); // package→equipment template rows, for required-vs-assigned in the prep view
   const [isLoading, setIsLoading] = useState(true);
@@ -365,8 +368,17 @@ export default function Equipment() {
   // the embed returns no such field, this predicate rejects every row, and the
   // Active tab renders empty.
   const LIVE_COMMITMENT_STATUSES = [...ACTIVE_BOOKING_STATUSES, 'Completed'];
+  // LAPSED BOOKINGS HOLD NOTHING LIVE. v_equipment_assignment.is_live_commitment
+  // and f_equipment_availability both exclude a booking whose event passed
+  // before it was accepted; this predicate is the browser copy of that rule,
+  // so it has to know too — otherwise BKG-105's 117 units read as out, and
+  // then as overdue, for an event that never happened. The ids come from
+  // v_booking_money.is_lapsed; lapsed is never worked out here. They stay
+  // allocated until the manager cancels the booking.
   const isLiveCommitment = (a) =>
-    !a.returned && LIVE_COMMITMENT_STATUSES.includes(a.booking?.booking_status);
+    !a.returned
+    && LIVE_COMMITMENT_STATUSES.includes(a.booking?.booking_status)
+    && !lapsedBookingIds.has(a.booking_id);
 
   const renderSortHeader = (sortState, toggleFn, field, label, extraClass = '') => (
     <button
@@ -445,6 +457,13 @@ export default function Equipment() {
         .order('assigned_at', { ascending: false })
         .order('assignment_id', { ascending: true }), 'equipment assignments');
       setAssignments(assignData || []);
+
+      const { data: lapsedRows, error: lapsedError } = await supabase
+        .from('v_booking_money')
+        .select('booking_id')
+        .eq('is_lapsed', true);
+      if (lapsedError) throw lapsedError;
+      setLapsedBookingIds(new Set((lapsedRows || []).map(r => r.booking_id)));
     } catch (error) {
       handleError(error, 'Unable to load equipment data. Please refresh the page.');
     } finally {

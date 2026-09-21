@@ -100,6 +100,8 @@ const TRIP_STATE_CHIP = {
   committed:   'bg-slate-100 border-slate-200 text-slate-600',
   overdue:     'bg-red-50 border-red-200 text-red-700',
   cancelled:   'bg-slate-50 border-slate-200 text-slate-500 line-through decoration-slate-300',
+  // Grey, like every lapsed signal in the app: inert, never urgent.
+  lapsed:      'bg-slate-100 border-slate-300 text-slate-600',
   unscheduled: 'bg-amber-50 border-amber-200 text-amber-700',
 };
 
@@ -400,6 +402,18 @@ export default function Vehicles() {
           .order('assignment_id'),
         'vehicle assignments'
       );
+      // Mark runs on lapsed bookings. They hold nothing live — v_vehicle_trip
+      // no longer calls them overdue — so every overdue rule on this page has
+      // to skip them too. Read from v_booking_money, never worked out here.
+      const { data: lapsedRows, error: lapsedError } = await supabase
+        .from('v_booking_money')
+        .select('booking_id')
+        .eq('is_lapsed', true);
+      if (lapsedError) throw lapsedError;
+      const lapsedIds = new Set((lapsedRows || []).map(r => r.booking_id));
+      (assignData || []).forEach(a => {
+        if (a.booking && lapsedIds.has(a.booking_id)) a.booking.is_lapsed = true;
+      });
       setAssignments(assignData);
     } catch (error) {
       handleError(error, 'Unable to load vehicle data. Please refresh the page.');
@@ -1101,7 +1115,8 @@ export default function Vehicles() {
   const overdueAssignments = assignments.filter(a =>
     a.assignment_status !== 'Completed' &&
     a.booking?.event_datetime && new Date(a.booking.event_datetime) < now &&
-    a.booking?.booking_status !== 'Rejected' && a.booking?.booking_status !== 'Cancelled'
+    a.booking?.booking_status !== 'Rejected' && a.booking?.booking_status !== 'Cancelled' &&
+    !a.booking?.is_lapsed
   );
 
   // ============================================================
@@ -1330,9 +1345,13 @@ export default function Vehicles() {
   // ============================================================
   // --- TRIPS TAB: open dispatches, grouped by event ---
   // ============================================================
+  // Open trips only. A lapsed booking's runs are allocated but inert — they
+  // leave this list the way a cancelled booking's do, until the manager
+  // cancels the booking and releases them.
   const activeAssignmentRows = assignments.filter(a =>
     a.assignment_status !== 'Completed' &&
-    a.booking?.booking_status !== 'Rejected' && a.booking?.booking_status !== 'Cancelled'
+    a.booking?.booking_status !== 'Rejected' && a.booking?.booking_status !== 'Cancelled' &&
+    !a.booking?.is_lapsed
   );
   const assignmentGroupsMap = {};
   activeAssignmentRows.forEach(a => {
