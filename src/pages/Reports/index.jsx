@@ -6,7 +6,8 @@ import {
   getBookingRef, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, periodLabel, periodTitle, periodSpan, paymentsReceivedNet,
   monthSortKey, monthLabel, buildMonthlyFinancialTrend,
 } from './helpers';
-import { movesBooks, isRefundEntry, isReversalEntry } from '../../utils/payments';
+import { movesBooks, isRefundEntry, isReversalEntry, RECEIPT_STAGES } from '../../utils/payments';
+import { keptOnClosedBooking } from '../../utils/reportMetrics';
 import { fetchAllRows } from '../../utils/fetchAllRows';
 import DateRangeFilter from './DateRangeFilter';
 import { FilterBar, FilterField, PeriodTitle } from '../../components/FilterBar';
@@ -91,7 +92,7 @@ export default function Reports() {
       ] = await Promise.all([
         fetchAll(() => supabase.from('booking').select(`
           booking_id, booking_number, booking_type, event_datetime, book_datetime,
-          total_amount, delivery_fee, booking_status, package_id, customer_id, menu_selections,
+          total_amount, delivery_fee, booking_status, package_id, customer_id, menu_selections, closed_at,
           package:package_id (pkg_name, pricing_type),
           customer:customer_id (first_name, last_name)
         `).order('booking_id', { ascending: true })),
@@ -209,11 +210,32 @@ export default function Reports() {
       status: m.booking_status,
       type: m.booking_type || 'Package',
     });
-    // A cancelled or rejected booking counts only for the deposit it kept:
-    // total and paid are the retained amount, and nothing is owed on it.
+    // What each cancelled or rejected booking has EARNED: its deposit, only
+    // when forfeited (closed inside the 3-day window) — utils/reportMetrics
+    // keptOnClosedBooking. A refundable deposit is owed back, so it is 0 here
+    // even while no refund has been recorded.
+    const depositByBooking = {};
+    countedEntries
+      .filter(p => p.pay_status === RECEIPT_STAGES.deposit && (p.amount_paid || 0) > 0)
+      .forEach(p => { depositByBooking[p.booking_id] = (depositByBooking[p.booking_id] || 0) + p.amount_paid; });
+    const keptByBooking = {};
+    bookingMoney.filter(m => m.is_closed).forEach(m => {
+      const kept = keptOnClosedBooking({
+        eventDatetime: m.event_datetime,
+        closedAt: bookingsById[m.booking_id]?.closed_at,
+        netPaid: m.net_paid,
+        deposit: depositByBooking[m.booking_id],
+      });
+      if (kept > 0) keptByBooking[m.booking_id] = kept;
+    });
+    const keptInRange = moneyInEventRange.filter(m => keptByBooking[m.booking_id] > 0);
+    const keptTotal = keptInRange.reduce((sum, m) => sum + keptByBooking[m.booking_id], 0);
+    // A kept deposit is listed at the amount kept: that is its total and its
+    // paid, and nothing is owed on it.
     const keptDepositRow = (m) => ({
       ...breakdownRow(m),
-      total: Number(m.net_paid) || 0,
+      total: keptByBooking[m.booking_id],
+      paid: keptByBooking[m.booking_id],
       outstanding: 0,
     });
 
@@ -250,19 +272,20 @@ export default function Reports() {
       // counts as revenue, and because it was received it counts on the paid
       // side too — which keeps paid + collectible = revenue exact. Only the
       // RETAINED amount is added, never the cancelled booking's contract value.
-      // (sql/report_period_income_terms.sql moves these two sums into
-      // f_report_period as earned_revenue and collections_applied.)
-      earnedRevenue: (Number(periodTotals?.gross_contracted) || 0) + (Number(periodTotals?.forfeited_deposits) || 0),
-      paidOnEvents: (Number(periodTotals?.paid_contracted) || 0) + (Number(periodTotals?.forfeited_deposits) || 0),
+      // Kept means FORFEITED only (keptTotal above). f_report_period's
+      // forfeited_deposits counts every closed booking still holding money,
+      // refundable ones included, so it is not used for revenue.
+      earnedRevenue: (Number(periodTotals?.gross_contracted) || 0) + keptTotal,
+      paidOnEvents: (Number(periodTotals?.paid_contracted) || 0) + keptTotal,
       // Same population as the cards they open: contracted work plus the
       // kept deposits, each kept deposit listed at the amount retained.
       _revenueBreakdown: [
         ...moneyInEventRange.filter(m => m.counts_toward_revenue).map(breakdownRow),
-        ...moneyInEventRange.filter(m => m.is_closed && Number(m.net_paid) > 0).map(keptDepositRow),
+        ...keptInRange.map(keptDepositRow),
       ],
       _collectedBreakdown: [
         ...moneyInEventRange.filter(m => m.counts_toward_revenue && Number(m.net_paid) > 0).map(breakdownRow),
-        ...moneyInEventRange.filter(m => m.is_closed && Number(m.net_paid) > 0).map(keptDepositRow),
+        ...keptInRange.map(keptDepositRow),
       ],
       _outstandingBreakdown: moneyInEventRange.filter(m => m.counts_toward_revenue && Number(m.outstanding) > 0).map(breakdownRow),
     };
@@ -535,7 +558,7 @@ export default function Reports() {
     // Pending request is not revenue. Paid uses counted entries for the same
     // reason the cards do.
     const monthlyFinancialTrend = buildMonthlyFinancialTrend(
-      bookings, countedEntries, new Date(), { excludeStatuses: [...UNACCEPTED_STATUSES, 'Approved'], keptDepositStatuses: CANCELLED_STATUSES }
+      bookings, countedEntries, new Date(), { excludeStatuses: [...UNACCEPTED_STATUSES, 'Approved'], keptByBooking }
     );
 
     return {

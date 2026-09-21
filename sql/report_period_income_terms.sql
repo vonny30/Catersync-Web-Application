@@ -4,7 +4,13 @@
 -- The frontend does not change schema; this is the database half of the
 -- "business terms" change of 21 Sep 2026.
 --
--- Adds four columns to the END of f_report_period. Every existing column keeps
+-- Adds two columns to the END of f_report_period.
+--
+-- (22 Sep 2026: earned_revenue and collections_applied were removed from this
+-- file. They added forfeited_deposits, which counts EVERY closed booking still
+-- holding money — a refundable deposit not yet refunded included (BKG-129).
+-- The app now counts forfeited deposits only, client-side, with
+-- keptOnClosedBooking in utils/reportMetrics.) Every existing column keeps
 -- its name, position and meaning, so every current reader is unaffected.
 --
 --   potential_income     Pending + Approved bookings by service date, EXCLUDING
@@ -13,17 +19,6 @@
 --                        left out because their date has gone - nothing about
 --                        them can still become income. (September: 43,150.
 --                        Including lapsed BKG-105 it would read 51,650.)
---
---   earned_revenue       gross_contracted + forfeited_deposits. A non-refundable
---                        deposit kept on a cancellation is earned income. Only
---                        the RETAINED amount counts, never the cancelled
---                        booking's contract value. (September: 169,050.)
---
---   collections_applied  paid_contracted + forfeited_deposits. The forfeited
---                        money was collected, so it belongs on this side too -
---                        which keeps the identity whole:
---                        collections_applied + outstanding_contracted
---                          = earned_revenue      (113,100 + 55,950 = 169,050)
 --
 --   pending_payments     Claims awaiting verification (pay_status 'Pending
 --                        Verification'), by payment date. Counted in no other
@@ -49,7 +44,7 @@ returns table(
   contracted_count integer, approved_count integer, completed_count integer,
   cash_receipts numeric, refunds_issued numeric, reversals_recorded numeric, receipt_count integer,
   forfeited_deposits numeric, forfeited_count integer, paid_contracted numeric,
-  potential_income numeric, earned_revenue numeric, collections_applied numeric, pending_payments numeric
+  potential_income numeric, pending_payments numeric
 )
 language sql
 stable
@@ -108,21 +103,18 @@ as $function$
     b.cash_receipts, b.refunds_issued, b.reversals_recorded, b.receipt_count,
     b.forfeited_deposits, b.forfeited_count, b.paid_contracted,
     b.potential_income,
-    b.gross_contracted + b.forfeited_deposits as earned_revenue,
-    b.paid_contracted + b.forfeited_deposits as collections_applied,
     b.pending_payments
   from base b;
 $function$;
 
 comment on function public.f_report_period(timestamptz, timestamptz) is
-  'Period report aggregates. Service-date anchored: gross_*, outstanding_*, paid_contracted, paid_against_events, forfeited_*, potential_income, earned_revenue, collections_applied. Payment-date anchored: cash_receipts, refunds_issued, reversals_recorded, receipt_count, pending_payments. Identities: paid_contracted + outstanding_contracted = gross_contracted; collections_applied + outstanding_contracted = earned_revenue (both hold while no booking is overpaid; outstanding is clamped at zero). potential_income excludes lapsed bookings.';
+  'Period report aggregates. Service-date anchored: gross_*, outstanding_*, paid_contracted, paid_against_events, forfeited_*, potential_income. Payment-date anchored: cash_receipts, refunds_issued, reversals_recorded, receipt_count, pending_payments. Identity: paid_contracted + outstanding_contracted = gross_contracted (holds while no booking is overpaid; outstanding is clamped at zero). potential_income excludes lapsed bookings.';
 
 -- Restore the grants exactly as they were before the drop.
 grant execute on function public.f_report_period(timestamptz, timestamptz) to public, anon, authenticated, service_role;
 
 commit;
 
--- Check after running (expected for September 2026 as of 21 Sep):
---   select potential_income, earned_revenue, collections_applied, outstanding_contracted, pending_payments
+-- Check after running:
+--   select potential_income, pending_payments
 --   from public.f_report_period('2026-09-01 00:00:00+08', '2026-10-01 00:00:00+08');
---   -> 43150 | 169050 | 113100 | 55950 | 0

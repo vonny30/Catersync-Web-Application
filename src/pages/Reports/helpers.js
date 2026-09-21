@@ -310,7 +310,7 @@ export const buildMonthlyFinancialTrend = (
   bookings = [],
   verifiedPayments = [],
   now = new Date(),
-  { monthsBack = 5, excludeStatuses = ['Rejected', 'Cancelled'], keptDepositStatuses = [] } = {}
+  { monthsBack = 5, excludeStatuses = ['Rejected', 'Cancelled'], keptByBooking = {} } = {}
 ) => {
   const floor = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
 
@@ -324,9 +324,10 @@ export const buildMonthlyFinancialTrend = (
   const byMonth = {};
   bookings.forEach(b => {
     if (!b.event_datetime) return;
-    // A cancelled or rejected booking that kept a deposit counts for that
-    // deposit alone — earned and paid, nothing owed — as on the cards above.
-    const kept = keptDepositStatuses.includes(b.booking_status) ? Math.max(0, paidByBooking[b.booking_id] || 0) : 0;
+    // A cancelled or rejected booking that FORFEITED its deposit counts for
+    // that deposit alone — earned and paid, nothing owed — as on the cards
+    // above. keptByBooking holds forfeited deposits only (reportMetrics).
+    const kept = keptByBooking[b.booking_id] || 0;
     if (excludeStatuses.includes(b.booking_status) && kept <= 0) return;
     const when = new Date(b.event_datetime);
     if (Number.isNaN(when.getTime()) || when < floor) return; // no upper bound

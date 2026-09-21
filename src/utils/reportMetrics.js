@@ -39,3 +39,35 @@ export function isWithinRange(dateValue, start, end) {
   if (end && d > end) return false;
   return true;
 }
+
+// The cancellation policy's cut-off, in days before the event. Same number
+// useCancellationHandlers and useRejectionHandlers apply when they decide what
+// may be refunded.
+export const REFUND_CUTOFF_DAYS = 3;
+
+/**
+ * The money a cancelled or rejected booking has EARNED the business: its
+ * deposit, and only when that deposit was forfeited — the booking closed less
+ * than REFUND_CUTOFF_DAYS before the event. Closed earlier than that, the
+ * deposit is refundable: it is owed back, not earned, even while no refund has
+ * been recorded yet (BKG-129, cancelled 8 days out, was being counted as
+ * revenue).
+ *
+ * Kept is the deposit, capped at what is actually still held (net_paid):
+ * anything paid beyond the deposit is refundable excess whatever the timing.
+ *
+ * closedAt comes from booking.closed_at. Bookings closed before that column was
+ * written (BKG-104, BKG-107) have none; they are treated as forfeited, which is
+ * what their own cancellation notes record. With no event date the deadline
+ * cannot be measured, and the handlers treat that as refundable — so does this.
+ */
+export function keptOnClosedBooking({ eventDatetime, closedAt, netPaid, deposit }) {
+  const net = Math.max(0, Number(netPaid) || 0);
+  if (net <= 0 || !eventDatetime) return 0;
+  if (closedAt) {
+    const daysBefore = Math.ceil((new Date(eventDatetime) - new Date(closedAt)) / 86400000);
+    if (daysBefore >= REFUND_CUTOFF_DAYS) return 0;
+  }
+  const dep = Number(deposit) || 0;
+  return dep > 0 ? Math.min(net, dep) : net;
+}
