@@ -782,6 +782,21 @@ export default function ShortOrderDetails() {
   const isCustomerPickup = getServiceMethod(order)?.mode === 'Pickup';
 
   // --- Render helpers ---
+  // The Reference / Proof cell: the receipt number when there is one (Cash
+  // records the number on the paper receipt instead of a photo), then the
+  // proof image when there is one. Only the image was shown before, so a cash
+  // receipt read "None" here while Receivables showed its number.
+  const renderEvidence = (p) => {
+    const hasProof = p.pay_proof && p.pay_proof !== 'placeholder.png' && p.pay_proof !== 'refund_placeholder.png';
+    if (!p.receipt_reference && !hasProof) return renderProof(null);
+    return (
+      <div className="flex items-center gap-2">
+        {p.receipt_reference && <span className="text-[13px] whitespace-nowrap">No. {p.receipt_reference}</span>}
+        {hasProof && renderProof(p.pay_proof)}
+      </div>
+    );
+  };
+
   const renderProof = (proofUrl) => {
     if (!proofUrl || proofUrl === 'placeholder.png' || proofUrl === 'refund_placeholder.png') {
       return <span className="text-xs text-slate-400 italic">None</span>;
@@ -1347,7 +1362,7 @@ export default function ShortOrderDetails() {
                         <th className="p-3">Amount</th>
                         <th className="p-3">Method</th>
                         <th className="p-3">Status</th>
-                        <th className="p-3">Proof</th>
+                        <th className="p-3">Reference / Proof</th>
                         <th className="p-3">Date</th>
                         <th className="p-3 text-center">Actions</th>
                       </tr>
@@ -1369,7 +1384,7 @@ export default function ShortOrderDetails() {
                               {badge.label}
                             </span>
                           </td>
-                          <td className="p-3">{renderProof(p.pay_proof)}</td>
+                          <td className="p-3">{renderEvidence(p)}</td>
                           <td className="p-3">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleString() : 'N/A'}</td>
                           <td className="p-3 text-center">
                             {pendingVerification && (
@@ -1637,7 +1652,7 @@ export default function ShortOrderDetails() {
                       <th className="p-3">Amount</th>
                       <th className="p-3">Status</th>
                       <th className="p-3">Reason</th>
-                      <th className="p-3">Proof</th>
+                      <th className="p-3">Reference / Proof</th>
                       <th className="p-3">Date</th>
                     </tr>
                   </thead>
@@ -1653,7 +1668,7 @@ export default function ShortOrderDetails() {
                           </span>
                         </td>
                         <td className="p-3">{p.remarks || 'N/A'}</td>
-                        <td className="p-3">{renderProof(p.pay_proof)}</td>
+                        <td className="p-3">{renderEvidence(p)}</td>
                         <td className="p-3">{p.pay_datetime ? new Date(p.pay_datetime).toLocaleString() : 'N/A'}</td>
                       </tr>
                     ))}
