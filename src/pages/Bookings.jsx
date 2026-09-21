@@ -36,7 +36,7 @@ import { toDateTimeLocalValue } from '../utils/datetimeLocal';
 import { validatePaxForPackage } from '../utils/packageRules';
 import { autoCompletePastEvents } from '../utils/autoComplete';
 import DateRangeFilter from './Reports/DateRangeFilter';
-import { FilterBar, QuickFilters, EmptyResult } from '../components/FilterBar';
+import { FilterBar, QuickFilters, EmptyResult, FILTER_LABEL_ROW } from '../components/FilterBar';
 import { getRangeBounds } from './Reports/helpers';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { bulkDeleteBookings } from '../utils/bulkDeleteBookings';
@@ -1555,7 +1555,7 @@ const handleMarkCompleted = async (id) => {
           not filters, so they sit on the table's own header. */}
       <FilterBar canClear={canClearFilters} onClear={clearFilters}>
           <div className="relative flex-1 min-w-[220px]">
-            <label className={`block text-[13px] font-semibold mb-1 ${searchTerm ? 'text-[#007038]' : 'text-slate-600'}`}>Search</label>
+            <label className={`${FILTER_LABEL_ROW} mb-1 ${searchTerm ? 'text-[#007038]' : 'text-slate-600'}`}>Search</label>
             <div className="relative">
               <input
                 type="text"
@@ -1569,7 +1569,7 @@ const handleMarkCompleted = async (id) => {
           </div>
 
           <div>
-            <label className={`block text-[13px] font-semibold mb-1 ${filters.customerId ? 'text-[#007038]' : 'text-slate-600'}`}>Customer</label>
+            <label className={`${FILTER_LABEL_ROW} mb-1 ${filters.customerId ? 'text-[#007038]' : 'text-slate-600'}`}>Customer</label>
             <Select
               name="customerId"
               value={filters.customerId}
@@ -1584,7 +1584,7 @@ const handleMarkCompleted = async (id) => {
           </div>
 
           <div>
-            <label className={`block text-[13px] font-semibold mb-1 ${filters.packageId ? 'text-[#007038]' : 'text-slate-600'}`}>Package</label>
+            <label className={`${FILTER_LABEL_ROW} mb-1 ${filters.packageId ? 'text-[#007038]' : 'text-slate-600'}`}>Package</label>
             <Select
               name="packageId"
               value={filters.packageId}
@@ -1599,7 +1599,7 @@ const handleMarkCompleted = async (id) => {
           </div>
 
           <div>
-            <label className={`block text-[13px] font-semibold mb-1 ${filters.venue ? 'text-[#007038]' : 'text-slate-600'}`}>Venue</label>
+            <label className={`${FILTER_LABEL_ROW} mb-1 ${filters.venue ? 'text-[#007038]' : 'text-slate-600'}`}>Venue</label>
             <input
               type="text"
               name="venue"
@@ -1611,12 +1611,12 @@ const handleMarkCompleted = async (id) => {
           </div>
 
           <div>
-            <div className="flex items-center gap-1.5 mb-1">
-              <label className={`text-[11px] font-semibold ${datePreset !== 'All Time' ? 'text-[#007038]' : 'text-slate-600'}`}>Filter by</label>
+            <div className={`${FILTER_LABEL_ROW} mb-1`}>
+              <label className={`${datePreset !== 'All Time' ? 'text-[#007038]' : 'text-slate-600'}`}>Filter by</label>
               <Select
                 value={dateFilterField}
                 onChange={(e) => { setDateFilterField(e.target.value); setCurrentPage(1); }}
-                className={`text-[11px] font-semibold border rounded px-1 py-0.5 outline-none cursor-pointer ${datePreset !== 'All Time' ? 'text-[#007038] border-[#008A45]/40 bg-[#EAF3F2]' : 'text-slate-500 border-slate-300 bg-white'}`}
+                className={`text-[12px] font-semibold border rounded px-1.5 py-0 h-[22px] outline-none cursor-pointer ${datePreset !== 'All Time' ? 'text-[#007038] border-[#008A45]/40 bg-[#EAF3F2]' : 'text-slate-500 border-slate-300 bg-white'}`}
               >
                 <option value="event_datetime">Event Date</option>
                 <option value="book_datetime">Date Created</option>

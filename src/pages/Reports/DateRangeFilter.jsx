@@ -53,15 +53,17 @@ export default function DateRangeFilter({
   const isIncomplete = preset === 'Custom' && (!customStart || !customEnd);
 
   return (
-    <div className="flex flex-col items-end gap-1.5">
-      <div className={`flex flex-wrap items-center gap-2 bg-white border rounded-lg p-2 transition-colors ${isFiltered ? 'border-emerald-300 ring-1 ring-emerald-100' : 'border-slate-200'}`}>
+    // 42px tall — the same as every select and search box in a filter bar
+    // (1px border + 4px padding + 32px buttons), so they line up.
+    <div className="flex flex-col items-start gap-1.5">
+      <div className={`flex flex-wrap items-center gap-1 bg-white border rounded-[10px] p-1 transition-colors ${isFiltered ? 'border-emerald-300 ring-1 ring-emerald-100' : 'border-slate-200'}`}>
         {DATE_RANGE_PRESETS.map((p) => {
           const isActive = preset === p;
           return (
             <button
               key={p}
               onClick={() => onPresetChange(p)}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors whitespace-nowrap ${
+              className={`flex items-center gap-1 px-3 h-8 rounded-md text-xs font-semibold transition-colors whitespace-nowrap ${
                 isActive
                   ? 'bg-[#008A45] text-white'
                   : 'text-slate-600 hover:bg-slate-100'
@@ -100,7 +102,7 @@ export default function DateRangeFilter({
         {isFiltered && showClear && (
           <button
             onClick={onClear}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors border-l border-slate-200 ml-1 pl-3"
+            className="flex items-center gap-1 px-2.5 h-8 rounded-md text-xs font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors border-l border-slate-200 ml-1 pl-3"
           >
             <X size={12} />
             Clear Filter

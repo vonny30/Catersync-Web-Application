@@ -870,8 +870,8 @@ export default function Receivables() {
             showClear={false}
           />
         </FilterField>
-        <FilterField label="Search" active={!!term}>
-          <div className="relative min-w-[220px]">
+        <FilterField label="Search" active={!!term} grow>
+          <div className="relative">
             <input id="receivables-search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Customer name or reference" className={`w-full pl-4 pr-10 ${filterControl(!!term)}`} />
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
           </div>

@@ -1133,8 +1133,8 @@ export default function Customers() {
           as they are on Bookings, and two controls for one filter could only
           disagree. */}
       <FilterBar canClear={hasFilters} onClear={clearFilters}>
-        <FilterField label="Search" active={!!search.trim()}>
-          <div className="relative min-w-[220px]">
+        <FilterField label="Search" active={!!search.trim()} grow>
+          <div className="relative">
             <input
               id="customer-search"
               type="text"

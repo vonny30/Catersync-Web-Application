@@ -13,16 +13,26 @@ import { X, Search } from 'lucide-react';
  * The filter bar: one row. Period first (where the page has one), then
  * Search, then the page's other filters, then Clear filters — shown only when
  * something differs from its default, and resetting everything in one click.
+ *
+ * ALIGNMENT. Every slot is a 22px label row, 4px, then a 42px control
+ * (FILTER_LABEL_ROW, and DateRangeFilter's box is sized to 42px too), and the
+ * row aligns to the TOP. It used to align to the bottom, so a date filter
+ * with its "Showing …" line underneath sat higher than every control beside
+ * it and pushed their labels down. Clear filters sits beside the last filter
+ * on the control line — it used to be pushed to the far right edge, leaving
+ * a wide empty gap between it and the filters.
  */
+export const FILTER_LABEL_ROW = 'h-[22px] flex items-center gap-1.5 text-[12.5px] font-semibold';
+
 export function FilterBar({ children, canClear = false, onClear }) {
   return (
-    <div className="flex flex-wrap items-end gap-3 bg-white rounded-2xl border border-slate-200/70 px-4 py-3.5">
+    <div className="flex flex-wrap items-start gap-3 bg-white rounded-2xl border border-slate-200/70 px-4 py-3.5">
       {children}
       {canClear && (
         <button
           type="button"
           onClick={onClear}
-          className="ml-auto flex items-center gap-1 self-center rounded-[10px] px-3 py-2 text-[13px] font-semibold text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors"
+          className="mt-[26px] h-[42px] flex items-center gap-1 rounded-[10px] px-3 text-[13px] font-semibold text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors"
         >
           <X size={13} /> Clear filters
         </button>
@@ -31,11 +41,15 @@ export function FilterBar({ children, canClear = false, onClear }) {
   );
 }
 
-/** A labelled slot in the bar, so every control carries its label the same way. */
-export function FilterField({ label, active = false, children }) {
+/**
+ * A labelled slot in the bar, so every control carries its label the same way.
+ * `grow` lets the slot take the row's spare width — used for Search, so the
+ * bar is filled by the field you type in rather than by empty space.
+ */
+export function FilterField({ label, active = false, grow = false, children }) {
   return (
-    <div className="flex flex-col gap-1">
-      <span className={`text-[12.5px] font-semibold ${active ? 'text-[#007038]' : 'text-slate-600'}`}>{label}</span>
+    <div className={`flex flex-col gap-1 ${grow ? 'flex-1 min-w-[220px]' : ''}`}>
+      <span className={`${FILTER_LABEL_ROW} ${active ? 'text-[#007038]' : 'text-slate-600'}`}>{label}</span>
       {children}
     </div>
   );
