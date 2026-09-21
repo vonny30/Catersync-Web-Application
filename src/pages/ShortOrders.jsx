@@ -98,6 +98,8 @@ export default function ShortOrders() {
   // except status itself — powers the status cards and the Today/Upcoming
   // quick filters without re-fetching full order records per status.
   const [statusCountRows, setStatusCountRows] = useState([]);
+  // The rows behind the quick-filter badges — see chipCountRows in fetchData.
+  const [chipCountRows, setChipCountRows] = useState([]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -173,14 +175,20 @@ export default function ShortOrders() {
 
     // Every filter except status and pagination — shared by the main
     // paginated query and the lightweight status-count query.
-    const applyCommonFilters = (q) => {
+    //
+    // { forChips: true } leaves out the quick-filter ids, and the date filter
+    // when a date chip (Today's Events / Upcoming Confirmed) is what set it.
+    // So clicking a chip cannot change the numbers on the other chips, while
+    // a Period the manager chose still narrows every badge.
+    const applyCommonFilters = (q, { forChips = false } = {}) => {
       q = q.eq('booking_type', 'Short Order');
-      if (dateStart) q = q.gte(dateFilterField, dateStart.toISOString());
-      if (dateEnd) q = q.lte(dateFilterField, dateEnd.toISOString());
+      const skipDate = forChips && (todayChipActive || upcomingChipActive);
+      if (dateStart && !skipDate) q = q.gte(dateFilterField, dateStart.toISOString());
+      if (dateEnd && !skipDate) q = q.lte(dateFilterField, dateEnd.toISOString());
       if (filters.customerId) q = q.eq('customer_id', filters.customerId);
       if (filters.venue) q = q.ilike('venue', `%${filters.venue}%`);
       if (applySearch) q = applySearch(q);
-      if (moneyFilterIds) q = q.in('booking_id', moneyFilterIds);
+      if (moneyFilterIds && !forChips) q = q.in('booking_id', moneyFilterIds);
       return q;
     };
     return applyCommonFilters;
@@ -399,6 +407,14 @@ export default function ShortOrders() {
         supabase.from('booking').select('booking_id, booking_status, event_datetime')
       ).order('booking_id', { ascending: true }), 'short order status counts');
       setStatusCountRows(countRows || []);
+
+      // The quick-filter badges: the filter bar, minus the status tab and
+      // anything a chip set. Each badge is a fixed answer ("how many are
+      // overdue") that must not drop to zero because a different chip is on.
+      const chipRows = await fetchAllRows(() => applyCommonFilters(
+        supabase.from('booking').select('booking_id, booking_status, event_datetime'), { forChips: true }
+      ).order('booking_id', { ascending: true }), 'short order chip counts');
+      setChipCountRows(chipRows || []);
 
       // Flags for the two quick-filter counts.
       const flagged = await fetchAllRows(() => supabase
@@ -1310,11 +1326,12 @@ export default function ShortOrders() {
   // server-side in fetchData; `orders` already reflects every active
   // filter for the current page) ---
   const STATUS_LIST = ['Pending', 'Approved', 'Confirmed', 'Completed', 'Rejected', 'Cancelled'];
-  // Counted against the rows the list is showing, so the badge matches what
-  // pressing it produces.
+  // Counted against the filter bar but never against another chip (see
+  // chipCountRows), so pressing a quick filter lands on its badge's number
+  // and the other badges keep theirs.
   const matchingIdSet = useMemo(
-    () => new Set((statusCountRows || []).map(r => r.booking_id)),
-    [statusCountRows],
+    () => new Set((chipCountRows || []).map(r => r.booking_id)),
+    [chipCountRows],
   );
   const overdueCount = useMemo(
     () => (flagRows || []).filter(f => f.is_overdue && matchingIdSet.has(f.booking_id)).length,
@@ -1385,12 +1402,12 @@ export default function ShortOrders() {
   }));
 
   const todayStr = new Date().toDateString();
-  const todaysEventsCount = statusCountRows.filter(r => r.event_datetime && new Date(r.event_datetime).toDateString() === todayStr).length;
+  const todaysEventsCount = chipCountRows.filter(r => r.event_datetime && new Date(r.event_datetime).toDateString() === todayStr).length;
   // From the start of today — the same window the chip applies (Custom, today
   // onward). Counting from "now" left out an event earlier today that the
   // chip then listed.
   const upcomingFrom = getRangeBounds('Custom', todayKey, '').start;
-  const upcomingConfirmedCount = statusCountRows.filter(r => r.booking_status === 'Confirmed' && r.event_datetime && new Date(r.event_datetime) >= upcomingFrom).length;
+  const upcomingConfirmedCount = chipCountRows.filter(r => r.booking_status === 'Confirmed' && r.event_datetime && new Date(r.event_datetime) >= upcomingFrom).length;
 
   // --- RENDER ---
   return (

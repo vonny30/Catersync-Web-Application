@@ -810,10 +810,14 @@ export default function Dashboard() {
         </button>
       </div>
 
+      {/* FIXED-HEIGHT PAIR. The grid stretched both cards to the taller one,
+          so a long pending list made the calendar card grow with it. On wide
+          screens both cards now share one fixed height and their LISTS scroll
+          inside them; stacked on a phone, each list has its own max height. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* LEFT: Calendar & Today's Events */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <div className="mb-[22px] bg-[#fbfcfd] border border-slate-100 rounded-2xl p-4 pt-[18px]">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col lg:h-[740px]">
+          <div className="mb-[22px] bg-[#fbfcfd] border border-slate-100 rounded-2xl p-4 pt-[18px] shrink-0">
             <div className="flex justify-between items-center mb-4 px-2">
               <button
                 onClick={() => changeMonth(-1)}
@@ -889,8 +893,8 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <h3 className="text-[17px] font-bold tracking-[-0.01em] text-slate-900 mb-3.5">Today's Events</h3>
-          <div className="space-y-2">
+          <h3 className="text-[17px] font-bold tracking-[-0.01em] text-slate-900 mb-3.5 shrink-0">Today's Events</h3>
+          <div className="space-y-2 overflow-y-auto min-h-0 max-h-[320px] lg:max-h-none lg:flex-1 pr-1">
             {todayEvents.length === 0 ? (
               <p className="text-sm text-slate-500 italic text-center py-4">No events scheduled for today.</p>
             ) : (
@@ -912,8 +916,8 @@ export default function Dashboard() {
         </div>
 
         {/* RIGHT: Pending Orders (combined) */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm h-fit">
-          <div className="flex justify-between items-center mb-6">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col lg:h-[740px]">
+          <div className="flex justify-between items-center mb-6 shrink-0">
             <h2 className="text-[19px] font-bold tracking-[-0.015em] text-slate-900">Pending Bookings &amp; Orders</h2>
             <button
               onClick={() => navigate('/app/bookings')}
@@ -923,7 +927,7 @@ export default function Dashboard() {
             </button>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-4 overflow-y-auto min-h-0 max-h-[520px] lg:max-h-none lg:flex-1 pr-1">
             {pendingItems.length === 0 ? (
               <p className="text-sm text-slate-500 italic text-center py-8">No pending orders.</p>
             ) : (
