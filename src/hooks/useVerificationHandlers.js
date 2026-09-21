@@ -6,10 +6,8 @@
 import { useState } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
-import { sumVerifiedPositivePayments, stageForReceipt, PROOF_REJECTED } from '../utils/payments';
+import { sumVerifiedPositivePayments, stageForReceipt, PROOF_REJECTED, VERIFY_METHODS } from '../utils/payments';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
-
-const KNOWN_METHODS = ['Cash', 'GCash', 'Bank Transfer'];
 
 /**
  * @param onVerified
@@ -43,7 +41,8 @@ export function useVerificationHandlers({ payments, totalAmount, fetchData, onVe
 
   const openVerifyModal = (payment) => {
     setVerifyTarget(payment);
-    setVerifyMethod(KNOWN_METHODS.includes(payment.pay_method) ? payment.pay_method : 'GCash');
+    // Online only (VERIFY_METHODS): a claim labelled anything else opens on GCash.
+    setVerifyMethod(VERIFY_METHODS.includes(payment.pay_method) ? payment.pay_method : 'GCash');
     setIsVerifyModalOpen(true);
   };
 

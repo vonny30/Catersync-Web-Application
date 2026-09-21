@@ -42,7 +42,7 @@ import { getConfirmEligibility, buildConfirmDialog, applyConfirmation } from '..
 import {
   RECEIPT_STAGE_ORDER, RECEIPT_METHODS, ENTRY_TYPES, PENDING_VERIFICATION, PROOF_REJECTED, REVERSED_STATUS,
   stageForReceipt, validateReceipt, methodNeedsReceiptNumber, payStatusPillClass,
-  isReversalEntry, isRefundEntry, ledgerEntryBadge,
+  isReversalEntry, isRefundEntry, ledgerEntryBadge, VERIFY_METHODS,
 } from '../utils/payments';
 
 const peso = (n) => `₱${Number(n || 0).toLocaleString()}`;
@@ -353,7 +353,8 @@ function RecordReceiptModal({ receivables, onClose, onRecorded }) {
 function VerifyClaimModal({ claim, bookingMoney, onClose, onVerified }) {
   const { showConfirm } = useConfirm();
   const { requestPasswordConfirm } = usePasswordConfirm();
-  const [method, setMethod] = useState(RECEIPT_METHODS.includes(claim.pay_method) ? claim.pay_method : 'GCash');
+  // Online only — a mobile claim is never Cash (utils/payments VERIFY_METHODS).
+  const [method, setMethod] = useState(VERIFY_METHODS.includes(claim.pay_method) ? claim.pay_method : 'GCash');
   const [saving, setSaving] = useState(false);
   const priorPaid = Number(bookingMoney?.verified_paid) || 0;
   const total = Number(bookingMoney?.total_amount ?? claim.booking?.total_amount) || 0;
@@ -420,8 +421,8 @@ function VerifyClaimModal({ claim, bookingMoney, onClose, onVerified }) {
         {proofUrl && <img src={proofUrl} alt="Submitted proof" className="max-h-64 rounded-lg border border-slate-200 mx-auto" />}
         <div>
           <span className="block text-xs font-bold text-slate-700 mb-1.5">Payment Method</span>
-          <div className="grid grid-cols-3 gap-2">
-            {RECEIPT_METHODS.map(m => (
+          <div className="grid grid-cols-2 gap-2">
+            {VERIFY_METHODS.map(m => (
               <button key={m} type="button" onClick={() => setMethod(m)} className={`px-2.5 py-2 rounded-lg border text-[13px] font-semibold ${method === m ? 'bg-[#CBDEDD]/60 border-[#008A45] text-slate-900' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'}`}>{m}</button>
             ))}
           </div>

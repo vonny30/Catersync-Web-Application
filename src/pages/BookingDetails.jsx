@@ -22,7 +22,7 @@ import { useConfirmationHandlers } from '../hooks/useConfirmationHandlers';
 import { useCompletionHandlers } from '../hooks/useCompletionHandlers';
 import { allocateEquipmentForBooking } from '../utils/equipment';
 import { TRIP_LEG, countDistinctVehicles, groupDispatchRuns, hasRunDeparted, removeScheduledRun, runRemovalMessage } from '../utils/vehicle';
-import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumDepositsCollected, isPaymentLedgerLocked, formatPaymentDeletionWarning, movesBooks, isRefundEntry, ledgerEntryBadge, PENDING_VERIFICATION, REFUNDED_STATUS, ENTRY_TYPES, RECEIPT_METHODS, REFUND_METHOD_MESSAGE } from '../utils/payments';
+import { totalLossOnRecompute, totalLossLockedMessage, sumVerifiedPositivePayments, sumDepositsCollected, isPaymentLedgerLocked, formatPaymentDeletionWarning, movesBooks, isRefundEntry, ledgerEntryBadge, PENDING_VERIFICATION, REFUNDED_STATUS, ENTRY_TYPES, RECEIPT_METHODS, REFUND_METHOD_MESSAGE, VERIFY_METHODS } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/bookingStatus';
 import { isResourceLocked, resourceLockReason } from '../utils/resourceLock';
 import ReviewFlagBanner from '../components/ReviewFlagBanner';
@@ -3567,8 +3567,8 @@ export default function BookingDetails() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Payment Method *</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {['Cash', 'GCash', 'Bank Transfer'].map((method) => (
+                <div className="grid grid-cols-2 gap-2">
+                  {VERIFY_METHODS.map((method) => (
                     <button
                       key={method}
                       type="button"

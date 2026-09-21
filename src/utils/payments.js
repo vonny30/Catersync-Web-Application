@@ -139,6 +139,11 @@ export function restageReceipts(entries, total) {
 }
 
 export const RECEIPT_METHODS = ['Cash', 'GCash', 'Bank Transfer'];
+// What a VERIFIED claim can be. A claim is a payment the customer made in the
+// mobile app, and the app pays online only — so verifying offers GCash (the
+// default) and Bank Transfer, never Cash. Cash stays in RECEIPT_METHODS for
+// payments the manager records by hand.
+export const VERIFY_METHODS = ['GCash', 'Bank Transfer'];
 // Cash handed over the counter has a paper receipt; GCash and bank transfers
 // have a digital trail. The form asks for the one that exists.
 export const methodNeedsReceiptNumber = (method) => method === 'Cash';
