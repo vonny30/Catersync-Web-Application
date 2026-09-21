@@ -12,9 +12,11 @@
 // combined unpaid figure (lifetime_outstanding, total_outstanding,
 // with_balance, has_outstanding_balance, balance_due) that adds pending and
 // approved work to money that can actually be collected. They are kept for
-// compatibility and are deprecated for display: bind to receivable_due /
-// pipeline_due and their totals instead, so this page agrees with
-// Receivables and Reports.
+// compatibility and are deprecated for display: bind to receivable_due and
+// its totals instead, so this page agrees with Receivables and Reports.
+// (pipeline_due — unpaid Pending + Approved work — is not shown: it was
+// removed on 21 Sep 2026 as confusing next to Collectible, the same reason
+// the Approved card left Reports.)
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -114,11 +116,10 @@ const SORT_DEFAULT_DIRECTION = {
   total_bookings: 'desc',
   contracted_gross: 'desc',
   receivable_due: 'desc',
-  pipeline_due: 'desc',
   next_event_at: 'asc',
 };
 
-// receivable_due / pipeline_due, never lifetime_outstanding: the lifetime
+// receivable_due, never lifetime_outstanding: the lifetime
 // figure adds pending and approved work to money that can actually be
 // collected, which made one customer read as owing half a million. The split
 // columns come from v_customer_summary and agree row for row with
@@ -126,7 +127,7 @@ const SORT_DEFAULT_DIRECTION = {
 const LIST_COLUMNS = [
   'customer_id', 'first_name', 'last_name', 'full_name', 'email_address', 'contact_no', 'cus_address',
   'account_status', 'status_reason', 'source', 'has_login', 'total_bookings', 'package_bookings',
-  'short_orders', 'contracted_gross', 'receivable_due', 'pipeline_due', 'next_event_at', 'is_deletable',
+  'short_orders', 'contracted_gross', 'receivable_due', 'next_event_at', 'is_deletable',
 ].join(', ');
 
 const inputClass = (hasError) => `w-full border rounded-[10px] px-3 py-2.5 text-sm text-slate-800 outline-none transition-colors ${
@@ -495,11 +496,9 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
                   a million in pending enquiries read as owing half a million —
                   a figure no one could collect on. receivable_due is the money
                   actually collectible (Confirmed + Completed, the same
-                  population Total Receivables uses on the Receivables page);
-                  pipeline_due is work that has not been contracted yet
-                  (Pending + Approved). Shown together so the pipeline is not
-                  hidden, but never added up into one "balance". */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                  population Collectible uses on the Receivables page).
+                  Pending and Approved work is not shown as money here. */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <div className="rounded-xl border border-slate-200/70 bg-white p-3.5">
                   <p className="text-[12.5px] font-semibold text-slate-600 mb-1">Total Billed</p>
                   <p className="text-[19px] font-semibold tabular-nums text-slate-900">{peso(balance?.total_billed)}</p>
@@ -513,13 +512,6 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
                   <p className="text-[12.5px] font-bold text-slate-700 mb-1">Collectible</p>
                   <p className={`text-[21px] font-bold tabular-nums ${Number(balance?.receivable_due) > 0 ? 'text-amber-700' : 'text-slate-900'}`}>{peso(balance?.receivable_due)}</p>
                   <p className="text-[11.5px] text-slate-500 mt-1 leading-snug">Still collectible</p>
-                </div>
-                {/* Secondary on purpose: real money, but not yet collectible —
-                    the customer has not committed to it. */}
-                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3.5">
-                  <p className="text-[12.5px] font-semibold text-slate-500 mb-1">Pipeline</p>
-                  <p className="text-[19px] font-medium tabular-nums text-slate-500">{peso(balance?.pipeline_due)}</p>
-                  <p className="text-[11.5px] text-slate-500 mt-1 leading-snug">Not yet collectible</p>
                 </div>
                 {/* Claimed, not received. Kept apart from Total Collected on
                     purpose — it must never read as money in hand. */}
@@ -1257,10 +1249,6 @@ export default function Customers() {
                 {/* Collectible now. Same measure and same word as the card
                     above and as the Receivables page. */}
                 <th className="px-4 py-3 text-right">{renderSortHeader('receivable_due', 'Collectible', 'right')}</th>
-                {/* Secondary on purpose — real money, but nobody can collect it
-                    until the customer confirms. Muted so the eye lands on the
-                    column to its left. */}
-                <th className="px-4 py-3 text-right font-semibold text-slate-500">{renderSortHeader('pipeline_due', 'Pipeline', 'right')}</th>
                 <th className="px-4 py-3">{renderSortHeader('next_event_at', 'Next Event')}</th>
                 <th className="px-4 py-3 whitespace-nowrap">Status</th>
                 <th className="px-4 py-3 whitespace-nowrap text-right">Actions</th>
@@ -1268,9 +1256,9 @@ export default function Customers() {
             </thead>
             <tbody className={`divide-y divide-slate-100 text-sm text-slate-700 transition-opacity ${listLoading && hasListLoaded ? 'opacity-60' : ''}`}>
               {!hasListLoaded ? (
-                <SkeletonRows columns={9} />
+                <SkeletonRows columns={8} />
               ) : list.rows.length === 0 ? (
-                <tr><td colSpan="9"><EmptyResult canClear={hasFilters} onClear={clearFilters} /></td></tr>
+                <tr><td colSpan="8"><EmptyResult canClear={hasFilters} onClear={clearFilters} /></td></tr>
               ) : (
                 list.rows.map((c) => (
                   <tr key={c.customer_id} onClick={() => openDrawer(c.customer_id)} className="hover:bg-[#fbfcfd] transition-colors cursor-pointer">
@@ -1294,11 +1282,6 @@ export default function Customers() {
                     <td className="px-4 py-[15px] text-right tabular-nums whitespace-nowrap">
                       {Number(c.receivable_due) > 0
                         ? <span className="text-[15px] font-semibold text-amber-700">{peso(c.receivable_due)}</span>
-                        : <span className="text-slate-400">—</span>}
-                    </td>
-                    <td className="px-4 py-[15px] text-right tabular-nums whitespace-nowrap">
-                      {Number(c.pipeline_due) > 0
-                        ? <span className="text-[13.5px] text-slate-500">{peso(c.pipeline_due)}</span>
                         : <span className="text-slate-400">—</span>}
                     </td>
                     <td className="px-4 py-[15px] text-sm text-slate-700 tabular-nums whitespace-nowrap">{dateOrDash(c.next_event_at)}</td>
