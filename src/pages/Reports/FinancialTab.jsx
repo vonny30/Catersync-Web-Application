@@ -54,10 +54,10 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail, canCl
           <button onClick={() => onCardClick('outstanding')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
             <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
               <span className="w-2 h-2 rounded-full bg-[#D55E00] shrink-0" aria-hidden="true" />
-              Total Receivables
+              Collectible
             </span>
             <span className={`${FIG} text-[#D55E00]`}>{formatCurrency(financialSummary.outstandingContracted)}</span>
-            <span className="block text-[12.5px] text-slate-500 mt-1">Still collectible</span>
+            <span className="block text-[12.5px] text-slate-500 mt-1">Not yet collected</span>
           </button>
         </div>
 
@@ -86,12 +86,12 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail, canCl
         <div className="flex flex-wrap gap-10">
           <div>
             <span className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-600 mb-2.5">
-              Cash Receipts
+              Payments Received
             </span>
             <span className="block text-[38px] font-semibold tracking-[-0.035em] leading-none tabular-nums text-slate-900">
               {formatCurrency(financialSummary.cashReceipts)}
             </span>
-            <span className="block text-[13.5px] text-slate-600 mt-3">Money received</span>
+            <span className="block text-[13.5px] text-slate-600 mt-3">All verified receipts</span>
           </div>
           <div>
             <span className="block text-[13px] font-semibold text-slate-600 mb-2.5">Refunds Issued</span>

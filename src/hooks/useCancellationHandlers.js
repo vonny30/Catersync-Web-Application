@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { sumVerifiedPositivePayments, sumDepositsCollected, ENTRY_TYPES, REFUNDED_STATUS, RECEIPT_METHODS, REFUND_METHOD_MESSAGE } from '../utils/payments';
 import { STATUS_ORDER } from '../utils/bookingStatus';
+import { prepareRefundEvidence } from '../utils/refundEvidence';
 
 export function useCancellationHandlers({ booking, payments, fetchData }) {
   const { showConfirm } = useConfirm();
@@ -14,6 +15,8 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
   const [refundFile, setRefundFile] = useState(null);
   // How the money went back. Required on every refund (pay_method CHECK).
   const [refundMethod, setRefundMethod] = useState('');
+  // Cash only: the number on the receipt given to the customer.
+  const [refundReceiptNo, setRefundReceiptNo] = useState('');
   const [isCancelling, setIsCancelling] = useState(false);
 
   const openCancelModal = () => {
@@ -22,6 +25,7 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
     setRefundRemarks('');
     setRefundFile(null);
     setRefundMethod('');
+    setRefundReceiptNo('');
     setIsCancelModalOpen(true);
   };
 
@@ -66,7 +70,8 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
       let refundNote = '';
       let shouldRefund = false;
       let refundAmountValue = 0;
-      let proofUrl = 'refund_placeholder.png';
+      let proofUrl = null;
+      let receiptReference = null;
 
       const enteredAmount = parseFloat(refundAmount) || 0;
       if (enteredAmount > 0) {
@@ -85,42 +90,16 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
           setIsCancelling(false);
           return;
         }
-        if (!refundFile) {
-          toast.error('Please upload a proof of refund receipt.');
+        // Cash -> receipt number required, image optional; GCash / Bank
+        // Transfer -> image required. One rule for every refund flow.
+        const evidence = await prepareRefundEvidence({ method: refundMethod, file: refundFile, receiptNo: refundReceiptNo });
+        if (evidence.error) {
+          toast.error(evidence.error);
           setIsCancelling(false);
           return;
         }
-
-        // Same checks the rejection refund already performs. This path had
-        // none, so any file of any size went up as "proof of refund".
-        const MAX_PROOF_BYTES = 5 * 1024 * 1024;
-        const ALLOWED_PROOF_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-        if (!ALLOWED_PROOF_TYPES.includes(refundFile.type)) {
-          toast.error('Invalid file type. Please upload a JPEG, PNG, WebP, or GIF image.');
-          setIsCancelling(false);
-          return;
-        }
-        if (refundFile.size > MAX_PROOF_BYTES) {
-          toast.error(`File is too large. Maximum size is 5 MB. Your file is ${(refundFile.size / 1024 / 1024).toFixed(2)} MB.`);
-          setIsCancelling(false);
-          return;
-        }
-
-        // Upload proof
-        const fileExt = refundFile.name.split('.').pop();
-        const fileName = `refunds/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-        const { error: uploadError } = await supabase.storage
-          .from('images')
-          .upload(fileName, refundFile);
-        if (uploadError) {
-          toast.error('Failed to upload refund proof. Please try again.');
-          setIsCancelling(false);
-          return;
-        }
-        const { data: publicUrlData } = supabase.storage
-          .from('images')
-          .getPublicUrl(fileName);
-        proofUrl = publicUrlData.publicUrl;
+        proofUrl = evidence.proofUrl;
+        receiptReference = evidence.receiptReference;
 
         refundAmountValue = enteredAmount;
         shouldRefund = true;
@@ -182,6 +161,7 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
             entry_type: ENTRY_TYPES.refund,
             pay_datetime: new Date().toISOString(),
             pay_proof: proofUrl,
+            receipt_reference: receiptReference,
             customer_id: booking.customer_id,
             remarks: refundRemarks || 'Refund processed',
           }]);
@@ -226,6 +206,8 @@ export function useCancellationHandlers({ booking, payments, fetchData }) {
     setRefundFile,
     refundMethod,
     setRefundMethod,
+    refundReceiptNo,
+    setRefundReceiptNo,
     isCancelling,
     openCancelModal,
     handleCancelBooking,

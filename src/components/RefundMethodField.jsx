@@ -4,9 +4,14 @@
 // three real methods: payment.pay_method is NOT NULL and its CHECK allows only
 // Cash, GCash and Bank Transfer, so the old placeholder method 'Refund' is
 // refused by the database. Every refund form asks here rather than guessing.
-import { RECEIPT_METHODS } from '../utils/payments';
+//
+// Cash also asks for the number on the paper receipt handed to the customer —
+// the same rule Record Receipt follows. That number is the refund's evidence,
+// so the proof image becomes optional for Cash (see utils/refundEvidence).
+import { RECEIPT_METHODS, methodNeedsReceiptNumber } from '../utils/payments';
 
-export default function RefundMethodField({ value, onChange, error = '', disabled = false }) {
+export default function RefundMethodField({ value, onChange, receiptNo = '', onReceiptNoChange, error = '', disabled = false }) {
+  const needsNumber = methodNeedsReceiptNumber(value) && !!onReceiptNoChange;
   return (
     <div>
       <span className="block text-xs font-bold text-slate-700 mb-1.5">
@@ -30,6 +35,21 @@ export default function RefundMethodField({ value, onChange, error = '', disable
         ))}
       </div>
       {error && !value && <p className="text-xs text-red-600 mt-1 font-semibold">{error}</p>}
+      {needsNumber && (
+        <div className="mt-2">
+          <label className="block text-xs font-bold text-slate-700 mb-1">
+            Cash Receipt Number<span className="text-red-500 ml-1">*</span>
+          </label>
+          <input
+            type="text"
+            value={receiptNo}
+            onChange={(e) => onReceiptNoChange(e.target.value)}
+            disabled={disabled}
+            placeholder="The number on the cash receipt given to the customer"
+            className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
+          />
+        </div>
+      )}
     </div>
   );
 }

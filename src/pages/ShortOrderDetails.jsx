@@ -38,6 +38,7 @@ import { getAssignmentStatus } from '../utils/statusLabels';
 import DateTimePicker from '../components/DateTimePicker';
 import ImageUploadField from '../components/ImageUploadField';
 import RefundMethodField from '../components/RefundMethodField';
+import { prepareRefundEvidence } from '../utils/refundEvidence';
 import ReceiptFields from '../components/ReceiptFields';
 
 export default function ShortOrderDetails() {
@@ -93,6 +94,7 @@ export default function ShortOrderDetails() {
   const [refundModalRemarks, setRefundModalRemarks] = useState('');
   const [refundModalFile, setRefundModalFile] = useState(null);
   const [refundModalMethod, setRefundModalMethod] = useState('');
+  const [refundModalReceiptNo, setRefundModalReceiptNo] = useState('');
   const [isRefundSubmitting, setIsRefundSubmitting] = useState(false);
 
   // --- Proof Image Modal state ---
@@ -339,6 +341,8 @@ export default function ShortOrderDetails() {
     setRejectionRefundFile,
     rejectionRefundMethod,
     setRejectionRefundMethod,
+    rejectionRefundReceiptNo,
+    setRejectionRefundReceiptNo,
     showRejectionRefund,
     rejectionMaxRefundable,
     openRejectionModal,
@@ -363,6 +367,8 @@ export default function ShortOrderDetails() {
     setRefundFile,
     refundMethod,
     setRefundMethod,
+    refundReceiptNo,
+    setRefundReceiptNo,
     isCancelling,
     openCancelModal,
     handleCancelBooking,
@@ -442,6 +448,7 @@ export default function ShortOrderDetails() {
     setRefundModalRemarks('');
     setRefundModalFile(null);
     setRefundModalMethod('');
+    setRefundModalReceiptNo('');
     setIsRefundModalOpen(true);
   };
 
@@ -461,44 +468,13 @@ export default function ShortOrderDetails() {
       toast.error(REFUND_METHOD_MESSAGE);
       return;
     }
-    if (!refundModalFile) {
-      toast.error('Please upload a proof of refund receipt.');
-      return;
-    }
-
-    // --- FILE VALIDATION for refund ---
-    const file = refundModalFile;
-    const maxSize = 5 * 1024 * 1024;
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-    if (!allowedTypes.includes(file.type)) {
-      toast.error('Invalid file type. Please upload a JPEG, PNG, WebP, or GIF image.');
-      return;
-    }
-    if (file.size > maxSize) {
-      toast.error(`File is too large. Maximum size is 5 MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)} MB.`);
-      return;
-    }
-
     setIsRefundSubmitting(true);
     try {
-      let proofUrl = 'refund_placeholder.png';
-      const fileExt = file.name.split('.').pop();
-      const fileName = `refunds/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage
-        .from('images')
-        .upload(fileName, file);
-      if (uploadError) {
-        let msg = 'Failed to upload refund proof.';
-        if (uploadError.message?.includes('bucket not found')) msg = 'Storage bucket is not configured.';
-        else if (uploadError.message?.includes('permission')) msg = 'Permission denied.';
-        else if (uploadError.message?.includes('too large')) msg = 'File exceeds storage limit.';
-        else if (uploadError.message?.includes('duplicate')) msg = 'A file with this name already exists.';
-        throw new Error(msg);
-      }
-      const { data: publicUrlData } = supabase.storage
-        .from('images')
-        .getPublicUrl(fileName);
-      proofUrl = publicUrlData.publicUrl;
+      // Cash -> receipt number required, image optional; GCash / Bank
+      // Transfer -> image required. One rule for every refund flow.
+      const evidence = await prepareRefundEvidence({ method: refundModalMethod, file: refundModalFile, receiptNo: refundModalReceiptNo });
+      if (evidence.error) throw new Error(evidence.error);
+      const { proofUrl, receiptReference } = evidence;
 
       const { error: refundError } = await supabase
         .from('payment')
@@ -510,6 +486,7 @@ export default function ShortOrderDetails() {
           entry_type: ENTRY_TYPES.refund,
           pay_datetime: new Date().toISOString(),
           pay_proof: proofUrl,
+          receipt_reference: receiptReference,
           customer_id: order.customer_id,
           remarks: refundModalRemarks || 'Refund processed after rejection/cancellation',
         }]);
@@ -2066,11 +2043,11 @@ export default function ShortOrderDetails() {
         </div>
       </div>
       <div className="mt-2">
-        <RefundMethodField value={refundMethod} onChange={setRefundMethod} />
+        <RefundMethodField value={refundMethod} onChange={setRefundMethod} receiptNo={refundReceiptNo} onReceiptNoChange={setRefundReceiptNo} />
         <ImageUploadField
           label="Receipt / Proof of Refund"
-          required
-          note="(required if amount entered)"
+          required={refundMethod !== 'Cash'}
+          note={refundMethod === 'Cash' ? '(optional for cash)' : '(required if amount entered)'}
           file={refundFile}
           onChange={(e) => setRefundFile(e.target.files[0])}
         />
@@ -2140,11 +2117,11 @@ export default function ShortOrderDetails() {
                     </div>
                   </div>
                   <div className="mt-2">
-                    <RefundMethodField value={rejectionRefundMethod} onChange={setRejectionRefundMethod} />
+                    <RefundMethodField value={rejectionRefundMethod} onChange={setRejectionRefundMethod} receiptNo={rejectionRefundReceiptNo} onReceiptNoChange={setRejectionRefundReceiptNo} />
                     <ImageUploadField
                       label="Receipt / Proof of Refund"
-                      required
-                      note="(required if amount entered)"
+                      required={rejectionRefundMethod !== 'Cash'}
+                      note={rejectionRefundMethod === 'Cash' ? '(optional for cash)' : '(required if amount entered)'}
                       file={rejectionRefundFile}
                       onChange={(e) => setRejectionRefundFile(e.target.files[0])}
                     />
@@ -2189,13 +2166,13 @@ export default function ShortOrderDetails() {
                 <input type="text" value={refundModalRemarks} onChange={(e) => setRefundModalRemarks(e.target.value)} placeholder="Reason for refund" className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:border-[#008A45] outline-none" />
               </div>
 
-              <RefundMethodField value={refundModalMethod} onChange={setRefundModalMethod} />
+              <RefundMethodField value={refundModalMethod} onChange={setRefundModalMethod} receiptNo={refundModalReceiptNo} onReceiptNoChange={setRefundModalReceiptNo} />
               <ImageUploadField
                 label="Proof of Refund"
-                required
+                required={refundModalMethod !== 'Cash'}
                 file={refundModalFile}
                 onChange={(e) => setRefundModalFile(e.target.files[0])}
-                hint="PNG, JPG up to 5MB. Proof image is required."
+                hint={refundModalMethod === 'Cash' ? 'Optional for cash — the receipt number is the proof.' : 'PNG, JPG up to 5MB. Proof image is required.'}
               />
 
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">

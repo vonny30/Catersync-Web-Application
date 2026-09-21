@@ -10,17 +10,21 @@ money coming in, one test for whether money counts, and no edits after the fact.
 
 | Card | Subtext | Basis | Source |
 | --- | --- | --- | --- |
-| Cash Receipts | Money received | Cash basis | `f_report_period.cash_receipts` |
-| Total Receivables | Still collectible | Accrual basis | `outstanding` where `counts_toward_revenue` |
+| Payments Received | All verified receipts | Cash basis | `f_report_period.cash_receipts` |
+| Collectible | Not yet collected | Accrual basis | `outstanding` where `counts_toward_revenue` |
 
-Both follow one **Period** control. Cash Receipts is scoped by payment date; Total
-Receivables by service date. September 2026: ₱161,700 and ₱55,950. All time, Total
-Receivables is ₱92,800.
+Renamed 21 September 2026 (were Cash Receipts and Total Receivables). Collectible
+counts Confirmed and Completed bookings only; Pending and Approved amounts are not yet
+collectible and never appear here.
+
+Both follow one **Period** control. Payments Received is scoped by payment date;
+Collectible by service date. The month is in the period title, not the card label.
+September 2026: ₱161,700 and ₱55,950. All time, Collectible is ₱92,800.
 
 The four status cards that used to sit beside these are now a **Stage** filter: Deposit
 Collected, Partially Settled, Fully Settled.
 
-The Dashboard's Cash Receipts card links here with the period it was showing, so the
+The Dashboard's Payments Received card links here with the period it was showing, so the
 receipts behind that figure are the rows listed on arrival.
 
 ## Entry types
@@ -30,6 +34,12 @@ receipts behind that figure are the rows listed on arrival.
 | Receipt | + | Money received | Manager or customer app |
 | Refund | − | Money returned | Manager, through cancel or reject |
 | Reversal | − | Corrects an entry that should never have existed | Manager only |
+
+A Refund's evidence depends on its method (`utils/refundEvidence.js`): **Cash** needs
+the number on the receipt handed to the customer, written to `receipt_reference`, and the
+image is optional; **GCash** and **Bank Transfer** need an image in `pay_proof`. This is the
+rule Record Receipt already applies. The database does not enforce it for refunds —
+`payment_evidence_check` covers receipts only — so the forms do.
 
 `payment_reversal_shape_check` requires a Reversal to carry `reverses_payment_id`, a
 `reversal_reason` and a negative amount. A Reversal can also demote its booking from

@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { ENTRY_TYPES, REFUNDED_STATUS, RECEIPT_METHODS, REFUND_METHOD_MESSAGE } from '../utils/payments';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { STATUS_ORDER } from '../utils/bookingStatus';
+import { prepareRefundEvidence } from '../utils/refundEvidence';
 
 export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData }) {
   const { showConfirm } = useConfirm();
@@ -17,6 +18,8 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
   const [rejectionRefundFile, setRejectionRefundFile] = useState(null);
   // How the money went back. Required on every refund (pay_method CHECK).
   const [rejectionRefundMethod, setRejectionRefundMethod] = useState('');
+  // Cash only: the number on the receipt given to the customer.
+  const [rejectionRefundReceiptNo, setRejectionRefundReceiptNo] = useState('');
   const [showRejectionRefund, setShowRejectionRefund] = useState(false);
   const [rejectionMaxRefundable, setRejectionMaxRefundable] = useState(0);
 
@@ -80,6 +83,7 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
     setRejectionRefundRemarks('');
     setRejectionRefundFile(null);
     setRejectionRefundMethod('');
+    setRejectionRefundReceiptNo('');
     setIsRejectionModalOpen(true);
   };
 
@@ -97,7 +101,8 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
     }
 
     let enteredAmount = 0;
-    let proofUrl = 'refund_placeholder.png';
+    let proofUrl = null;
+    let receiptReference = null;
 
     if (showRejectionRefund) {
       enteredAmount = parseFloat(rejectionRefundAmount) || 0;
@@ -110,39 +115,15 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
           toast.error(REFUND_METHOD_MESSAGE);
           return;
         }
-        if (!rejectionRefundFile) {
-          toast.error('Please upload a proof of refund receipt.');
+        // Cash -> receipt number required, image optional; GCash / Bank
+        // Transfer -> image required. One rule for every refund flow.
+        const evidence = await prepareRefundEvidence({ method: rejectionRefundMethod, file: rejectionRefundFile, receiptNo: rejectionRefundReceiptNo });
+        if (evidence.error) {
+          toast.error(evidence.error);
           return;
         }
-        const file = rejectionRefundFile;
-        const maxSize = 5 * 1024 * 1024;
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-        if (!allowedTypes.includes(file.type)) {
-          toast.error('Invalid file type. Please upload a JPEG, PNG, WebP, or GIF image.');
-          return;
-        }
-        if (file.size > maxSize) {
-          toast.error(`File is too large. Maximum size is 5 MB. Your file is ${(file.size / 1024 / 1024).toFixed(2)} MB.`);
-          return;
-        }
-        const fileExt = file.name.split('.').pop();
-        const fileName = `refunds/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-        const { error: uploadError } = await supabase.storage
-          .from('images')
-          .upload(fileName, file);
-        if (uploadError) {
-          let msg = 'Failed to upload refund proof.';
-          if (uploadError.message?.includes('bucket not found')) msg = 'Storage bucket is not configured.';
-          else if (uploadError.message?.includes('permission')) msg = 'Permission denied.';
-          else if (uploadError.message?.includes('too large')) msg = 'File exceeds storage limit.';
-          else if (uploadError.message?.includes('duplicate')) msg = 'A file with this name already exists.';
-          toast.error(msg);
-          return;
-        }
-        const { data: publicUrlData } = supabase.storage
-          .from('images')
-          .getPublicUrl(fileName);
-        proofUrl = publicUrlData.publicUrl;
+        proofUrl = evidence.proofUrl;
+        receiptReference = evidence.receiptReference;
       }
     }
 
@@ -198,6 +179,7 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
             entry_type: ENTRY_TYPES.refund,
             pay_datetime: new Date().toISOString(),
             pay_proof: proofUrl,
+            receipt_reference: receiptReference,
             customer_id: booking.customer_id,
             remarks: rejectionRefundRemarks || 'Refund processed during rejection',
           }]);
@@ -244,6 +226,8 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
     setRejectionRefundFile,
     rejectionRefundMethod,
     setRejectionRefundMethod,
+    rejectionRefundReceiptNo,
+    setRejectionRefundReceiptNo,
     showRejectionRefund,
     rejectionMaxRefundable,
     openRejectionModal,

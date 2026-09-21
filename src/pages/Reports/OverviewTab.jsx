@@ -112,9 +112,9 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
               never Confirmed alone — a Completed event with a balance is the
               truest receivable here, since the service was already delivered. */}
           <StatCard
-            label="Total Receivables"
+            label="Collectible"
             value={formatCurrency(financialSummary.outstandingContracted)}
-            sub="Still collectible"
+            sub="Not yet collected"
             color="amber"
             onClick={() => onCardClick('outstanding')}
           />
@@ -128,15 +128,15 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
           {/* The same figure, by the same definition, as Cash Receipts on the
               Receivables page. Both read f_report_period / v_payment_ledger. */}
           <StatCard
-            label="Cash Receipts"
+            label="Payments Received"
             value={formatCurrency(financialSummary.cashReceipts)}
-            sub="Money received"
+            sub="All verified receipts"
             color="teal"
             onClick={() => onOpenDetail({
-              title: 'Cash Receipts',
+              title: 'Payments Received',
               description: 'Verified receipts, counted on the day the money moved. Claims awaiting verification, reversals, and receipts that have been reversed are all excluded — the same rule the Receivables page uses.',
               fields: [
-                { label: 'Cash receipts', value: formatCurrency(financialSummary.cashReceipts), emphasis: true },
+                { label: 'Payments received', value: formatCurrency(financialSummary.cashReceipts), emphasis: true },
                 { label: 'Receipts counted', value: financialSummary.receiptCount },
                 { label: 'Refunds issued', value: formatCurrency(financialSummary.refundsIssued) },
                 { label: 'Reversals recorded', value: formatCurrency(financialSummary.reversalsRecorded) },

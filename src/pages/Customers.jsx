@@ -510,7 +510,7 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
                 </div>
                 <div className={`relative overflow-hidden rounded-xl border p-3.5 ${Number(balance?.receivable_due) > 0 ? 'border-amber-200 bg-amber-50/60' : 'border-slate-200/70 bg-white'}`}>
                   <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${Number(balance?.receivable_due) > 0 ? 'bg-amber-500' : 'bg-[#008A45]'}`} />
-                  <p className="text-[12.5px] font-bold text-slate-700 mb-1">Receivables</p>
+                  <p className="text-[12.5px] font-bold text-slate-700 mb-1">Collectible</p>
                   <p className={`text-[21px] font-bold tabular-nums ${Number(balance?.receivable_due) > 0 ? 'text-amber-700' : 'text-slate-900'}`}>{peso(balance?.receivable_due)}</p>
                   <p className="text-[11.5px] text-slate-500 mt-1 leading-snug">Still collectible</p>
                 </div>
@@ -823,6 +823,15 @@ export default function Customers() {
       // has_receivable_due, not has_outstanding_balance: the filter must select
       // the same population the column shows, or the card that sets it lands on
       // a list whose figures do not add up to the card.
+      if (f.balance === 'Overdue') {
+        const { data: overdueRows } = await supabase
+          .from('v_booking_money')
+          .select('customer_id')
+          .eq('is_overdue', true);
+        const ids = [...new Set((overdueRows || []).map(r => r.customer_id).filter(Boolean))];
+        // [] would mean "no filter" to .in(); a nil uuid means "nobody".
+        query = query.in('customer_id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']);
+      }
       if (f.balance === 'Has receivables') query = query.eq('has_receivable_due', true);
       if (f.balance === 'Settled') query = query.eq('has_receivable_due', false);
       if (f.repeatOnly) query = query.eq('is_repeat', true);
@@ -856,6 +865,15 @@ export default function Customers() {
         query = query.or(`full_name.ilike.${like},email_address.ilike.${like},contact_no.ilike.${like}`);
       }
       if (f.source !== 'All') query = query.eq('source', f.source);
+      if (f.balance === 'Overdue') {
+        const { data: overdueRows } = await supabase
+          .from('v_booking_money')
+          .select('customer_id')
+          .eq('is_overdue', true);
+        const ids = [...new Set((overdueRows || []).map(r => r.customer_id).filter(Boolean))];
+        // [] would mean "no filter" to .in(); a nil uuid means "nobody".
+        query = query.in('customer_id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']);
+      }
       if (f.balance === 'Has receivables') query = query.eq('has_receivable_due', true);
       if (f.balance === 'Settled') query = query.eq('has_receivable_due', false);
       if (f.repeatOnly) query = query.eq('is_repeat', true);
@@ -1060,9 +1078,9 @@ export default function Customers() {
   const summaryCards = [
     {
       key: 'balance',
-      label: 'Total Receivables',
+      label: 'Collectible',
       value: t ? peso(t.total_receivable) : null,
-      sub: 'Still collectible',
+      sub: 'Not yet collected',
       accent: 'bg-amber-500',
       onClick: () => { clearFilters(); setBalanceFilter('Has receivables'); scrollToTable(); },
     },
@@ -1092,7 +1110,7 @@ export default function Customers() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Customers</h1>
-          <p className="text-[14.5px] text-slate-600 mt-1.5">Accounts, receivables and history.</p>
+          <p className="text-[14.5px] text-slate-600 mt-1.5">Accounts, balances and history.</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -1142,11 +1160,15 @@ export default function Customers() {
             <option value="Repeat">Booked more than once</option>
           </Select>
         </FilterField>
-        <FilterField label="Receivables" active={balanceFilter !== 'All'}>
+        <FilterField label="Collectible" active={balanceFilter !== 'All'}>
           <Select value={balanceFilter} onChange={(e) => setBalanceFilter(e.target.value)} className={filterControlClass(balanceFilter !== 'All')}>
             <option value="All">All</option>
-            <option value="Has receivables">Has receivables</option>
-            <option value="Settled">Settled</option>
+            <option value="Has receivables">Not fully collected</option>
+            {/* Served and not fully paid: the event date has passed with a
+                balance still on it. Read from v_booking_money.is_overdue — not
+                "lapsed", which in this app means a request never accepted. */}
+            <option value="Overdue">Overdue</option>
+            <option value="Settled">Fully collected</option>
           </Select>
         </FilterField>
         {/* A record filter, not a period: it chooses which customers are
@@ -1232,7 +1254,7 @@ export default function Customers() {
                 <th className="px-4 py-3 text-right">{renderSortHeader('contracted_gross', 'Contracted Value', 'right')}</th>
                 {/* Collectible now. Same measure and same word as the card
                     above and as the Receivables page. */}
-                <th className="px-4 py-3 text-right">{renderSortHeader('receivable_due', 'Receivables', 'right')}</th>
+                <th className="px-4 py-3 text-right">{renderSortHeader('receivable_due', 'Collectible', 'right')}</th>
                 {/* Secondary on purpose — real money, but nobody can collect it
                     until the customer confirms. Muted so the eye lands on the
                     column to its left. */}

@@ -474,6 +474,8 @@ export default function ShortOrders() {
     setRejectionRefundFile,
     rejectionRefundMethod,
     setRejectionRefundMethod,
+    rejectionRefundReceiptNo,
+    setRejectionRefundReceiptNo,
     showRejectionRefund,
     rejectionMaxRefundable,
     openRejectionModal,
@@ -2581,11 +2583,11 @@ export default function ShortOrders() {
                     </div>
                   </div>
                   <div className="mt-2">
-                    <RefundMethodField value={rejectionRefundMethod} onChange={setRejectionRefundMethod} />
+                    <RefundMethodField value={rejectionRefundMethod} onChange={setRejectionRefundMethod} receiptNo={rejectionRefundReceiptNo} onReceiptNoChange={setRejectionRefundReceiptNo} />
                     <ImageUploadField
                       label="Receipt / Proof of Refund"
-                      required
-                      note="(required if amount entered)"
+                      required={rejectionRefundMethod !== 'Cash'}
+                      note={rejectionRefundMethod === 'Cash' ? '(optional for cash)' : '(required if amount entered)'}
                       file={rejectionRefundFile}
                       onChange={(e) => setRejectionRefundFile(e.target.files[0])}
                     />

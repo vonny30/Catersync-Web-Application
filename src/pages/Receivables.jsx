@@ -484,7 +484,7 @@ function RejectClaimModal({ claim, onClose, onDone }) {
 function ReceivablesBreakdown({ bookings, period, total, onClose, onOpenBooking }) {
   return (
     <ModalShell
-      title="Total Receivables"
+      title="Collectible"
       onClose={onClose}
       maxWidth="max-w-4xl"
       footer={<button type="button" onClick={onClose} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-5 py-2.5 rounded-lg border border-slate-300 transition-colors">Close</button>}
@@ -904,20 +904,20 @@ export default function Receivables() {
         <div className="relative">
         <button onClick={showCashReceipts} className="w-full h-full relative overflow-hidden flex flex-col justify-start text-left rounded-2xl border border-slate-200/70 bg-white p-5 transition-all cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]">
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
-          <p className="text-[13px] font-semibold text-slate-600 mb-2 pr-6">Cash Receipts<span className="ml-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400">Cash basis</span></p>
+          <p className="text-[13px] font-semibold text-slate-600 mb-2 pr-6">Payments Received<span className="ml-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400">Cash basis</span></p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(cashReceipts) : '—'}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">Money received</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">All verified receipts</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show these receipts <ChevronRight size={13} /></span>
         </button>
         </div>
         <button onClick={() => setShowReceivablesBreakdown(true)} className="relative overflow-hidden flex flex-col justify-start text-left rounded-2xl border border-slate-200/70 bg-white p-5 transition-all cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]">
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500" />
-          <p className="text-[13px] font-semibold text-slate-600 mb-2">Total Receivables<span className="ml-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400">Accrual basis</span></p>
+          <p className="text-[13px] font-semibold text-slate-600 mb-2">Collectible<span className="ml-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400">Accrual basis</span></p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(totalReceivables) : '—'}</h3>
           {/* Two words, the same two used on Reports and on Customers. The
               basis label beside the card's name carries what the old sentence
               spelled out. */}
-          <p className="text-[13px] text-slate-600 mt-2.5">Still collectible</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">Not yet collected</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show balances due <ChevronRight size={13} /></span>
         </button>
       </div>
@@ -995,7 +995,7 @@ export default function Receivables() {
             <span className="font-semibold text-slate-900 tabular-nums">
               {peso(listedCountedTotal)}
               {!term && typeFilter === 'All' && methodFilter === 'All' && stageFilter === 'All'
-                ? <span className="font-normal text-slate-500"> — agrees with Cash Receipts</span>
+                ? <span className="font-normal text-slate-500"> — agrees with Payments Received</span>
                 : <span className="font-normal text-slate-500"> — for the receipts shown</span>}
             </span>
           </div>

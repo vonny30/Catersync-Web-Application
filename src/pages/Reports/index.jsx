@@ -529,7 +529,7 @@ export default function Reports() {
     const breakdowns = {
       revenue: { data: derived.financialSummary._revenueBreakdown, title: `Estimated Gross Revenue — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
       collected: { data: derived.financialSummary._collectedBreakdown, title: `Collections Applied — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
-      outstanding: { data: derived.financialSummary._outstandingBreakdown, title: `Total Receivables — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
+      outstanding: { data: derived.financialSummary._outstandingBreakdown, title: `Collectible — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
       approved: { data: derived.financialSummary._approvedBreakdown, title: `Approved — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
       forfeited: { data: derived.financialSummary._forfeitedBreakdown, title: `Forfeited Deposits — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
     };

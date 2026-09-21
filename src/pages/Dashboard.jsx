@@ -367,6 +367,8 @@ export default function Dashboard() {
     setRejectionRefundFile,
     rejectionRefundMethod,
     setRejectionRefundMethod,
+    rejectionRefundReceiptNo,
+    setRejectionRefundReceiptNo,
     showRejectionRefund,
     rejectionMaxRefundable,
     openRejectionModal,
@@ -792,13 +794,13 @@ export default function Dashboard() {
               about today and the week ahead, so a page title would mislabel
               them. A small muted tag, and only here. */}
           <span className="flex items-center gap-2">
-            <span className="text-[15px] font-semibold text-slate-600">Cash Receipts</span>
+            <span className="text-[15px] font-semibold text-slate-600">Payments Received</span>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11.5px] font-semibold text-slate-500">
               {new Date().toLocaleString('en-PH', { month: 'long', timeZone: 'Asia/Manila' })}
             </span>
           </span>
           <span className="text-[12.5px] text-slate-400 mt-1">
-            Money received
+            All verified receipts
           </span>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">
             Show these receipts <ChevronRight size={13} />
@@ -1380,11 +1382,11 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div className="mt-2">
-                    <RefundMethodField value={rejectionRefundMethod} onChange={setRejectionRefundMethod} />
+                    <RefundMethodField value={rejectionRefundMethod} onChange={setRejectionRefundMethod} receiptNo={rejectionRefundReceiptNo} onReceiptNoChange={setRejectionRefundReceiptNo} />
                     <ImageUploadField
                       label="Receipt / Proof of Refund"
-                      required
-                      note="(required if amount entered)"
+                      required={rejectionRefundMethod !== 'Cash'}
+                      note={rejectionRefundMethod === 'Cash' ? '(optional for cash)' : '(required if amount entered)'}
                       file={rejectionRefundFile}
                       onChange={(e) => setRejectionRefundFile(e.target.files[0])}
                     />
