@@ -15,7 +15,7 @@ import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { sumVerifiedPositivePayments, sumDepositsCollected } from '../utils/payments';
 import { LAPSED_ACCEPT_TOOLTIP, LAPSED_DECLINE_REASON } from '../utils/lapsed';
 import { PopupFilters, popupSelectClass, EmptyResult } from '../components/FilterBar';
-import { getRangeBounds, periodSpan } from './Reports/helpers';
+import { getRangeBounds, periodSpan, paymentsReceivedNet, paymentsReceivedSub } from './Reports/helpers';
 import ImageUploadField from '../components/ImageUploadField';
 import RefundMethodField from '../components/RefundMethodField';
 
@@ -788,7 +788,7 @@ export default function Dashboard() {
             <TrendingUp size={20} className="text-[#006634]" />
           </div>
           <span className="text-[28px] font-semibold tracking-[-0.03em] tabular-nums text-slate-900 mb-2 leading-none">
-            ₱{stats.cashReceipts.toLocaleString()}
+            ₱{paymentsReceivedNet(stats.cashReceipts, stats.refundsIssued).toLocaleString()}
           </span>
           {/* The only card in the app that names its period: the Dashboard has
               no filter bar and no period title, and the other three cards are
@@ -802,7 +802,7 @@ export default function Dashboard() {
           </span>
           <span className="text-[12.5px] text-slate-400 mt-1">
             {/* The exact days, so the figure cannot be read as any other window. */}
-            Verified receipts, paid {(() => { const { start, end } = getRangeBounds('This Month'); return periodSpan(start, end); })()}
+            {(() => { const { start, end } = getRangeBounds('This Month'); return paymentsReceivedSub(periodSpan(start, end), stats.refundsIssued); })()}
           </span>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">
             Show these receipts <ChevronRight size={13} />

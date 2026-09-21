@@ -4,7 +4,7 @@ import {
 } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 import { ExternalLink } from 'lucide-react';
-import { formatCurrency, formatPercent, formatDate } from './helpers';
+import { formatCurrency, formatPercent, formatDate, paymentsReceivedSub } from './helpers';
 import { EmptyResult } from '../../components/FilterBar';
 
 export default function FinancialTab({ derived, span, onCardClick, onOpenDetail, canClearFilters, onClearFilters }) {
@@ -89,9 +89,9 @@ export default function FinancialTab({ derived, span, onCardClick, onOpenDetail,
               Payments Received
             </span>
             <span className="block text-[38px] font-semibold tracking-[-0.035em] leading-none tabular-nums text-slate-900">
-              {formatCurrency(financialSummary.cashReceipts)}
+              {formatCurrency(financialSummary.paymentsReceived)}
             </span>
-            <span className="block text-[13.5px] text-slate-600 mt-3">{span ? `Verified receipts, paid ${span}` : 'All verified receipts'}</span>
+            <span className="block text-[13.5px] text-slate-600 mt-3">{paymentsReceivedSub(span, financialSummary.refundsIssued)}</span>
           </div>
         </div>
       </section>

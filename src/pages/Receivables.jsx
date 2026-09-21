@@ -30,7 +30,7 @@ import { supabase } from '../supabase';
 import Select from '../components/Select';
 import ReceiptFields from '../components/ReceiptFields';
 import DateRangeFilter from './Reports/DateRangeFilter';
-import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, formatDate, periodLabel, forPeriod, periodTitle, periodSpan } from './Reports/helpers';
+import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, formatDate, periodLabel, forPeriod, periodTitle, periodSpan, paymentsReceivedNet, paymentsReceivedSub } from './Reports/helpers';
 import { FilterBar, FilterField, PeriodTitle, EmptyResult } from '../components/FilterBar';
 import { statusWriteErrorMessage } from '../utils/lapsed';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
@@ -724,6 +724,12 @@ export default function Receivables() {
   const cashReceipts = entries
     .filter(e => e.counts_in_ledger === true && Number(e.amount_paid) > 0 && inPeriod(e.pay_datetime))
     .reduce((sum, e) => sum + Number(e.amount_paid), 0);
+  // Refunds out, by payment date — the same test as f_report_period's
+  // refunds_issued. The card shows money kept: receipts less these.
+  const refundsOut = Math.abs(entries
+    .filter(e => e.counts_in_ledger === true && Number(e.amount_paid) < 0 && inPeriod(e.pay_datetime))
+    .reduce((sum, e) => sum + Number(e.amount_paid), 0));
+  const paymentsReceived = paymentsReceivedNet(cashReceipts, refundsOut);
   // Total Receivables: what is owed on agreed bookings, by service date.
   // A receivable is money owed under a contract the business is committed to
   // perform: Confirmed, or Completed and already delivered. An Approved
@@ -905,8 +911,8 @@ export default function Receivables() {
         <button onClick={showCashReceipts} className="w-full h-full relative overflow-hidden flex flex-col justify-start text-left rounded-2xl border border-slate-200/70 bg-white p-5 transition-all cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]">
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
           <p className="text-[13px] font-semibold text-slate-600 mb-2 pr-6">Payments Received<span className="ml-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400">Cash basis</span></p>
-          <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(cashReceipts) : '—'}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">{periodSpan(start, end) ? `Verified receipts, paid ${periodSpan(start, end)}` : 'All verified receipts'}</p>
+          <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(paymentsReceived) : '—'}</h3>
+          <p className="text-[13px] text-slate-600 mt-2.5">{paymentsReceivedSub(periodSpan(start, end), refundsOut)}</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show these receipts <ChevronRight size={13} /></span>
         </button>
         </div>
@@ -995,7 +1001,7 @@ export default function Receivables() {
             <span className="font-semibold text-slate-900 tabular-nums">
               {peso(listedCountedTotal)}
               {!term && typeFilter === 'All' && methodFilter === 'All' && stageFilter === 'All'
-                ? <span className="font-normal text-slate-500"> — agrees with Payments Received</span>
+                ? <span className="font-normal text-slate-500">{refundsOut > 0 ? ` — before ${peso(refundsOut)} refunded; Payments Received is ${peso(paymentsReceived)}` : ' — agrees with Payments Received'}</span>
                 : <span className="font-normal text-slate-500"> — for the receipts shown</span>}
             </span>
           </div>

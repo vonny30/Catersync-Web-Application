@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabase';
 import toast from 'react-hot-toast';
 import {
-  getBookingRef, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, periodLabel, periodTitle, periodSpan,
+  getBookingRef, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, periodLabel, periodTitle, periodSpan, paymentsReceivedNet,
   monthSortKey, monthLabel, buildMonthlyFinancialTrend,
 } from './helpers';
 import { movesBooks, isRefundEntry, isReversalEntry } from '../../utils/payments';
@@ -238,6 +238,8 @@ export default function Reports() {
       // Payment-anchored, by payment date.
       cashReceipts: Number(periodTotals?.cash_receipts) || 0,
       refundsIssued: Number(periodTotals?.refunds_issued) || 0,
+      // Payments Received: kept money — receipts less refunds.
+      paymentsReceived: paymentsReceivedNet(periodTotals?.cash_receipts, periodTotals?.refunds_issued),
       reversalsRecorded: Number(periodTotals?.reversals_recorded) || 0,
       receiptCount: Number(periodTotals?.receipt_count) || 0,
       // Kept from bookings that did not happen.
@@ -534,7 +536,7 @@ export default function Reports() {
     // Pending request is not revenue. Paid uses counted entries for the same
     // reason the cards do.
     const monthlyFinancialTrend = buildMonthlyFinancialTrend(
-      bookings, countedEntries, new Date(), { excludeStatuses: UNACCEPTED_STATUSES, keptDepositStatuses: CANCELLED_STATUSES }
+      bookings, countedEntries, new Date(), { excludeStatuses: [...UNACCEPTED_STATUSES, 'Approved'], keptDepositStatuses: CANCELLED_STATUSES }
     );
 
     return {

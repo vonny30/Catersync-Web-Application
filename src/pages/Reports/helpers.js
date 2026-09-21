@@ -136,6 +136,20 @@ export function periodSpan(start, end) {
   return `${SHORT[s.m]} ${s.d}, ${s.y} – ${SHORT[e.m]} ${e.d}, ${e.y}`;
 }
 
+/**
+ * Payments Received is money KEPT: verified receipts less refunds, both by
+ * payment date (f_report_period cash_receipts − refunds_issued). A deposit
+ * kept on a cancellation stays in; a refunded amount comes out, and the
+ * subtext says so, so the subtraction is visible rather than silent.
+ */
+export const paymentsReceivedNet = (receipts, refunds) => (Number(receipts) || 0) - (Number(refunds) || 0);
+
+export function paymentsReceivedSub(span, refunds) {
+  const refunded = Number(refunds) || 0;
+  const when = span ? `Paid ${span}` : 'All verified receipts';
+  return refunded > 0 ? `${when}, after ${formatCurrency(refunded)} refunded` : (span ? `Verified receipts, paid ${span}` : when);
+}
+
 // ---------------------------------------------------------------------------
 // TWO DIFFERENT QUESTIONS. Do not use this constant for the second one.
 // ---------------------------------------------------------------------------

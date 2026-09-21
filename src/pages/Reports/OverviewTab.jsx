@@ -28,7 +28,7 @@
 //
 // Every figure comes from f_report_period. Pending bookings are in none of
 // them: a request nobody has agreed to is not revenue.
-import { formatCurrency, formatPercent, cardColorClasses, cardAccentClass, forPeriod } from './helpers';
+import { formatCurrency, formatPercent, cardColorClasses, cardAccentClass, forPeriod, paymentsReceivedSub } from './helpers';
 import { EmptyResult } from '../../components/FilterBar';
 
 // The hint sits OUTSIDE the card's button (a button inside a button is
@@ -129,16 +129,17 @@ export default function OverviewTab({ derived, period, span, onCardClick, onOpen
               Receivables page. Both read f_report_period / v_payment_ledger. */}
           <StatCard
             label="Payments Received"
-            value={formatCurrency(financialSummary.cashReceipts)}
-            sub={span ? `Verified receipts, paid ${span}` : 'All verified receipts'}
+            value={formatCurrency(financialSummary.paymentsReceived)}
+            sub={paymentsReceivedSub(span, financialSummary.refundsIssued)}
             color="teal"
             onClick={() => onOpenDetail({
               title: 'Payments Received',
-              description: 'Verified receipts, counted on the day the money moved. Claims awaiting verification, reversals, and receipts that have been reversed are all excluded — the same rule the Receivables page uses.',
+              description: 'Money kept: verified receipts less refunds, each counted on the day the money moved. Deposits kept on cancellations stay in; refunded amounts come out. Claims awaiting verification, reversals, and receipts that have been reversed are all excluded — the same rule the Receivables page uses.',
               fields: [
-                { label: 'Payments received', value: formatCurrency(financialSummary.cashReceipts), emphasis: true },
+                { label: 'Payments received', value: formatCurrency(financialSummary.paymentsReceived), emphasis: true },
+                { label: 'Verified receipts', value: formatCurrency(financialSummary.cashReceipts) },
+                { label: 'Less refunds', value: formatCurrency(financialSummary.refundsIssued) },
                 { label: 'Receipts counted', value: financialSummary.receiptCount },
-                { label: 'Refunds issued', value: formatCurrency(financialSummary.refundsIssued) },
                 { label: 'Reversals recorded', value: formatCurrency(financialSummary.reversalsRecorded) },
               ],
             })}
