@@ -850,8 +850,8 @@ export default function Bookings() {
     setCurrentPage(1);
   };
 
-  // ONE QUICK FILTER AT A TIME. Today's Events, Upcoming Confirmed, Overdue,
-  // Flagged and Lapsed are alternatives, not layers: switching one on switches
+  // ONE QUICK FILTER AT A TIME. Today's Events, Upcoming Confirmed, Overdue
+  // and Lapsed are alternatives, not layers: switching one on switches
   // the others off. Combining them produced lists nobody asked for (today's
   // events that are also overdue) and badges that no longer described them.
   const applyMoneyChip = (key) => {
@@ -1468,10 +1468,6 @@ const handleMarkCompleted = async (id) => {
     () => (flagRows || []).filter(f => f.is_overdue && matchingIdSet.has(f.booking_id)).length,
     [flagRows, matchingIdSet],
   );
-  const flaggedCount = useMemo(
-    () => (flagRows || []).filter(f => f.flagged_for_review && matchingIdSet.has(f.booking_id)).length,
-    [flagRows, matchingIdSet],
-  );
   const lapsedCount = useMemo(
     () => (flagRows || []).filter(f => f.is_lapsed && matchingIdSet.has(f.booking_id)).length,
     [flagRows, matchingIdSet],
@@ -1676,18 +1672,6 @@ const handleMarkCompleted = async (id) => {
           >
             Overdue
             <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-rose-100 text-rose-700 text-[12.5px] tabular-nums font-bold">{overdueCount}</span>
-          </button>
-          {/* Changed by the system, awaiting a manager's eye. */}
-          <button
-            onClick={() => applyMoneyChip('flagged')}
-            className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
-              moneyFilter === 'flagged'
-                ? 'border-amber-400 bg-amber-50 text-amber-800'
-                : 'border-slate-200 bg-white text-slate-700 hover:border-amber-200 hover:text-amber-700'
-            }`}
-          >
-            Flagged
-            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-amber-100 text-amber-700 text-[12.5px] tabular-nums font-bold">{flaggedCount}</span>
           </button>
           {/* Grey, not red: a lapsed request is dead, not urgent. It must not
               read as another Overdue. */}
