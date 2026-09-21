@@ -21,7 +21,7 @@
 // negative row that points at it, with a reason, and both stay on record.
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Search, X, RefreshCw, Filter, RotateCcw, ExternalLink, Undo2, AlertCircle, Check, ChevronRight,
 } from 'lucide-react';
@@ -648,7 +648,12 @@ export default function Receivables() {
   const [typeFilter, setTypeFilter] = useState('All');
   const [methodFilter, setMethodFilter] = useState('All');
   const [stageFilter, setStageFilter] = useState('All');
-  const [datePreset, setDatePreset] = useState(DEFAULT_DATE_PRESET);
+  // A page that sends the manager here can name the period it was showing —
+  // the Dashboard's Cash Receipts card does, so the receipts listed here are
+  // the ones behind the figure that was clicked. Initial state only: once the
+  // page is open the control belongs to the manager.
+  const location = useLocation();
+  const [datePreset, setDatePreset] = useState(location.state?.datePreset || DEFAULT_DATE_PRESET);
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
 

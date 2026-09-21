@@ -12,9 +12,7 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { useApprovalHandlers, extraPaxRate } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
-import { sumVerifiedPositivePayments, sumDepositsCollected, payStatusPillClass, movesBooks } from '../utils/payments';
-import { getPaymentsReceived } from '../utils/reportMetrics';
-import { fetchAllRows } from '../utils/fetchAllRows';
+import { sumVerifiedPositivePayments, sumDepositsCollected } from '../utils/payments';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET } from './Reports/helpers';
 import ImageUploadField from '../components/ImageUploadField';
@@ -91,9 +89,6 @@ export default function Dashboard() {
     reversalsRecorded: 0,
     forfeitedDeposits: 0,
     outstandingReceivable: 0,
-    revenueThisMonth: 0,
-    awaitingConfirmationThisMonth: 0,
-    retainedThisMonth: 0,
   });
   const [todayEvents, setTodayEvents] = useState([]);
   const [pendingItems, setPendingItems] = useState([]);
@@ -117,7 +112,6 @@ export default function Dashboard() {
   const [statsModalType, setStatsModalType] = useState('');
   const [statsSearchTerm, setStatsSearchTerm] = useState('');
   const [statsTypeFilter, setStatsTypeFilter] = useState('All'); // 'All' | 'Package' | 'Short Order'
-  const [statsMethodFilter, setStatsMethodFilter] = useState('All'); // revenue view only
   const [statsDatePreset, setStatsDatePreset] = useState(DEFAULT_DATE_PRESET);
   const [statsDateCustomStart, setStatsDateCustomStart] = useState('');
   const [statsDateCustomEnd, setStatsDateCustomEnd] = useState('');
@@ -299,28 +293,9 @@ export default function Dashboard() {
       if (upcomingError) throw upcomingError;
       setStats(prev => ({ ...prev, upcomingEvents: upcomingData?.length || 0 }));
 
-      // --- Payments Received This Month ---
-      // Anchored on pay_datetime and computed by utils/reportMetrics, the same
-      // function the Payments page and Reports now use. The booking status comes
-      // along so cash retained from a cancelled booking can be reported on its
-      // own line instead of quietly inflating (or vanishing from) the headline.
-      // Paged. A month's payments are not capped at anything, and PostgREST
-      // truncates at 1000 rows WITHOUT an error — so past that the headline
-      // collections figure would quietly under-report, growing more wrong as
-      // the business grows. Ordered by primary key so paging cannot skip or
-      // repeat rows.
-      const revenueData = await fetchAllRows(
-        () => supabase
-          .from('v_payment_ledger')
-          .select('amount_paid, pay_status, pay_datetime, counts_in_ledger, booking:booking_id (booking_status)')
-          .gte('pay_datetime', instant(startOfMonth))
-          .lt('pay_datetime', instant(startOfNextMonth))
-          .order('payment_id', { ascending: true }),
-        'collections this month'
-      );
-      const received = getPaymentsReceived(revenueData);
       // One call for the month's financial block, so the Dashboard cannot
-      // drift from Receivables or Reports.
+      // drift from Receivables or Reports. It is the only money on this page:
+      // nothing here sums a ledger any more.
       const { data: periodRows, error: periodError } = await supabase.rpc('f_report_period', {
         p_start: instant(startOfMonth),
         p_end: instant(startOfNextMonth),
@@ -336,12 +311,6 @@ export default function Dashboard() {
         reversalsRecorded: Number(period?.reversals_recorded) || 0,
         forfeitedDeposits: Number(period?.forfeited_deposits) || 0,
         outstandingReceivable: Number(period?.outstanding_receivable) || 0,
-        // Panel PR-38: only Confirmed and Completed bookings count as revenue.
-        // The other two figures are reported beside it rather than folded in
-        // or dropped — see REVENUE_BOOKING_STATUSES in utils/reportMetrics.
-        revenueThisMonth: received.revenueReceived,
-        awaitingConfirmationThisMonth: received.awaitingConfirmation,
-        retainedThisMonth: received.retainedFromCancellations,
       }));
 
     } catch (error) {
@@ -657,59 +626,21 @@ export default function Dashboard() {
     }
   };
 
-  const handleRevenueClick = async () => {
-    try {
-      const today = new Date();
-      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      // First moment of NEXT month, used as an exclusive upper bound.
-      const startOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-      // Paged for the same reason as the card. It matters more here: this
-      // modal exists to reconcile with the figure that was clicked, and a
-      // truncated list would disagree with a card that had itself been fixed.
-      const data = await fetchAllRows(
-        () => supabase
-          .from('v_payment_ledger')
-          .select(`
-            payment_id,
-            booking_id,
-            amount_paid,
-            pay_datetime,
-            pay_method,
-            pay_status,
-            counts_in_ledger,
-            booking:booking_id (
-              booking_id,
-              booking_number,
-              booking_type,
-              booking_status,
-              venue,
-              customer:customer_id (first_name, last_name)
-            )
-          `)
-          .gte('pay_datetime', instant(startOfMonth))
-          .lt('pay_datetime', instant(startOfNextMonth))
-          .order('pay_datetime', { ascending: false })
-          .order('payment_id', { ascending: false }),
-        'collections modal'
-      );
-      // Exactly the rows the headline counted: entries that move the books
-      // (counts_in_ledger) and are positive. Claims awaiting verification,
-      // reversals and reversed receipts are excluded by that flag, so the list
-      // and the card can never disagree.
-      setStatsModalData((data || []).filter(p => movesBooks(p) && (p.amount_paid || 0) > 0));
-      setStatsModalTitle(`Cash Receipts — ${today.toLocaleString('default', { month: 'long', year: 'numeric' })}`);
-      setStatsModalType('revenue');
-      resetStatsFilters();
-      setIsStatsModalOpen(true);
-    } catch (error) {
-      handleError(error, 'Failed to load revenue data.');
-    }
+  // The card carries one figure, so clicking it goes to the page that lists
+  // what makes it up rather than explaining itself in place. The modal it
+  // replaced showed six lines, three of them on a different basis from the
+  // figure above them — the answer to that is no breakdown, not a better one.
+  //
+  // Period: the card is always this month, so Receivables opens on This Month.
+  // It is passed explicitly rather than relying on that page's default, so a
+  // change to the default cannot silently land the manager on another period.
+  const handleRevenueClick = () => {
+    navigate('/app/receivables', { state: { datePreset: 'This Month' } });
   };
 
   const resetStatsFilters = () => {
     setStatsSearchTerm('');
     setStatsTypeFilter('All');
-    setStatsMethodFilter('All');
     setStatsDatePreset(DEFAULT_DATE_PRESET);
     setStatsDateCustomStart('');
     setStatsDateCustomEnd('');
@@ -726,22 +657,6 @@ export default function Dashboard() {
   const { start: statsDateRangeStart, end: statsDateRangeEnd } = getRangeBounds(statsDatePreset, statsDateCustomStart, statsDateCustomEnd);
 
   const filteredStatsModalData = statsModalData.filter(item => {
-    if (statsModalType === 'revenue') {
-      const itemType = item.booking?.booking_type === 'Short Order' ? 'Short Order' : 'Package';
-      if (statsTypeFilter !== 'All' && itemType !== statsTypeFilter) return false;
-      if (statsMethodFilter !== 'All' && item.pay_method !== statsMethodFilter) return false;
-      if (statsDatePreset !== 'All Time' && !isWithinRange(item.pay_datetime, statsDateRangeStart, statsDateRangeEnd)) return false;
-      if (statsSearchTerm.trim()) {
-        const term = statsSearchTerm.toLowerCase();
-        const customerName = item.booking?.customer
-          ? `${item.booking.customer.first_name} ${item.booking.customer.last_name}`.toLowerCase()
-          : '';
-        const ref = (item.booking?.booking_number || item.booking?.booking_id || '').toLowerCase();
-        const venue = (item.booking?.venue || '').toLowerCase();
-        if (!customerName.includes(term) && !ref.includes(term) && !venue.includes(term)) return false;
-      }
-      return true;
-    }
     const itemType = item.booking_type === 'Short Order' ? 'Short Order' : 'Package';
     if (statsTypeFilter !== 'All' && itemType !== statsTypeFilter) return false;
     if (statsDatePreset !== 'All Time' && !isWithinRange(item.event_datetime, statsDateRangeStart, statsDateRangeEnd)) return false;
@@ -762,54 +677,7 @@ export default function Dashboard() {
   // The Payments page solved this on 23 Aug by grouping on booking_id; this is
   // the same grouping, so the two screens describe the world the same way.
   //
-  // ONE DELIBERATE DIFFERENCE. Payments.jsx sums a group with
-  // sumVerifiedPositivePayments, which drops refunds, because refunds live on
-  // their own tab there. This modal must reconcile with the card that opened
-  // it, and that card's figure is net of refunds — so the group total is a
-  // plain sum. Using the Payments page's helper here would make the footer
-  // disagree with the headline by exactly the refunds in the period.
-  const groupedStatsModalData = statsModalType !== 'revenue' ? [] : Object.values(
-    filteredStatsModalData.reduce((groups, p) => {
-      // The embedded `booking:booking_id (...)` returns the booking as a
-      // nested object and does NOT also return a scalar booking_id, so
-      // `p.booking_id` is undefined here and every payment grouped alone —
-      // which is how BKG-122's two instalments still rendered as two rows.
-      // The id is read from the row first (it is selected explicitly now) and
-      // from the embedded booking second.
-      const key = p.booking_id || p.booking?.booking_id || p.payment_id;
-      if (!groups[key]) groups[key] = { key, booking: p.booking, entries: [] };
-      groups[key].entries.push(p);
-      return groups;
-    }, {})
-  ).map(group => {
-    const entries = [...group.entries].sort(
-      (a, b) => new Date(b.pay_datetime || 0) - new Date(a.pay_datetime || 0)
-    );
-    const methods = [...new Set(entries.map(e => e.pay_method).filter(Boolean))];
-    return {
-      ...group,
-      entries,
-      latest: entries[0],
-      count: entries.length,
-      // Net, including refunds — see above.
-      total: entries.reduce((sum, e) => sum + (e.amount_paid || 0), 0),
-      // Two instalments paid different ways is normal; naming one of them
-      // would be wrong, so say there was more than one.
-      method: methods.length === 0 ? 'N/A' : methods.length === 1 ? methods[0] : `${methods.length} methods`,
-    };
-  });
-
-  const activeStatsFilterCount = (statsSearchTerm.trim() ? 1 : 0) + (statsTypeFilter !== 'All' ? 1 : 0) + (statsModalType === 'revenue' && statsMethodFilter !== 'All' ? 1 : 0) + (statsDatePreset !== DEFAULT_DATE_PRESET ? 1 : 0);
-
-  const handleStatsRowClick = (item) => {
-    if (item.booking_id) {
-      const route = item.booking_type === 'Short Order' ? '/app/orders' : '/app/bookings';
-      navigate(`${route}/${item.booking_id}`);
-    } else if (item.booking?.booking_id) {
-      const route = item.booking.booking_type === 'Short Order' ? '/app/orders' : '/app/bookings';
-      navigate(`${route}/${item.booking.booking_id}`);
-    }
-  };
+   const activeStatsFilterCount = (statsSearchTerm.trim() ? 1 : 0) + (statsTypeFilter !== 'All' ? 1 : 0) + (statsDatePreset !== DEFAULT_DATE_PRESET ? 1 : 0);
 
   const getStatusBadge = (status) => {
     const map = {
@@ -1167,13 +1035,8 @@ export default function Dashboard() {
             <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0 bg-white">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">{statsModalTitle}</h2>
-                {/* Counts what the table actually renders. On the revenue
-                    view that is bookings, not payment records — the two differ
-                    whenever a booking was paid in instalments. */}
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {statsModalType === 'revenue'
-                    ? `${filteredStatsModalData.length}${filteredStatsModalData.length === statsModalData.length ? '' : ` of ${statsModalData.length}`} payment${statsModalData.length === 1 ? '' : 's'} across ${groupedStatsModalData.length} booking${groupedStatsModalData.length === 1 ? '' : 's'}`
-                    : `${filteredStatsModalData.length} of ${statsModalData.length} booking${statsModalData.length === 1 ? '' : 's'} shown`}
+                  {`${filteredStatsModalData.length} of ${statsModalData.length} booking${statsModalData.length === 1 ? '' : 's'} shown`}
                 </p>
               </div>
               <button
@@ -1183,32 +1046,6 @@ export default function Dashboard() {
                 <X size={18} />
               </button>
             </div>
-
-            {/* What the number is, next to the rows that make it up. The card
-                itself carries no second figure, so this is where the money the
-                headline leaves out is accounted for — nothing is hidden, it is
-                just not in the headline. */}
-            {statsModalType === 'revenue' && (
-              <div className="px-6 py-4 border-b border-slate-200 bg-[#fbfcfd] shrink-0">
-                <p className="text-[13px] text-slate-700">
-                  <span className="font-semibold">Cash Receipts</span> is money actually collected this month, counted on the day it moved.
-                  It is the same figure, by the same rule, as the Cash Receipts card on Receivables and on Reports.
-                </p>
-                <div className="grid gap-x-6 gap-y-1.5 mt-3 sm:grid-cols-2 text-[12.5px] text-slate-600">
-                  <p><span className="font-semibold text-slate-700">Counted:</span> verified receipts — {stats.receiptCount} this month.</p>
-                  <p><span className="font-semibold text-slate-700">Not counted:</span> claims still awaiting verification, reversed receipts, and the reversals themselves.</p>
-                  <p><span className="font-semibold text-slate-700">Of that, revenue:</span> ₱{stats.revenueThisMonth.toLocaleString()} on confirmed &amp; completed bookings.</p>
-                  <p><span className="font-semibold text-slate-700">Refunds paid out:</span> ₱{stats.refundsIssued.toLocaleString()} — money going back, not netted off above.</p>
-                  {stats.reversalsRecorded > 0 && (
-                    <p><span className="font-semibold text-slate-700">Corrections:</span> ₱{stats.reversalsRecorded.toLocaleString()} reversed — receipts recorded in error.</p>
-                  )}
-                  {stats.forfeitedDeposits > 0 && (
-                    <p><span className="font-semibold text-slate-700">Retained from cancellations:</span> ₱{stats.forfeitedDeposits.toLocaleString()} kept on bookings that did not happen.</p>
-                  )}
-                  <p><span className="font-semibold text-slate-700">Still to collect:</span> ₱{stats.outstandingReceivable.toLocaleString()} on services this month — see Receivables.</p>
-                </div>
-              </div>
-            )}
 
             {statsModalData.length > 0 && (
               <div className={`px-6 py-3 border-b space-y-2 shrink-0 ${activeStatsFilterCount > 0 ? 'bg-emerald-50/40 border-emerald-100' : 'border-slate-200'}`}>
@@ -1237,18 +1074,6 @@ export default function Dashboard() {
                     <option value="Package">Package</option>
                     <option value="Short Order">Short Order</option>
                   </Select>
-                  {statsModalType === 'revenue' && (
-                    <Select
-                      value={statsMethodFilter}
-                      onChange={(e) => setStatsMethodFilter(e.target.value)}
-                      className={`border rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none ${statsMethodFilter !== 'All' ? 'border-emerald-300' : 'border-slate-300'}`}
-                    >
-                      <option value="All">All methods</option>
-                      <option value="Cash">Cash</option>
-                      <option value="GCash">GCash</option>
-                      <option value="Bank Transfer">Bank Transfer</option>
-                    </Select>
-                  )}
                   {activeStatsFilterCount > 0 && (
                     <button
                       onClick={resetStatsFilters}
@@ -1361,102 +1186,11 @@ export default function Dashboard() {
                     </table>
                   )}
 
-                  {/* Total Collections - payment list */}
-                  {statsModalType === 'revenue' && (
-                    <table className="w-full text-left border-separate border-spacing-0 bg-white rounded-2xl border border-slate-200 overflow-hidden">
-                      <thead>
-                        <tr className="bg-slate-50 text-slate-700 text-xs font-bold border-b border-slate-200">
-                          <th className="p-3">Reference</th>
-                          <th className="p-3">Customer</th>
-                          <th className="p-3">Venue</th>
-                          <th className="p-3">Payments</th>
-                          <th className="p-3 text-right">Amount</th>
-                          <th className="p-3">Method</th>
-                          <th className="p-3">Latest</th>
-                          <th className="p-3 text-center">Status</th>
-                          <th className="p-3 text-center">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 text-sm">
-                        {groupedStatsModalData.map((group) => {
-                          const { latest, booking } = group;
-                          const payment = latest;
-                          const customerName = booking?.customer
-                            ? `${booking.customer.first_name} ${booking.customer.last_name}`
-                            : 'Unknown';
-                          const isShortOrder = booking?.booking_type === 'Short Order';
-                          const detailPath = isShortOrder ? '/app/orders' : '/app/bookings';
-                          return (
-                            <tr
-                              key={group.key}
-                              className="hover:bg-slate-50 transition-colors cursor-pointer"
-                              onClick={() => {
-                                if (booking?.booking_id) {
-                                  navigate(`${detailPath}/${booking.booking_id}`);
-                                }
-                              }}
-                            >
-                              <td className="p-3 font-mono text-xs font-semibold text-slate-800">
-                                {booking?.booking_number || `BKG-${booking?.booking_id?.slice(0, 8) || 'N/A'}`}
-                              </td>
-                              <td className="p-3 font-medium text-slate-900">{customerName}</td>
-                              <td className="p-3 text-slate-600">{booking?.venue || 'N/A'}</td>
-                              {/* Says how many records this one row stands for,
-                                  so a booking paid in instalments is legible as
-                                  one booking rather than looking like a
-                                  duplicate. Same wording as the Payments page. */}
-                              <td className="p-3 text-slate-600 text-xs whitespace-nowrap">
-                                {group.count} payment{group.count === 1 ? '' : 's'}
-                              </td>
-                              <td className="p-3 text-right font-bold text-emerald-600">
-                                ₱{group.total.toLocaleString()}
-                              </td>
-                              <td className="p-3 text-slate-600">{group.method}</td>
-                              <td className="p-3 text-slate-600 text-xs">
-                                {payment.pay_datetime ? new Date(payment.pay_datetime).toLocaleString() : 'N/A'}
-                              </td>
-                              {/* The MOST RECENT receipt's stored stage, not a
-                                  status for the booking overall. The stage is
-                                  stored when the receipt is recorded, so it is
-                                  right even though this modal only fetched the
-                                  current month. */}
-                              <td className="p-3 text-center">
-                                <span className={`px-2 py-1 rounded-full border text-xs font-bold whitespace-nowrap ${payStatusPillClass(payment.pay_status)}`}>
-                                  {payment.pay_status || 'N/A'}
-                                </span>
-                              </td>
-                              <td className="p-3 text-center">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (booking?.booking_id) {
-                                      navigate(`${detailPath}/${booking.booking_id}`);
-                                    }
-                                  }}
-                                  className="text-[#008A45] hover:text-[#007038] transition-colors flex items-center gap-1 mx-auto text-xs font-medium"
-                                >
-                                  <Eye size={14} /> View
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  )}
                 </>
               )}
             </div>
             <div className="flex items-center justify-between gap-4 px-6 py-4 bg-slate-50 border-t border-slate-200 shrink-0">
-              {statsModalType === 'revenue' ? (
-                <ModalTotal
-                  label="Total received"
-                  value={`₱${groupedStatsModalData.reduce((sum, g) => sum + g.total, 0).toLocaleString()}`}
-                  hint={`${groupedStatsModalData.length} booking${groupedStatsModalData.length === 1 ? '' : 's'}`}
-                />
-              ) : (
-                <ModalTotal label="Bookings" value={filteredStatsModalData.length} tone="neutral" />
-              )}
+              <ModalTotal label="Bookings" value={filteredStatsModalData.length} tone="neutral" />
               <button
                 onClick={closeStatsModal}
                 className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"

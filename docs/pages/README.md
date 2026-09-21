@@ -20,7 +20,7 @@ blueprints (settled decisions on money, language and dispatch).
 | [Short Orders](short-orders.md) | `/app/orders` | 2131 | **2** | Reviewed alongside Bookings; same treatment, same conclusions. |
 | [Booking Details](booking-details.md) | `/app/bookings/:id` | 2770 | **1** | Audited 30 Aug 2026 — the destructive re-allocation and the delete messaging were fixed. |
 | [Short Order Details](short-order-details.md) | `/app/orders/:id` | 2018 | — | Reviewed alongside Booking Details. |
-| [Payments](payments.md) | `/app/payments` | 2407 | — | Modernized and audited; the verification-first rule was added 30 Aug 2026. |
+| [Receivables](receivables.md) | `/app/receivables` | 1063 | — | Rebuilt 19 Sep 2026 from Payments: two cards, `counts_in_ledger` as the only test, append-only entries. `/app/payments` redirects here. |
 | [Equipment](equipment.md) | `/app/equipment` | 3852 | **2** | Heavily reviewed. History grouping and the assign-modal allocation plan added 29-30 Aug 2026. |
 | [Vehicles](vehicles.md) | `/app/vehicles` | 2667 | — | Audited 30 Aug 2026 — the page's own logic reviewed, layout modernized, history grouped by booking. The dispatch model's pure functions were tested separately (14/14). |
 | [Reports](reports.md) | `/app/reports` | 674 | — | Audited; three calculation errors in the source brief were corrected rather than reproduced. |
@@ -46,7 +46,7 @@ drop off this table.
 | [Booking Details](booking-details.md) | One unbounded whole-table read (`equipment`). |
 | [Booking Details](booking-details.md) | The equipment quantity edit's stock check reads `booking_equipment` for one equipment id unbounded — bounded in practice, not in principle. |
 | [Short Order Details](short-order-details.md) | Not exercised against real data. |
-| [Payments](payments.md) | Verification computes `finalStatus` before the password prompt, so a payment arriving during the prompt could mislabel Downpayment vs Fully Paid. Display-only, recomputed by `describePaymentKind`. |
+| [Receivables](receivables.md) | Approved sat outside the payment-locked status list before the rework, which caused the approval-fee adjustment problem. Not re-checked since. |
 | [Equipment](equipment.md) | Two unbounded whole-table reads (`equipment`, `package_equipment`). |
 | [Equipment](equipment.md) | RLS hides `equipment`, `booking_equipment` and `package_equipment` from an unauthenticated client, so these paths are code-reviewed rather than exercised. |
 | [Vehicles](vehicles.md) | `blueprint-03-dispatch.md` documents a superseded model (`leadHours`/`serviceHours`/`returnHours`); the code implements `travelHours`/`setupHours`/`teardownHours`/`hasPickup`. |
