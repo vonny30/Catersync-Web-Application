@@ -30,7 +30,7 @@ import { supabase } from '../supabase';
 import Select from '../components/Select';
 import ReceiptFields from '../components/ReceiptFields';
 import DateRangeFilter from './Reports/DateRangeFilter';
-import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, formatDate, periodLabel, forPeriod, periodTitle } from './Reports/helpers';
+import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, formatDate, periodLabel, forPeriod, periodTitle, periodSpan } from './Reports/helpers';
 import { FilterBar, FilterField, PeriodTitle, EmptyResult } from '../components/FilterBar';
 import { statusWriteErrorMessage } from '../utils/lapsed';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
@@ -906,7 +906,7 @@ export default function Receivables() {
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
           <p className="text-[13px] font-semibold text-slate-600 mb-2 pr-6">Payments Received<span className="ml-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400">Cash basis</span></p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(cashReceipts) : '—'}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">All verified receipts</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">{periodSpan(start, end) ? `Verified receipts, paid ${periodSpan(start, end)}` : 'All verified receipts'}</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show these receipts <ChevronRight size={13} /></span>
         </button>
         </div>
@@ -917,7 +917,7 @@ export default function Receivables() {
           {/* Two words, the same two used on Reports and on Customers. The
               basis label beside the card's name carries what the old sentence
               spelled out. */}
-          <p className="text-[13px] text-slate-600 mt-2.5">Not yet collected</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">{periodSpan(start, end) ? `Still owed on services ${periodSpan(start, end)}` : 'Not yet collected'}</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show balances due <ChevronRight size={13} /></span>
         </button>
       </div>

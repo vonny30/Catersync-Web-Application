@@ -15,6 +15,7 @@ import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { sumVerifiedPositivePayments, sumDepositsCollected } from '../utils/payments';
 import { LAPSED_ACCEPT_TOOLTIP, LAPSED_DECLINE_REASON } from '../utils/lapsed';
 import { PopupFilters, popupSelectClass, EmptyResult } from '../components/FilterBar';
+import { getRangeBounds, periodSpan } from './Reports/helpers';
 import ImageUploadField from '../components/ImageUploadField';
 import RefundMethodField from '../components/RefundMethodField';
 
@@ -800,7 +801,8 @@ export default function Dashboard() {
             </span>
           </span>
           <span className="text-[12.5px] text-slate-400 mt-1">
-            All verified receipts
+            {/* The exact days, so the figure cannot be read as any other window. */}
+            Verified receipts, paid {(() => { const { start, end } = getRangeBounds('This Month'); return periodSpan(start, end); })()}
           </span>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">
             Show these receipts <ChevronRight size={13} />

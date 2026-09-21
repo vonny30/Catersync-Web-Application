@@ -7,7 +7,7 @@ import { ExternalLink } from 'lucide-react';
 import { formatCurrency, formatPercent, formatDate } from './helpers';
 import { EmptyResult } from '../../components/FilterBar';
 
-export default function FinancialTab({ derived, onCardClick, onOpenDetail, canClearFilters, onClearFilters }) {
+export default function FinancialTab({ derived, span, onCardClick, onOpenDetail, canClearFilters, onClearFilters }) {
   const navigate = useNavigate();
   const { financialSummary, monthlyFinancialTrend, paymentMethodData, refunds, reversals, bookingSummaryData } = derived;
 
@@ -17,8 +17,8 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail, canCl
   // receivables is the whole bar. It deliberately does NOT use Cash Receipts —
   // that is anchored on payment date and includes cash for services outside
   // this period, so dividing it here would compare two different populations.
-  const collectedPct = financialSummary.grossContracted > 0
-    ? (financialSummary.paidContracted / financialSummary.grossContracted) * 100
+  const collectedPct = financialSummary.earnedRevenue > 0
+    ? (financialSummary.paidOnEvents / financialSummary.earnedRevenue) * 100
     : 0;
 
   // Shared class string for the three event-anchored figures.
@@ -38,18 +38,18 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail, canCl
         <div className="flex flex-wrap gap-8">
           <button onClick={() => onCardClick('revenue')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
             <span className="block text-[13px] text-slate-600 mb-1.5">Estimated Gross Revenue</span>
-            <span className={`${FIG} text-slate-900`}>{formatCurrency(financialSummary.grossContracted)}</span>
-            <span className="block text-[12.5px] text-slate-500 mt-1">Confirmed and completed</span>
+            <span className={`${FIG} text-slate-900`}>{formatCurrency(financialSummary.earnedRevenue)}</span>
+            <span className="block text-[12.5px] text-slate-500 mt-1">{span ? `Services ${span}, incl. kept deposits` : 'Confirmed, completed and kept deposits'}</span>
           </button>
           <button onClick={() => onCardClick('collected')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
             {/* Same colour roles as the Equipment page: green for what is in
                 hand, orange for what is not. */}
             <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
               <span className="w-2 h-2 rounded-full bg-[#009E73] shrink-0" aria-hidden="true" />
-              Collections Applied
+              Paid on These Events
             </span>
-            <span className={`${FIG} text-[#009E73]`}>{formatCurrency(financialSummary.paidContracted)}</span>
-            <span className="block text-[12.5px] text-slate-500 mt-1">Already collected</span>
+            <span className={`${FIG} text-[#009E73]`}>{formatCurrency(financialSummary.paidOnEvents)}</span>
+            <span className="block text-[12.5px] text-slate-500 mt-1">{span ? `Paid toward services ${span}` : 'Paid toward these services'}</span>
           </button>
           <button onClick={() => onCardClick('outstanding')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
             <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
@@ -57,7 +57,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail, canCl
               Collectible
             </span>
             <span className={`${FIG} text-[#D55E00]`}>{formatCurrency(financialSummary.outstandingContracted)}</span>
-            <span className="block text-[12.5px] text-slate-500 mt-1">Not yet collected</span>
+            <span className="block text-[12.5px] text-slate-500 mt-1">{span ? `Still owed on services ${span}` : 'Not yet collected'}</span>
           </button>
         </div>
 
@@ -67,10 +67,10 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail, canCl
         <div className="mt-[22px] mb-2.5 h-2 rounded-full bg-slate-100 overflow-hidden">
           <div className="h-full rounded-full bg-[#009E73]" style={{ width: `${Math.min(100, Math.max(0, collectedPct))}%` }} />
         </div>
-        {financialSummary.grossContracted > 0 ? (
+        {financialSummary.earnedRevenue > 0 ? (
           <>
             <span className="block text-[13px] text-slate-600 tabular-nums">
-              {formatPercent(collectedPct)} of contracted work collected
+              {formatPercent(collectedPct)} of earned revenue collected
             </span>
           </>
         ) : (
@@ -91,12 +91,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail, canCl
             <span className="block text-[38px] font-semibold tracking-[-0.035em] leading-none tabular-nums text-slate-900">
               {formatCurrency(financialSummary.cashReceipts)}
             </span>
-            <span className="block text-[13.5px] text-slate-600 mt-3">All verified receipts</span>
-          </div>
-          <div>
-            <span className="block text-[13px] font-semibold text-slate-600 mb-2.5">Refunds Issued</span>
-            <span className={`${FIG} text-[#D55E00]`}>{formatCurrency(financialSummary.refundsIssued)}</span>
-            <span className="block text-[12.5px] text-slate-500 mt-1">Money returned</span>
+            <span className="block text-[13.5px] text-slate-600 mt-3">{span ? `Verified receipts, paid ${span}` : 'All verified receipts'}</span>
           </div>
         </div>
       </section>
@@ -186,7 +181,7 @@ export default function FinancialTab({ derived, onCardClick, onOpenDetail, canCl
         )}
         <p className="mt-2 text-[13px] text-slate-600">
           Each month is the services happening THAT month — not the cash taken that month. Estimated Gross Revenue is
-          contracted work only, exactly as the figure above, so a request still awaiting approval never appears here.
+          contracted work plus deposits kept on cancellations, as in the figure above.
           Still to collect is that estimate minus what has been collected against the same services.
         </p>
       </div>

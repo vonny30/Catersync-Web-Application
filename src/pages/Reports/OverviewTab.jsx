@@ -60,7 +60,7 @@ const SECTION_HEAD = 'text-[15px] font-bold tracking-[-0.01em] text-slate-900 mb
 // they need, and a reader who does not is not slowed down by it.
 const BASIS_LABEL = 'ml-2 text-[11.5px] font-semibold uppercase tracking-[0.06em] text-slate-400';
 
-export default function OverviewTab({ derived, period, onCardClick, onOpenDetail, canClearFilters, onClearFilters }) {
+export default function OverviewTab({ derived, period, span, onCardClick, onOpenDetail, canClearFilters, onClearFilters }) {
   const {
     financialSummary, packageMix, menuItemMix, topSellingItem,
     totalCustomers, repeatCustomers, oneTimeCustomers,
@@ -83,15 +83,15 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
               is not revenue, and it is not folded in under any label. */}
           <StatCard
             label="Estimated Gross Revenue"
-            value={formatCurrency(financialSummary.grossContracted)}
-            sub="Confirmed and completed"
+            value={formatCurrency(financialSummary.earnedRevenue)}
+            sub={span ? `Services ${span}, incl. kept deposits` : 'Confirmed, completed and kept deposits'}
             color="green"
             onClick={() => onCardClick('revenue')}
           />
           <StatCard
             label="Approved"
             value={formatCurrency(financialSummary.grossApproved)}
-            sub="Not yet confirmed"
+            sub={span ? `Not yet confirmed, services ${span}` : 'Not yet confirmed'}
             color="blue"
             onClick={() => onCardClick('approved')}
           />
@@ -101,9 +101,9 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
               paid_against_events), which is what makes the identity below
               hold: collections + receivables = revenue. */}
           <StatCard
-            label="Collections Applied"
-            value={formatCurrency(financialSummary.paidContracted)}
-            sub="Already collected"
+            label="Paid on These Events"
+            value={formatCurrency(financialSummary.paidOnEvents)}
+            sub={span ? `Paid toward services ${span}` : 'Paid toward these services'}
             color="teal"
             onClick={() => onCardClick('collected')}
           />
@@ -114,7 +114,7 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
           <StatCard
             label="Collectible"
             value={formatCurrency(financialSummary.outstandingContracted)}
-            sub="Not yet collected"
+            sub={span ? `Still owed on services ${span}` : 'Not yet collected'}
             color="amber"
             onClick={() => onCardClick('outstanding')}
           />
@@ -130,7 +130,7 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
           <StatCard
             label="Payments Received"
             value={formatCurrency(financialSummary.cashReceipts)}
-            sub="All verified receipts"
+            sub={span ? `Verified receipts, paid ${span}` : 'All verified receipts'}
             color="teal"
             onClick={() => onOpenDetail({
               title: 'Payments Received',
@@ -143,42 +143,22 @@ export default function OverviewTab({ derived, period, onCardClick, onOpenDetail
               ],
             })}
           />
-          <StatCard
-            label="Refunds Issued"
-            value={formatCurrency(financialSummary.refundsIssued)}
-            sub="Money returned"
-            color="red"
-            onClick={() => onOpenDetail({
-              title: 'Refunds Issued',
-              description: 'Money returned to customers counted on the day it went back. A reversal is a correction to a receipt recorded in error, not money returned, and is listed separately on the Financial tab.',
-              fields: [
-                { label: 'Refunds issued', value: formatCurrency(financialSummary.refundsIssued), emphasis: true },
-                { label: 'Reversals recorded', value: formatCurrency(financialSummary.reversalsRecorded) },
-              ],
-            })}
-          />
         </div>
       </section>
 
-      {/* Neither block: one is a count, and the other is money on bookings
-          that never happened — it is anchored on the cancelled booking's
-          service date, so it must not sit under the cash heading, and it is
-          not part of the revenue identity above. */}
+      {/* A count, so neither money block. Forfeited Deposits and Refunds
+          Issued used to sit here and above; both were removed on 21 Sep 2026.
+          Kept deposits are now inside Estimated Gross Revenue and Paid on These
+          Events (and were always inside Payments Received); refunds are listed
+          on the Financial tab. */}
       <section>
         <h2 className={SECTION_HEAD}>Also {forPeriod(period)}</h2>
         <div className={ROW_GRID}>
           <StatCard
-            label="Forfeited Deposits"
-            value={formatCurrency(financialSummary.forfeitedDeposits)}
-            sub="Kept on cancellations"
-            color="red"
-            onClick={() => onCardClick('forfeited')}
-          />
-          <StatCard
             count
             label="Completed Bookings"
             value={financialSummary.completedCount}
-            sub="Marked completed"
+            sub={span ? `Services ${span}` : 'Marked completed'}
             color="purple"
             onClick={() => onOpenDetail({
               title: 'Completed Bookings',

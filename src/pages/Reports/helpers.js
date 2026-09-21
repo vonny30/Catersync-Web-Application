@@ -91,8 +91,9 @@ export function periodLabel(preset, start, end) {
  *   Custom      -> 25 Aug – 10 Sep 2026  (both years when they differ)
  *
  * Shown once, under the filter bar, on the pages whose figures depend on a
- * period. Cards never repeat it: a month word on a card fails for any range
- * that is not a single month, and the title works for all of them.
+ * period. Money cards also state the exact days (periodSpan below), at
+ * Vaughn's request of 21 Sep 2026: "this month" alone did not say which days
+ * a service-date figure and a payment-date figure each count.
  */
 export function periodTitle(preset, start, end) {
   if (preset === 'All Time' || (!start && !end)) return 'All time';
@@ -113,6 +114,26 @@ export function periodTitle(preset, start, end) {
   }
   if (start) return `From ${day(start)} ${manilaParts(start).y}`;
   return `Until ${day(end)} ${manilaParts(end).y}`;
+}
+
+/**
+ * The exact days a period covers, for card subtexts: "September 1–30",
+ * "Aug 28 – Sep 4", "Jan 1 – Dec 31, 2026". Null when the period is unbounded
+ * (All time) — callers then keep their plain subtext.
+ *
+ * Why the cards carry it: a service-date figure and a payment-date figure sit
+ * side by side, and "this month" alone did not say which days each counts.
+ * Both ends are inclusive — getRangeBounds ends a period just before midnight.
+ */
+export function periodSpan(start, end) {
+  if (!start || !end) return null;
+  const SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const s = manilaParts(start);
+  const e = manilaParts(end);
+  if (s.y === e.y && s.m === e.m) return `${LONG[s.m]} ${s.d}–${e.d}`;
+  if (s.y === e.y) return `${SHORT[s.m]} ${s.d} – ${SHORT[e.m]} ${e.d}, ${e.y}`;
+  return `${SHORT[s.m]} ${s.d}, ${s.y} – ${SHORT[e.m]} ${e.d}, ${e.y}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -275,7 +296,7 @@ export const buildMonthlyFinancialTrend = (
   bookings = [],
   verifiedPayments = [],
   now = new Date(),
-  { monthsBack = 5, excludeStatuses = ['Rejected', 'Cancelled'] } = {}
+  { monthsBack = 5, excludeStatuses = ['Rejected', 'Cancelled'], keptDepositStatuses = [] } = {}
 ) => {
   const floor = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
 
@@ -289,11 +310,19 @@ export const buildMonthlyFinancialTrend = (
   const byMonth = {};
   bookings.forEach(b => {
     if (!b.event_datetime) return;
-    if (excludeStatuses.includes(b.booking_status)) return;
+    // A cancelled or rejected booking that kept a deposit counts for that
+    // deposit alone — earned and paid, nothing owed — as on the cards above.
+    const kept = keptDepositStatuses.includes(b.booking_status) ? Math.max(0, paidByBooking[b.booking_id] || 0) : 0;
+    if (excludeStatuses.includes(b.booking_status) && kept <= 0) return;
     const when = new Date(b.event_datetime);
     if (Number.isNaN(when.getTime()) || when < floor) return; // no upper bound
     const key = monthSortKey(when);
     if (!byMonth[key]) byMonth[key] = { month: monthLabel(when), estimatedGrossRevenue: 0, paidToDate: 0 };
+    if (kept > 0) {
+      byMonth[key].estimatedGrossRevenue += kept;
+      byMonth[key].paidToDate += kept;
+      return;
+    }
     byMonth[key].estimatedGrossRevenue += b.total_amount || 0;
     byMonth[key].paidToDate += paidByBooking[b.booking_id] || 0;
   });
