@@ -1151,7 +1151,9 @@ export default function Customers() {
             <option value="All">All</option>
             <option value="Mobile">Mobile</option>
             <option value="Walk-in">Walk-in</option>
-            <option value="Unknown">Unknown</option>
+            {/* No "Unknown": every customer is Mobile (has an app login) or
+                Walk-in (added here). The 13 legacy Unknown rows were app
+                accounts and were relabelled Mobile on 21 Sep 2026. */}
           </Select>
         </FilterField>
         <FilterField label="Repeat customer" active={repeatOnly}>
