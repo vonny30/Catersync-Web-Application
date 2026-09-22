@@ -542,6 +542,7 @@ function ReceivablesBreakdown({ bookings, period, total, onClose, onOpenBooking 
 function LedgerTable({ rows, mode, onOpenBooking, onProof, onReverse, onVerify, onReject }) {
   const isClaims = mode === 'claims';
   const isRefunds = mode === 'Refunds';
+  const isReversals = mode === 'Reversals';
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left border-collapse">
@@ -551,79 +552,71 @@ function LedgerTable({ rows, mode, onOpenBooking, onProof, onReverse, onVerify, 
             <th className="px-4 py-3 whitespace-nowrap">Reference</th>
             <th className="px-4 py-3 whitespace-nowrap">Method</th>
             <th className="px-4 py-3 whitespace-nowrap text-right">Amount</th>
-            <th className="px-4 py-3 whitespace-nowrap">{isClaims ? 'Status' : isRefunds ? 'Entry' : 'Stage'}</th>
+            <th className="px-4 py-3 whitespace-nowrap">{isClaims ? 'Status' : isRefunds || isReversals ? 'Entry' : 'Stage'}</th>
             <th className="px-4 py-3 whitespace-nowrap">Date</th>
-            <th className="px-4 py-3 whitespace-nowrap">Receipt / Proof</th>
+            <th className="px-4 py-3 whitespace-nowrap">{isReversals ? 'Reverses' : 'Receipt / Proof'}</th>
             <th className="px-4 py-3 whitespace-nowrap text-right">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-          {rows.map(({ entry, reversal }) => {
+          {rows.map(({ entry, reverses }) => {
             const badge = ledgerEntryBadge(entry);
-            const reversible = !isClaims && !isRefunds && entry.entry_type === ENTRY_TYPES.receipt && entry.counts_in_ledger === true;
+            const reversible = !isClaims && !isRefunds && !isReversals && entry.entry_type === ENTRY_TYPES.receipt && entry.counts_in_ledger === true;
             const proofUrl = getProofUrl(entry.pay_proof);
-            const cells = (e, b, isReversalRow) => (
-              <>
-                <td className={`px-4 py-[13px] ${isReversalRow ? 'pl-9' : ''}`}>
-                  {isReversalRow ? (
-                    <span className="flex items-center gap-1.5 text-[13px] text-slate-600">
-                      <Undo2 size={13} className="text-slate-400" /> Reverses {receiptLabel(entry)}
-                    </span>
-                  ) : (
-                    <span className="text-[15px] font-semibold text-slate-900">{customerName(e)}</span>
-                  )}
+            return (
+              <tr key={entry.payment_id} className="hover:bg-[#fbfcfd] transition-colors" title={isReversals ? (entry.reversal_reason || undefined) : undefined}>
+                <td className="px-4 py-[13px]">
+                  <span className="text-[15px] font-semibold text-slate-900">{customerName(entry)}</span>
                 </td>
                 <td className="px-4 py-[13px]">
-                  {!isReversalRow && (
-                    <button onClick={() => onOpenBooking(e)} className="text-[#007038] font-semibold inline-flex items-center gap-1 hover:text-[#008A45]" title="Open the booking">
-                      {bookingRef(e.booking)} <ExternalLink size={11} />
-                    </button>
-                  )}
-                  {!isReversalRow && <span className="block text-[12px] text-slate-500">{e.booking?.booking_type || ''}</span>}
+                  <button onClick={() => onOpenBooking(entry)} className="text-[#007038] font-semibold inline-flex items-center gap-1 hover:text-[#008A45]" title="Open the booking">
+                    {bookingRef(entry.booking)} <ExternalLink size={11} />
+                  </button>
+                  <span className="block text-[12px] text-slate-500">{entry.booking?.booking_type || ''}</span>
                 </td>
-                <td className="px-4 py-[13px] text-slate-600">{isReversalRow ? '' : (e.pay_method || '—')}</td>
-                <td className={`px-4 py-[13px] text-right tabular-nums whitespace-nowrap font-semibold ${b.struck ? 'line-through text-slate-400' : e.amount_paid < 0 ? 'text-red-600' : 'text-slate-900'}`}>
-                  {e.amount_paid < 0 ? '−' : ''}{peso(Math.abs(e.amount_paid))}
+                <td className="px-4 py-[13px] text-slate-600">{entry.pay_method || '—'}</td>
+                <td className={`px-4 py-[13px] text-right tabular-nums whitespace-nowrap font-semibold ${badge.struck ? 'line-through text-slate-400' : entry.amount_paid < 0 ? 'text-red-600' : 'text-slate-900'}`}>
+                  {entry.amount_paid < 0 ? '−' : ''}{peso(Math.abs(entry.amount_paid))}
                 </td>
                 <td className="px-4 py-[13px]">
-                  <span title={b.note || undefined} className={`inline-block px-2.5 py-[3px] rounded-full border text-[12px] font-semibold whitespace-nowrap ${b.className} ${b.note ? 'cursor-help' : ''}`}>
-                    {b.label}
+                  <span title={badge.note || undefined} className={`inline-block px-2.5 py-[3px] rounded-full border text-[12px] font-semibold whitespace-nowrap ${badge.className} ${badge.note ? 'cursor-help' : ''}`}>
+                    {badge.label}
                   </span>
                 </td>
-                <td className="px-4 py-[13px] text-slate-600 tabular-nums whitespace-nowrap">{e.pay_datetime ? new Date(e.pay_datetime).toLocaleDateString() : '—'}</td>
+                <td className="px-4 py-[13px] text-slate-600 tabular-nums whitespace-nowrap">{entry.pay_datetime ? new Date(entry.pay_datetime).toLocaleDateString() : '—'}</td>
                 <td className="px-4 py-[13px] text-slate-600">
-                  {isReversalRow ? '' : e.receipt_reference ? (
-                    <span className="text-[13px]">No. {e.receipt_reference}</span>
-                  ) : null}
-                  {!isReversalRow && proofUrl && (
-                    <button onClick={() => onProof(proofUrl)} className="block text-[12.5px] font-semibold text-[#007038] hover:underline">View proof</button>
+                  {isReversals ? (
+                    <span className="flex items-center gap-1.5 text-[13px]">
+                      <Undo2 size={13} className="text-slate-400 shrink-0" />
+                      {reverses ? `${peso(reverses.amount_paid)} ${receiptLabel(reverses)}` : 'a receipt'}
+                      {entry.reversal_reason && <span className="block text-[12px] text-slate-500">— {entry.reversal_reason}</span>}
+                    </span>
+                  ) : (
+                    <>
+                      {entry.receipt_reference && <span className="text-[13px]">No. {entry.receipt_reference}</span>}
+                      {proofUrl && (
+                        <button onClick={() => onProof(proofUrl)} className="block text-[12.5px] font-semibold text-[#007038] hover:underline">View proof</button>
+                      )}
+                      {!entry.receipt_reference && !proofUrl && <span className="text-slate-400">—</span>}
+                    </>
                   )}
-                  {!isReversalRow && !e.receipt_reference && !proofUrl && <span className="text-slate-400">—</span>}
                 </td>
                 <td className="px-4 py-[13px] text-right">
-                  {isReversalRow ? null : isClaims ? (
+                  {isClaims ? (
                     <span className="inline-flex gap-1.5">
-                      <button onClick={() => onVerify(e)} className="flex items-center gap-1 px-3 py-[6px] rounded-[9px] bg-[#008A45] hover:bg-[#007038] text-white text-[12.5px] font-semibold"><Check size={13} /> Verify</button>
-                      <button onClick={() => onReject(e)} className="flex items-center justify-center w-8 h-8 rounded-[9px] border border-red-200 text-red-700 hover:bg-red-50" title="Reject claim" aria-label="Reject claim"><X size={14} /></button>
+                      <button onClick={() => onVerify(entry)} className="flex items-center gap-1 px-3 py-[6px] rounded-[9px] bg-[#008A45] hover:bg-[#007038] text-white text-[12.5px] font-semibold"><Check size={13} /> Verify</button>
+                      <button onClick={() => onReject(entry)} className="flex items-center justify-center w-8 h-8 rounded-[9px] border border-red-200 text-red-700 hover:bg-red-50" title="Reject claim" aria-label="Reject claim"><X size={14} /></button>
                     </span>
                   ) : reversible ? (
-                    <button onClick={() => onReverse(e)} className="inline-flex items-center gap-1 px-3 py-[6px] rounded-[9px] border border-slate-200 text-slate-600 hover:text-red-700 hover:border-red-200 text-[12.5px] font-semibold" title="Correct a receipt that was wrong">
+                    <button onClick={() => onReverse(entry)} className="inline-flex items-center gap-1 px-3 py-[6px] rounded-[9px] border border-slate-200 text-slate-600 hover:text-red-700 hover:border-red-200 text-[12.5px] font-semibold" title="Correct a receipt that was wrong">
                       <Undo2 size={13} /> Reverse
                     </button>
                   ) : (
                     <span className="text-slate-300">—</span>
                   )}
                 </td>
-              </>
+              </tr>
             );
-            return [
-              <tr key={entry.payment_id} className="hover:bg-[#fbfcfd] transition-colors">{cells(entry, badge, false)}</tr>,
-              reversal ? (
-                <tr key={reversal.payment_id} className="bg-slate-50/70" title={reversal.reversal_reason || undefined}>
-                  {cells(reversal, ledgerEntryBadge(reversal), true)}
-                </tr>
-              ) : null,
-            ];
           })}
         </tbody>
       </table>
@@ -644,7 +637,7 @@ export default function Receivables() {
   const [refreshTick, setRefreshTick] = useState(0);
   const refresh = () => setRefreshTick(t => t + 1);
 
-  const [tab, setTab] = useState('Receipts'); // 'Receipts' | 'Refunds'
+  const [tab, setTab] = useState('Receipts'); // 'Receipts' | 'Refunds' | 'Reversals'
   const [showClaims, setShowClaims] = useState(false);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('All');
@@ -765,21 +758,26 @@ export default function Receivables() {
     if (stageFilter === REVERSED_STATUS) return e.is_reversed === true;
     return e.pay_status === stageFilter && e.is_reversed !== true;
   };
-  const reversalOf = Object.fromEntries(entries.filter(isReversalEntry).map(r => [r.reverses_payment_id, r]));
+  const receiptOf = Object.fromEntries(entries.map(e => [e.payment_id, e]));
 
   let rows;
   if (showClaims) {
     rows = claims.filter(passesCommon).map(entry => ({ entry }));
   } else if (tab === 'Refunds') {
     rows = entries.filter(e => isRefundEntry(e) && inPeriod(e.pay_datetime) && passesCommon(e)).map(entry => ({ entry }));
+  } else if (tab === 'Reversals') {
+    // A reversal is a correction, not a receipt (22 Sep 2026): its own tab,
+    // each row naming the receipt it cancels.
+    rows = entries.filter(e => isReversalEntry(e) && inPeriod(e.pay_datetime) && passesCommon(e))
+      .map(entry => ({ entry, reverses: receiptOf[entry.reverses_payment_id] || null }));
   } else {
-    // Verified receipts only — a claim is not a receipt. A reversal is shown
-    // directly beneath the receipt it cancels, never as a row of its own.
+    // Verified receipts only — a claim is not a receipt, and neither is a
+    // reversal (Reversals tab). A reversed receipt stays here, struck through.
     rows = entries
       .filter(e => e.entry_type === ENTRY_TYPES.receipt && e.is_unverified === false
         && inPeriod(e.pay_datetime) && passesCommon(e)
         && matchesStage(e))
-      .map(entry => ({ entry, reversal: reversalOf[entry.payment_id] || null }));
+      .map(entry => ({ entry }));
   }
 
   // What the listed receipts add up to, counting only the ones that move the
@@ -921,7 +919,7 @@ export default function Receivables() {
         <div className="relative">
         <button onClick={showCashReceipts} className="w-full h-full relative overflow-hidden flex flex-col justify-start text-left rounded-2xl border border-slate-200/70 bg-white p-5 transition-all cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]">
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
-          <p className="text-[13px] font-semibold text-slate-600 mb-2 pr-6">Payments Received<span className="ml-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400">Cash basis</span></p>
+          <p className="text-[13px] font-semibold text-slate-600 mb-2 pr-6">Payments Received</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(paymentsReceived) : '—'}</h3>
           <p className="text-[13px] text-slate-600 mt-2.5">{paymentsReceivedSub(periodSpan(start, end), refundsOut)}</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show these receipts <ChevronRight size={13} /></span>
@@ -929,11 +927,10 @@ export default function Receivables() {
         </div>
         <button onClick={() => setShowReceivablesBreakdown(true)} className="relative overflow-hidden flex flex-col justify-start text-left rounded-2xl border border-slate-200/70 bg-white p-5 transition-all cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]">
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500" />
-          <p className="text-[13px] font-semibold text-slate-600 mb-2">Collectible<span className="ml-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-400">Accrual basis</span></p>
+          <p className="text-[13px] font-semibold text-slate-600 mb-2">Collectible</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(totalReceivables) : '—'}</h3>
-          {/* Two words, the same two used on Reports and on Customers. The
-              basis label beside the card's name carries what the old sentence
-              spelled out. */}
+          {/* The same subtext as the Collectible card on Reports: the days it
+              counts, so no basis label is needed. */}
           <p className="text-[13px] text-slate-600 mt-2.5">{periodSpan(start, end) ? `Still owed on services ${periodSpan(start, end)}` : 'Not yet collected'}</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show balances due <ChevronRight size={13} /></span>
         </button>
@@ -959,7 +956,7 @@ export default function Receivables() {
       {/* TABS */}
       {!showClaims && (
         <div className="flex items-center gap-2 border-b border-slate-200/80">
-          {['Receipts', 'Refunds'].map(t => (
+          {['Receipts', 'Refunds', 'Reversals'].map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -976,7 +973,7 @@ export default function Receivables() {
         <div className="px-5 py-4 border-b border-slate-100">
           <div className="flex items-center justify-between gap-3">
             <span className="font-bold text-base tracking-[-0.01em] text-slate-900">
-              {showClaims ? 'Payment claims awaiting verification' : tab === 'Refunds' ? 'Refunds' : 'Receipts'}
+              {showClaims ? 'Payment claims awaiting verification' : tab}
             </span>
             <span className="text-[13.5px] text-slate-600 tabular-nums whitespace-nowrap">{loaded ? `${rows.length} result${rows.length === 1 ? '' : 's'}` : ''}</span>
           </div>
@@ -985,7 +982,9 @@ export default function Receivables() {
               ? 'Submitted from the mobile app'
               : tab === 'Refunds'
                 ? 'Money returned to customers'
-                : 'Verified receipts only'}
+                : tab === 'Reversals'
+                  ? 'Corrections to receipts recorded in error — not money in or out'
+                  : 'Verified receipts only'}
           </p>
         </div>
         {!loaded ? (
