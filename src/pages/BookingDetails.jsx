@@ -27,7 +27,7 @@ import { ACTIVE_BOOKING_STATUSES, bookingEditLockedMessage } from '../utils/book
 import { isResourceLocked, resourceLockReason } from '../utils/resourceLock';
 import ReviewFlagBanner from '../components/ReviewFlagBanner';
 import {
-  lapsedChipLabel, LAPSED_ACCEPT_TOOLTIP, LAPSED_DECLINE_REASON,
+  lapsedBlockedLabel, LAPSED_ACCEPT_TOOLTIP, LAPSED_DECLINE_REASON,
 } from '../utils/lapsed';
 import StatusHistory from '../components/StatusHistory';
 import OverrideStatusModal from '../components/OverrideStatusModal';
@@ -754,6 +754,10 @@ export default function BookingDetails() {
     if (!booking) return;
     if (isPaymentLedgerLocked(booking.booking_status)) {
       toast.error(bookingEditLockedMessage(booking.booking_status));
+      return;
+    }
+    if (money?.is_lapsed) {
+      toast.error(LAPSED_ACCEPT_TOOLTIP);
       return;
     }
     if (editWouldLoseTotal() > 0) {
@@ -1782,8 +1786,10 @@ export default function BookingDetails() {
   // and for recording something genuinely unusual; a request that went stale
   // waiting for an answer is neither, and a log full of routine overrides
   // stops meaning anything. So a lapsed booking can be cancelled outright.
-  const canCancel = booking.booking_status === 'Confirmed'
-    || (booking.booking_status === 'Approved' && !!money?.is_lapsed);
+  // Confirmed only. A lapsed Approved booking used to be cancellable here;
+  // since 22 Sep 2026 a lapsed booking is shown like a Completed one, with
+  // nothing left to act on.
+  const canCancel = booking.booking_status === 'Confirmed';
   const showAddRefund = (booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') && remainingRefundableAmount > 0;
   // Payments only open up once a booking has been approved (Updated Flow:
   // Pending -> Approve/Reject -> Proceed to Payment). Confirmed/Completed
@@ -1841,7 +1847,7 @@ export default function BookingDetails() {
             not urgent. See utils/lapsed.js. */}
         {money?.is_lapsed && (
           <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-slate-100 border-slate-300 text-slate-600" title={LAPSED_ACCEPT_TOOLTIP}>
-            {lapsedChipLabel(booking.event_datetime)}
+            {lapsedBlockedLabel(booking.booking_status)}
           </span>
         )}
 
@@ -1904,7 +1910,7 @@ export default function BookingDetails() {
       {/* Actions — every button unchanged, lifted out of the hero so the
           coloured states do not fight the green. */}
       <div className="flex items-center gap-3 flex-wrap bg-white border border-slate-200 rounded-2xl px-[18px] py-3.5 shadow-xs">
-          {booking.booking_status === 'Pending' && (
+          {booking.booking_status === 'Pending' && !money?.is_lapsed && (
             <>
               {/* Approving is the accepting act, so a passed event date takes
                   it away. Reject stays, with the reason already written. */}
@@ -1921,7 +1927,7 @@ export default function BookingDetails() {
               </button>
             </>
           )}
-          {canConfirmBooking && (
+          {canConfirmBooking && !money?.is_lapsed && (
             /* Confirming is an acceptance too — the guard refuses entry to
                Approved OR Confirmed once the date has gone. */
             <button

@@ -13,7 +13,7 @@ import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { sumVerifiedPositivePayments, sumDepositsCollected } from '../utils/payments';
-import { LAPSED_ACCEPT_TOOLTIP, LAPSED_DECLINE_REASON } from '../utils/lapsed';
+import { LAPSED_ACCEPT_TOOLTIP, LAPSED_ROW_CLASS, LAPSED_EDGE_CLASS, lapsedBlockedLabel } from '../utils/lapsed';
 import { PopupFilters, popupSelectClass, EmptyResult } from '../components/FilterBar';
 import { getRangeBounds, periodSpan, paymentsReceivedNet, paymentsReceivedSub } from './Reports/helpers';
 import ImageUploadField from '../components/ImageUploadField';
@@ -965,11 +965,18 @@ export default function Dashboard() {
                       </span>
                     </div>
                     <div className="flex gap-2">
+                      {/* Past its event date: nothing to approve or reject any
+                          more, so the actions give way to the reason — the same
+                          treatment the Bookings list gives it. */}
+                      {item.is_lapsed ? (
+                        <span className={`flex-[2] flex items-center justify-center rounded-[10px] text-[13px] font-semibold ${LAPSED_ROW_CLASS} ${LAPSED_EDGE_CLASS} text-slate-600`} title={LAPSED_ACCEPT_TOOLTIP}>
+                          {lapsedBlockedLabel(item.booking_status)}
+                        </span>
+                      ) : (
+                      <>
                       <button
                         onClick={() => openApprovalModal(item, isShortOrder ? 'shortorder' : 'package')}
-                        disabled={item.is_lapsed}
-                        title={item.is_lapsed ? LAPSED_ACCEPT_TOOLTIP : undefined}
-                        className={`flex-1 font-semibold text-sm py-2 rounded-[10px] flex justify-center items-center gap-2 transition-colors ${item.is_lapsed ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed' : 'bg-[#008A45] hover:bg-[#007038] text-white'}`}
+                        className={`flex-1 font-semibold text-sm py-2 rounded-[10px] flex justify-center items-center gap-2 transition-colors bg-[#008A45] hover:bg-[#007038] text-white`}
                       >
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -977,7 +984,7 @@ export default function Dashboard() {
                         Approve
                       </button>
                       <button
-                        onClick={() => openRejectionModal(item.booking_id, item.is_lapsed ? LAPSED_DECLINE_REASON : '')}
+                        onClick={() => openRejectionModal(item.booking_id)}
                         className="flex-1 bg-white border border-red-200 text-red-700 font-semibold text-sm py-2 rounded-[10px] hover:bg-red-50 transition-colors"
                       >
                         <svg className="w-4 h-4 inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -985,6 +992,8 @@ export default function Dashboard() {
                         </svg>
                         Reject
                       </button>
+                      </>
+                      )}
                       <button
                         onClick={() => navigate(`${detailPath}/${item.booking_id}`)}
                         className="flex-1 bg-white border border-slate-200 text-slate-700 font-semibold text-sm py-2 rounded-[10px] hover:bg-slate-50 transition-colors"
@@ -1006,7 +1015,7 @@ export default function Dashboard() {
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[80vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="flex justify-between items-center px-6 py-4 border-b border-slate-200 shrink-0">
               <h3 className="text-lg font-bold text-slate-900">
-                Events on {selectedDate ? new Date(selectedDate).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : ''}
+                Bookings on {selectedDate ? new Date(selectedDate).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : ''}
               </h3>
               <button
                 onClick={() => setShowDateModal(false)}

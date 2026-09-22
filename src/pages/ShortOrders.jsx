@@ -28,7 +28,8 @@ import {
   OVERDUE_CHIP_CLASS, FLAGGED_CHIP_CLASS, overdueChipLabel, AWAITING_VERIFICATION_HINT,
 } from '../utils/overdue';
 import {
-  LAPSED_CHIP_CLASS, lapsedChipLabel, LAPSED_ACCEPT_TOOLTIP, LAPSED_DECLINE_REASON,
+  LAPSED_CHIP_CLASS, LAPSED_ACCEPT_TOOLTIP, LAPSED_DECLINE_REASON,
+  LAPSED_ROW_CLASS, LAPSED_EDGE_CLASS, lapsedBlockedLabel,
   statusWriteErrorMessage,
 } from '../utils/lapsed';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
@@ -690,6 +691,11 @@ export default function ShortOrders() {
   const openEditModal = (order) => {
     if (isPaymentLedgerLocked(order.booking_status)) {
       toast.error(bookingEditLockedMessage(order.booking_status, { noun: 'order' }));
+      return;
+    }
+    // A lapsed booking is shown like a Completed one: nothing left to change.
+    if (order.money?.is_lapsed) {
+      toast.error(LAPSED_ACCEPT_TOOLTIP);
       return;
     }
     // Editing recalculates the total, so refuse when that would lose money.
@@ -1650,7 +1656,7 @@ export default function ShortOrders() {
               return (
                 <div
                   key={order.booking_id}
-                  className={`p-4 transition-colors ${cardOverdue ? `${OVERDUE_ROW_CLASS} ${OVERDUE_EDGE_CLASS}` : `hover:bg-[#fbfcfd] ${!order.is_read ? 'bg-[#EAF3F2]/30' : ''}`}`}
+                  className={`p-4 transition-colors ${cardOverdue ? `${OVERDUE_ROW_CLASS} ${OVERDUE_EDGE_CLASS}` : cardLapsed ? `${LAPSED_ROW_CLASS} ${LAPSED_EDGE_CLASS}` : `hover:bg-[#fbfcfd] ${!order.is_read ? 'bg-[#EAF3F2]/30' : ''}`}`}
                   onClick={() => { if (!order.is_read) markAsRead(order.booking_id); }}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -1708,7 +1714,7 @@ export default function ShortOrders() {
                         {order.booking_status}
                       </span>
                       {cardLapsed && (
-                        <span className={LAPSED_CHIP_CLASS} title={LAPSED_ACCEPT_TOOLTIP}>{lapsedChipLabel(order.event_datetime)}</span>
+                        <span className={LAPSED_CHIP_CLASS} title={LAPSED_ACCEPT_TOOLTIP}>{lapsedBlockedLabel(order.booking_status)}</span>
                       )}
                       {(order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') && order.refundStatus && (
                         <span className={`px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap ${getRefundStatusBadge(order.refundStatus)}`}>
@@ -1719,7 +1725,7 @@ export default function ShortOrders() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-1.5 mt-3" onClick={(e) => e.stopPropagation()}>
-                    {order.booking_status === 'Pending' && (
+                    {order.booking_status === 'Pending' && !cardLapsed && (
                       <>
                         <button
                           onClick={() => openApprovalModal(order, 'shortorder')}
@@ -1734,7 +1740,7 @@ export default function ShortOrders() {
                         </button>
                       </>
                     )}
-                    {order.booking_status === 'Approved' && (
+                    {order.booking_status === 'Approved' && !cardLapsed && (
                       <button
                         onClick={() => handleConfirmBooking(order.booking_id)}
                         disabled={cardLapsed}
@@ -1758,10 +1764,10 @@ export default function ShortOrders() {
                     </button>
                     <button
                       onClick={() => openEditModal(order)}
-                      title={isPaymentLedgerLocked(order.booking_status) ? bookingEditLockedMessage(order.booking_status, { noun: 'order' }) : 'Edit'}
-                      className={`flex items-center justify-center w-[30px] h-[30px] rounded-[9px] border transition-colors ${isPaymentLedgerLocked(order.booking_status) ? 'border-slate-200 text-slate-300' : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}
+                      title={cardLapsed ? LAPSED_ACCEPT_TOOLTIP : isPaymentLedgerLocked(order.booking_status) ? bookingEditLockedMessage(order.booking_status, { noun: 'order' }) : 'Edit'}
+                      className={`flex items-center justify-center w-[30px] h-[30px] rounded-[9px] border transition-colors ${(isPaymentLedgerLocked(order.booking_status) || cardLapsed) ? 'border-slate-200 text-slate-300' : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}
                     >
-                      {isPaymentLedgerLocked(order.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
+                      {(isPaymentLedgerLocked(order.booking_status) || cardLapsed) ? <Lock size={14} /> : <Edit size={14} />}
                     </button>
                     <button onClick={() => handleDelete(order.booking_id)} title="Delete (password required)" className="flex items-center justify-center w-[30px] h-[30px] rounded-[9px] border border-slate-200 text-red-300 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors">
                       <Trash2 size={14} />
@@ -1847,10 +1853,10 @@ export default function ShortOrders() {
                   return (
                     <tr
                       key={order.booking_id}
-                      className={`transition-colors ${!order.is_read ? 'font-bold' : ''} ${isOverdue ? OVERDUE_ROW_CLASS : 'hover:bg-[#fbfcfd]'}`}
+                      className={`transition-colors ${!order.is_read ? 'font-bold' : ''} ${isOverdue ? OVERDUE_ROW_CLASS : isLapsed ? LAPSED_ROW_CLASS : 'hover:bg-[#fbfcfd]'}`}
                       onClick={() => { if (!order.is_read) markAsRead(order.booking_id); }}
                     >
-                      <td className={`px-3 py-[15px] ${isOverdue ? OVERDUE_EDGE_CLASS : ''}`} onClick={(e) => e.stopPropagation()}>
+                      <td className={`px-3 py-[15px] ${isOverdue ? OVERDUE_EDGE_CLASS : isLapsed ? LAPSED_EDGE_CLASS : ''}`} onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={selectedOrders.includes(order.booking_id)}
@@ -1938,7 +1944,7 @@ export default function ShortOrders() {
                             {order.booking_status}
                           </span>
                           {isLapsed && (
-                            <span className={LAPSED_CHIP_CLASS} title={LAPSED_ACCEPT_TOOLTIP}>{lapsedChipLabel(order.event_datetime)}</span>
+                            <span className={LAPSED_CHIP_CLASS} title={LAPSED_ACCEPT_TOOLTIP}>{lapsedBlockedLabel(order.booking_status)}</span>
                           )}
                           {/* "Balance Remaining" and "Past Due" lived here and
                               each decided for itself what was unpaid and what
@@ -1959,7 +1965,7 @@ export default function ShortOrders() {
                               primary action — that reserved space is what
                               keeps Details at the same x on every row. */}
                           <div className="w-[66px] min-[1920px]:w-[204px] shrink-0 flex items-center justify-end gap-1.5">
-                            {order.booking_status === 'Pending' && (
+                            {order.booking_status === 'Pending' && !isLapsed && (
                               <>
                                 <button
                                   onClick={() => openApprovalModal(order, 'shortorder')}
@@ -1978,7 +1984,7 @@ export default function ShortOrders() {
                                 </button>
                               </>
                             )}
-                            {order.booking_status === 'Approved' && (
+                            {order.booking_status === 'Approved' && !isLapsed && (
                               <button
                                 onClick={() => handleConfirmBooking(order.booking_id)}
                               disabled={isLapsed}
@@ -2010,10 +2016,10 @@ export default function ShortOrders() {
                           </button>
                           <button
                             onClick={() => openEditModal(order)}
-                            className={`flex items-center justify-center w-[30px] h-[30px] shrink-0 rounded-[9px] border transition-colors ${isPaymentLedgerLocked(order.booking_status) ? 'border-slate-200 text-slate-300' : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}
-                            title={isPaymentLedgerLocked(order.booking_status) ? bookingEditLockedMessage(order.booking_status, { noun: 'order' }) : 'Edit'}
+                            className={`flex items-center justify-center w-[30px] h-[30px] shrink-0 rounded-[9px] border transition-colors ${(isPaymentLedgerLocked(order.booking_status) || isLapsed) ? 'border-slate-200 text-slate-300' : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}
+                            title={isLapsed ? LAPSED_ACCEPT_TOOLTIP : isPaymentLedgerLocked(order.booking_status) ? bookingEditLockedMessage(order.booking_status, { noun: 'order' }) : 'Edit'}
                           >
-                            {isPaymentLedgerLocked(order.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
+                            {(isPaymentLedgerLocked(order.booking_status) || isLapsed) ? <Lock size={14} /> : <Edit size={14} />}
                           </button>
                           <button
                             onClick={() => handleDelete(order.booking_id)}

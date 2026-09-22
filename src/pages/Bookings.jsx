@@ -29,7 +29,8 @@ import {
   OVERDUE_CHIP_CLASS, FLAGGED_CHIP_CLASS, overdueChipLabel, AWAITING_VERIFICATION_HINT,
 } from '../utils/overdue';
 import {
-  LAPSED_CHIP_CLASS, lapsedChipLabel, LAPSED_ACCEPT_TOOLTIP, LAPSED_DECLINE_REASON,
+  LAPSED_CHIP_CLASS, LAPSED_ACCEPT_TOOLTIP, LAPSED_DECLINE_REASON,
+  LAPSED_ROW_CLASS, LAPSED_EDGE_CLASS, lapsedBlockedLabel,
   statusWriteErrorMessage,
 } from '../utils/lapsed';
 import { toDateTimeLocalValue } from '../utils/datetimeLocal';
@@ -752,6 +753,11 @@ export default function Bookings() {
   const openEditModal = (booking) => {
     if (isPaymentLedgerLocked(booking.booking_status)) {
       toast.error(bookingEditLockedMessage(booking.booking_status));
+      return;
+    }
+    // A lapsed booking is shown like a Completed one: nothing left to change.
+    if (booking.money?.is_lapsed) {
+      toast.error(LAPSED_ACCEPT_TOOLTIP);
       return;
     }
     setEditingId(booking.booking_id);
@@ -1793,7 +1799,7 @@ const handleMarkCompleted = async (id) => {
               return (
                 <div
                   key={booking.booking_id}
-                  className={`p-4 transition-colors ${cardOverdue ? `${OVERDUE_ROW_CLASS} ${OVERDUE_EDGE_CLASS}` : `hover:bg-[#fbfcfd] ${!booking.is_read ? 'bg-[#EAF3F2]/30' : ''}`}`}
+                  className={`p-4 transition-colors ${cardOverdue ? `${OVERDUE_ROW_CLASS} ${OVERDUE_EDGE_CLASS}` : cardLapsed ? `${LAPSED_ROW_CLASS} ${LAPSED_EDGE_CLASS}` : `hover:bg-[#fbfcfd] ${!booking.is_read ? 'bg-[#EAF3F2]/30' : ''}`}`}
                   onClick={() => { if (!booking.is_read) markAsRead(booking.booking_id); }}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -1854,7 +1860,7 @@ const handleMarkCompleted = async (id) => {
                         {booking.booking_status}
                       </span>
                       {cardLapsed && (
-                        <span className={LAPSED_CHIP_CLASS} title={LAPSED_ACCEPT_TOOLTIP}>{lapsedChipLabel(booking.event_datetime)}</span>
+                        <span className={LAPSED_CHIP_CLASS} title={LAPSED_ACCEPT_TOOLTIP}>{lapsedBlockedLabel(booking.booking_status)}</span>
                       )}
                       {(booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') && booking.refundStatus && (
                         <span className={`px-[11px] py-1 rounded-full text-[11.5px] font-semibold whitespace-nowrap ${getRefundStatusBadge(booking.refundStatus)}`}>
@@ -1865,7 +1871,7 @@ const handleMarkCompleted = async (id) => {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-1.5 mt-3" onClick={(e) => e.stopPropagation()}>
-                    {booking.booking_status === 'Pending' && (
+                    {booking.booking_status === 'Pending' && !cardLapsed && (
                       <>
                         {/* Approve is the accepting act, so it is what a
                             lapsed date takes away. Reject stays: a request is
@@ -1883,7 +1889,7 @@ const handleMarkCompleted = async (id) => {
                         </button>
                       </>
                     )}
-                    {booking.booking_status === 'Approved' && (
+                    {booking.booking_status === 'Approved' && !cardLapsed && (
                       /* Confirm is an acceptance too — the guard refuses a
                          transition into Approved OR Confirmed — so a lapsed
                          Approved booking cannot be confirmed either. */
@@ -1910,10 +1916,10 @@ const handleMarkCompleted = async (id) => {
                     </button>
                     <button
                       onClick={() => openEditModal(booking)}
-                      title={isPaymentLedgerLocked(booking.booking_status) ? bookingEditLockedMessage(booking.booking_status) : 'Edit'}
-                      className={`flex items-center justify-center w-[30px] h-[30px] rounded-[9px] border transition-colors ${isPaymentLedgerLocked(booking.booking_status) ? 'border-slate-200 text-slate-300' : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}
+                      title={cardLapsed ? LAPSED_ACCEPT_TOOLTIP : isPaymentLedgerLocked(booking.booking_status) ? bookingEditLockedMessage(booking.booking_status) : 'Edit'}
+                      className={`flex items-center justify-center w-[30px] h-[30px] rounded-[9px] border transition-colors ${(isPaymentLedgerLocked(booking.booking_status) || cardLapsed) ? 'border-slate-200 text-slate-300' : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}
                     >
-                      {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
+                      {(isPaymentLedgerLocked(booking.booking_status) || cardLapsed) ? <Lock size={14} /> : <Edit size={14} />}
                     </button>
                     <button onClick={() => handleDelete(booking.booking_id)} title="Delete (password required)" className="flex items-center justify-center w-[30px] h-[30px] rounded-[9px] border border-slate-200 text-red-300 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors">
                       <Trash2 size={14} />
@@ -1998,14 +2004,14 @@ const handleMarkCompleted = async (id) => {
                   return (
                   <tr
                     key={booking.booking_id}
-                    className={`transition-colors ${!booking.is_read ? 'font-bold' : ''} ${isOverdue ? OVERDUE_ROW_CLASS : 'hover:bg-[#fbfcfd]'}`}
+                    className={`transition-colors ${!booking.is_read ? 'font-bold' : ''} ${isOverdue ? OVERDUE_ROW_CLASS : isLapsed ? LAPSED_ROW_CLASS : 'hover:bg-[#fbfcfd]'}`}
                     onClick={() => {
                       if (!booking.is_read) {
                         markAsRead(booking.booking_id);
                       }
                     }}
                   >
-                    <td className={`px-3 py-[15px] ${isOverdue ? OVERDUE_EDGE_CLASS : ''}`} onClick={(e) => e.stopPropagation()}>
+                    <td className={`px-3 py-[15px] ${isOverdue ? OVERDUE_EDGE_CLASS : isLapsed ? LAPSED_EDGE_CLASS : ''}`} onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={selectedBookings.includes(booking.booking_id)}
@@ -2072,7 +2078,7 @@ const handleMarkCompleted = async (id) => {
                         {/* Beside the status badge, deliberately in the
                             quietest grey on the page — see utils/lapsed.js. */}
                         {isLapsed && (
-                          <span className={LAPSED_CHIP_CLASS} title={LAPSED_ACCEPT_TOOLTIP}>{lapsedChipLabel(booking.event_datetime)}</span>
+                          <span className={LAPSED_CHIP_CLASS} title={LAPSED_ACCEPT_TOOLTIP}>{lapsedBlockedLabel(booking.booking_status)}</span>
                         )}
                         {/* "Balance Remaining" and "Past Due" used to sit
                             here, each deciding for itself what was unpaid and
@@ -2096,7 +2102,7 @@ const handleMarkCompleted = async (id) => {
                             primary action — that reserved space is what keeps
                             Details at the same x on every row. */}
                         <div className="w-[66px] min-[1920px]:w-[204px] shrink-0 flex items-center justify-end gap-1.5">
-                          {booking.booking_status === 'Pending' && (
+                          {booking.booking_status === 'Pending' && !isLapsed && (
                             <>
                               <button
                                 onClick={() => openApprovalModal(booking)}
@@ -2115,7 +2121,7 @@ const handleMarkCompleted = async (id) => {
                               </button>
                             </>
                           )}
-                          {booking.booking_status === 'Approved' && (
+                          {booking.booking_status === 'Approved' && !isLapsed && (
                             <button
                               onClick={() => handleConfirmBooking(booking.booking_id)}
                               disabled={isLapsed}
@@ -2147,10 +2153,10 @@ const handleMarkCompleted = async (id) => {
                         </button>
                         <button
                           onClick={() => openEditModal(booking)}
-                          className={`flex items-center justify-center w-[30px] h-[30px] shrink-0 rounded-[9px] border transition-colors ${isPaymentLedgerLocked(booking.booking_status) ? 'border-slate-200 text-slate-300' : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}
-                          title={isPaymentLedgerLocked(booking.booking_status) ? bookingEditLockedMessage(booking.booking_status) : 'Edit'}
+                          className={`flex items-center justify-center w-[30px] h-[30px] shrink-0 rounded-[9px] border transition-colors ${(isPaymentLedgerLocked(booking.booking_status) || isLapsed) ? 'border-slate-200 text-slate-300' : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}
+                          title={isLapsed ? LAPSED_ACCEPT_TOOLTIP : isPaymentLedgerLocked(booking.booking_status) ? bookingEditLockedMessage(booking.booking_status) : 'Edit'}
                         >
-                          {isPaymentLedgerLocked(booking.booking_status) ? <Lock size={14} /> : <Edit size={14} />}
+                          {(isPaymentLedgerLocked(booking.booking_status) || isLapsed) ? <Lock size={14} /> : <Edit size={14} />}
                         </button>
                         <button
                           onClick={() => handleDelete(booking.booking_id)}

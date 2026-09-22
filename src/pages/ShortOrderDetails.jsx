@@ -25,7 +25,7 @@ import { getServiceMethod, reconcileServiceMethodChange, PICKUP_VENUE_MARKER, TR
 import { isResourceLocked, resourceLockReason } from '../utils/resourceLock';
 import ReviewFlagBanner from '../components/ReviewFlagBanner';
 import {
-  lapsedChipLabel, LAPSED_ACCEPT_TOOLTIP, LAPSED_DECLINE_REASON,
+  lapsedBlockedLabel, LAPSED_ACCEPT_TOOLTIP, LAPSED_DECLINE_REASON,
 } from '../utils/lapsed';
 import StatusHistory from '../components/StatusHistory';
 import OverrideStatusModal from '../components/OverrideStatusModal';
@@ -568,6 +568,10 @@ export default function ShortOrderDetails() {
       toast.error(bookingEditLockedMessage(order.booking_status, { noun: 'order' }));
       return;
     }
+    if (money?.is_lapsed) {
+      toast.error(LAPSED_ACCEPT_TOOLTIP);
+      return;
+    }
     // Saving recalculates the total from menu plus delivery fee, so refuse
     // when that would come out lower than what is stored — an approval fee
     // lives in the difference and nothing here can put it back.
@@ -969,8 +973,10 @@ export default function ShortOrderDetails() {
   // Confirmed, or Approved-and-lapsed: see the fuller note in
   // BookingDetails.jsx. Without the second case a lapsed order has no ending
   // short of a manager override.
-  const canCancel = order.booking_status === 'Confirmed'
-    || (order.booking_status === 'Approved' && !!money?.is_lapsed);
+  // Confirmed only. A lapsed Approved booking used to be cancellable here;
+  // since 22 Sep 2026 a lapsed booking is shown like a Completed one, with
+  // nothing left to act on.
+  const canCancel = order.booking_status === 'Confirmed';
   const showAddRefund = (order.booking_status === 'Rejected' || order.booking_status === 'Cancelled') && remainingRefundableAmount > 0;
   const canRecordPayment = ['Approved', 'Confirmed', 'Completed'].includes(order.booking_status);
 
@@ -1018,7 +1024,7 @@ export default function ShortOrderDetails() {
         {/* Grey, never the rose used for overdue — see utils/lapsed.js. */}
         {money?.is_lapsed && (
           <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-slate-100 border-slate-300 text-slate-600" title={LAPSED_ACCEPT_TOOLTIP}>
-            {lapsedChipLabel(order.event_datetime)}
+            {lapsedBlockedLabel(order.booking_status)}
           </span>
         )}
         {hasUnpaidPastEvent({ booking_status: order.booking_status, event_datetime: order.event_datetime, total_amount: order.total_amount, positivePayments }) && (
@@ -1076,7 +1082,7 @@ export default function ShortOrderDetails() {
       </div>
 
       <div className="flex items-center gap-3 flex-wrap bg-white border border-slate-200 rounded-2xl px-[18px] py-3.5 shadow-xs">
-          {order.booking_status === 'Pending' && (
+          {order.booking_status === 'Pending' && !money?.is_lapsed && (
             <>
               <button
                 onClick={() => openApprovalModal(order, 'shortorder')}
@@ -1091,7 +1097,7 @@ export default function ShortOrderDetails() {
               </button>
             </>
           )}
-          {canConfirmBooking && (
+          {canConfirmBooking && !money?.is_lapsed && (
             <button
               onClick={handleConfirmBooking}
               disabled={isConfirming || !!money?.is_lapsed}

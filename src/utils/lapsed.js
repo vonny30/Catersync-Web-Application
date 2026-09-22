@@ -28,6 +28,24 @@ export function lapsedChipLabel(eventDatetime) {
   return `Lapsed · ${d.getDate()} ${d.toLocaleString('en', { month: 'short' })}`;
 }
 
+/**
+ * The row of a lapsed booking (22 Sep 2026): a quiet slate tint and edge —
+ * grey like every lapsed signal, never the rose of Overdue — so a manager can
+ * see at a glance that nothing on it can be accepted any more.
+ */
+export const LAPSED_ROW_CLASS = 'bg-slate-100/70 hover:bg-slate-100';
+export const LAPSED_EDGE_CLASS = 'border-l-[4px] border-l-slate-400';
+
+/**
+ * What the row says instead of offering the action: a Pending request can no
+ * longer be approved, an Approved booking can no longer be confirmed.
+ */
+export function lapsedBlockedLabel(status) {
+  return status === 'Approved'
+    ? "Can't be confirmed — event date passed"
+    : "Can't be approved — event date passed";
+}
+
 /** On the disabled Approve / Confirm control. */
 export const LAPSED_ACCEPT_TOOLTIP = 'Event date has passed';
 
