@@ -136,32 +136,6 @@ export function periodSpan(start, end) {
   return `${SHORT[s.m]} ${s.d}, ${s.y} – ${SHORT[e.m]} ${e.d}, ${e.y}`;
 }
 
-/**
- * Payments Received is money KEPT: verified receipts less refunds, both by
- * payment date (f_report_period cash_receipts − refunds_issued). A deposit
- * kept on a cancellation stays in; a refunded amount comes out, and the
- * subtext says so, so the subtraction is visible rather than silent.
- */
-export const paymentsReceivedNet = (receipts, refunds) => (Number(receipts) || 0) - (Number(refunds) || 0);
-
-/** The pop-up behind a Payments Received card — one definition for both tabs. */
-export const paymentsReceivedDetail = (s) => ({
-  title: 'Payments Received',
-  description: 'Money kept: verified receipts less refunds, each counted on the day the money moved. Claims awaiting verification, reversals and reversed receipts are excluded — the same rule the Payments page uses.',
-  fields: [
-    { label: 'Payments received', value: formatCurrency(s.paymentsReceived), emphasis: true },
-    { label: 'Verified receipts', value: formatCurrency(s.cashReceipts) },
-    { label: 'Less refunds', value: formatCurrency(s.refundsIssued) },
-    { label: 'Receipts counted', value: s.receiptCount },
-  ],
-});
-
-export function paymentsReceivedSub(span, refunds) {
-  const refunded = Number(refunds) || 0;
-  const when = span ? `Paid ${span}` : 'All verified receipts';
-  return refunded > 0 ? `${when}, after ${formatCurrency(refunded)} refunded` : (span ? `Verified receipts, paid ${span}` : when);
-}
-
 // ---------------------------------------------------------------------------
 // TWO DIFFERENT QUESTIONS. Do not use this constant for the second one.
 // ---------------------------------------------------------------------------
@@ -333,15 +307,6 @@ export const buildMonthlyFinancialTrend = (
     paidByBooking[p.booking_id] = (paidByBooking[p.booking_id] || 0) + (p.amount_paid || 0);
   });
 
-  // Payments Received per PAYMENT month: every counted entry (receipts in,
-  // refunds out), the same figure as the Payments Received card.
-  const receivedByMonth = {};
-  verifiedPayments.forEach(p => {
-    if (!p.pay_datetime) return;
-    const key = monthSortKey(new Date(p.pay_datetime));
-    receivedByMonth[key] = (receivedByMonth[key] || 0) + (p.amount_paid || 0);
-  });
-
   const byMonth = {};
   bookings.forEach(b => {
     if (!b.event_datetime) return;
@@ -374,19 +339,19 @@ export const buildMonthlyFinancialTrend = (
   const series = [];
   for (let key = first; key <= last; key++) {
     const hit = byMonth[key];
-    const received = receivedByMonth[key] ?? null;
     series.push(hit
       ? {
           month: hit.month,
           estimatedGrossRevenue: hit.estimatedGrossRevenue,
-          paymentsReceived: received,
+          // Paid toward that month's bookings — the Payments Received card's rule.
+          paymentsReceived: hit.paidToDate,
           // Still owed on that month's services — the Collectible card's rule.
           collectible: Math.max(0, hit.estimatedGrossRevenue - hit.paidToDate),
         }
       : {
           month: monthLabel(new Date(Math.floor(key / 12), key % 12, 1)),
           estimatedGrossRevenue: null,
-          paymentsReceived: received,
+          paymentsReceived: null,
           collectible: null,
         });
   }

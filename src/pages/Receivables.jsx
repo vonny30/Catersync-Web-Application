@@ -30,9 +30,10 @@ import { supabase } from '../supabase';
 import Select from '../components/Select';
 import ReceiptFields from '../components/ReceiptFields';
 import CollectibleBreakdown from '../components/CollectibleBreakdown';
-import { collectibleInPeriod } from '../utils/reportMetrics';
+import { collectibleInPeriod, paymentsReceivedForEvents } from '../utils/reportMetrics';
+import { fetchKeptDeposits } from '../utils/keptDeposits';
 import DateRangeFilter from './Reports/DateRangeFilter';
-import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, periodLabel, forPeriod, periodTitle, periodSpan, paymentsReceivedNet, paymentsReceivedSub } from './Reports/helpers';
+import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, periodLabel, forPeriod, periodTitle, periodSpan } from './Reports/helpers';
 import { FilterBar, FilterField, PeriodTitle, EmptyResult } from '../components/FilterBar';
 import { statusWriteErrorMessage } from '../utils/lapsed';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
@@ -581,6 +582,8 @@ export default function Receivables() {
   const [loaded, setLoaded] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
   const refresh = () => setRefreshTick(t => t + 1);
+  // Deposits kept on the period's cancelled bookings (utils/keptDeposits).
+  const [kept, setKept] = useState({ total: 0 });
 
   const [tab, setTab] = useState('Receipts'); // 'Receipts' | 'Refunds' | 'Reversals'
   const [showClaims, setShowClaims] = useState(false);
@@ -652,6 +655,15 @@ export default function Receivables() {
   useRealtimeRefresh('receivables-page', ['payment', 'booking'], refresh);
 
   const { start, end } = getRangeBounds(datePreset, customStart, customEnd);
+  const startIso = start ? start.toISOString() : null;
+  const endIso = end ? end.toISOString() : null;
+  useEffect(() => {
+    let ignore = false;
+    fetchKeptDeposits(startIso ? new Date(startIso) : null, endIso ? new Date(endIso) : null)
+      .then(res => { if (!ignore) setKept({ total: res.total }); })
+      .catch(err => { console.error('Kept deposits failed:', err); if (!ignore) setKept({ total: 0 }); });
+    return () => { ignore = true; };
+  }, [startIso, endIso, refreshTick]);
   // The period, named. Card subtexts on this page follow the same rule as
   // Reports: no digits, no "events", the period named, and only two basis
   // labels — by payment date and by service date.
@@ -659,16 +671,10 @@ export default function Receivables() {
   const inPeriod = (value) => (!start && !end) || isWithinRange(value, start, end);
 
   // --- The two figures ------------------------------------------------------
-  // Cash Receipts: entries that move the books and are positive, by payment date.
-  const cashReceipts = entries
-    .filter(e => e.counts_in_ledger === true && Number(e.amount_paid) > 0 && inPeriod(e.pay_datetime))
-    .reduce((sum, e) => sum + Number(e.amount_paid), 0);
-  // Refunds out, by payment date — the same test as f_report_period's
-  // refunds_issued. The card shows money kept: receipts less these.
-  const refundsOut = Math.abs(entries
-    .filter(e => e.counts_in_ledger === true && Number(e.amount_paid) < 0 && inPeriod(e.pay_datetime))
-    .reduce((sum, e) => sum + Number(e.amount_paid), 0));
-  const paymentsReceived = paymentsReceivedNet(cashReceipts, refundsOut);
+  // Everything on this page is for the period's BOOKINGS — those with an event
+  // in the period (22 Sep 2026). A payment belongs to its booking's month,
+  // whenever it was paid.
+  const inEventPeriod = (e) => inPeriod(e.booking?.event_datetime);
   // Total Receivables: what is owed on agreed bookings, by service date.
   // A receivable is money owed under a contract the business is committed to
   // perform: Confirmed, or Completed and already delivered. An Approved
@@ -677,7 +683,12 @@ export default function Receivables() {
   // Receipts counts them on the day they arrived whatever the booking status.
   // One rule, shared with the Customers page (utils/reportMetrics), so the
   // two Collectible cards always agree. owing = the rows behind the card.
-  const { total: totalReceivables, owing: owingInPeriod } = collectibleInPeriod(money, start, end);
+  const { total: totalReceivables, owing: owingInPeriod, rows: contractedInPeriod } = collectibleInPeriod(money, start, end);
+  // PAYMENTS RECEIVED: paid toward the period's Confirmed / Completed bookings,
+  // plus deposits kept on its cancelled ones — the Reports and Dashboard rule,
+  // so Payments Received + Collectible = Estimated Gross Revenue.
+  const paidContracted = contractedInPeriod.reduce((sum, m) => sum + (Number(m.net_paid) || 0), 0);
+  const paymentsReceived = paymentsReceivedForEvents(paidContracted, kept.total);
 
   // --- Claims (not money) -----------------------------------------------------
   const claims = entries.filter(e => e.pay_status === PENDING_VERIFICATION && Number(e.amount_paid) > 0);
@@ -706,18 +717,18 @@ export default function Receivables() {
   if (showClaims) {
     rows = claims.filter(passesCommon).map(entry => ({ entry }));
   } else if (tab === 'Refunds') {
-    rows = entries.filter(e => isRefundEntry(e) && inPeriod(e.pay_datetime) && passesCommon(e)).map(entry => ({ entry }));
+    rows = entries.filter(e => isRefundEntry(e) && inEventPeriod(e) && passesCommon(e)).map(entry => ({ entry }));
   } else if (tab === 'Reversals') {
     // A reversal is a correction, not a receipt (22 Sep 2026): its own tab,
     // each row naming the receipt it cancels.
-    rows = entries.filter(e => isReversalEntry(e) && inPeriod(e.pay_datetime) && passesCommon(e))
+    rows = entries.filter(e => isReversalEntry(e) && inEventPeriod(e) && passesCommon(e))
       .map(entry => ({ entry, reverses: receiptOf[entry.reverses_payment_id] || null }));
   } else {
     // Verified receipts only — a claim is not a receipt, and neither is a
     // reversal (Reversals tab). A reversed receipt stays here, struck through.
     rows = entries
       .filter(e => e.entry_type === ENTRY_TYPES.receipt && e.is_unverified === false
-        && inPeriod(e.pay_datetime) && passesCommon(e)
+        && inEventPeriod(e) && passesCommon(e)
         && matchesStage(e))
       .map(entry => ({ entry }));
   }
@@ -863,7 +874,7 @@ export default function Receivables() {
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
           <p className="text-[13px] font-semibold text-slate-600 mb-2 pr-6">Payments Received</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(paymentsReceived) : '—'}</h3>
-          <p className="text-[13px] text-slate-600 mt-2.5">{paymentsReceivedSub(periodSpan(start, end), refundsOut)}</p>
+          <p className="text-[13px] text-slate-600 mt-2.5">{periodSpan(start, end) ? `Paid toward services ${periodSpan(start, end)}` : 'Paid toward these services'}</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show these receipts <ChevronRight size={13} /></span>
         </button>
         </div>
@@ -926,7 +937,7 @@ export default function Receivables() {
                 ? 'Money returned to customers'
                 : tab === 'Reversals'
                   ? 'Corrections to receipts recorded in error — not money in or out'
-                  : 'Verified receipts only'}
+                  : 'Verified receipts on the bookings in this period'}
           </p>
         </div>
         {!loaded ? (
@@ -952,9 +963,7 @@ export default function Receivables() {
             </span>
             <span className="font-semibold text-slate-900 tabular-nums">
               {peso(listedCountedTotal)}
-              {!term && typeFilter === 'All' && methodFilter === 'All' && stageFilter === 'All'
-                ? <span className="font-normal text-slate-500">{refundsOut > 0 ? ` — before ${peso(refundsOut)} refunded; Payments Received is ${peso(paymentsReceived)}` : ' — agrees with Payments Received'}</span>
-                : <span className="font-normal text-slate-500"> — for the receipts shown</span>}
+              <span className="font-normal text-slate-500"> — for the receipts shown</span>
             </span>
           </div>
         )}

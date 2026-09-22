@@ -15,7 +15,9 @@ import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
 import { sumVerifiedPositivePayments, sumDepositsCollected } from '../utils/payments';
 import { LAPSED_ACCEPT_TOOLTIP, LAPSED_ROW_CLASS, LAPSED_EDGE_CLASS, lapsedBlockedLabel } from '../utils/lapsed';
 import { PopupFilters, popupSelectClass, EmptyResult } from '../components/FilterBar';
-import { getRangeBounds, periodSpan, paymentsReceivedNet, paymentsReceivedSub } from './Reports/helpers';
+import { getRangeBounds, periodSpan } from './Reports/helpers';
+import { paymentsReceivedForEvents } from '../utils/reportMetrics';
+import { fetchKeptDeposits } from '../utils/keptDeposits';
 import ImageUploadField from '../components/ImageUploadField';
 import RefundMethodField from '../components/RefundMethodField';
 import ApprovalModal from '../components/ApprovalModal';
@@ -85,6 +87,7 @@ export default function Dashboard() {
     // payment date, from f_report_period. The figures beside it are what the
     // explanation modal uses; none of them appears under the card.
     cashReceipts: 0,
+    paymentsReceived: 0,
     receiptCount: 0,
     refundsIssued: 0,
     reversalsRecorded: 0,
@@ -314,8 +317,20 @@ export default function Dashboard() {
       if (periodError) console.error('f_report_period failed:', periodError);
       const period = Array.isArray(periodRows) ? periodRows[0] : periodRows;
 
+      // PAYMENTS RECEIVED for this month's bookings — the Reports and Payments
+      // rule (paid toward the month's Confirmed / Completed bookings, plus
+      // deposits kept on its cancelled ones), whenever the money came in.
+      const monthBounds = getRangeBounds('This Month');
+      let keptTotal = 0;
+      try {
+        keptTotal = (await fetchKeptDeposits(monthBounds.start, monthBounds.end)).total;
+      } catch (keptError) {
+        console.error('Kept deposits failed:', keptError);
+      }
+
       setStats(prev => ({
         ...prev,
+        paymentsReceived: paymentsReceivedForEvents(period?.paid_contracted, keptTotal),
         cashReceipts: Number(period?.cash_receipts) || 0,
         receiptCount: Number(period?.receipt_count) || 0,
         refundsIssued: Number(period?.refunds_issued) || 0,
@@ -793,7 +808,7 @@ export default function Dashboard() {
             <TrendingUp size={20} className="text-[#006634]" />
           </div>
           <span className="text-[28px] font-semibold tracking-[-0.03em] tabular-nums text-slate-900 mb-2 leading-none">
-            ₱{paymentsReceivedNet(stats.cashReceipts, stats.refundsIssued).toLocaleString()}
+            ₱{stats.paymentsReceived.toLocaleString()}
           </span>
           {/* The only card in the app that names its period: the Dashboard has
               no filter bar and no period title, and the other three cards are
@@ -807,7 +822,7 @@ export default function Dashboard() {
           </span>
           <span className="text-[12.5px] text-slate-400 mt-1">
             {/* The exact days, so the figure cannot be read as any other window. */}
-            {(() => { const { start, end } = getRangeBounds('This Month'); return paymentsReceivedSub(periodSpan(start, end), stats.refundsIssued); })()}
+            {(() => { const { start, end } = getRangeBounds('This Month'); return `Paid toward services ${periodSpan(start, end)}`; })()}
           </span>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">
             Show these receipts <ChevronRight size={13} />

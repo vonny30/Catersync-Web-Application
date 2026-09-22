@@ -11,7 +11,7 @@
 //
 // Every figure comes from f_report_period. Pending bookings are in none of
 // them: a request nobody has agreed to is not revenue.
-import { formatCurrency, formatPercent, cardColorClasses, cardAccentClass, paymentsReceivedSub, paymentsReceivedDetail } from './helpers';
+import { formatCurrency, formatPercent, cardColorClasses, cardAccentClass, } from './helpers';
 import { EmptyResult } from '../../components/FilterBar';
 
 // The hint sits OUTSIDE the card's button (a button inside a button is
@@ -66,14 +66,14 @@ export default function OverviewTab({ derived, span, onCardClick, onOpenDetail, 
             color="green"
             onClick={() => onCardClick('revenue')}
           />
-          {/* Money kept, by the day it moved: the same figure as the Payments
-              page and the Dashboard. */}
+          {/* Paid toward the period's bookings, whenever the money came in:
+              Payments Received + Collectible = Estimated Gross Revenue. */}
           <StatCard
             label="Payments Received"
             value={formatCurrency(financialSummary.paymentsReceived)}
-            sub={paymentsReceivedSub(span, financialSummary.refundsIssued)}
+            sub={span ? `Paid toward services ${span}` : 'Paid toward these services'}
             color="teal"
-            onClick={() => onOpenDetail(paymentsReceivedDetail(financialSummary))}
+            onClick={() => onCardClick('collected')}
           />
           {/* outstanding_contracted: still owed on Confirmed and Completed
               services in the period. */}

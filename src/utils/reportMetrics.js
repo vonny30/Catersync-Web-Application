@@ -89,3 +89,38 @@ export function collectibleInPeriod(moneyRows, start, end) {
   owing.forEach(m => { byCustomer[m.customer_id] = (byCustomer[m.customer_id] || 0) + Number(m.outstanding); });
   return { rows, total, owing, byCustomer };
 }
+
+/**
+ * Deposits KEPT on the period's cancelled / rejected bookings — forfeited only
+ * (keptOnClosedBooking). One implementation for Reports, the Payments page and
+ * the Dashboard.
+ *
+ * @param closedRows       v_booking_money rows with is_closed (event_datetime, net_paid)
+ * @param closedAtById     booking_id -> booking.closed_at
+ * @param depositByBooking booking_id -> sum of counted 'Deposit Collected' receipts
+ */
+export function keptDepositsFor({ closedRows, closedAtById, depositByBooking }) {
+  const byBooking = {};
+  let total = 0;
+  (closedRows || []).forEach(m => {
+    const kept = keptOnClosedBooking({
+      eventDatetime: m.event_datetime,
+      closedAt: closedAtById?.[m.booking_id],
+      netPaid: m.net_paid,
+      deposit: depositByBooking?.[m.booking_id],
+    });
+    if (kept > 0) { byBooking[m.booking_id] = kept; total += kept; }
+  });
+  return { byBooking, total };
+}
+
+/**
+ * PAYMENTS RECEIVED for a period (22 Sep 2026): the money paid toward the
+ * period's bookings, whenever it was paid — net paid on Confirmed + Completed
+ * bookings with an event in the period (f_report_period.paid_contracted), plus
+ * deposits kept on the period's cancelled bookings. By construction
+ *   Payments Received + Collectible = Estimated Gross Revenue.
+ */
+export function paymentsReceivedForEvents(paidContracted, keptTotal) {
+  return (Number(paidContracted) || 0) + (Number(keptTotal) || 0);
+}

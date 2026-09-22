@@ -3,11 +3,11 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabase';
 import toast from 'react-hot-toast';
 import {
-  getBookingRef, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, periodTitle, periodSpan, paymentsReceivedNet,
+  getBookingRef, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, periodTitle, periodSpan,
   monthSortKey, monthLabel, buildMonthlyFinancialTrend,
 } from './helpers';
 import { movesBooks, isRefundEntry, isReversalEntry, RECEIPT_STAGES } from '../../utils/payments';
-import { keptOnClosedBooking } from '../../utils/reportMetrics';
+import { keptDepositsFor, paymentsReceivedForEvents } from '../../utils/reportMetrics';
 import { fetchAllRows } from '../../utils/fetchAllRows';
 import DateRangeFilter from './DateRangeFilter';
 import { FilterBar, FilterField, PeriodTitle } from '../../components/FilterBar';
@@ -217,15 +217,10 @@ export default function Reports() {
     countedEntries
       .filter(p => p.pay_status === RECEIPT_STAGES.deposit && (p.amount_paid || 0) > 0)
       .forEach(p => { depositByBooking[p.booking_id] = (depositByBooking[p.booking_id] || 0) + p.amount_paid; });
-    const keptByBooking = {};
-    bookingMoney.filter(m => m.is_closed).forEach(m => {
-      const kept = keptOnClosedBooking({
-        eventDatetime: m.event_datetime,
-        closedAt: bookingsById[m.booking_id]?.closed_at,
-        netPaid: m.net_paid,
-        deposit: depositByBooking[m.booking_id],
-      });
-      if (kept > 0) keptByBooking[m.booking_id] = kept;
+    const { byBooking: keptByBooking } = keptDepositsFor({
+      closedRows: bookingMoney.filter(m => m.is_closed),
+      closedAtById: Object.fromEntries(bookings.map(b => [b.booking_id, b.closed_at])),
+      depositByBooking,
     });
     const keptInRange = moneyInEventRange.filter(m => keptByBooking[m.booking_id] > 0);
     const keptTotal = keptInRange.reduce((sum, m) => sum + keptByBooking[m.booking_id], 0);
@@ -260,7 +255,10 @@ export default function Reports() {
       cashReceipts: Number(periodTotals?.cash_receipts) || 0,
       refundsIssued: Number(periodTotals?.refunds_issued) || 0,
       // Payments Received: kept money — receipts less refunds.
-      paymentsReceived: paymentsReceivedNet(periodTotals?.cash_receipts, periodTotals?.refunds_issued),
+      // PAYMENTS RECEIVED (22 Sep 2026): paid toward the period's bookings,
+      // whenever the money came in — so Payments Received + Collectible =
+      // Estimated Gross Revenue. Not cash by payment date.
+      paymentsReceived: paymentsReceivedForEvents(periodTotals?.paid_contracted, keptTotal),
       reversalsRecorded: Number(periodTotals?.reversals_recorded) || 0,
       receiptCount: Number(periodTotals?.receipt_count) || 0,
       // Kept from bookings that did not happen.
@@ -279,6 +277,12 @@ export default function Reports() {
       // kept deposits, each kept deposit listed at the amount retained.
       _revenueBreakdown: [
         ...moneyInEventRange.filter(m => m.counts_toward_revenue).map(breakdownRow),
+        ...keptInRange.map(keptDepositRow),
+      ],
+      // The bookings behind Payments Received: paid-toward contracted work
+      // plus kept deposits.
+      _collectedBreakdown: [
+        ...moneyInEventRange.filter(m => m.counts_toward_revenue && Number(m.net_paid) > 0).map(breakdownRow),
         ...keptInRange.map(keptDepositRow),
       ],
       _outstandingBreakdown: moneyInEventRange.filter(m => m.counts_toward_revenue && Number(m.outstanding) > 0).map(breakdownRow),
@@ -569,6 +573,7 @@ export default function Reports() {
   const handleCardClick = (type) => {
     if (!derived) return;
     const breakdowns = {
+      collected: { data: derived.financialSummary._collectedBreakdown, title: `Payments Received — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
       revenue: { data: derived.financialSummary._revenueBreakdown, title: `Estimated Gross Revenue — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
       outstanding: { data: derived.financialSummary._outstandingBreakdown, title: `Collectible — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
     };

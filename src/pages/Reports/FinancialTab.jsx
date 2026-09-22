@@ -4,7 +4,7 @@ import {
 } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 import { ExternalLink } from 'lucide-react';
-import { formatCurrency, formatDate, paymentsReceivedSub, paymentsReceivedDetail } from './helpers';
+import { formatCurrency, formatDate } from './helpers';
 import { EmptyResult } from '../../components/FilterBar';
 
 export default function FinancialTab({ derived, span, onCardClick, onOpenDetail, canClearFilters, onClearFilters }) {
@@ -32,13 +32,13 @@ export default function FinancialTab({ derived, span, onCardClick, onOpenDetail,
             <span className={`${FIG} text-slate-900`}>{formatCurrency(financialSummary.earnedRevenue)}</span>
             <span className="block text-[12.5px] text-slate-500 mt-1">{span ? `Services ${span}, incl. kept deposits` : 'Confirmed, completed and kept deposits'}</span>
           </button>
-          <button onClick={() => onOpenDetail(paymentsReceivedDetail(financialSummary))} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
+          <button onClick={() => onCardClick('collected')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
             <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
               <span className="w-2 h-2 rounded-full bg-[#009E73] shrink-0" aria-hidden="true" />
               Payments Received
             </span>
             <span className={`${FIG} text-[#009E73]`}>{formatCurrency(financialSummary.paymentsReceived)}</span>
-            <span className="block text-[12.5px] text-slate-500 mt-1">{paymentsReceivedSub(span, financialSummary.refundsIssued)}</span>
+            <span className="block text-[12.5px] text-slate-500 mt-1">{span ? `Paid toward services ${span}` : 'Paid toward these services'}</span>
           </button>
           <button onClick={() => onCardClick('outstanding')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
             <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
@@ -134,8 +134,8 @@ export default function FinancialTab({ derived, span, onCardClick, onOpenDetail,
           </ResponsiveContainer>
         )}
         <p className="mt-2 text-[13px] text-slate-600">
-          The same three figures as above, month by month: Estimated Gross Revenue and Collectible for the services
-          in that month, Payments Received for the money that came in that month.
+          The same three figures as above, month by month, for the bookings in each month: Payments Received plus
+          Collectible is the month's Estimated Gross Revenue.
         </p>
       </div>
 
