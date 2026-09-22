@@ -1508,7 +1508,7 @@ export default function ShortOrders() {
             onClick={applyTodayFilter}
             className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${todayChipActive ? 'border-[#008A45] bg-[#EAF3F2] text-[#007038]' : 'border-slate-200 bg-white text-slate-700 hover:border-[#c9dfd4] hover:text-[#007038]'}`}
           >
-            Today's Events
+            Today's Orders
             <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-slate-100 text-slate-700 text-[12.5px] tabular-nums font-bold">{todaysEventsCount}</span>
           </button>
           <button

@@ -269,7 +269,7 @@ export default function DetailModal({ detailModal, onClose }) {
                       <th className={HEAD_CLASS}>Customer</th>
                       <th className={HEAD_CLASS}>Type</th>
                       <th className={HEAD_CLASS}>Event Date</th>
-                      <th className={`${HEAD_CLASS} text-right`}>Contract Amount</th>
+                      <th className={`${HEAD_CLASS} text-right`}>Transaction Amount</th>
                       <th className={`${HEAD_CLASS} text-right`}>Retained</th>
                       <th className={`${HEAD_CLASS} text-right`}>Status</th>
                     </tr>

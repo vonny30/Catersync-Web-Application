@@ -33,7 +33,7 @@ export default function BookingSummaryTab({ derived, onOpenDetail, canClearFilte
           <span className={cardAccentClass('green')} />
           <p className={LABEL}>Revenue Earned</p>
           <h3 className="text-[26px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{formatCurrency(totalRevenue)}</h3>
-          <p className={SUB}>Contract value of those bookings</p>
+          <p className={SUB}>Transaction amount of those bookings</p>
         </div>
         <div className={CARD}>
           <span className={cardAccentClass('teal')} />

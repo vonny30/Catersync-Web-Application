@@ -1889,7 +1889,7 @@ export default function BookingDetails() {
             <span className="block mt-[3px] text-xs text-white/70">{booking.package?.pkg_name || 'No package'}</span>
           </div>
           <div className="px-[18px] py-4 bg-white/[0.07]">
-            <span className="block text-[10.5px] font-bold tracking-[0.12em] uppercase text-white/[0.82]">Contract total</span>
+            <span className="block text-[10.5px] font-bold tracking-[0.12em] uppercase text-white/[0.82]">Transaction amount</span>
             <div className="mt-1.5 text-[21px] font-extrabold tracking-[-0.025em] text-white">₱{booking.total_amount?.toLocaleString() || '0'}</div>
             <span className="block mt-[3px] text-xs text-white/70">{booking.package?.pricing_type === 'fixed' ? 'Fixed pricing' : 'Per pax'}</span>
           </div>
@@ -1930,7 +1930,7 @@ export default function BookingDetails() {
               title={money?.is_lapsed ? LAPSED_ACCEPT_TOOLTIP : undefined}
               className={`font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50 ${money?.is_lapsed ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
             >
-              {money?.is_lapsed ? <Lock size={18} /> : <Check size={18} />} {isConfirming ? 'Confirming...' : 'Confirm Event'}
+              {money?.is_lapsed ? <Lock size={18} /> : <Check size={18} />} {isConfirming ? 'Confirming...' : 'Confirm Booking'}
             </button>
           )}
           {canMarkCompleted && (
@@ -3005,7 +3005,7 @@ export default function BookingDetails() {
                   <span className="text-slate-900 font-semibold">
                     {booking.event_datetime ? new Date(booking.event_datetime).toLocaleString() : 'N/A'}
                   </span>
-                  <span className="text-slate-600 font-medium">Contract Amount:</span>
+                  <span className="text-slate-600 font-medium">Transaction Amount:</span>
                   <span className="text-slate-900 font-bold text-[#008A45]">
                     ₱{booking.total_amount?.toLocaleString() || '0'}
                   </span>

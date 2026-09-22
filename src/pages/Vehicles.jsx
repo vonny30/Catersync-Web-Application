@@ -1836,7 +1836,7 @@ export default function Vehicles() {
                 it — a permanently empty panel teaches a reader to skip it. */}
             {needsVehicleOnDate.length > 0 && (
               <div className="px-5 py-4 border-t border-slate-100 bg-[#fffaf7]">
-                <p className="text-[14.5px] font-bold text-slate-900">Events on this date still needing a vehicle</p>
+                <p className="text-[14.5px] font-bold text-slate-900">Bookings on this date still needing a vehicle</p>
                 <p className="text-[13px] text-slate-600 mt-0.5 mb-3">
                   {needsVehicleOnDate.length} approved event{needsVehicleOnDate.length === 1 ? '' : 's'} on {fmtDay(selectedDateObj)} with nothing dispatched to carry {needsVehicleOnDate.length === 1 ? 'it' : 'them'}
                 </p>

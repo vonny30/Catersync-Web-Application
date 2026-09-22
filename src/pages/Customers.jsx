@@ -561,8 +561,8 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
                   <thead>
                     <tr className="bg-[#fbfcfd] border-b border-slate-100 text-[11.5px] font-bold uppercase tracking-[0.05em] text-slate-600">
                       <th className="px-3 py-2.5 whitespace-nowrap">Reference</th>
-                      <th className="px-3 py-2.5 whitespace-nowrap">Event</th>
-                      <th className="px-3 py-2.5 whitespace-nowrap text-right">Contract Amount</th>
+                      <th className="px-3 py-2.5 whitespace-nowrap">Event Date</th>
+                      <th className="px-3 py-2.5 whitespace-nowrap text-right">Transaction Amount</th>
                       <th className="px-3 py-2.5 whitespace-nowrap text-right">Collected</th>
                       {/* "Receivables" would be wrong here: this table lists
                           pending and approved bookings too, and their balances
@@ -1245,11 +1245,11 @@ export default function Customers() {
                     PHP 603,400 against PHP 46,000 actually contracted — and
                     led the list on it. Contracted Value is what the business
                     committed to perform: Confirmed and Completed only. */}
-                <th className="px-4 py-3 text-right">{renderSortHeader('contracted_gross', 'Contracted Value', 'right')}</th>
+                <th className="px-4 py-3 text-right">{renderSortHeader('contracted_gross', 'Total Transaction Amount', 'right')}</th>
                 {/* Collectible now. Same measure and same word as the card
                     above and as the Receivables page. */}
                 <th className="px-4 py-3 text-right">{renderSortHeader('receivable_due', 'Collectible', 'right')}</th>
-                <th className="px-4 py-3">{renderSortHeader('next_event_at', 'Next Event')}</th>
+                <th className="px-4 py-3">{renderSortHeader('next_event_at', 'Next Booking')}</th>
                 <th className="px-4 py-3 whitespace-nowrap">Status</th>
                 <th className="px-4 py-3 whitespace-nowrap text-right">Actions</th>
               </tr>

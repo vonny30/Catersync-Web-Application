@@ -1227,9 +1227,9 @@ export default function Bookings() {
     }
     const isFullyPaid = paid >= totalAmount;
     const confirmed = await showConfirm({
-      title: 'Confirm This Event?',
+      title: 'Confirm This Booking?',
       message: `This booking has ${isFullyPaid ? 'been paid in full' : 'a verified deposit of at least 50%'} (₱${paid.toLocaleString()} of ₱${totalAmount.toLocaleString()}). Marking it Confirmed locks the event in — cancellation only becomes available after this point. Equipment assignments will also be locked — no more adding, editing, or removing equipment after this. Continue?`,
-      confirmLabel: 'Yes, Confirm Event',
+      confirmLabel: 'Yes, Confirm Booking',
       cancelLabel: 'Cancel',
       confirmVariant: 'success',
     });
@@ -1540,7 +1540,7 @@ const handleMarkCompleted = async (id) => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Events</h1>
+          <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Bookings</h1>
           <p className="text-[14.5px] text-slate-600 mt-1.5">Manage all customer catering bookings (packages only)</p>
         </div>
         <button
@@ -1642,7 +1642,7 @@ const handleMarkCompleted = async (id) => {
             onClick={applyTodayFilter}
             className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${todayChipActive ? 'border-[#008A45] bg-[#EAF3F2] text-[#007038]' : 'border-slate-200 bg-white text-slate-700 hover:border-[#c9dfd4] hover:text-[#007038]'}`}
           >
-            Today's Events
+            Today's Bookings
             <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-slate-100 text-slate-700 text-[12.5px] tabular-nums font-bold">{todaysEventsCount}</span>
           </button>
           <button

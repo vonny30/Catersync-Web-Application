@@ -61,7 +61,7 @@ export default function ReceiptFields({
         ) : owed > 0 ? (
           <p className="text-xs text-slate-600 mt-1">
             {isFirst
-              ? `Deposit: at least 50% of the contract amount (₱${(owed * 0.5).toLocaleString()}), up to the balance due of ₱${remaining.toLocaleString()}.`
+              ? `Deposit: at least 50% of the transaction amount (₱${(owed * 0.5).toLocaleString()}), up to the balance due of ₱${remaining.toLocaleString()}.`
               : `Up to the balance due of ₱${remaining.toLocaleString()}.`}
           </p>
         ) : null}

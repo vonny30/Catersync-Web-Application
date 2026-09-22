@@ -298,7 +298,7 @@ function RecordReceiptModal({ receivables, onClose, onRecorded }) {
               <div>
                 <p className="font-semibold text-slate-900">{bookingRef(booking)} · {booking.customer ? `${booking.customer.first_name} ${booking.customer.last_name}` : 'Unknown customer'}</p>
                 <p className="text-[12.5px] text-slate-600 mt-0.5 tabular-nums">
-                  {booking.booking_type} · {booking.booking_status} · contract amount {peso(booking.total_amount)} · collected {peso(booking.verified_paid)} · balance due {peso(booking.outstanding)}
+                  {booking.booking_type} · {booking.booking_status} · transaction amount {peso(booking.total_amount)} · collected {peso(booking.verified_paid)} · balance due {peso(booking.outstanding)}
                 </p>
               </div>
               <button type="button" onClick={() => setBookingId('')} className="text-[12.5px] font-semibold text-slate-600 hover:text-slate-900 shrink-0">Change</button>
@@ -501,9 +501,9 @@ function ReceivablesBreakdown({ bookings, period, total, onClose, onOpenBooking 
             <thead>
               <tr className="bg-[#fbfcfd] border-b border-slate-100 text-[12px] font-bold uppercase tracking-[0.05em] text-slate-600">
                 <th className="px-3 py-2.5">Booking</th>
-                <th className="px-3 py-2.5">Event</th>
+                <th className="px-3 py-2.5">Event Date</th>
                 <th className="px-3 py-2.5">Status</th>
-                <th className="px-3 py-2.5 text-right">Contract Amount</th>
+                <th className="px-3 py-2.5 text-right">Transaction Amount</th>
                 <th className="px-3 py-2.5 text-right">Collected</th>
                 <th className="px-3 py-2.5 text-right">Balance Due</th>
               </tr>

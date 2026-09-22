@@ -174,7 +174,7 @@ export default function Dashboard() {
       });
       setEventDates(eventMap);
     } catch (error) {
-      handleError(error, 'Failed to load calendar events.');
+      handleError(error, 'Failed to load calendar bookings.');
     }
   };
 
@@ -513,7 +513,7 @@ export default function Dashboard() {
     } catch (error) {
       console.error('Error fetching events for date:', error);
       setSelectedDateEvents([]);
-      toast.error('Failed to load events for this date.');
+      toast.error('Failed to load bookings for this date.');
     }
   };
 
@@ -574,12 +574,12 @@ export default function Dashboard() {
         .order('event_datetime', { ascending: true });
       if (error) throw error;
       setStatsModalData(data || []);
-      setStatsModalTitle("Today's Events");
+      setStatsModalTitle("Today's Bookings");
       setStatsModalType('today');
       resetStatsFilters();
       setIsStatsModalOpen(true);
     } catch (error) {
-      handleError(error, 'Failed to load today\'s events.');
+      handleError(error, 'Failed to load today\'s bookings.');
     }
   };
 
@@ -636,7 +636,7 @@ export default function Dashboard() {
       resetStatsFilters();
       setIsStatsModalOpen(true);
     } catch (error) {
-      handleError(error, 'Failed to load upcoming events.');
+      handleError(error, 'Failed to load upcoming bookings.');
     }
   };
 
@@ -743,7 +743,7 @@ export default function Dashboard() {
             <CalendarIcon size={20} className="text-[#008A45]" />
           </div>
           <span className="text-[34px] font-semibold tracking-[-0.03em] tabular-nums text-slate-900 mb-2 leading-none">{stats.todayEvents}</span>
-          <span className="text-[15px] font-semibold text-slate-600">Today's Events</span>
+          <span className="text-[15px] font-semibold text-slate-600">Today's Bookings</span>
         </button>
 
         {/* Pending Orders (combined) */}
@@ -770,7 +770,7 @@ export default function Dashboard() {
             <CheckCircle size={20} className="text-teal-600" />
           </div>
           <span className="text-[34px] font-semibold tracking-[-0.03em] tabular-nums text-slate-900 mb-2 leading-none">{stats.upcomingEvents}</span>
-          <span className="text-[15px] font-semibold text-slate-600">Events in the next 7 days</span>
+          <span className="text-[15px] font-semibold text-slate-600">Bookings in the next 7 days</span>
           {/* The window includes today: the query is
               .gte(today 00:00) .lt(today+7d 00:00), i.e. today plus the
               following six days. Stating the range beats making the manager
@@ -829,7 +829,7 @@ export default function Dashboard() {
                 disabled={atMonthFloor}
                 aria-disabled={atMonthFloor}
                 aria-label="Previous month"
-                title={atMonthFloor ? 'The calendar starts at this month. Past bookings are on the Events page.' : 'Previous month'}
+                title={atMonthFloor ? 'The calendar starts at this month. Past bookings are on the Bookings page.' : 'Previous month'}
                 className="p-1.5 hover:bg-[#EAF3F2] hover:text-[#008A45] rounded-lg transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
               >
                 <ChevronLeft size={20} className="text-slate-600" />
@@ -898,10 +898,10 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <h3 className="text-[17px] font-bold tracking-[-0.01em] text-slate-900 mb-3.5 shrink-0">Today's Events</h3>
+          <h3 className="text-[17px] font-bold tracking-[-0.01em] text-slate-900 mb-3.5 shrink-0">Today's Bookings</h3>
           <div className="space-y-2 overflow-y-auto min-h-0 max-h-[320px] lg:max-h-none lg:flex-1 pr-1">
             {todayEvents.length === 0 ? (
-              <p className="text-sm text-slate-500 italic text-center py-4">No events scheduled for today.</p>
+              <p className="text-sm text-slate-500 italic text-center py-4">No bookings scheduled for today.</p>
             ) : (
               todayEvents.map((event) => (
                 <div
@@ -1017,7 +1017,7 @@ export default function Dashboard() {
             </div>
             <div className="p-4 overflow-y-auto flex-1">
               {selectedDateEvents.length === 0 ? (
-                <p className="text-sm text-slate-500 italic text-center py-8">No events on this day.</p>
+                <p className="text-sm text-slate-500 italic text-center py-8">No bookings on this day.</p>
               ) : (
                 <div className="space-y-3">
                   {selectedDateEvents.map(event => {

@@ -172,7 +172,7 @@ export function validateReceipt({ amount, method, receiptReference, hasImage, pr
   }
   // The deposit that secures a booking: at least half, on the first receipt.
   if (prior <= 0 && owed > 0 && value < owed * 0.5 - 0.005) {
-    return { ok: false, field: 'amount', message: `The deposit must be at least 50% of the contract amount (₱${(owed * 0.5).toLocaleString()}).` };
+    return { ok: false, field: 'amount', message: `The deposit must be at least 50% of the transaction amount (₱${(owed * 0.5).toLocaleString()}).` };
   }
   if (methodNeedsReceiptNumber(method)) {
     if (!String(receiptReference || '').trim()) return { ok: false, field: 'receipt', message: CASH_RECEIPT_MESSAGE };

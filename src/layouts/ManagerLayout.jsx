@@ -54,7 +54,7 @@ const NAV_GROUPS = [
       { name: 'Overview', path: '/app', icon: LayoutDashboard },
       { name: 'Reports', path: '/app/reports', icon: BarChart3 },
       { name: 'Customers', path: '/app/customers', icon: Users },
-      { name: 'Events', path: '/app/bookings', icon: CalendarDays },
+      { name: 'Bookings', path: '/app/bookings', icon: CalendarDays },
       { name: 'Short Orders', path: '/app/orders', icon: ShoppingBag },
       { name: 'Receivables', path: '/app/receivables', icon: CreditCard },
     ],
