@@ -29,8 +29,10 @@ import toast from 'react-hot-toast';
 import { supabase } from '../supabase';
 import Select from '../components/Select';
 import ReceiptFields from '../components/ReceiptFields';
+import CollectibleBreakdown from '../components/CollectibleBreakdown';
+import { collectibleInPeriod } from '../utils/reportMetrics';
 import DateRangeFilter from './Reports/DateRangeFilter';
-import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, formatDate, periodLabel, forPeriod, periodTitle, periodSpan, paymentsReceivedNet, paymentsReceivedSub } from './Reports/helpers';
+import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, periodLabel, forPeriod, periodTitle, periodSpan, paymentsReceivedNet, paymentsReceivedSub } from './Reports/helpers';
 import { FilterBar, FilterField, PeriodTitle, EmptyResult } from '../components/FilterBar';
 import { statusWriteErrorMessage } from '../utils/lapsed';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
@@ -479,63 +481,6 @@ function RejectClaimModal({ claim, onClose, onDone }) {
   );
 }
 
-// Where Total Receivables comes from: every agreed booking with an event in the
-// period and money still owed, one row each. The Balance Due column adds up
-// to the card. Rows come from v_booking_money exactly as the card does.
-function ReceivablesBreakdown({ bookings, period, total, onClose, onOpenBooking }) {
-  return (
-    <ModalShell
-      title="Collectible"
-      onClose={onClose}
-      maxWidth="max-w-4xl"
-      footer={<button type="button" onClick={onClose} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-5 py-2.5 rounded-lg border border-slate-300 transition-colors">Close</button>}
-    >
-      <p className="text-[13px] text-slate-600 mb-3">
-        Confirmed and completed catering {forPeriod(period)}
-      </p>
-      {bookings.length === 0 ? (
-        <EmptyResult className="py-6" />
-      ) : (
-        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="bg-[#fbfcfd] border-b border-slate-100 text-[12px] font-bold uppercase tracking-[0.05em] text-slate-600">
-                <th className="px-3 py-2.5">Booking</th>
-                <th className="px-3 py-2.5">Event Date</th>
-                <th className="px-3 py-2.5">Status</th>
-                <th className="px-3 py-2.5 text-right">Transaction Amount</th>
-                <th className="px-3 py-2.5 text-right">Collected</th>
-                <th className="px-3 py-2.5 text-right">Balance Due</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-700">
-              {bookings.map(b => (
-                <tr key={b.booking_id} onClick={() => onOpenBooking(b)} className="hover:bg-[#fbfcfd] cursor-pointer" title="Open the booking">
-                  <td className="px-3 py-2.5">
-                    <span className="font-semibold text-[#007038] inline-flex items-center gap-1">{bookingRef(b)} <ExternalLink size={11} /></span>
-                    <span className="block text-[12px] text-slate-500">{b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown customer'}</span>
-                  </td>
-                  <td className="px-3 py-2.5 whitespace-nowrap">{b.event_datetime ? formatDate(b.event_datetime) : '—'}</td>
-                  <td className="px-3 py-2.5">{b.booking_status}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{peso(b.total_amount)}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{peso(b.net_paid)}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-amber-700">{peso(b.outstanding)}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t border-slate-200 bg-[#fbfcfd] font-bold text-slate-900">
-                <td className="px-3 py-2.5" colSpan={5}>{bookings.length} booking{bookings.length === 1 ? '' : 's'}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums">{peso(total)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      )}
-    </ModalShell>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // The ledger table
 // ---------------------------------------------------------------------------
@@ -730,12 +675,9 @@ export default function Receivables() {
   // booking has been accepted but not confirmed, so its unpaid balance is
   // pipeline. Its DEPOSITS are untouched by this — they are cash, and Cash
   // Receipts counts them on the day they arrived whatever the booking status.
-  const receivablesInPeriod = money.filter(b => b.counts_toward_revenue && inPeriod(b.event_datetime));
-  const totalReceivables = receivablesInPeriod.reduce((sum, b) => sum + Number(b.outstanding || 0), 0);
-  // The rows behind the card: only those still owing anything, largest first.
-  const owingInPeriod = receivablesInPeriod
-    .filter(b => Number(b.outstanding) > 0)
-    .sort((a, b) => Number(b.outstanding) - Number(a.outstanding));
+  // One rule, shared with the Customers page (utils/reportMetrics), so the
+  // two Collectible cards always agree. owing = the rows behind the card.
+  const { total: totalReceivables, owing: owingInPeriod } = collectibleInPeriod(money, start, end);
 
   // --- Claims (not money) -----------------------------------------------------
   const claims = entries.filter(e => e.pay_status === PENDING_VERIFICATION && Number(e.amount_paid) > 0);
@@ -1026,9 +968,9 @@ export default function Receivables() {
         />
       )}
       {showReceivablesBreakdown && (
-        <ReceivablesBreakdown
+        <CollectibleBreakdown
           bookings={owingInPeriod}
-          period={period}
+          caption={`Confirmed and completed catering ${forPeriod(period)}`}
           total={totalReceivables}
           onClose={() => setShowReceivablesBreakdown(false)}
           onOpenBooking={(b) => navigate(bookingPath(b.booking_id, b.booking_type))}

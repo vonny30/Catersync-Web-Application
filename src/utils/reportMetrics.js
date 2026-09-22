@@ -71,3 +71,21 @@ export function keptOnClosedBooking({ eventDatetime, closedAt, netPaid, deposit 
   const dep = Number(deposit) || 0;
   return dep > 0 ? Math.min(net, dep) : net;
 }
+
+/**
+ * COLLECTIBLE for a period — one rule for the Payments page and the Customers
+ * page, so the two cards cannot disagree. The v_booking_money rows that count
+ * toward revenue (Confirmed + Completed) with an event in the period; the
+ * figure is their `outstanding`. start/end null = all time.
+ */
+export function collectibleInPeriod(moneyRows, start, end) {
+  const rows = (moneyRows || []).filter(m => m.counts_toward_revenue
+    && ((!start && !end) || isWithinRange(m.event_datetime, start, end)));
+  const total = rows.reduce((sum, m) => sum + (Number(m.outstanding) || 0), 0);
+  const owing = rows
+    .filter(m => Number(m.outstanding) > 0)
+    .sort((a, b) => Number(b.outstanding) - Number(a.outstanding));
+  const byCustomer = {};
+  owing.forEach(m => { byCustomer[m.customer_id] = (byCustomer[m.customer_id] || 0) + Number(m.outstanding); });
+  return { rows, total, owing, byCustomer };
+}

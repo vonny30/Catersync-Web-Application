@@ -31,7 +31,9 @@ import { supabase } from '../supabase';
 import Select from '../components/Select';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { FilterBar, FilterField, PeriodTitle, EmptyResult } from '../components/FilterBar';
-import { getRangeBounds, formatDate } from './Reports/helpers';
+import { getRangeBounds, formatDate, DEFAULT_DATE_PRESET, periodTitle, periodSpan, forPeriod, periodLabel } from './Reports/helpers';
+import { collectibleInPeriod } from '../utils/reportMetrics';
+import CollectibleBreakdown from '../components/CollectibleBreakdown';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
@@ -409,7 +411,7 @@ const ACTIVITY_ICON = {
   refund: { icon: Undo2, tone: 'bg-red-50 text-red-600' },
 };
 
-function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBooking, onNoteAdded, actions }) {
+function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBooking, onNoteAdded, actions, periodCollectible, periodSpan: collectSpan }) {
   const [noteBody, setNoteBody] = useState('');
   const [noteSaving, setNoteSaving] = useState(false);
   const customer = drawer.customer;
@@ -500,18 +502,20 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
                   Pending and Approved work is not shown as money here. */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <div className="rounded-xl border border-slate-200/70 bg-white p-3.5">
-                  <p className="text-[12.5px] font-semibold text-slate-600 mb-1">Total Billed</p>
-                  <p className="text-[19px] font-semibold tabular-nums text-slate-900">{peso(balance?.total_billed)}</p>
+                  {/* The same figure as the list's Total Transaction Amount
+                      column: Confirmed and Completed bookings. */}
+                  <p className="text-[12.5px] font-semibold text-slate-600 mb-1">Total Transaction Amount</p>
+                  <p className="text-[19px] font-semibold tabular-nums text-slate-900">{peso(customer?.contracted_gross)}</p>
                 </div>
                 <div className="rounded-xl border border-slate-200/70 bg-white p-3.5">
                   <p className="text-[12.5px] font-semibold text-slate-600 mb-1">Total Collected</p>
-                  <p className="text-[19px] font-semibold tabular-nums text-slate-900">{peso(balance?.total_paid)}</p>
+                  <p className="text-[19px] font-semibold tabular-nums text-slate-900">{peso(customer?.contracted_paid)}</p>
                 </div>
-                <div className={`relative overflow-hidden rounded-xl border p-3.5 ${Number(balance?.receivable_due) > 0 ? 'border-amber-200 bg-amber-50/60' : 'border-slate-200/70 bg-white'}`}>
-                  <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${Number(balance?.receivable_due) > 0 ? 'bg-amber-500' : 'bg-[#008A45]'}`} />
+                <div className={`relative overflow-hidden rounded-xl border p-3.5 ${Number(periodCollectible) > 0 ? 'border-amber-200 bg-amber-50/60' : 'border-slate-200/70 bg-white'}`}>
+                  <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${Number(periodCollectible) > 0 ? 'bg-amber-500' : 'bg-[#008A45]'}`} />
                   <p className="text-[12.5px] font-bold text-slate-700 mb-1">Collectible</p>
-                  <p className={`text-[21px] font-bold tabular-nums ${Number(balance?.receivable_due) > 0 ? 'text-amber-700' : 'text-slate-900'}`}>{peso(balance?.receivable_due)}</p>
-                  <p className="text-[11.5px] text-slate-500 mt-1 leading-snug">Still collectible</p>
+                  <p className={`text-[21px] font-bold tabular-nums ${Number(periodCollectible) > 0 ? 'text-amber-700' : 'text-slate-900'}`}>{periodCollectible === null ? '—' : peso(periodCollectible)}</p>
+                  <p className="text-[11.5px] text-slate-500 mt-1 leading-snug">{collectSpan ? `Still owed on services ${collectSpan}` : 'Not yet collected'}</p>
                 </div>
                 {/* Claimed, not received. Kept apart from Total Collected on
                     purpose — it must never read as money in hand. */}
@@ -730,6 +734,14 @@ export default function Customers() {
   const [datePreset, setDatePreset] = useState(ALL_TIME);
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
+  // THE PERIOD — which month's Collectible this page shows (22 Sep 2026). The
+  // same control and default as the Payments page, so the two Collectible
+  // figures are the same figure. "Joined" above is a record filter; this is
+  // the money period.
+  const [periodPreset, setPeriodPreset] = useState(DEFAULT_DATE_PRESET);
+  const [periodCustomStart, setPeriodCustomStart] = useState('');
+  const [periodCustomEnd, setPeriodCustomEnd] = useState('');
+  const [showCollectible, setShowCollectible] = useState(false);
   // A subsidiary ledger opens on who owes the most, not on the alphabet.
   const [sort, setSort] = useState({ field: 'receivable_due', direction: 'desc' });
   const [page, setPage] = useState(1);
@@ -747,6 +759,33 @@ export default function Customers() {
   useRealtimeRefresh('customers-page', ['customer', 'booking', 'payment', 'customer_note'], refresh);
 
   const { start: joinedStart, end: joinedEnd } = getRangeBounds(datePreset, customStart, customEnd);
+  const { start: periodStart, end: periodEnd } = getRangeBounds(periodPreset, periodCustomStart, periodCustomEnd);
+  const span = periodSpan(periodStart, periodEnd);
+
+  // Every Confirmed / Completed booking's balance, from v_booking_money — the
+  // rows the Payments page reads. Collectible for the period, per customer and
+  // in total, comes from the one shared rule (collectibleInPeriod).
+  const moneyKey = String(refreshTick);
+  const [moneyState, setMoneyState] = useState({ key: null, rows: [] });
+  useEffect(() => {
+    let ignore = false;
+    (async () => {
+      try {
+        const rows = await fetchAllRows(() => supabase
+          .from('v_booking_money')
+          .select('booking_id, booking_number, booking_type, booking_status, customer_id, event_datetime, total_amount, net_paid, outstanding, counts_toward_revenue, customer:customer_id (first_name, last_name)')
+          .eq('counts_toward_revenue', true)
+          .order('booking_id', { ascending: true }), 'customer collectible');
+        if (!ignore) setMoneyState({ key: moneyKey, rows: rows || [] });
+      } catch (err) {
+        console.error('Collectible failed:', err);
+        if (!ignore) setMoneyState({ key: moneyKey, rows: [] });
+      }
+    })();
+    return () => { ignore = true; };
+  }, [moneyKey]);
+  const moneyLoaded = moneyState.key !== null;
+  const collect = collectibleInPeriod(moneyState.rows, periodStart, periodEnd);
   const trimmedSearch = searchPattern(search);
   const filters = {
     search: trimmedSearch,
@@ -756,10 +795,14 @@ export default function Customers() {
     repeatOnly,
     joinedStart: joinedStart ? joinedStart.toISOString() : null,
     joinedEnd: joinedEnd ? joinedEnd.toISOString() : null,
+    // [customer_id, collectible] for the period, largest first: what the
+    // Collectible filter and the Collectible sort run on.
+    owing: Object.entries(collect.byCustomer).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)),
+    moneyLoaded,
   };
   const filterKey = JSON.stringify(filters);
   const hasFilters = !!search.trim() || statusFilter !== 'All' || sourceFilter !== 'All'
-    || balanceFilter !== 'All' || repeatOnly || datePreset !== ALL_TIME;
+    || balanceFilter !== 'All' || repeatOnly || datePreset !== ALL_TIME || periodPreset !== DEFAULT_DATE_PRESET;
 
   // A filter change goes back to page 1. Reset during render, not in an effect.
   const [pageFilterKey, setPageFilterKey] = useState(filterKey);
@@ -777,6 +820,9 @@ export default function Customers() {
     setDatePreset(ALL_TIME);
     setCustomStart('');
     setCustomEnd('');
+    setPeriodPreset(DEFAULT_DATE_PRESET);
+    setPeriodCustomStart('');
+    setPeriodCustomEnd('');
   };
   const scrollToTable = () => tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
@@ -805,36 +851,65 @@ export default function Customers() {
     const { filters: f, sort: s, page: p } = JSON.parse(listKey);
     let ignore = false;
     (async () => {
-      let query = supabase.from('v_customer_summary').select(LIST_COLUMNS, { count: 'exact' });
-      if (f.search) {
-        const like = `"*${f.search}*"`;
-        query = query.or(`full_name.ilike.${like},email_address.ilike.${like},contact_no.ilike.${like}`);
-      }
-      if (f.status !== 'All') query = query.eq('account_status', f.status);
-      if (f.source !== 'All') query = query.eq('source', f.source);
-      // has_receivable_due, not has_outstanding_balance: the filter must select
-      // the same population the column shows, or the card that sets it lands on
-      // a list whose figures do not add up to the card.
+      let overdueIds = null;
       if (f.balance === 'Overdue') {
         const { data: overdueRows } = await supabase
           .from('v_booking_money')
           .select('customer_id')
           .eq('is_overdue', true);
-        const ids = [...new Set((overdueRows || []).map(r => r.customer_id).filter(Boolean))];
-        // [] would mean "no filter" to .in(); a nil uuid means "nobody".
-        query = query.in('customer_id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']);
+        overdueIds = [...new Set((overdueRows || []).map(r => r.customer_id).filter(Boolean))];
       }
-      if (f.balance === 'Has receivables') query = query.eq('has_receivable_due', true);
-      if (f.balance === 'Settled') query = query.eq('has_receivable_due', false);
-      if (f.repeatOnly) query = query.eq('is_repeat', true);
-      if (f.joinedStart) query = query.gte('created_at', f.joinedStart);
-      if (f.joinedEnd) query = query.lte('created_at', f.joinedEnd);
-
+      // A fresh, filtered query each time it is called — paging below reads
+      // the list more than once, and a query object must not be reused.
+      const build = (columns = LIST_COLUMNS) => {
+        let query = supabase.from('v_customer_summary').select(columns, { count: 'exact' });
+        if (f.search) {
+          const like = `"*${f.search}*"`;
+          query = query.or(`full_name.ilike.${like},email_address.ilike.${like},contact_no.ilike.${like}`);
+        }
+        if (f.status !== 'All') query = query.eq('account_status', f.status);
+        if (f.source !== 'All') query = query.eq('source', f.source);
+        if (overdueIds) {
+          // [] would mean "no filter" to .in(); a nil uuid means "nobody".
+          query = query.in('customer_id', overdueIds.length ? overdueIds : ['00000000-0000-0000-0000-000000000000']);
+        }
+        // Collectible for the PERIOD (f.owing), not the all-time has_receivable_due.
+        const owingIds = f.owing.map(([id]) => id);
+        if (f.balance === 'Has receivables') query = query.in('customer_id', owingIds.length ? owingIds : ['00000000-0000-0000-0000-000000000000']);
+        if (f.balance === 'Settled' && owingIds.length) query = query.not('customer_id', 'in', `(${owingIds.join(',')})`);
+        if (f.repeatOnly) query = query.eq('is_repeat', true);
+        if (f.joinedStart) query = query.gte('created_at', f.joinedStart);
+        if (f.joinedEnd) query = query.lte('created_at', f.joinedEnd);
+        return query;
+      };
       const from = (p - 1) * PAGE_SIZE;
-      const { data, count, error } = await query
-        .order(s.field, { ascending: s.direction === 'asc', nullsFirst: false })
-        .order('customer_id', { ascending: true }) // total order for .range()
-        .range(from, from + PAGE_SIZE - 1);
+      let data; let count; let error;
+      if (s.field === 'receivable_due') {
+        // Sorted by the PERIOD's Collectible, which the database does not hold:
+        // read every matching customer, order them here, and show this page's
+        // slice. The count is every match, as the paged query reports it.
+        const amount = Object.fromEntries(f.owing);
+        const matching = [];
+        const pageSize = 1000;
+        for (let offset = 0; ; offset += pageSize) {
+          const { data: chunk, error: chunkError } = await build()
+            .order('customer_id', { ascending: true })
+            .range(offset, offset + pageSize - 1);
+          if (chunkError) { error = chunkError; break; }
+          matching.push(...(chunk || []));
+          if (!chunk || chunk.length < pageSize) break;
+        }
+        const dir = s.direction === 'asc' ? 1 : -1;
+        matching.sort((a, b) => ((amount[a.customer_id] || 0) - (amount[b.customer_id] || 0)) * dir
+          || (a.customer_id < b.customer_id ? -1 : 1));
+        data = matching.slice(from, from + PAGE_SIZE);
+        count = matching.length;
+      } else {
+        ({ data, count, error } = await build()
+          .order(s.field, { ascending: s.direction === 'asc', nullsFirst: false })
+          .order('customer_id', { ascending: true }) // total order for .range()
+          .range(from, from + PAGE_SIZE - 1));
+      }
       if (ignore) return;
       if (error) {
         console.error('Customer list failed:', error);
@@ -866,8 +941,10 @@ export default function Customers() {
         // [] would mean "no filter" to .in(); a nil uuid means "nobody".
         query = query.in('customer_id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']);
       }
-      if (f.balance === 'Has receivables') query = query.eq('has_receivable_due', true);
-      if (f.balance === 'Settled') query = query.eq('has_receivable_due', false);
+      // Collectible for the PERIOD (f.owing), not the all-time has_receivable_due.
+      const owingIds = f.owing.map(([id]) => id);
+      if (f.balance === 'Has receivables') query = query.in('customer_id', owingIds.length ? owingIds : ['00000000-0000-0000-0000-000000000000']);
+      if (f.balance === 'Settled' && owingIds.length) query = query.not('customer_id', 'in', `(${owingIds.join(',')})`);
       if (f.repeatOnly) query = query.eq('is_repeat', true);
       if (f.joinedStart) query = query.gte('created_at', f.joinedStart);
       if (f.joinedEnd) query = query.lte('created_at', f.joinedEnd);
@@ -1071,10 +1148,12 @@ export default function Customers() {
     {
       key: 'balance',
       label: 'Collectible',
-      value: t ? peso(t.total_receivable) : null,
-      sub: 'Not yet collected',
+      // The period's figure — the same rule and default period as the Payments
+      // page, so the two cards read the same number.
+      value: moneyLoaded ? peso(collect.total) : null,
+      sub: span ? `Still owed on services ${span}` : 'Not yet collected',
       accent: 'bg-amber-500',
-      onClick: () => { clearFilters(); setBalanceFilter('Has receivables'); scrollToTable(); },
+      onClick: () => setShowCollectible(true),
     },
     {
       key: 'total',
@@ -1125,6 +1204,24 @@ export default function Customers() {
           as they are on Bookings, and two controls for one filter could only
           disagree. */}
       <FilterBar canClear={hasFilters} onClear={clearFilters}>
+        {/* Period first, as on every page with one: the month whose
+            Collectible is shown on the card, the column and the filter. */}
+        <FilterField label="Period" active={periodPreset !== DEFAULT_DATE_PRESET}>
+          <DateRangeFilter
+            preset={periodPreset}
+            customStart={periodCustomStart}
+            customEnd={periodCustomEnd}
+            rangeStart={periodStart}
+            rangeEnd={periodEnd}
+            onPresetChange={setPeriodPreset}
+            onCustomStartChange={setPeriodCustomStart}
+            onCustomEndChange={setPeriodCustomEnd}
+            onClear={() => { setPeriodPreset(DEFAULT_DATE_PRESET); setPeriodCustomStart(''); setPeriodCustomEnd(''); }}
+            defaultPreset={DEFAULT_DATE_PRESET}
+            showSummary={false}
+            showClear={false}
+          />
+        </FilterField>
         <FilterField label="Search" active={!!search.trim()} grow>
           <div className="relative">
             <input
@@ -1165,8 +1262,8 @@ export default function Customers() {
             <option value="Settled">Fully collected</option>
           </Select>
         </FilterField>
-        {/* A record filter, not a period: it chooses which customers are
-            listed, not which figures sum — so it produces no period title. */}
+        {/* A record filter, not the money period: it chooses which customers
+            are listed. */}
         <FilterField label="Joined" active={datePreset !== ALL_TIME}>
           <DateRangeFilter
             preset={datePreset}
@@ -1182,10 +1279,9 @@ export default function Customers() {
           />
         </FilterField>
       </FilterBar>
-      {/* A fixed period. Total Receivables reads PHP 92,800 here and PHP 55,950
-          on Receivables for September — same label, different scope. This
-          title is what stops that reading as a contradiction. */}
-      <PeriodTitle>All time</PeriodTitle>
+      {/* The period of the Collectible figures — the same title the Payments
+          page shows for the same period. */}
+      <PeriodTitle>{periodTitle(periodPreset, periodStart, periodEnd)}</PeriodTitle>
 
       {/* SUMMARY CARDS — each opens a filtered view of the table below. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
@@ -1280,8 +1376,8 @@ export default function Customers() {
                         : <span className="text-slate-400">—</span>}
                     </td>
                     <td className="px-4 py-[15px] text-right tabular-nums whitespace-nowrap">
-                      {Number(c.receivable_due) > 0
-                        ? <span className="text-[15px] font-semibold text-amber-700">{peso(c.receivable_due)}</span>
+                      {(collect.byCustomer[c.customer_id] || 0) > 0
+                        ? <span className="text-[15px] font-semibold text-amber-700">{peso(collect.byCustomer[c.customer_id])}</span>
                         : <span className="text-slate-400">—</span>}
                     </td>
                     <td className="px-4 py-[15px] text-sm text-slate-700 tabular-nums whitespace-nowrap">{dateOrDash(c.next_event_at)}</td>
@@ -1319,9 +1415,21 @@ export default function Customers() {
         </div>
       </div>
 
+      {showCollectible && (
+        <CollectibleBreakdown
+          bookings={collect.owing}
+          caption={`Confirmed and completed catering ${forPeriod(periodLabel(periodPreset, periodStart, periodEnd))}`}
+          total={collect.total}
+          onClose={() => setShowCollectible(false)}
+          onOpenBooking={(b) => navigate(bookingPath(b.booking_id, b.booking_type))}
+        />
+      )}
+
       {selectedId && (
         <CustomerDrawer
           key={selectedId}
+          periodCollectible={moneyLoaded ? (collect.byCustomer[selectedId] || 0) : null}
+          periodSpan={span}
           drawer={drawerForSelected}
           loading={drawerLoading}
           tab={drawerTab}
