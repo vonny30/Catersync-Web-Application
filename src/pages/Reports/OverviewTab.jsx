@@ -1,34 +1,17 @@
 // src/pages/Reports/OverviewTab.jsx
 //
-// TWO SECTIONS, because the figures answer two different questions and a
-// reader who sees them in one block tries to add them up:
+// ONE ROW of money (22 Sep 2026): Estimated Gross Revenue, Payments Received,
+// Collectible. Each card's subtext names the days it counts — the services in
+// the period for revenue and collectible, the payments made in the period for
+// Payments Received — so no "service date / payment date" or "accrual / cash
+// basis" headings are needed, and none are shown.
 //
-//   Work scheduled for {period}  — anchored on the SERVICE date: what this
-//                                  period's catering is worth, and what is
-//                                  still owed on it.
-//   Money that moved in {period} — anchored on the PAYMENT date: cash in and
-//                                  out, whatever month the catering happens.
-//
-// Cash Receipts can exceed a month's revenue, because a deposit taken now for
-// a November wedding belongs to the second and not the first. The sentence
-// between the sections says so outright, and the (i) on Cash Receipts repeats
-// it where a reader will look first.
-//
-// And the rule every card obeys:
-//
-//   A card shows ONE number. Its subtext says what that number is and names
-//   the period. The subtext never contains a second number.
-//
-// So no "+ ₱58,150 …" lines, no "across 2 bookings", no percentages tucked
-// under an amount: a figure worth showing gets its own card. The word
-// "events" is banned from a money card's subtext too — it is a countable
-// noun, and the number underneath is pesos, not a count. The only two basis
-// labels on this page are "by service date" (the day the catering happens)
-// and "by payment date" (the day the money moved).
+// A card shows ONE number; its subtext says what the number is and names the
+// period.
 //
 // Every figure comes from f_report_period. Pending bookings are in none of
 // them: a request nobody has agreed to is not revenue.
-import { formatCurrency, formatPercent, cardColorClasses, cardAccentClass, forPeriod, paymentsReceivedSub } from './helpers';
+import { formatCurrency, formatPercent, cardColorClasses, cardAccentClass, paymentsReceivedSub, paymentsReceivedDetail } from './helpers';
 import { EmptyResult } from '../../components/FilterBar';
 
 // The hint sits OUTSIDE the card's button (a button inside a button is
@@ -52,15 +35,8 @@ function StatCard({ label, value, sub, color, onClick, count = false, hint = nul
 }
 
 const ROW_GRID = 'grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))]';
-// Headings, not card labels: darker, larger, with the plain sentence under
-// them that says what the section answers.
-const SECTION_HEAD = 'text-[15px] font-bold tracking-[-0.01em] text-slate-900 mb-3.5';
-// Beside a section heading: which basis the figures under it are measured on.
-// Small and muted on purpose — a reader who knows the term is told everything
-// they need, and a reader who does not is not slowed down by it.
-const BASIS_LABEL = 'ml-2 text-[11.5px] font-semibold uppercase tracking-[0.06em] text-slate-400';
 
-export default function OverviewTab({ derived, period, span, onCardClick, onOpenDetail, canClearFilters, onClearFilters }) {
+export default function OverviewTab({ derived, span, onCardClick, onOpenDetail, canClearFilters, onClearFilters }) {
   const {
     financialSummary, packageMix, menuItemMix, topSellingItem,
     totalCustomers, repeatCustomers, oneTimeCustomers,
@@ -74,13 +50,15 @@ export default function OverviewTab({ derived, period, span, onCardClick, onOpen
 
   return (
     <div className="space-y-8">
-      {/* SECTION 1 — anchored on the SERVICE date: what this period's catering
-          is worth and what is still owed on it. */}
+      {/* The month's money in one row (22 Sep 2026): what was earned, what
+          came in, what is still owed. Paid on These Events and Completed
+          Bookings were removed, and so were the "service date / payment date"
+          and "accrual / cash basis" headings — each card's subtext says which
+          days it counts. */}
       <section>
-        <h2 className={SECTION_HEAD}>By service date<span className={BASIS_LABEL}>Accrual basis</span></h2>
         <div className={ROW_GRID}>
-          {/* Contracted work only — Confirmed and Completed. A Pending request
-              is not revenue, and it is not folded in under any label. */}
+          {/* Contracted work only — Confirmed and Completed — plus forfeited
+              deposits. A Pending request is not revenue. */}
           <StatCard
             label="Estimated Gross Revenue"
             value={formatCurrency(financialSummary.earnedRevenue)}
@@ -88,22 +66,17 @@ export default function OverviewTab({ derived, period, span, onCardClick, onOpen
             color="green"
             onClick={() => onCardClick('revenue')}
           />
-          {/* THE BRIDGE. Cash Receipts answers "what came in"; this answers
-              "how much of THIS period's contracted work has been paid for".
-              Same population as Estimated Gross Revenue (paid_contracted, not
-              paid_against_events), which is what makes the identity below
-              hold: collections + receivables = revenue. */}
+          {/* Money kept, by the day it moved: the same figure as the Payments
+              page and the Dashboard. */}
           <StatCard
-            label="Paid on These Events"
-            value={formatCurrency(financialSummary.paidOnEvents)}
-            sub={span ? `Paid toward services ${span}` : 'Paid toward these services'}
+            label="Payments Received"
+            value={formatCurrency(financialSummary.paymentsReceived)}
+            sub={paymentsReceivedSub(span, financialSummary.refundsIssued)}
             color="teal"
-            onClick={() => onCardClick('collected')}
+            onClick={() => onOpenDetail(paymentsReceivedDetail(financialSummary))}
           />
-          {/* outstanding_contracted, never outstanding_receivable: an Approved
-              booking is not contracted, so it is owed nothing yet. And
-              never Confirmed alone — a Completed event with a balance is the
-              truest receivable here, since the service was already delivered. */}
+          {/* outstanding_contracted: still owed on Confirmed and Completed
+              services in the period. */}
           <StatCard
             label="Collectible"
             value={formatCurrency(financialSummary.outstandingContracted)}
@@ -113,59 +86,6 @@ export default function OverviewTab({ derived, period, span, onCardClick, onOpen
           />
         </div>
       </section>
-
-      {/* SECTION 2 and 3 on one row: the cash that moved, and a count. Two
-          headed groups side by side rather than two single-card rows. */}
-      <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))]">
-      {/* SECTION 2 — anchored on the PAYMENT date: cash that actually moved. */}
-      <section>
-        <h2 className={SECTION_HEAD}>By payment date<span className={BASIS_LABEL}>Cash basis</span></h2>
-        <div className="grid">
-          {/* The same figure, by the same definition, as Cash Receipts on the
-              Receivables page. Both read f_report_period / v_payment_ledger. */}
-          <StatCard
-            label="Payments Received"
-            value={formatCurrency(financialSummary.paymentsReceived)}
-            sub={paymentsReceivedSub(span, financialSummary.refundsIssued)}
-            color="teal"
-            onClick={() => onOpenDetail({
-              title: 'Payments Received',
-              description: 'Money kept: verified receipts less refunds, each counted on the day the money moved. Deposits kept on cancellations stay in; refunded amounts come out. Claims awaiting verification, reversals, and receipts that have been reversed are all excluded — the same rule the Receivables page uses.',
-              fields: [
-                { label: 'Payments received', value: formatCurrency(financialSummary.paymentsReceived), emphasis: true },
-                { label: 'Verified receipts', value: formatCurrency(financialSummary.cashReceipts) },
-                { label: 'Less refunds', value: formatCurrency(financialSummary.refundsIssued) },
-                { label: 'Receipts counted', value: financialSummary.receiptCount },
-                { label: 'Reversals recorded', value: formatCurrency(financialSummary.reversalsRecorded) },
-              ],
-            })}
-          />
-        </div>
-      </section>
-
-      {/* A count, so neither money block. Forfeited Deposits and Refunds
-          Issued used to sit here and above; both were removed on 21 Sep 2026.
-          Kept deposits are now inside Estimated Gross Revenue and Paid on These
-          Events (and were always inside Payments Received); refunds are listed
-          on the Financial tab. */}
-      <section>
-        <h2 className={SECTION_HEAD}>Also {forPeriod(period)}</h2>
-        <div className="grid">
-          <StatCard
-            count
-            label="Completed Bookings"
-            value={financialSummary.completedCount}
-            sub={span ? `Services ${span}` : 'Marked completed'}
-            color="purple"
-            onClick={() => onOpenDetail({
-              title: 'Completed Bookings',
-              description: 'Bookings marked Completed whose service date falls in the selected period.',
-              fields: [{ label: 'Completed bookings', value: financialSummary.completedCount, emphasis: true }],
-            })}
-          />
-        </div>
-      </section>
-      </div>
 
       <div className="grid gap-[18px] [grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))]">
         <button

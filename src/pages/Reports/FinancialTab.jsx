@@ -4,22 +4,12 @@ import {
 } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 import { ExternalLink } from 'lucide-react';
-import { formatCurrency, formatPercent, formatDate, paymentsReceivedSub } from './helpers';
+import { formatCurrency, formatDate, paymentsReceivedSub, paymentsReceivedDetail } from './helpers';
 import { EmptyResult } from '../../components/FilterBar';
 
 export default function FinancialTab({ derived, span, onCardClick, onOpenDetail, canClearFilters, onClearFilters }) {
   const navigate = useNavigate();
   const { financialSummary, monthlyFinancialTrend, paymentMethodData, refunds, reversals, bookingSummaryData } = derived;
-
-  // Share of this period's CONTRACTED work that has been collected. Both
-  // sides are the same population (Confirmed + Completed) and both come from
-  // f_report_period, so the bar is the identity on screen: collections plus
-  // receivables is the whole bar. It deliberately does NOT use Cash Receipts —
-  // that is anchored on payment date and includes cash for services outside
-  // this period, so dividing it here would compare two different populations.
-  const collectedPct = financialSummary.earnedRevenue > 0
-    ? (financialSummary.paidOnEvents / financialSummary.earnedRevenue) * 100
-    : 0;
 
   // Shared class string for the three event-anchored figures.
   const FIG = 'block text-[21px] font-semibold tracking-[-0.02em] tabular-nums';
@@ -31,25 +21,24 @@ export default function FinancialTab({ derived, span, onCardClick, onOpenDetail,
 
   return (
     <>
-      {/* The same two sections as the Overview tab, so both tabs teach the
-          same idea: service-date figures first, then the cash that moved. */}
+      {/* The same three figures as the Overview tab, in the same order. */}
       <section className="bg-white border border-slate-200/70 rounded-2xl p-6 mb-5">
-        <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900 mb-5">By service date<span className="ml-2 text-[11.5px] font-semibold uppercase tracking-[0.06em] text-slate-400">Accrual basis</span></h2>
         <div className="flex flex-wrap gap-8">
           <button onClick={() => onCardClick('revenue')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
-            <span className="block text-[13px] text-slate-600 mb-1.5">Estimated Gross Revenue</span>
+            <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
+              <span className="w-2 h-2 rounded-full bg-[#0072B2] shrink-0" aria-hidden="true" />
+              Estimated Gross Revenue
+            </span>
             <span className={`${FIG} text-slate-900`}>{formatCurrency(financialSummary.earnedRevenue)}</span>
             <span className="block text-[12.5px] text-slate-500 mt-1">{span ? `Services ${span}, incl. kept deposits` : 'Confirmed, completed and kept deposits'}</span>
           </button>
-          <button onClick={() => onCardClick('collected')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
-            {/* Same colour roles as the Equipment page: green for what is in
-                hand, orange for what is not. */}
+          <button onClick={() => onOpenDetail(paymentsReceivedDetail(financialSummary))} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
             <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
               <span className="w-2 h-2 rounded-full bg-[#009E73] shrink-0" aria-hidden="true" />
-              Paid on These Events
+              Payments Received
             </span>
-            <span className={`${FIG} text-[#009E73]`}>{formatCurrency(financialSummary.paidOnEvents)}</span>
-            <span className="block text-[12.5px] text-slate-500 mt-1">{span ? `Paid toward services ${span}` : 'Paid toward these services'}</span>
+            <span className={`${FIG} text-[#009E73]`}>{formatCurrency(financialSummary.paymentsReceived)}</span>
+            <span className="block text-[12.5px] text-slate-500 mt-1">{paymentsReceivedSub(span, financialSummary.refundsIssued)}</span>
           </button>
           <button onClick={() => onCardClick('outstanding')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
             <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
@@ -60,46 +49,11 @@ export default function FinancialTab({ derived, span, onCardClick, onOpenDetail,
             <span className="block text-[12.5px] text-slate-500 mt-1">{span ? `Still owed on services ${span}` : 'Not yet collected'}</span>
           </button>
         </div>
-
-        {/* The relationship the separate figures never showed. Clamped at
-            100% so an overpaid booking cannot draw a bar wider than its
-            track, while the printed percentage stays truthful. */}
-        <div className="mt-[22px] mb-2.5 h-2 rounded-full bg-slate-100 overflow-hidden">
-          <div className="h-full rounded-full bg-[#009E73]" style={{ width: `${Math.min(100, Math.max(0, collectedPct))}%` }} />
-        </div>
-        {financialSummary.earnedRevenue > 0 ? (
-          <>
-            <span className="block text-[13px] text-slate-600 tabular-nums">
-              {formatPercent(collectedPct)} of earned revenue collected
-            </span>
-          </>
-        ) : (
-          <span className="block text-[13px] text-slate-600">Nothing contracted.</span>
-        )}
-      </section>
-
-      {/* Whitespace and weight separate the two, never a rule or a coloured
-          bar. This sentence is the part that stops the reconciling. */}
-
-      <section className="bg-white border border-slate-200/70 rounded-2xl p-6 mb-[18px]">
-        <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900 mb-5">By payment date<span className="ml-2 text-[11.5px] font-semibold uppercase tracking-[0.06em] text-slate-400">Cash basis</span></h2>
-        <div className="flex flex-wrap gap-10">
-          <div>
-            <span className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-600 mb-2.5">
-              Payments Received
-            </span>
-            <span className="block text-[38px] font-semibold tracking-[-0.035em] leading-none tabular-nums text-slate-900">
-              {formatCurrency(financialSummary.paymentsReceived)}
-            </span>
-            <span className="block text-[13.5px] text-slate-600 mt-3">{paymentsReceivedSub(span, financialSummary.refundsIssued)}</span>
-          </div>
-        </div>
       </section>
 
       <div className="bg-white border border-slate-200/70 rounded-2xl p-6">
         <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
-          <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Money by service month</h3>
-          <span className="text-[13px] text-slate-600">By service month</span>
+          <h3 className="text-base font-bold tracking-[-0.01em] text-slate-900">Money by month</h3>
         </div>
         {/* REQUIRED SENTENCE. This chart deliberately ignores the period filter
             sitting above it, and a chart that ignores a nearby control reads as
@@ -144,8 +98,8 @@ export default function FinancialTab({ derived, span, onCardClick, onOpenDetail,
                   this chart exists to make. */}
               {[
                 { key: 'estimatedGrossRevenue', name: 'Estimated Gross Revenue', color: '#0072B2' },
-                { key: 'paidToDate', name: 'Paid to Date', color: '#009E73' },
-                { key: 'unpaid', name: 'Unpaid on These Events', color: '#D55E00' },
+                { key: 'paymentsReceived', name: 'Payments Received', color: '#009E73' },
+                { key: 'collectible', name: 'Collectible', color: '#D55E00' },
               ].map((series, i) => (
                 <Line
                   key={series.key}
@@ -180,9 +134,8 @@ export default function FinancialTab({ derived, span, onCardClick, onOpenDetail,
           </ResponsiveContainer>
         )}
         <p className="mt-2 text-[13px] text-slate-600">
-          Each month is the services happening THAT month — not the cash taken that month. Estimated Gross Revenue is
-          contracted work plus deposits kept on cancellations, as in the figure above.
-          Still to collect is that estimate minus what has been collected against the same services.
+          The same three figures as above, month by month: Estimated Gross Revenue and Collectible for the services
+          in that month, Payments Received for the money that came in that month.
         </p>
       </div>
 

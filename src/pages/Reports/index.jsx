@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabase';
 import toast from 'react-hot-toast';
 import {
-  getBookingRef, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, periodLabel, periodTitle, periodSpan, paymentsReceivedNet,
+  getBookingRef, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, periodTitle, periodSpan, paymentsReceivedNet,
   monthSortKey, monthLabel, buildMonthlyFinancialTrend,
 } from './helpers';
 import { movesBooks, isRefundEntry, isReversalEntry, RECEIPT_STAGES } from '../../utils/payments';
@@ -131,7 +131,6 @@ export default function Reports() {
   }, []);
 
   const { start: rangeStart, end: rangeEnd } = getRangeBounds(datePreset, customStart, customEnd);
-  const period = periodLabel(datePreset, rangeStart, rangeEnd);
   // The exact days, for card subtexts ("September 1–30"); null for All time.
   const span = periodSpan(rangeStart, rangeEnd);
 
@@ -276,15 +275,10 @@ export default function Reports() {
       // forfeited_deposits counts every closed booking still holding money,
       // refundable ones included, so it is not used for revenue.
       earnedRevenue: (Number(periodTotals?.gross_contracted) || 0) + keptTotal,
-      paidOnEvents: (Number(periodTotals?.paid_contracted) || 0) + keptTotal,
       // Same population as the cards they open: contracted work plus the
       // kept deposits, each kept deposit listed at the amount retained.
       _revenueBreakdown: [
         ...moneyInEventRange.filter(m => m.counts_toward_revenue).map(breakdownRow),
-        ...keptInRange.map(keptDepositRow),
-      ],
-      _collectedBreakdown: [
-        ...moneyInEventRange.filter(m => m.counts_toward_revenue && Number(m.net_paid) > 0).map(breakdownRow),
         ...keptInRange.map(keptDepositRow),
       ],
       _outstandingBreakdown: moneyInEventRange.filter(m => m.counts_toward_revenue && Number(m.outstanding) > 0).map(breakdownRow),
@@ -576,7 +570,6 @@ export default function Reports() {
     if (!derived) return;
     const breakdowns = {
       revenue: { data: derived.financialSummary._revenueBreakdown, title: `Estimated Gross Revenue — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
-      collected: { data: derived.financialSummary._collectedBreakdown, title: `Paid on These Events — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
       outstanding: { data: derived.financialSummary._outstandingBreakdown, title: `Collectible — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
     };
     const entry = breakdowns[type];
@@ -656,7 +649,7 @@ export default function Reports() {
         </div>
       ) : (
         <div className="animate-in fade-in duration-200 space-y-[18px]">
-          {activeTab === 'Overview' && <OverviewTab derived={derived} period={period} span={span} canClearFilters={datePreset !== DEFAULT_DATE_PRESET} onClearFilters={handleClearFilter} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
+          {activeTab === 'Overview' && <OverviewTab derived={derived} span={span} canClearFilters={datePreset !== DEFAULT_DATE_PRESET} onClearFilters={handleClearFilter} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Financial' && <FinancialTab derived={derived} span={span} canClearFilters={datePreset !== DEFAULT_DATE_PRESET} onClearFilters={handleClearFilter} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Menu & Packages' && <MenuPerformanceTab derived={derived} canClearFilters={datePreset !== DEFAULT_DATE_PRESET} onClearFilters={handleClearFilter} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Booking Summary' && <BookingSummaryTab derived={derived} canClearFilters={datePreset !== DEFAULT_DATE_PRESET} onClearFilters={handleClearFilter} onOpenDetail={openSimpleModal} />}
