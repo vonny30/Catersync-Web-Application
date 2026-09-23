@@ -715,6 +715,14 @@ export default function Receivables() {
     return e.pay_status === stageFilter && e.is_reversed !== true;
   };
   const receiptOf = Object.fromEntries(entries.map(e => [e.payment_id, e]));
+  // Same booking scope as paymentsReceivedBreakdown: Confirmed/Completed
+  // (counts_toward_revenue) or a cancelled/rejected booking whose deposit was
+  // actually forfeited (kept.byBooking). Keeps the Receipts tab's default
+  // list — and its total — matching the Payments Received card exactly.
+  const inPaymentsReceivedScope = (e) => {
+    const bm = moneyFor(e.booking_id);
+    return !!bm && (bm.counts_toward_revenue || (kept.byBooking[e.booking_id] || 0) > 0);
+  };
 
   let rows;
   if (showClaims) {
@@ -729,20 +737,34 @@ export default function Receivables() {
   } else {
     // Verified receipts only — a claim is not a receipt, and neither is a
     // reversal (Reversals tab). A reversed receipt stays here, struck through.
+    //
+    // SCOPED TO THE SAME BOOKINGS AS THE PAYMENTS RECEIVED CARD (22 Sep 2026):
+    // a receipt on a Pending/Approved booking is not received revenue yet
+    // (the card excludes it), and a receipt on a cancelled booking whose
+    // deposit is still refundable is not kept (the card excludes that too —
+    // BKG-129). Without this, the list below "agreed with" a headline it no
+    // longer matched: 16 receipts totalling ₱131,725 under a ₱119,975 card.
     rows = entries
       .filter(e => e.entry_type === ENTRY_TYPES.receipt && e.is_unverified === false
         && inEventPeriod(e) && passesCommon(e)
-        && matchesStage(e))
+        && matchesStage(e)
+        && inPaymentsReceivedScope(e))
       .map(entry => ({ entry }));
   }
 
   // What the listed receipts add up to, counting only the ones that move the
-  // books — with no other filter set this is exactly the Cash Receipts card.
+  // books.
   const listedCounted = !showClaims && tab === 'Receipts'
     ? rows.filter(r => r.entry.counts_in_ledger === true)
     : [];
   const listedCountedTotal = listedCounted.reduce((sum, r) => sum + Number(r.entry.amount_paid), 0);
   const listedReversed = !showClaims && tab === 'Receipts' ? rows.filter(r => r.entry.is_reversed).length : 0;
+  // With every other filter cleared, this list IS what Payments Received
+  // counts — so its footer states that exact figure (net of the refund on a
+  // partially-refunded forfeited deposit, e.g. BKG-107) rather than a raw sum
+  // that would double-count the refunded portion and no longer agree with
+  // the card above.
+  const receiptsUnfiltered = !term && typeFilter === 'All' && methodFilter === 'All' && stageFilter === 'All';
 
   const [showPaymentsReceivedBreakdown, setShowPaymentsReceivedBreakdown] = useState(false);
 
@@ -958,8 +980,12 @@ export default function Receivables() {
               {listedReversed > 0 && ` · ${listedReversed} reversed (excluded)`}
             </span>
             <span className="font-semibold text-slate-900 tabular-nums">
-              {peso(listedCountedTotal)}
-              <span className="font-normal text-slate-500"> — for the receipts shown</span>
+              {peso(receiptsUnfiltered ? paymentsReceived : listedCountedTotal)}
+              {receiptsUnfiltered ? (
+                <span className="font-normal text-slate-500"> — net of refunds, agrees with Payments Received</span>
+              ) : (
+                <span className="font-normal text-slate-500"> — for the receipts shown</span>
+              )}
             </span>
           </div>
         )}
