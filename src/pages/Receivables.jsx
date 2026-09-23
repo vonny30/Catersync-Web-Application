@@ -762,13 +762,28 @@ export default function Receivables() {
     ? rows.filter(r => r.entry.counts_in_ledger === true)
     : [];
   const listedCountedTotal = listedCounted.reduce((sum, r) => sum + Number(r.entry.amount_paid), 0);
-  const listedReversed = !showClaims && tab === 'Receipts' ? rows.filter(r => r.entry.is_reversed).length : 0;
+  const listedReversedRows = !showClaims && tab === 'Receipts' ? rows.filter(r => r.entry.is_reversed) : [];
+  const listedReversed = listedReversedRows.length;
+  // The face value of every reversed receipt in the list (struck through,
+  // excluded from listedCountedTotal above) — named in the footer sentence
+  // below so "why does the total not match the rows" has its answer right
+  // there, not just the word "reversed" on an unrelated line.
+  const listedReversedAmount = listedReversedRows.reduce((sum, r) => sum + Number(r.entry.amount_paid), 0);
   // With every other filter cleared, this list IS what Payments Received
-  // counts — so its footer states that exact figure (net of the refund on a
-  // partially-refunded forfeited deposit, e.g. BKG-107) rather than a raw sum
-  // that would double-count the refunded portion and no longer agree with
-  // the card above.
+  // counts — so its footer states that exact figure (net of a refund on a
+  // partially-refunded forfeited deposit, e.g. BKG-107, and of any reversed
+  // receipt above) rather than a raw sum that would double-count either and
+  // no longer agree with the card above.
   const receiptsUnfiltered = !term && typeFilter === 'All' && methodFilter === 'All' && stageFilter === 'All';
+  // The refund total behind that same netting, for the SAME bookings this
+  // tab is scoped to (inPaymentsReceivedScope) — so the sentence names an
+  // amount that actually reconciles rows.length down to the card's figure,
+  // not a period-wide refund total that could include a booking not listed.
+  const receiptsRefundedTotal = receiptsUnfiltered
+    ? Math.abs(entries
+        .filter(e => isRefundEntry(e) && inEventPeriod(e) && inPaymentsReceivedScope(e))
+        .reduce((sum, e) => sum + Number(e.amount_paid), 0))
+    : 0;
 
   const [showPaymentsReceivedBreakdown, setShowPaymentsReceivedBreakdown] = useState(false);
 
@@ -986,7 +1001,19 @@ export default function Receivables() {
             <span className="font-semibold text-slate-900 tabular-nums">
               {peso(receiptsUnfiltered ? paymentsReceived : listedCountedTotal)}
               {receiptsUnfiltered ? (
-                <span className="font-normal text-slate-500"> — net of refunds, agrees with Payments Received</span>
+                <span className="font-normal text-slate-500">
+                  {/* A refund is money that came in and went back out — genuinely
+                      netted out of the total. A reversal is a correction: the
+                      receipt was wrong and no money ever moved, so it is not
+                      "netted" alongside a refund — it is EXCLUDED, same as the
+                      struck-through row above never counted toward the total. */}
+                  {' — '}
+                  {[
+                    receiptsRefundedTotal > 0 ? `net of ${peso(receiptsRefundedTotal)} refunded` : null,
+                    listedReversedAmount > 0 ? `excludes ${peso(listedReversedAmount)} reversed (never money)` : null,
+                  ].filter(Boolean).join('; ') || 'nothing refunded or reversed'}
+                  {', agrees with Payments Received'}
+                </span>
               ) : (
                 <span className="font-normal text-slate-500"> — for the receipts shown</span>
               )}
