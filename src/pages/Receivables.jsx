@@ -30,7 +30,8 @@ import { supabase } from '../supabase';
 import Select from '../components/Select';
 import ReceiptFields from '../components/ReceiptFields';
 import CollectibleBreakdown from '../components/CollectibleBreakdown';
-import { collectibleInPeriod, paymentsReceivedForEvents } from '../utils/reportMetrics';
+import PaymentsReceivedBreakdown from '../components/PaymentsReceivedBreakdown';
+import { collectibleInPeriod, paymentsReceivedBreakdownFor } from '../utils/reportMetrics';
 import { fetchKeptDeposits } from '../utils/keptDeposits';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, periodLabel, forPeriod, periodTitle, periodSpan } from './Reports/helpers';
@@ -583,7 +584,7 @@ export default function Receivables() {
   const [refreshTick, setRefreshTick] = useState(0);
   const refresh = () => setRefreshTick(t => t + 1);
   // Deposits kept on the period's cancelled bookings (utils/keptDeposits).
-  const [kept, setKept] = useState({ total: 0 });
+  const [kept, setKept] = useState({ total: 0, byBooking: {} });
 
   const [tab, setTab] = useState('Receipts'); // 'Receipts' | 'Refunds' | 'Reversals'
   const [showClaims, setShowClaims] = useState(false);
@@ -660,8 +661,8 @@ export default function Receivables() {
   useEffect(() => {
     let ignore = false;
     fetchKeptDeposits(startIso ? new Date(startIso) : null, endIso ? new Date(endIso) : null)
-      .then(res => { if (!ignore) setKept({ total: res.total }); })
-      .catch(err => { console.error('Kept deposits failed:', err); if (!ignore) setKept({ total: 0 }); });
+      .then(res => { if (!ignore) setKept({ total: res.total, byBooking: res.byBooking }); })
+      .catch(err => { console.error('Kept deposits failed:', err); if (!ignore) setKept({ total: 0, byBooking: {} }); });
     return () => { ignore = true; };
   }, [startIso, endIso, refreshTick]);
   // The period, named. Card subtexts on this page follow the same rule as
@@ -683,12 +684,14 @@ export default function Receivables() {
   // Receipts counts them on the day they arrived whatever the booking status.
   // One rule, shared with the Customers page (utils/reportMetrics), so the
   // two Collectible cards always agree. owing = the rows behind the card.
-  const { total: totalReceivables, owing: owingInPeriod, rows: contractedInPeriod } = collectibleInPeriod(money, start, end);
+  const { total: totalReceivables, owing: owingInPeriod } = collectibleInPeriod(money, start, end);
   // PAYMENTS RECEIVED: paid toward the period's Confirmed / Completed bookings,
   // plus deposits kept on its cancelled ones — the Reports and Dashboard rule,
-  // so Payments Received + Collectible = Estimated Gross Revenue.
-  const paidContracted = contractedInPeriod.reduce((sum, m) => sum + (Number(m.net_paid) || 0), 0);
-  const paymentsReceived = paymentsReceivedForEvents(paidContracted, kept.total);
+  // so Payments Received + Collectible = Estimated Gross Revenue. The rows and
+  // the total come from ONE call, so the breakdown modal can never show a
+  // different set of records than what the card's number adds up to.
+  const paymentsReceivedBreakdown = paymentsReceivedBreakdownFor(money, kept.byBooking, start, end);
+  const paymentsReceived = paymentsReceivedBreakdown.total;
 
   // --- Claims (not money) -----------------------------------------------------
   const claims = entries.filter(e => e.pay_status === PENDING_VERIFICATION && Number(e.amount_paid) > 0);
@@ -741,14 +744,7 @@ export default function Receivables() {
   const listedCountedTotal = listedCounted.reduce((sum, r) => sum + Number(r.entry.amount_paid), 0);
   const listedReversed = !showClaims && tab === 'Receipts' ? rows.filter(r => r.entry.is_reversed).length : 0;
 
-  // Clicking Cash Receipts shows exactly its receipts: the Receipts tab, the
-  // same period, every other filter cleared.
-  const showCashReceipts = () => {
-    setShowClaims(false);
-    setTab('Receipts');
-    setSearch(''); setTypeFilter('All'); setMethodFilter('All'); setStageFilter('All');
-    document.getElementById('receivables-table')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
+  const [showPaymentsReceivedBreakdown, setShowPaymentsReceivedBreakdown] = useState(false);
 
   const hasFilters = !!term || typeFilter !== 'All' || methodFilter !== 'All' || stageFilter !== 'All' || datePreset !== DEFAULT_DATE_PRESET;
   const clearFilters = () => {
@@ -870,12 +866,12 @@ export default function Receivables() {
             invalid, and its click would go to the card. Same text as the
             Reports card, because it is the same figure and the same question. */}
         <div className="relative">
-        <button onClick={showCashReceipts} className="w-full h-full relative overflow-hidden flex flex-col justify-start text-left rounded-2xl border border-slate-200/70 bg-white p-5 transition-all cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]">
+        <button onClick={() => setShowPaymentsReceivedBreakdown(true)} className="w-full h-full relative overflow-hidden flex flex-col justify-start text-left rounded-2xl border border-slate-200/70 bg-white p-5 transition-all cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]">
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
           <p className="text-[13px] font-semibold text-slate-600 mb-2 pr-6">Payments Received</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(paymentsReceived) : '—'}</h3>
           <p className="text-[13px] text-slate-600 mt-2.5">{periodSpan(start, end) ? `Paid toward services ${periodSpan(start, end)}` : 'Paid toward these services'}</p>
-          <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show these receipts <ChevronRight size={13} /></span>
+          <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show breakdown <ChevronRight size={13} /></span>
         </button>
         </div>
         <button onClick={() => setShowReceivablesBreakdown(true)} className="relative overflow-hidden flex flex-col justify-start text-left rounded-2xl border border-slate-200/70 bg-white p-5 transition-all cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]">
@@ -974,6 +970,15 @@ export default function Receivables() {
           receivables={receivableBookings}
           onClose={() => setRecordOpen(false)}
           onRecorded={(booking, paidAfter) => { setRecordOpen(false); refresh(); offerConfirmation(booking, paidAfter); }}
+        />
+      )}
+      {showPaymentsReceivedBreakdown && (
+        <PaymentsReceivedBreakdown
+          rows={paymentsReceivedBreakdown.rows}
+          caption={`Paid toward services with an event ${forPeriod(period)}, plus deposits kept on cancelled bookings`}
+          total={paymentsReceived}
+          onClose={() => setShowPaymentsReceivedBreakdown(false)}
+          onOpenBooking={(b) => navigate(bookingPath(b.booking_id, b.booking_type))}
         />
       )}
       {showReceivablesBreakdown && (

@@ -825,7 +825,7 @@ export default function Dashboard() {
             {(() => { const { start, end } = getRangeBounds('This Month'); return `Paid toward services ${periodSpan(start, end)}`; })()}
           </span>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">
-            Show these receipts <ChevronRight size={13} />
+            Show breakdown <ChevronRight size={13} />
           </span>
         </button>
       </div>

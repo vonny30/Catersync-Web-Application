@@ -124,3 +124,49 @@ export function keptDepositsFor({ closedRows, closedAtById, depositByBooking }) 
 export function paymentsReceivedForEvents(paidContracted, keptTotal) {
   return (Number(paidContracted) || 0) + (Number(keptTotal) || 0);
 }
+
+/**
+ * The bookings behind PAYMENTS RECEIVED for a period (22 Sep 2026): every
+ * Confirmed / Completed booking with an event in the period and money paid
+ * toward it, plus the period's cancelled/rejected bookings that forfeited a
+ * deposit — each row's `amount` is what it contributed, and the rows' amounts
+ * sum to exactly the card's total. One rule, so a page that clicks "Payments
+ * Received" always shows the same records as the card, never a differently
+ * scoped list (a raw receipt ledger double-counts multiple part-payments on
+ * one booking and does not net out a reversal the way this does).
+ *
+ * @param moneyRows    v_booking_money rows (event_datetime, net_paid, total_amount,
+ *                     counts_toward_revenue, customer, booking_number, ...)
+ * @param keptByBooking booking_id -> forfeited amount, already scoped to the
+ *                      period (keptDepositsFor / fetchKeptDeposits)
+ */
+export function paymentsReceivedBreakdownFor(moneyRows, keptByBooking, start, end) {
+  const byId = {};
+  (moneyRows || []).forEach(m => { byId[m.booking_id] = m; });
+
+  const rows = [];
+  (moneyRows || []).forEach(m => {
+    if (m.counts_toward_revenue && Number(m.net_paid) > 0
+      && ((!start && !end) || isWithinRange(m.event_datetime, start, end))) {
+      rows.push({ ...m, amount: Number(m.net_paid), kept: false });
+    }
+  });
+  Object.entries(keptByBooking || {}).forEach(([id, amount]) => {
+    if (!(amount > 0)) return;
+    const m = byId[id];
+    rows.push({
+      booking_id: id,
+      booking_number: m?.booking_number,
+      booking_type: m?.booking_type,
+      booking_status: m?.booking_status,
+      customer: m?.customer,
+      event_datetime: m?.event_datetime,
+      total_amount: m?.total_amount,
+      amount,
+      kept: true,
+    });
+  });
+  rows.sort((a, b) => new Date(b.event_datetime || 0) - new Date(a.event_datetime || 0));
+  const total = rows.reduce((sum, r) => sum + r.amount, 0);
+  return { rows, total };
+}

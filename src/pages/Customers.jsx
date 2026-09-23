@@ -42,7 +42,6 @@ import { getCurrentManagerId } from '../utils/currentManager';
 import { createWalkInCustomer } from '../utils/createWalkInCustomer';
 
 const PAGE_SIZE = 10;
-const ALL_TIME = 'All Time';
 
 // Same presentation as the Payments table: whole pesos stay whole, centavos
 // are kept rather than rounded away.
@@ -731,13 +730,9 @@ export default function Customers() {
   const [sourceFilter, setSourceFilter] = useState('All');
   const [balanceFilter, setBalanceFilter] = useState('All');
   const [repeatOnly, setRepeatOnly] = useState(false);
-  const [datePreset, setDatePreset] = useState(ALL_TIME);
-  const [customStart, setCustomStart] = useState('');
-  const [customEnd, setCustomEnd] = useState('');
   // THE PERIOD — which month's Collectible this page shows (22 Sep 2026). The
   // same control and default as the Payments page, so the two Collectible
-  // figures are the same figure. "Joined" above is a record filter; this is
-  // the money period.
+  // figures are the same figure.
   const [periodPreset, setPeriodPreset] = useState(DEFAULT_DATE_PRESET);
   const [periodCustomStart, setPeriodCustomStart] = useState('');
   const [periodCustomEnd, setPeriodCustomEnd] = useState('');
@@ -758,7 +753,6 @@ export default function Customers() {
   // drawer. All four tables are in the supabase_realtime publication.
   useRealtimeRefresh('customers-page', ['customer', 'booking', 'payment', 'customer_note'], refresh);
 
-  const { start: joinedStart, end: joinedEnd } = getRangeBounds(datePreset, customStart, customEnd);
   const { start: periodStart, end: periodEnd } = getRangeBounds(periodPreset, periodCustomStart, periodCustomEnd);
   const span = periodSpan(periodStart, periodEnd);
 
@@ -793,8 +787,6 @@ export default function Customers() {
     source: sourceFilter,
     balance: balanceFilter,
     repeatOnly,
-    joinedStart: joinedStart ? joinedStart.toISOString() : null,
-    joinedEnd: joinedEnd ? joinedEnd.toISOString() : null,
     // [customer_id, collectible] for the period, largest first: what the
     // Collectible filter and the Collectible sort run on.
     owing: Object.entries(collect.byCustomer).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)),
@@ -802,7 +794,7 @@ export default function Customers() {
   };
   const filterKey = JSON.stringify(filters);
   const hasFilters = !!search.trim() || statusFilter !== 'All' || sourceFilter !== 'All'
-    || balanceFilter !== 'All' || repeatOnly || datePreset !== ALL_TIME || periodPreset !== DEFAULT_DATE_PRESET;
+    || balanceFilter !== 'All' || repeatOnly || periodPreset !== DEFAULT_DATE_PRESET;
 
   // A filter change goes back to page 1. Reset during render, not in an effect.
   const [pageFilterKey, setPageFilterKey] = useState(filterKey);
@@ -817,9 +809,6 @@ export default function Customers() {
     setSourceFilter('All');
     setBalanceFilter('All');
     setRepeatOnly(false);
-    setDatePreset(ALL_TIME);
-    setCustomStart('');
-    setCustomEnd('');
     setPeriodPreset(DEFAULT_DATE_PRESET);
     setPeriodCustomStart('');
     setPeriodCustomEnd('');
@@ -878,8 +867,6 @@ export default function Customers() {
         if (f.balance === 'Has receivables') query = query.in('customer_id', owingIds.length ? owingIds : ['00000000-0000-0000-0000-000000000000']);
         if (f.balance === 'Settled' && owingIds.length) query = query.not('customer_id', 'in', `(${owingIds.join(',')})`);
         if (f.repeatOnly) query = query.eq('is_repeat', true);
-        if (f.joinedStart) query = query.gte('created_at', f.joinedStart);
-        if (f.joinedEnd) query = query.lte('created_at', f.joinedEnd);
         return query;
       };
       const from = (p - 1) * PAGE_SIZE;
@@ -946,8 +933,6 @@ export default function Customers() {
       if (f.balance === 'Has receivables') query = query.in('customer_id', owingIds.length ? owingIds : ['00000000-0000-0000-0000-000000000000']);
       if (f.balance === 'Settled' && owingIds.length) query = query.not('customer_id', 'in', `(${owingIds.join(',')})`);
       if (f.repeatOnly) query = query.eq('is_repeat', true);
-      if (f.joinedStart) query = query.gte('created_at', f.joinedStart);
-      if (f.joinedEnd) query = query.lte('created_at', f.joinedEnd);
       const { data, error } = await query.order('customer_id', { ascending: true });
       if (ignore) return;
       if (error) { console.error('Status counts failed:', error); return; }
@@ -1261,22 +1246,6 @@ export default function Customers() {
             <option value="Overdue">Overdue</option>
             <option value="Settled">Fully collected</option>
           </Select>
-        </FilterField>
-        {/* A record filter, not the money period: it chooses which customers
-            are listed. */}
-        <FilterField label="Joined" active={datePreset !== ALL_TIME}>
-          <DateRangeFilter
-            preset={datePreset}
-            customStart={customStart}
-            customEnd={customEnd}
-            rangeStart={joinedStart}
-            rangeEnd={joinedEnd}
-            onPresetChange={setDatePreset}
-            onCustomStartChange={setCustomStart}
-            onCustomEndChange={setCustomEnd}
-            onClear={() => { setDatePreset(ALL_TIME); setCustomStart(''); setCustomEnd(''); }}
-            showClear={false}
-          />
         </FilterField>
       </FilterBar>
       {/* The period of the Collectible figures — the same title the Payments
