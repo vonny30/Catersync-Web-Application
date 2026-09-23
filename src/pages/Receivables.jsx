@@ -720,7 +720,11 @@ export default function Receivables() {
   // actually forfeited (kept.byBooking). Keeps the Receipts tab's default
   // list — and its total — matching the Payments Received card exactly.
   const inPaymentsReceivedScope = (e) => {
-    const bm = moneyFor(e.booking_id);
+    // Not moneyFor(): that helper is declared further down this component,
+    // and calling it from here — evaluated on every render, before its own
+    // declaration runs — threw "Cannot access before initialization" in
+    // production. money is the same array; look it up directly.
+    const bm = money.find(b => b.booking_id === e.booking_id);
     return !!bm && (bm.counts_toward_revenue || (kept.byBooking[e.booking_id] || 0) > 0);
   };
 
