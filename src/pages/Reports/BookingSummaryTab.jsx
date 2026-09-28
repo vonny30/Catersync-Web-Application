@@ -18,7 +18,6 @@ export default function BookingSummaryTab({ derived, onOpenDetail, canClearFilte
 
   const CARD = `border rounded-2xl p-5 text-left ${cardColorClasses()}`;
   const LABEL = 'text-[13px] font-semibold text-slate-600 mb-2';
-  const SUB = 'text-[13px] text-slate-600 mt-2.5';
 
   return (
     <div className="space-y-[18px]">
@@ -27,19 +26,16 @@ export default function BookingSummaryTab({ derived, onOpenDetail, canClearFilte
           <span className={cardAccentClass('blue')} />
           <p className={LABEL}>Completed Bookings</p>
           <h3 className="text-[32px] font-semibold tracking-[-0.03em] leading-none tabular-nums text-slate-900">{totalCompleted}</h3>
-          <p className={SUB}>Bookings &amp; orders now marked Completed</p>
         </div>
         <div className={CARD}>
           <span className={cardAccentClass('green')} />
           <p className={LABEL}>Revenue Earned</p>
           <h3 className="text-[26px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{formatCurrency(totalRevenue)}</h3>
-          <p className={SUB}>Transaction amount of those bookings</p>
         </div>
         <div className={CARD}>
           <span className={cardAccentClass('teal')} />
           <p className={LABEL}>Average per Booking</p>
           <h3 className="text-[26px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{formatCurrency(avgPerEvent)}</h3>
-          <p className={SUB}>Revenue earned ÷ completed bookings</p>
         </div>
       </div>
 

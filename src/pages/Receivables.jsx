@@ -836,7 +836,7 @@ export default function Receivables() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-[25px] font-bold tracking-[-0.02em] text-slate-900">Receivables</h1>
-          <p className="text-[14.5px] text-slate-600 mt-1.5">Money received, and still collectible.</p>
+          <p className="text-[14.5px] text-slate-600 mt-1.5">Cash receipts and accounts receivable.</p>
         </div>
         <div className="flex items-center gap-3">
           <button onClick={refresh} className="bg-white border border-slate-200 text-slate-700 px-4 py-2.5 rounded-[10px] font-semibold transition-colors flex items-center gap-2 text-sm whitespace-nowrap hover:border-[#c9dfd4] hover:text-[#007038]">
@@ -909,7 +909,7 @@ export default function Receivables() {
         <div className="relative">
         <button onClick={() => setShowPaymentsReceivedBreakdown(true)} className="w-full h-full relative overflow-hidden flex flex-col justify-start text-left rounded-2xl border border-slate-200/70 bg-white p-5 transition-all cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]">
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#008A45]" />
-          <p className="text-[13px] font-semibold text-slate-600 mb-2 pr-6">Payments Received</p>
+          <p className="text-[13px] font-semibold text-slate-600 mb-2 pr-6">Cash Receipts</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(paymentsReceived) : '—'}</h3>
           <p className="text-[13px] text-slate-600 mt-2.5">{periodSpan(start, end) ? `Paid toward services ${periodSpan(start, end)}` : 'Paid toward these services'}</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show breakdown <ChevronRight size={13} /></span>
@@ -917,7 +917,7 @@ export default function Receivables() {
         </div>
         <button onClick={() => setShowReceivablesBreakdown(true)} className="relative overflow-hidden flex flex-col justify-start text-left rounded-2xl border border-slate-200/70 bg-white p-5 transition-all cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]">
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500" />
-          <p className="text-[13px] font-semibold text-slate-600 mb-2">Collectible</p>
+          <p className="text-[13px] font-semibold text-slate-600 mb-2">Accounts Receivable</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(totalReceivables) : '—'}</h3>
           {/* The same subtext as the Collectible card on Reports: the days it
               counts, so no basis label is needed. */}
@@ -1012,7 +1012,7 @@ export default function Receivables() {
                     receiptsRefundedTotal > 0 ? `net of ${peso(receiptsRefundedTotal)} refunded` : null,
                     listedReversedAmount > 0 ? `excludes ${peso(listedReversedAmount)} reversed (never money)` : null,
                   ].filter(Boolean).join('; ') || 'nothing refunded or reversed'}
-                  {', agrees with Payments Received'}
+                  {', agrees with Cash Receipts'}
                 </span>
               ) : (
                 <span className="font-normal text-slate-500"> — for the receipts shown</span>

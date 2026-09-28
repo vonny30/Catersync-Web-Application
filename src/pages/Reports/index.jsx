@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabase';
 import toast from 'react-hot-toast';
 import {
-  getBookingRef, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, periodTitle, periodSpan,
+  getBookingRef, getRangeBounds, isWithinRange, DEFAULT_DATE_PRESET, periodTitle,
   monthSortKey, monthLabel, buildMonthlyFinancialTrend,
 } from './helpers';
 import { movesBooks, isRefundEntry, isReversalEntry, RECEIPT_STAGES } from '../../utils/payments';
@@ -131,8 +131,6 @@ export default function Reports() {
   }, []);
 
   const { start: rangeStart, end: rangeEnd } = getRangeBounds(datePreset, customStart, customEnd);
-  // The exact days, for card subtexts ("September 1–30"); null for All time.
-  const span = periodSpan(rangeStart, rangeEnd);
 
   // One call, one row, every headline figure — event-anchored and
   // payment-anchored alike, all of it computed in the database against
@@ -573,9 +571,9 @@ export default function Reports() {
   const handleCardClick = (type) => {
     if (!derived) return;
     const breakdowns = {
-      collected: { data: derived.financialSummary._collectedBreakdown, title: `Payments Received — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
-      revenue: { data: derived.financialSummary._revenueBreakdown, title: `Estimated Gross Revenue — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
-      outstanding: { data: derived.financialSummary._outstandingBreakdown, title: `Collectible — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
+      collected: { data: derived.financialSummary._collectedBreakdown, title: `Cash Receipts — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
+      revenue: { data: derived.financialSummary._revenueBreakdown, title: `Gross Revenue — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
+      outstanding: { data: derived.financialSummary._outstandingBreakdown, title: `Accounts Receivable — ${periodTitle(datePreset, rangeStart, rangeEnd)}` },
     };
     const entry = breakdowns[type];
     if (!entry) return;
@@ -654,8 +652,8 @@ export default function Reports() {
         </div>
       ) : (
         <div className="animate-in fade-in duration-200 space-y-[18px]">
-          {activeTab === 'Overview' && <OverviewTab derived={derived} span={span} canClearFilters={datePreset !== DEFAULT_DATE_PRESET} onClearFilters={handleClearFilter} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
-          {activeTab === 'Financial' && <FinancialTab derived={derived} span={span} canClearFilters={datePreset !== DEFAULT_DATE_PRESET} onClearFilters={handleClearFilter} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
+          {activeTab === 'Overview' && <OverviewTab derived={derived} canClearFilters={datePreset !== DEFAULT_DATE_PRESET} onClearFilters={handleClearFilter} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
+          {activeTab === 'Financial' && <FinancialTab derived={derived} canClearFilters={datePreset !== DEFAULT_DATE_PRESET} onClearFilters={handleClearFilter} onCardClick={handleCardClick} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Menu & Packages' && <MenuPerformanceTab derived={derived} canClearFilters={datePreset !== DEFAULT_DATE_PRESET} onClearFilters={handleClearFilter} onOpenDetail={openSimpleModal} />}
           {activeTab === 'Booking Summary' && <BookingSummaryTab derived={derived} canClearFilters={datePreset !== DEFAULT_DATE_PRESET} onClearFilters={handleClearFilter} onOpenDetail={openSimpleModal} />}
         </div>

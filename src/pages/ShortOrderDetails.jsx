@@ -1939,7 +1939,7 @@ export default function ShortOrderDetails() {
                   <span className="text-slate-900 font-semibold">{order.venue || 'N/A'}</span>
                   <span className="text-slate-600 font-medium">Event Date:</span>
                   <span className="text-slate-900 font-semibold">{order.event_datetime ? new Date(order.event_datetime).toLocaleString() : 'N/A'}</span>
-                  <span className="text-slate-600 font-medium">Transaction Amount:</span>
+                  <span className="text-slate-600 font-medium">Total Value:</span>
                   <span className="text-slate-900 font-bold text-[#008A45]">₱{order.total_amount?.toLocaleString() || '0'}</span>
                   <span className="text-slate-600 font-medium">Collected:</span>
                   <span className="text-slate-900 font-semibold">₱{positivePayments.toLocaleString()}</span>

@@ -3011,7 +3011,7 @@ export default function BookingDetails() {
                   <span className="text-slate-900 font-semibold">
                     {booking.event_datetime ? new Date(booking.event_datetime).toLocaleString() : 'N/A'}
                   </span>
-                  <span className="text-slate-600 font-medium">Transaction Amount:</span>
+                  <span className="text-slate-600 font-medium">Total Value:</span>
                   <span className="text-slate-900 font-bold text-[#008A45]">
                     ₱{booking.total_amount?.toLocaleString() || '0'}
                   </span>

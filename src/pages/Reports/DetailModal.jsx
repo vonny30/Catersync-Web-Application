@@ -129,7 +129,7 @@ export default function DetailModal({ detailModal, onClose }) {
                       <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Customer</th>
                       <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Type</th>
                       <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap">Event Date</th>
-                      <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Estimated Gross Revenue</th>
+                      <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Gross Revenue</th>
                       <th className="px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-800 whitespace-nowrap text-right">Status</th>
                     </tr>
                   </thead>
@@ -204,7 +204,7 @@ export default function DetailModal({ detailModal, onClose }) {
                   ))}
                   <div className="border-t pt-4 flex justify-end">
                     <p className="text-lg font-bold text-slate-900">
-                      Total Collected: <span className="text-emerald-600">{formatCurrency(filteredData.reduce((sum, item) => sum + item.paid, 0))}</span>
+                      Total Cash Receipts: <span className="text-emerald-600">{formatCurrency(filteredData.reduce((sum, item) => sum + item.paid, 0))}</span>
                     </p>
                   </div>
                 </div>
@@ -269,7 +269,7 @@ export default function DetailModal({ detailModal, onClose }) {
                       <th className={HEAD_CLASS}>Customer</th>
                       <th className={HEAD_CLASS}>Type</th>
                       <th className={HEAD_CLASS}>Event Date</th>
-                      <th className={`${HEAD_CLASS} text-right`}>Transaction Amount</th>
+                      <th className={`${HEAD_CLASS} text-right`}>Value</th>
                       <th className={`${HEAD_CLASS} text-right`}>Retained</th>
                       <th className={`${HEAD_CLASS} text-right`}>Status</th>
                     </tr>
@@ -309,7 +309,7 @@ export default function DetailModal({ detailModal, onClose }) {
               <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 mt-4">
                 <p className="text-sm text-blue-800">
                   {detailModal.type === 'forfeited' ? (
-                    <><strong>Note:</strong> These bookings were cancelled or rejected. The amount retained is money already collected that was not refunded — realised income, kept out of Estimated Gross Revenue on purpose.</>
+                    <><strong>Note:</strong> These bookings were cancelled or rejected. The amount retained is money already collected that was not refunded — realised income, kept out of Gross Revenue on purpose.</>
                   ) : (
                     detailModal.type === 'revenue' || detailModal.type === 'collected'
                       ? <><strong>Note:</strong> Confirmed and completed bookings, plus deposits kept on cancelled or rejected bookings, listed at the amount kept. Pending and approved bookings are not included.</>
@@ -334,7 +334,7 @@ export default function DetailModal({ detailModal, onClose }) {
           {detailModal.type === 'outstanding' && (
             <div className="min-w-0">
               <ModalTotal
-                label="Total outstanding"
+                label="Total accounts receivable"
                 value={formatCurrency(filteredData.reduce((sum, item) => sum + item.outstanding, 0))}
                 tone="negative"
                 hint={`${filteredData.length} booking${filteredData.length === 1 ? '' : 's'}`}

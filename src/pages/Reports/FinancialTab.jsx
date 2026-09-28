@@ -7,7 +7,7 @@ import { ExternalLink } from 'lucide-react';
 import { formatCurrency, formatDate } from './helpers';
 import { EmptyResult } from '../../components/FilterBar';
 
-export default function FinancialTab({ derived, span, onCardClick, onOpenDetail, canClearFilters, onClearFilters }) {
+export default function FinancialTab({ derived, onCardClick, onOpenDetail, canClearFilters, onClearFilters }) {
   const navigate = useNavigate();
   const { financialSummary, monthlyFinancialTrend, paymentMethodData, refunds, reversals, bookingSummaryData } = derived;
 
@@ -27,26 +27,23 @@ export default function FinancialTab({ derived, span, onCardClick, onOpenDetail,
           <button onClick={() => onCardClick('revenue')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
             <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
               <span className="w-2 h-2 rounded-full bg-[#0072B2] shrink-0" aria-hidden="true" />
-              Estimated Gross Revenue
+              Gross Revenue
             </span>
             <span className={`${FIG} text-slate-900`}>{formatCurrency(financialSummary.earnedRevenue)}</span>
-            <span className="block text-[12.5px] text-slate-500 mt-1">{span ? `Services ${span}, incl. kept deposits` : 'Confirmed, completed and kept deposits'}</span>
           </button>
           <button onClick={() => onCardClick('collected')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
             <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
               <span className="w-2 h-2 rounded-full bg-[#009E73] shrink-0" aria-hidden="true" />
-              Payments Received
+              Cash Receipts
             </span>
             <span className={`${FIG} text-[#009E73]`}>{formatCurrency(financialSummary.paymentsReceived)}</span>
-            <span className="block text-[12.5px] text-slate-500 mt-1">{span ? `Paid toward services ${span}` : 'Paid toward these services'}</span>
           </button>
           <button onClick={() => onCardClick('outstanding')} className="text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-[#008A45]/40">
             <span className="flex items-center gap-1.5 text-[13px] text-slate-600 mb-1.5">
               <span className="w-2 h-2 rounded-full bg-[#D55E00] shrink-0" aria-hidden="true" />
-              Collectible
+              Accounts Receivable
             </span>
             <span className={`${FIG} text-[#D55E00]`}>{formatCurrency(financialSummary.outstandingContracted)}</span>
-            <span className="block text-[12.5px] text-slate-500 mt-1">{span ? `Still owed on services ${span}` : 'Not yet collected'}</span>
           </button>
         </div>
       </section>
@@ -97,9 +94,9 @@ export default function FinancialTab({ derived, span, onCardClick, onOpenDetail,
                   could not tell Paid from Unpaid, which is the one comparison
                   this chart exists to make. */}
               {[
-                { key: 'estimatedGrossRevenue', name: 'Estimated Gross Revenue', color: '#0072B2' },
-                { key: 'paymentsReceived', name: 'Payments Received', color: '#009E73' },
-                { key: 'collectible', name: 'Collectible', color: '#D55E00' },
+                { key: 'estimatedGrossRevenue', name: 'Gross Revenue', color: '#0072B2' },
+                { key: 'paymentsReceived', name: 'Cash Receipts', color: '#009E73' },
+                { key: 'collectible', name: 'Accounts Receivable', color: '#D55E00' },
               ].map((series, i) => (
                 <Line
                   key={series.key}
@@ -134,8 +131,8 @@ export default function FinancialTab({ derived, span, onCardClick, onOpenDetail,
           </ResponsiveContainer>
         )}
         <p className="mt-2 text-[13px] text-slate-600">
-          The same three figures as above, month by month, for the bookings in each month: Payments Received plus
-          Collectible is the month's Estimated Gross Revenue.
+          The same three figures as above, month by month, for the bookings in each month: Cash Receipts plus
+          Accounts Receivable is the month's Gross Revenue.
         </p>
       </div>
 

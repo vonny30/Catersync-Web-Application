@@ -36,7 +36,7 @@ function StatCard({ label, value, sub, color, onClick, count = false, hint = nul
 
 const ROW_GRID = 'grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))]';
 
-export default function OverviewTab({ derived, span, onCardClick, onOpenDetail, canClearFilters, onClearFilters }) {
+export default function OverviewTab({ derived, onCardClick, onOpenDetail, canClearFilters, onClearFilters }) {
   const {
     financialSummary, packageMix, menuItemMix, topSellingItem,
     totalCustomers, repeatCustomers, oneTimeCustomers,
@@ -60,27 +60,24 @@ export default function OverviewTab({ derived, span, onCardClick, onOpenDetail, 
           {/* Contracted work only — Confirmed and Completed — plus forfeited
               deposits. A Pending request is not revenue. */}
           <StatCard
-            label="Estimated Gross Revenue"
+            label="Gross Revenue"
             value={formatCurrency(financialSummary.earnedRevenue)}
-            sub={span ? `Services ${span}, incl. kept deposits` : 'Confirmed, completed and kept deposits'}
             color="green"
             onClick={() => onCardClick('revenue')}
           />
           {/* Paid toward the period's bookings, whenever the money came in:
-              Payments Received + Collectible = Estimated Gross Revenue. */}
+              Cash Receipts + Accounts Receivable = Gross Revenue. */}
           <StatCard
-            label="Payments Received"
+            label="Cash Receipts"
             value={formatCurrency(financialSummary.paymentsReceived)}
-            sub={span ? `Paid toward services ${span}` : 'Paid toward these services'}
             color="teal"
             onClick={() => onCardClick('collected')}
           />
           {/* outstanding_contracted: still owed on Confirmed and Completed
               services in the period. */}
           <StatCard
-            label="Collectible"
+            label="Accounts Receivable"
             value={formatCurrency(financialSummary.outstandingContracted)}
-            sub={span ? `Still owed on services ${span}` : 'Not yet collected'}
             color="amber"
             onClick={() => onCardClick('outstanding')}
           />
@@ -136,7 +133,6 @@ export default function OverviewTab({ derived, span, onCardClick, onOpenDetail, 
               )}
               {/* Each share is measured against its OWN product line, so the
                   two percentages are not comparable and must never be summed. */}
-              <p className="text-[12.5px] text-slate-600 pt-1">Each share is of its own product line's revenue.</p>
             </div>
           ) : (
             <EmptyResult canClear={canClearFilters} onClear={onClearFilters} />

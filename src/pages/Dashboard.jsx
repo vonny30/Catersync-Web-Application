@@ -815,7 +815,7 @@ export default function Dashboard() {
               about today and the week ahead, so a page title would mislabel
               them. A small muted tag, and only here. */}
           <span className="flex items-center gap-2">
-            <span className="text-[15px] font-semibold text-slate-600">Payments Received</span>
+            <span className="text-[15px] font-semibold text-slate-600">Cash Receipts</span>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11.5px] font-semibold text-slate-500">
               {new Date().toLocaleString('en-PH', { month: 'long', timeZone: 'Asia/Manila' })}
             </span>

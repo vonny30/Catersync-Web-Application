@@ -22,7 +22,7 @@ export default function CollectibleBreakdown({ bookings, caption, total, onClose
     <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden">
         <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
-          <h2 className="text-lg font-bold text-slate-900">Collectible</h2>
+          <h2 className="text-lg font-bold text-slate-900">Accounts Receivable</h2>
           <button onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors">
             <X size={18} />
           </button>
@@ -39,7 +39,7 @@ export default function CollectibleBreakdown({ bookings, caption, total, onClose
                     <th className="px-3 py-2.5">Booking</th>
                     <th className="px-3 py-2.5">Event Date</th>
                     <th className="px-3 py-2.5">Status</th>
-                    <th className="px-3 py-2.5 text-right">Transaction Amount</th>
+                    <th className="px-3 py-2.5 text-right">Value</th>
                     <th className="px-3 py-2.5 text-right">Collected</th>
                     <th className="px-3 py-2.5 text-right">Balance Due</th>
                   </tr>
