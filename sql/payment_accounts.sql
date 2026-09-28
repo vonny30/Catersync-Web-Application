@@ -1,6 +1,6 @@
 -- payment_accounts.sql
 --
--- NOT APPLIED. For Vaughn to run in the Supabase SQL editor.
+-- APPLIED 29 Sep 2026 (migration create_payment_account), at Vaughn's request.
 --
 -- The GCash and bank accounts customers pay into (29 Sep 2026). The manager
 -- edits them on Settings -> Payment Details; the customer mobile app reads the
