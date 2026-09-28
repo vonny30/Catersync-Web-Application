@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Building2, Lock, Save, User, Mail, Phone, Pencil, X, Eye, EyeOff
+  Building2, Lock, Save, User, Mail, Phone, Pencil, X, Eye, EyeOff, Wallet
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -11,6 +11,7 @@ import { verifyPassword } from '../utils/verifyPassword';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { useAuth } from '../contexts/AuthContext';
 import PasswordChecklist from '../components/PasswordChecklist';
+import PaymentAccountsSettings from '../components/PaymentAccountsSettings';
 
 export default function SettingsPage() {
   const navigate = useNavigate();
@@ -275,6 +276,7 @@ export default function SettingsPage() {
   const tabs = [
     { id: 'general', label: 'Business Profile', icon: Building2 },
     { id: 'security', label: 'Security', icon: Lock },
+    { id: 'payments', label: 'Payment Details', icon: Wallet },
   ];
 
   if (isLoggingOut) {
@@ -293,7 +295,7 @@ export default function SettingsPage() {
     <div className="max-w-5xl mx-auto animate-in fade-in duration-200">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
-        <p className="text-sm text-slate-500 mt-1">Manage your business profile and security.</p>
+        <p className="text-sm text-slate-500 mt-1">Manage your business profile, security and payment details.</p>
       </div>
 
       <div className="border-b border-slate-200 mb-8">
@@ -539,6 +541,8 @@ export default function SettingsPage() {
             </div>
           </form>
         )}
+
+        {activeTab === 'payments' && <PaymentAccountsSettings />}
 
       </div>
     </div>

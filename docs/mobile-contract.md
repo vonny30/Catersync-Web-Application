@@ -371,6 +371,28 @@ appeared once already:
 - A forfeited downpayment on a cancelled booking is real cash but is not live
   business — the web reports it on its own line.
 
+### 7.1 Where the customer sends an online payment (29 Sep 2026)
+
+The GCash and bank accounts are kept by the manager on **Settings → Payment
+Details** and stored in `public.payment_account` (created by
+`sql/payment_accounts.sql`). The app should show them on its payment screen
+instead of hard-coding any number:
+
+```sql
+select method, bank_name, account_name, account_number, qr_image_url, instructions
+from payment_account
+where is_active
+order by sort_order, method, account_name;
+```
+
+- `method` is `GCash` or `Bank Transfer` — the same values `payment.pay_method`
+  uses, so the method the customer picks can be written straight through.
+- `bank_name` is set for Bank Transfer and null for GCash.
+- `qr_image_url` is optional; show the QR when it is there.
+- RLS lets anyone read **active** rows only. The app cannot write this table.
+- The table is in the `supabase_realtime` publication, so an open payment
+  screen can subscribe and pick up an edit without a restart.
+
 ## 8. Keeping this honest as we keep updating
 
 1. **This file changes first.** Any change to a shared table's meaning — a new
