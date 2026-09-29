@@ -435,9 +435,15 @@ if (event === 'SIGNED_OUT') {
           if (session?.user) {
             const isFreshSignIn = freshLoginAttemptRef.current;
             freshLoginAttemptRef.current = false;
-            setLoading(true);
+            // Supabase also fires SIGNED_IN every time the browser tab becomes
+            // visible again. For the manager already signed in here that is
+            // only a re-check, so it runs silently: flipping `loading` made
+            // ProtectedRoute swap the page for a spinner, which unmounted it
+            // and threw away whatever was typed into an open form.
+            const isRecheck = !isFreshSignIn && verifiedManagerUserIdRef.current === session.user.id;
+            if (!isRecheck) setLoading(true);
             await checkManager(session.user, false, isFreshSignIn);
-            setLoading(false);
+            if (!isRecheck) setLoading(false);
           }
           return;
         }
