@@ -1363,7 +1363,8 @@ export default function ShortOrderDetails() {
               {paymentEntries.length > 0 && (
                 <div className="mt-4 border border-slate-300 rounded-lg overflow-hidden">
                   <CardScrollArea>
-                  <table className="w-full text-left text-sm">
+                  <table className="w-full table-fixed text-left text-sm [&_th]:p-2 [&_td]:p-2 [&_td]:break-words [&_th]:align-bottom">
+                    <colgroup><col className="w-[16%]" /><col className="w-[16%]" /><col className="w-[23%]" /><col className="w-[15%]" /><col className="w-[19%]" /><col className="w-[11%]" /></colgroup>
                     <thead>
                       <tr className="bg-[#EAF3F2] text-slate-900 font-bold border-b border-slate-300">
                         <th className="p-3">Amount</th>
@@ -1387,7 +1388,7 @@ export default function ShortOrderDetails() {
                           </td>
                           <td className="p-3">{p.pay_method || 'N/A'}</td>
                           <td className="p-3">
-                            <span title={badge.note || undefined} className={`px-2 py-1 rounded-full border text-xs font-medium whitespace-nowrap ${badge.className}`}>
+                            <span title={badge.note || undefined} className={`px-2 py-1 inline-block rounded-lg border text-xs font-medium leading-tight ${badge.className}`}>
                               {badge.label}
                             </span>
                           </td>
@@ -1653,7 +1654,8 @@ export default function ShortOrderDetails() {
 
               <div className="border border-slate-300 rounded-lg overflow-hidden">
                 <CardScrollArea>
-                <table className="w-full text-left text-sm">
+                <table className="w-full table-fixed text-left text-sm [&_th]:p-2 [&_td]:p-2 [&_td]:break-words [&_th]:align-bottom">
+                  <colgroup><col className="w-[16%]" /><col className="w-[22%]" /><col className="w-[26%]" /><col className="w-[16%]" /><col className="w-[20%]" /></colgroup>
                   <thead>
                     <tr className="bg-red-50 text-slate-900 font-bold border-b border-slate-300">
                       <th className="p-3">Amount</th>

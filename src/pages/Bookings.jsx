@@ -1933,7 +1933,7 @@ const handleMarkCompleted = async (id) => {
         </div>
 
         <div className="hidden xl:block overflow-x-auto">
-          <table className="w-full table-fixed text-left border-collapse">
+          <table className="w-full table-fixed text-left border-collapse [&_th]:px-2 [&_td]:px-2 min-[1440px]:[&_th]:px-3 min-[1440px]:[&_td]:px-3">
             <thead>
               <tr className="bg-[#fbfcfd] border-b border-slate-100">
                 <th className="px-3 py-3 w-[3%]">
@@ -1953,7 +1953,7 @@ const handleMarkCompleted = async (id) => {
                 <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[13%] min-[1920px]:w-[16%]">Customer</th>
                 <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[10%] min-[1920px]:w-[8%]">Created</th>
                 <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[10%] min-[1920px]:w-[8%]">Event Date</th>
-                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[9%] min-[1920px]:w-[10%]">Venue</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[11%] min-[1920px]:w-[10%]">Venue</th>
                 <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[4%] text-right">Pax</th>
                 <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[10%]">Package</th>
                 <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[10%] min-[1920px]:w-[8%] text-right">Amount</th>
@@ -1979,7 +1979,7 @@ const handleMarkCompleted = async (id) => {
                   </button>
                 </th>
                 <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[9%] min-[1920px]:w-[8%]">Status</th>
-                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[22%] min-[1920px]:w-[25%] text-center">Actions</th>
+                <th className="px-3 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700 whitespace-nowrap w-[20%] min-[1920px]:w-[25%] text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
@@ -2053,9 +2053,9 @@ const handleMarkCompleted = async (id) => {
                     <td className="px-3 py-[15px] text-sm font-medium text-slate-800 tabular-nums">
                       {booking.event_datetime ? new Date(booking.event_datetime).toLocaleDateString() : 'N/A'}
                     </td>
-                    <td className="px-3 py-[15px] text-sm text-slate-800 break-words" title={booking.venue || 'N/A'}>{booking.venue || 'N/A'}</td>
+                    <td className="px-3 py-[15px] text-sm text-slate-800 break-words hyphens-auto" title={booking.venue || 'N/A'}>{booking.venue || 'N/A'}</td>
                     <td className="px-3 py-[15px] text-sm text-slate-800 text-right tabular-nums">{booking.pax_count || 0}</td>
-                    <td className="px-3 py-[15px] text-sm text-slate-800 break-words" title={booking.package?.pkg_name || 'N/A'}>{booking.package?.pkg_name || 'N/A'}</td>
+                    <td className="px-3 py-[15px] text-sm text-slate-800 break-words hyphens-auto" title={booking.package?.pkg_name || 'N/A'}>{booking.package?.pkg_name || 'N/A'}</td>
                     <td className="px-3 py-[15px] text-[15px] font-semibold text-slate-900 text-right tabular-nums">₱{booking.total_amount?.toLocaleString() || '0'}</td>
                     {/* An em dash, not ₱0: a settled booking should read as
                         settled rather than as a figure to check. */}
@@ -2079,7 +2079,7 @@ const handleMarkCompleted = async (id) => {
                         {/* Beside the status badge, deliberately in the
                             quietest grey on the page — see utils/lapsed.js. */}
                         {isLapsed && (
-                          <span className={LAPSED_CHIP_CLASS} title={LAPSED_ACCEPT_TOOLTIP}>{lapsedBlockedLabel(booking.booking_status)}</span>
+                          <span className={`${LAPSED_CHIP_CLASS} whitespace-normal! rounded-lg! leading-tight`} title={LAPSED_ACCEPT_TOOLTIP}>{lapsedBlockedLabel(booking.booking_status)}</span>
                         )}
                         {/* "Balance Remaining" and "Past Due" used to sit
                             here, each deciding for itself what was unpaid and

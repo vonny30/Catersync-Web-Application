@@ -1074,7 +1074,7 @@ export default function Customers() {
   const renderSortHeader = (field, label, align = 'left') => (
     <button
       onClick={() => toggleSort(field)}
-      className={`flex items-center gap-1.5 text-[12.5px] font-bold uppercase tracking-[0.05em] transition-colors cursor-pointer whitespace-nowrap ${align === 'right' ? 'ml-auto' : ''} ${
+      className={`flex items-center gap-1.5 text-[12.5px] font-bold uppercase tracking-[0.05em] transition-colors cursor-pointer leading-tight ${align === 'right' ? 'ml-auto text-right' : 'text-left'} ${
         sort.field === field ? 'text-[#007038]' : 'text-slate-700 hover:text-[#007038]'
       }`}
     >
@@ -1093,7 +1093,7 @@ export default function Customers() {
     const base = 'flex items-center justify-center gap-1.5 rounded-[9px] border text-[12.5px] font-semibold transition-colors whitespace-nowrap';
     const size = compact ? 'w-8 h-8' : 'px-3 py-[7px]';
     return (
-      <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+      <div className={`flex items-center justify-end gap-1.5 ${compact ? 'flex-wrap' : ''}`} onClick={(e) => e.stopPropagation()}>
         {compact && (
           <button onClick={() => openDrawer(customer.customer_id)} title="View" aria-label="View" className={`${base} ${size} border-slate-200 bg-white text-slate-600 hover:text-[#007038] hover:border-[#c9dfd4]`}>
             <Eye size={14} />
@@ -1299,24 +1299,24 @@ export default function Customers() {
       {/* TABLE */}
       <div ref={tableRef} className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden scroll-mt-4">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full table-fixed text-left border-collapse [&_th]:px-2.5 [&_td]:px-2.5 min-[1440px]:[&_th]:px-4 min-[1440px]:[&_td]:px-4">
             <thead>
               <tr className="bg-[#fbfcfd] border-b border-slate-100 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700">
-                <th className="px-4 py-3">{renderSortHeader('full_name', 'Customer')}</th>
-                <th className="px-4 py-3 whitespace-nowrap">Contact</th>
-                <th className="px-4 py-3">{renderSortHeader('total_bookings', 'Bookings')}</th>
+                <th className="px-4 py-3 w-[21%]">{renderSortHeader('full_name', 'Customer')}</th>
+                <th className="px-4 py-3 w-[11.5%] whitespace-nowrap">Contact</th>
+                <th className="px-4 py-3 w-[12%]">{renderSortHeader('total_bookings', 'Bookings')}</th>
                 {/* contracted_gross, never lifetime_gross: the lifetime figure
                     counted Pending requests, so one customer read as worth
                     PHP 603,400 against PHP 46,000 actually contracted — and
                     led the list on it. Contracted Value is what the business
                     committed to perform: Confirmed and Completed only. */}
-                <th className="px-4 py-3 text-right">{renderSortHeader('contracted_gross', 'Total Value', 'right')}</th>
+                <th className="px-4 py-3 w-[10.5%] text-right">{renderSortHeader('contracted_gross', 'Total Value', 'right')}</th>
                 {/* Collectible now. Same measure and same word as the card
                     above and as the Receivables page. */}
-                <th className="px-4 py-3 text-right">{renderSortHeader('receivable_due', 'Accounts Receivable', 'right')}</th>
-                <th className="px-4 py-3">{renderSortHeader('next_event_at', 'Next Booking')}</th>
-                <th className="px-4 py-3 whitespace-nowrap">Status</th>
-                <th className="px-4 py-3 whitespace-nowrap text-right">Actions</th>
+                <th className="px-4 py-3 w-[12%] text-right">{renderSortHeader('receivable_due', 'Accounts Receivable', 'right')}</th>
+                <th className="px-4 py-3 w-[11%]">{renderSortHeader('next_event_at', 'Next Booking')}</th>
+                <th className="px-4 py-3 w-[9%] whitespace-nowrap">Status</th>
+                <th className="px-4 py-3 w-[13%] whitespace-nowrap text-right">Actions</th>
               </tr>
             </thead>
             <tbody className={`divide-y divide-slate-100 text-sm text-slate-700 transition-opacity ${listLoading && hasListLoaded ? 'opacity-60' : ''}`}>
@@ -1328,16 +1328,16 @@ export default function Customers() {
                 list.rows.map((c) => (
                   <tr key={c.customer_id} onClick={() => openDrawer(c.customer_id)} className="hover:bg-[#fbfcfd] transition-colors cursor-pointer">
                     <td className="px-4 py-[15px]">
-                      <div className="flex items-center gap-2">
-                        <p className="text-[15px] font-semibold text-slate-900">{c.full_name}</p>
+                      <div className="flex items-center gap-x-2 gap-y-1 flex-wrap">
+                        <p className="text-[15px] font-semibold text-slate-900 break-words min-w-0">{c.full_name}</p>
                         {c.source !== 'Unknown' && <Pill className={SOURCE_PILL[c.source]}>{c.source}</Pill>}
                       </div>
-                      <p className="text-[13px] text-slate-500 mt-0.5">{c.email_address}</p>
+                      <p className="text-[13px] text-slate-500 mt-0.5 [overflow-wrap:anywhere]">{c.email_address}</p>
                     </td>
                     <td className="px-4 py-[15px] text-sm text-slate-700 tabular-nums whitespace-nowrap">{c.contact_no || '—'}</td>
                     <td className="px-4 py-[15px]">
                       <p className="text-[15px] font-semibold text-slate-900 tabular-nums">{c.total_bookings}</p>
-                      <p className="text-[12.5px] text-slate-500 whitespace-nowrap">{c.package_bookings} package · {c.short_orders} short order</p>
+                      <p className="text-[12.5px] text-slate-500">{c.package_bookings} package · {c.short_orders} short order</p>
                     </td>
                     <td className="px-4 py-[15px] text-right text-[15px] font-semibold text-slate-900 tabular-nums whitespace-nowrap">
                       {Number(c.contracted_gross) > 0

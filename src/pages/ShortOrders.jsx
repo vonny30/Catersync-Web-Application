@@ -1781,7 +1781,7 @@ export default function ShortOrders() {
         </div>
 
         <div className="hidden xl:block overflow-x-auto">
-          <table className="w-full table-fixed text-left border-collapse">
+          <table className="w-full table-fixed text-left border-collapse [&_th]:px-2 [&_td]:px-2 min-[1440px]:[&_th]:px-3 min-[1440px]:[&_td]:px-3">
             <thead>
               <tr className="bg-[#fbfcfd] border-b border-slate-100">
                 <th className="px-3 py-3 w-[3%]">
@@ -1895,7 +1895,7 @@ export default function ShortOrders() {
                       <td className="px-3 py-[15px] text-sm font-medium text-slate-800 tabular-nums">
                         {order.event_datetime ? new Date(order.event_datetime).toLocaleDateString() : 'N/A'}
                       </td>
-                      <td className="px-3 py-[15px] text-sm text-slate-800 break-words" title={order.venue || 'N/A'}>
+                      <td className="px-3 py-[15px] text-sm text-slate-800 break-words hyphens-auto" title={order.venue || 'N/A'}>
                         {order.venue || 'N/A'}
                         {(() => {
                           const f = getServiceMethod(order);
@@ -1945,7 +1945,7 @@ export default function ShortOrders() {
                             {order.booking_status}
                           </span>
                           {isLapsed && (
-                            <span className={LAPSED_CHIP_CLASS} title={LAPSED_ACCEPT_TOOLTIP}>{lapsedBlockedLabel(order.booking_status)}</span>
+                            <span className={`${LAPSED_CHIP_CLASS} whitespace-normal! rounded-lg! leading-tight`} title={LAPSED_ACCEPT_TOOLTIP}>{lapsedBlockedLabel(order.booking_status)}</span>
                           )}
                           {/* "Balance Remaining" and "Past Due" lived here and
                               each decided for itself what was unpaid and what
