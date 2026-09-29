@@ -12,12 +12,13 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { useAuth } from '../contexts/AuthContext';
 import PasswordChecklist from '../components/PasswordChecklist';
 import PaymentAccountsSettings from '../components/PaymentAccountsSettings';
+import BusinessProfileSettings from '../components/BusinessProfileSettings';
 
 export default function SettingsPage() {
   const navigate = useNavigate();
   const { showConfirm } = useConfirm();
   const { logout } = useAuth();
-  const [activeTab, setActiveTab] = useState('general');
+  const [activeTab, setActiveTab] = useState('business');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
@@ -274,7 +275,8 @@ export default function SettingsPage() {
   };
 
   const tabs = [
-    { id: 'general', label: 'Business Profile', icon: Building2 },
+    { id: 'business', label: 'Business Details', icon: Building2 },
+    { id: 'general', label: 'Manager Profile', icon: User },
     { id: 'security', label: 'Security', icon: Lock },
     { id: 'payments', label: 'Payment Details', icon: Wallet },
   ];
@@ -295,7 +297,7 @@ export default function SettingsPage() {
     <div className="max-w-5xl mx-auto animate-in fade-in duration-200">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
-        <p className="text-sm text-slate-500 mt-1">Manage your business profile, security and payment details.</p>
+        <p className="text-sm text-slate-500 mt-1">Manage your business details, manager profile, security and payment details.</p>
       </div>
 
       <div className="border-b border-slate-200 mb-8">
@@ -541,6 +543,8 @@ export default function SettingsPage() {
             </div>
           </form>
         )}
+
+        {activeTab === 'business' && <BusinessProfileSettings />}
 
         {activeTab === 'payments' && <PaymentAccountsSettings />}
 

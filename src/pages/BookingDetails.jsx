@@ -46,6 +46,7 @@ import ImageUploadField from '../components/ImageUploadField';
 import RefundMethodField from '../components/RefundMethodField';
 import { prepareRefundEvidence } from '../utils/refundEvidence';
 import ReceiptFields from '../components/ReceiptFields';
+import { BusinessName } from '../utils/businessProfile';
 
 // The allocation history for one booking, from booking_equipment_log. The log
 // has no foreign keys (so a deleted booking or item cannot block it), which
@@ -2785,7 +2786,7 @@ export default function BookingDetails() {
                   minLeadDays={3}
                 />
                 {editFieldErrors.event_datetime && <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.event_datetime}</p>}
-                <p className="text-[11px] text-slate-400 mt-1">Bookings must be made at least 3 days before the event — PG's catering policy.</p>
+                <p className="text-[11px] text-slate-400 mt-1">Bookings must be made at least 3 days before the event — <BusinessName /> policy.</p>
               </div>
 
               <div>

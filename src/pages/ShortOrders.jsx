@@ -44,6 +44,7 @@ import { filterCustomersForPicker } from '../utils/customerPicker';
 import { bulkDeleteBookings } from '../utils/bulkDeleteBookings';
 import ImageUploadField from '../components/ImageUploadField';
 import RefundMethodField from '../components/RefundMethodField';
+import { BusinessName } from '../utils/businessProfile';
 
 export default function ShortOrders() {
   const navigate = useNavigate();
@@ -2206,7 +2207,7 @@ export default function ShortOrders() {
                           </button>
                         </div>
                         <p className="text-xs text-amber-600 -mt-2">
-                          ⚠️ Account will be created with the default password (Password123!). The customer can reset it via email.
+                          ⚠️ A one-time password will be created for this customer and shown once. Give it to them so they can sign in to the app.
                         </p>
                         <div className="grid grid-cols-2 gap-3">
                           <div>
@@ -2290,7 +2291,7 @@ export default function ShortOrders() {
                 <label className="block text-xs font-bold text-slate-700 mb-1">Event Date & Time *</label>
                 <DateTimePicker name="event_datetime" value={formData.event_datetime} onChange={handleInputChange} hasError={!!fieldErrors.event_datetime} minLeadDays={3} required />
                 {fieldErrors.event_datetime && <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.event_datetime}</p>}
-                <p className="text-[11px] text-slate-400 mt-1">Orders must be placed at least 3 days before the event — PG's catering policy.</p>
+                <p className="text-[11px] text-slate-400 mt-1">Orders must be placed at least 3 days before the event — <BusinessName /> policy.</p>
                 <p className="text-[11px] text-slate-400 mt-1">
                   Only {MAX_SHORT_ORDERS_PER_DAY} Short Orders can be approved per day.
                   {formData.event_datetime && !dateOrderCountLoading && dateOrderCount !== null && (
@@ -2347,7 +2348,7 @@ export default function ShortOrders() {
                   <input type="text" name="venue" value={formData.venue} onChange={handleInputChange} placeholder="e.g. Banga, Bayawan City" className={errorInputClass(!!fieldErrors.venue, 'w-full border rounded-lg p-2.5 text-sm outline-none')} required />
                   {fieldErrors.venue && <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.venue}</p>}
                   <p className="text-[11px] text-slate-500 mt-1">
-                    PG&apos;s delivers free within Bayawan, Santa Catalina and Basay. A delivery fee applies outside those.
+                    <BusinessName /> delivers free within Bayawan, Santa Catalina and Basay. A delivery fee applies outside those.
                   </p>
                 </div>
               )}

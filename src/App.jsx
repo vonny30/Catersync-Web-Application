@@ -25,6 +25,7 @@ import SettingsPage from './pages/SettingsPage';
 import Login from './pages/Login';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
+import { PrivacyNotice, TermsOfService } from './pages/LegalPages';
 import LoadingScreen from './components/LoadingScreen';
 
 function AppContent() {
@@ -80,6 +81,8 @@ function AppContent() {
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/privacy" element={<PrivacyNotice />} />
+        <Route path="/terms" element={<TermsOfService />} />
         <Route
           path="/app/*"
           element={

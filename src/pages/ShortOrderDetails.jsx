@@ -40,6 +40,7 @@ import ImageUploadField from '../components/ImageUploadField';
 import RefundMethodField from '../components/RefundMethodField';
 import { prepareRefundEvidence } from '../utils/refundEvidence';
 import ReceiptFields from '../components/ReceiptFields';
+import { BusinessName } from '../utils/businessProfile';
 
 export default function ShortOrderDetails() {
   const { id } = useParams();
@@ -1732,7 +1733,7 @@ export default function ShortOrderDetails() {
                   required
                 />
                 {editFieldErrors.event_datetime && <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.event_datetime}</p>}
-                <p className="text-[11px] text-slate-400 mt-1">Orders must be placed at least 3 days before the event — PG's catering policy.</p>
+                <p className="text-[11px] text-slate-400 mt-1">Orders must be placed at least 3 days before the event — <BusinessName /> policy.</p>
               </div>
 
               <div>
@@ -1788,7 +1789,7 @@ export default function ShortOrderDetails() {
                     />
                     {editFieldErrors.venue && <p className="text-xs text-red-600 font-semibold mt-1">{editFieldErrors.venue}</p>}
                     <p className="text-[11px] text-slate-500 mt-1">
-                      PG&apos;s delivers free within Bayawan, Santa Catalina and Basay. A delivery fee applies outside those.
+                      <BusinessName /> delivers free within Bayawan, Santa Catalina and Basay. A delivery fee applies outside those.
                     </p>
                   </div>
 

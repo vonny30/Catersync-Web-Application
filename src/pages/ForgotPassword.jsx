@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Mail, AlertCircle, ArrowLeft, MailCheck, Info, KeyRound } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
+import { BusinessName } from '../utils/businessProfile';
 
 // Supabase throttles reset emails per address. Matching that here means the
 // button says how long to wait instead of letting someone press it three times
@@ -156,7 +157,7 @@ export default function ForgotPassword() {
         </div>
 
         <p className="relative w-full max-w-[560px] mx-auto text-[13.5px] text-white/60">
-          &copy; {new Date().getFullYear()} PG&apos;s Catering. All rights reserved.
+          &copy; {new Date().getFullYear()} <BusinessName />. All rights reserved.
         </p>
       </div>
 

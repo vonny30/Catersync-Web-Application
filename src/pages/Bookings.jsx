@@ -45,6 +45,7 @@ import { filterCustomersForPicker } from '../utils/customerPicker';
 import { bulkDeleteBookings } from '../utils/bulkDeleteBookings';
 import ImageUploadField from '../components/ImageUploadField';
 import RefundMethodField from '../components/RefundMethodField';
+import { BusinessName } from '../utils/businessProfile';
 
 // Package × pax, the way this page has always priced a booking: per-pax
 // packages multiply, per-package ones add extra_pax_price above max_pax. One
@@ -2358,7 +2359,7 @@ const handleMarkCompleted = async (id) => {
                           </button>
                         </div>
                         <p className="text-xs text-amber-600 -mt-2">
-                          ⚠️ Account will be created with the default password (Password123!). The customer can reset it via email.
+                          ⚠️ A one-time password will be created for this customer and shown once. Give it to them so they can sign in to the app.
                         </p>
                         <div className="grid grid-cols-2 gap-3">
                           <div>
@@ -2501,7 +2502,7 @@ const handleMarkCompleted = async (id) => {
                   required
                 />
                 {fieldErrors.event_datetime && <p className="text-xs text-red-600 font-semibold mt-1">{fieldErrors.event_datetime}</p>}
-                <p className="text-[11px] text-slate-400 mt-1">Bookings must be made at least 3 days before the event — PG's catering policy.</p>
+                <p className="text-[11px] text-slate-400 mt-1">Bookings must be made at least 3 days before the event — <BusinessName /> policy.</p>
               </div>
 
               {/* Venue */}

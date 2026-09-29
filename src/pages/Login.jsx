@@ -5,6 +5,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
+import { BusinessName } from '../utils/businessProfile';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -205,7 +206,7 @@ export default function Login() {
             Every event, every tray, every peso — in one place.
           </h2>
           <p className="mt-5 text-[clamp(16px,1.15vw,19px)] leading-[1.55] text-white/85 [text-wrap:pretty]">
-            The manager console for PG&apos;s Catering. Bookings, payments, equipment and fleet, from one dashboard.
+            The manager console for <BusinessName />. Bookings, payments, equipment and fleet, from one dashboard.
           </p>
           <div className="flex flex-wrap gap-2.5 mt-9 pt-7 border-t border-white/[0.18]">
             {['Bookings & short orders', 'Payment verification', 'Equipment & fleet', 'Reports'].map(f => (
@@ -217,7 +218,7 @@ export default function Login() {
         </div>
 
         <p className="relative w-full max-w-[560px] mx-auto text-[13.5px] text-white/60">
-          &copy; {new Date().getFullYear()} PG&apos;s Catering. All rights reserved.
+          &copy; {new Date().getFullYear()} <BusinessName />. All rights reserved.
         </p>
       </div>
 
@@ -327,6 +328,11 @@ export default function Login() {
             <p className="text-[13.5px] leading-[1.5] text-slate-500 [text-wrap:pretty]">
               Only one session per account. If this account is already signed in elsewhere, you&apos;ll be told where before you can continue.
             </p>
+          </div>
+
+          <div className="flex flex-wrap gap-x-5 gap-y-2 mt-6 text-[13.5px]">
+            <Link to="/privacy" className="font-semibold text-slate-500 hover:text-[#007038]">Privacy Notice</Link>
+            <Link to="/terms" className="font-semibold text-slate-500 hover:text-[#007038]">Terms of Service</Link>
           </div>
         </div>
       </div>

@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { getPasswordPolicyError } from '../utils/passwordPolicy';
 import PasswordChecklist from '../components/PasswordChecklist';
+import { BusinessName } from '../utils/businessProfile';
 
 // One-time proof that THIS tab just completed a code-based password recovery.
 // ResetPassword.jsx reads it and clears it. The key and shape are written out
@@ -221,8 +222,7 @@ export default function ResetPassword() {
       </main>
 
       <footer className="bg-[#C1DEDC] py-5 text-center flex items-center justify-center gap-4 text-xs font-semibold text-slate-800">
-        <span>@2023 all rights reserved</span>
-        <span>PG's Catering</span>
+        <span>&copy; {new Date().getFullYear()} <BusinessName />. All rights reserved.</span>
       </footer>
     </div>
   );
