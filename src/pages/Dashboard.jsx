@@ -21,6 +21,7 @@ import { fetchKeptDeposits } from '../utils/keptDeposits';
 import ImageUploadField from '../components/ImageUploadField';
 import RefundMethodField from '../components/RefundMethodField';
 import ApprovalModal from '../components/ApprovalModal';
+import { BusinessName } from '../utils/businessProfile';
 
 // `date.toISOString().split('T')[0]` converts to UTC before slicing the
 // date portion — for any UTC+ timezone (PG's Catering is PHT, UTC+8),
@@ -73,6 +74,9 @@ const upcomingWindowLabel = () => {
 };
 
 // The current month's name, for the Cash Receipts subtext.
+
+// When a request was submitted, for newest-first ordering.
+const requestedAt = (item) => new Date(item.book_datetime || 0).getTime();
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -224,6 +228,7 @@ export default function Dashboard() {
           event_datetime,
           booking_status,
           booking_type,
+          book_datetime,
           total_amount,
           notes,
           package_id,
@@ -248,6 +253,7 @@ export default function Dashboard() {
           event_datetime,
           booking_status,
           booking_type,
+          book_datetime,
           total_amount,
           notes,
           delivery_fee,
@@ -260,9 +266,8 @@ export default function Dashboard() {
 
       if (pendingShortError) throw pendingShortError;
 
-      // Combine and sort by event_datetime
+      // Combine both kinds of request. Sorted after the lapsed check below.
       const combined = [...(pendingPackages || []), ...(pendingShortOrders || [])];
-      combined.sort((a, b) => new Date(a.event_datetime) - new Date(b.event_datetime));
 
       // Attach each item's payment totals so getPaymentSummary (used by the
       // Reject flow's refund-eligibility calc) has real numbers to read —
@@ -291,6 +296,15 @@ export default function Dashboard() {
           item.is_lapsed = lapsedIds.has(item.booking_id);
         });
       }
+
+      // Newest request first, so a booking or short order that just came in
+      // is always at the top of the list instead of wherever its event date
+      // put it. Requests whose event date has passed (nothing left to
+      // approve) go to the bottom.
+      combined.sort((a, b) =>
+        (a.is_lapsed === b.is_lapsed ? 0 : a.is_lapsed ? 1 : -1)
+        || requestedAt(b) - requestedAt(a)
+      );
 
       setPendingItems(combined);
       setStats(prev => ({ ...prev, pendingBookings: combined.length }));
@@ -411,8 +425,18 @@ export default function Dashboard() {
   // most likely to be left open unattended.
   useEffect(() => {
     fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 5 * 60000);
-    return () => clearInterval(interval);
+    const interval = setInterval(fetchDashboardData, 2 * 60000);
+    // Coming back to the tab (or waking the laptop) refreshes at once, so a
+    // request that arrived while the realtime connection was down still
+    // shows up without a manual refresh.
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchDashboardData(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
   }, []);
 
   useRealtimeRefresh('dashboard-page', ['booking', 'payment'], fetchDashboardData);
@@ -549,6 +573,20 @@ export default function Dashboard() {
     return new Date(dateStr).toLocaleDateString([], { month: 'short', day: 'numeric' });
   };
 
+  // "Requested 5 min ago" / "3 h ago" / "Sep 27" — when the customer sent it.
+  const formatRequested = (dateStr) => {
+    if (!dateStr) return null;
+    const minutes = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return `${minutes} min ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`;
+    return formatDate(dateStr);
+  };
+  const isNewRequest = (item) => item.book_datetime && Date.now() - new Date(item.book_datetime).getTime() < 24 * 3600 * 1000;
+
   const getClientName = (booking) => {
     if (booking.customer) {
       return `${booking.customer.first_name} ${booking.customer.last_name}`;
@@ -610,10 +648,11 @@ export default function Dashboard() {
           event_datetime,
           booking_status,
           booking_type,
+          book_datetime,
           customer:customer_id (first_name, last_name)
         `)
         .eq('booking_status', 'Pending')
-        .order('event_datetime', { ascending: true });
+        .order('book_datetime', { ascending: false });
       if (error) throw error;
       setStatsModalData(data || []);
       setStatsModalTitle('Pending Bookings & Orders');
@@ -724,7 +763,7 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <h1 className="text-[27px] font-bold text-slate-900 tracking-tight">
-          Good day, PG's Catering Manager
+          Good day, <BusinessName /> Manager
           <span className="text-[14.5px] font-normal text-slate-500 block mt-1.5">
             {new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
           </span>
@@ -969,11 +1008,17 @@ export default function Dashboard() {
                           <span className={`text-[12.5px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${isShortOrder ? 'bg-[#f6edfe] text-[#7e22ce]' : 'bg-[#EAF3F2] text-[#00703a]'}`}>
                             {isShortOrder ? 'Short Order' : 'Package'}
                           </span>
+                          {isNewRequest(item) && (
+                            <span className="text-[11.5px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-[#008A45] text-white">New</span>
+                          )}
                         </div>
                         <p className="text-[13.5px] text-slate-500 mt-[5px] tabular-nums">
                           {formatDate(item.event_datetime)} · {item.venue || 'No venue'}
                           {!isShortOrder && ` · ${item.pax_count || 0} pax`}
                         </p>
+                        {item.book_datetime && (
+                          <p className="text-[12.5px] text-slate-400 mt-0.5">Requested {formatRequested(item.book_datetime)}</p>
+                        )}
                       </div>
                       <span className="bg-amber-50 border border-amber-200 text-amber-700 text-[13px] px-3 py-1 rounded-full font-semibold">
                         Pending
