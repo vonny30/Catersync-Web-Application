@@ -60,11 +60,13 @@ export function SectionCard({ children, className = '' }) {
  * cap only engages on a record long enough to run away with the page.
  *
  * `overscroll-contain` stops a scroll that reaches the end of this list from
- * continuing into the page behind it.
+ * continuing into the page behind it. `overflow-x-hidden` because this is a
+ * vertical list: its contents are sized to fit, and a stray pixel of rounding
+ * would otherwise put a sideways scrollbar under the payments table.
  */
 export function CardScrollArea({ children, className = '', max = '420px' }) {
   return (
-    <div className={`overflow-y-auto overscroll-contain ${className}`} style={{ maxHeight: max }}>
+    <div className={`overflow-y-auto overflow-x-hidden overscroll-contain ${className}`} style={{ maxHeight: max }}>
       {children}
     </div>
   );
