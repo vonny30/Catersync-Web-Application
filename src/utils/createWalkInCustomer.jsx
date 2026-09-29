@@ -2,6 +2,18 @@
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 
+// A one-time password, different for every walk-in customer, e.g. "Cs-7KMX-4QPT9!".
+// Easy to read out at the counter (no 0/O or 1/I/l), and it meets the
+// password policy: upper case, lower case, a digit and a symbol.
+function generateTemporaryPassword() {
+  const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  const chars = Array.from(bytes, (b) => alphabet[b % alphabet.length]);
+  const digit = '23456789'[crypto.getRandomValues(new Uint8Array(1))[0] % 8];
+  return `Cs-${chars.slice(0, 4).join('')}-${chars.slice(4).join('')}${digit}!`;
+}
+
 export async function createWalkInCustomer(walkInData) {
   // Initialize counter if not exists
   if (typeof window._pendingWalkInCount === 'undefined') {
@@ -89,12 +101,11 @@ export async function createWalkInCustomer(walkInData) {
       counter++;
     }
 
-    // 4. Create Supabase Auth user (fixed default password — walk-in
-    // customers are created in person at the counter, so a consistent,
-    // known password the staff can tell them on the spot is more useful
-    // than a random one they'd have to reset via email before they could
-    // ever log in).
-    const defaultPassword = 'Password123!';
+    // 4. Create Supabase Auth user. Each walk-in gets their own one-time
+    // password, shown once to the manager to hand over at the counter.
+    // (A single shared password meant anyone who knew it could sign in as
+    // any walk-in customer.)
+    const defaultPassword = generateTemporaryPassword();
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: walkInData.email_address,
       password: defaultPassword,
@@ -156,7 +167,8 @@ export async function createWalkInCustomer(walkInData) {
     await new Promise((resolve) => setTimeout(resolve, 500));
 
     toast.success(
-      `Customer account created. Default password: ${defaultPassword} — they can reset it by email.`
+      `Customer account created. One-time password: ${defaultPassword} — give it to the customer now; it won't be shown again. They can change it after signing in, or reset it by email.`,
+      { duration: 30000 }
     );
 
     return newCustomer.customer_id;

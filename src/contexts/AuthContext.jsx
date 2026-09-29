@@ -47,6 +47,10 @@ export const AuthProvider = ({ children }) => {
   const isCreatingWalkIn = useRef(false);
   const inactivityTimerRef = useRef(null);
   const retryCount = useRef(0);
+  // The auth user id this tab last confirmed as a manager. Lets a manager who
+  // is already working ride out a network blip during a token refresh, while
+  // an account that was never confirmed is refused (fail closed).
+  const verifiedManagerUserIdRef = useRef(null);
   const maxRetries = 2;
   const logoutTimeoutRef = useRef(null);
   const lastActivityRef = useRef(Date.now());
@@ -216,6 +220,7 @@ export const AuthProvider = ({ children }) => {
         // normal event — and a global signOut would revoke their tokens
         // everywhere, silently signing them out of the mobile app for using
         // the wrong login page.
+        verifiedManagerUserIdRef.current = null;
         await supabase.auth.signOut({ scope: 'local' });
         setUser(null);
         setIsManager(false);
@@ -275,6 +280,7 @@ export const AuthProvider = ({ children }) => {
 
       setUser(authUser);
       setIsManager(true);
+      verifiedManagerUserIdRef.current = authUser.id;
       retryCount.current = 0;
       const rememberMe = localStorage.getItem('rememberMe') === 'true';
       if (!rememberMe) resetInactivityTimer();
@@ -299,13 +305,27 @@ export const AuthProvider = ({ children }) => {
         return checkManagerImpl(authUser, true, isFreshSignIn);
       }
 
-      if (!isRetry) {
-        toast.error('Connection issue. Please refresh the page to continue.', { duration: 4000 });
-      }
-      setUser(authUser);
-      setIsManager(true);
       retryCount.current = 0;
-      return true;
+
+      // Fail closed. Access is only kept for an account this tab has already
+      // confirmed as a manager, so a working manager is not thrown out by a
+      // brief network drop during a token refresh. An account never confirmed
+      // (for example a customer trying the admin login) is refused.
+      if (verifiedManagerUserIdRef.current === authUser.id) {
+        if (!isRetry) {
+          toast.error('Connection issue. Please refresh the page to continue.', { duration: 4000 });
+        }
+        setUser(authUser);
+        setIsManager(true);
+        return true;
+      }
+
+      if (!isRetry) {
+        toast.error("We couldn't verify your account. Check your connection and try again.", { duration: 5000 });
+      }
+      setUser(null);
+      setIsManager(false);
+      return false;
     }
   };
 
@@ -342,6 +362,7 @@ export const AuthProvider = ({ children }) => {
 
 if (event === 'SIGNED_OUT') {
           clearInactivityTimer();
+          verifiedManagerUserIdRef.current = null;
           teardownSessionLock();
           if (logoutTimeoutRef.current) clearTimeout(logoutTimeoutRef.current);
 
