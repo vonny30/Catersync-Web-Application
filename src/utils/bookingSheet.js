@@ -10,6 +10,8 @@
 // real text (sharp, searchable, small) and needs no PDF library; the
 // browser's print dialog saves it, and the file name comes from the title.
 
+import { formatPhone } from './businessProfile';
+
 const esc = (v) => String(v ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
@@ -76,13 +78,13 @@ const STYLES = `
 export function buildBookingSheet({ business, booking, packageLabel, menu, notes }) {
   const number = booking.booking_number || '';
   const customerName = [booking.customer?.first_name, booking.customer?.last_name].filter(Boolean).join(' ') || '—';
-  const contact = [business.phone, business.email].filter(Boolean).join(' · ');
+  const contact = [formatPhone(business.phone), business.email].filter(Boolean).join(' · ');
 
   const fields = [
     ['Date', fmtDate(booking.event_datetime)],
     ['Time', fmtTime(booking.event_datetime)],
     ['Name', customerName],
-    ['Contact number', booking.customer?.contact_no || '—'],
+    ['Contact number', formatPhone(booking.customer?.contact_no) || '—'],
     ['Venue', booking.venue || '—'],
     ['Package', packageLabel || '—'],
     ['No. of pax', booking.pax_count ? Number(booking.pax_count).toLocaleString() : '—'],
