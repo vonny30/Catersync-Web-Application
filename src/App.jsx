@@ -105,6 +105,10 @@ function AppContent() {
           <Route path="reports" element={<Reports />} />
           <Route path="packages-menu" element={<PackagesAndMenus />} />
           <Route path="settings" element={<SettingsPage />} />
+          {/* A mistyped or old /app address showed an empty page inside the
+              layout. Send it to the Overview instead. */}
+          <Route path="packages" element={<Navigate to="/app/packages-menu" replace />} />
+          <Route path="*" element={<Navigate to="/app" replace />} />
         </Route>
         {/* ✅ Catch-all: redirect to login */}
         <Route path="*" element={<Navigate to="/" replace />} />

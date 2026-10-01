@@ -1206,7 +1206,9 @@ export default function PackagesAndMenus() {
   // Counts on the tabs themselves, so what sits in Archived is visible without
   // having to switch to it. Same numbers the stat cards use.
   const tabCounts = {
-    'All': totalActivePackages + totalActiveMenuItems,
+    // All lists archived items too (marked Archived), so count them, or the
+    // tab says 59 while the list shows 60 results.
+    'All': packages.length + menuItems.length,
     'Catering Packages': totalActivePackages,
     'Menu Items': totalActiveMenuItems,
     'Archived': totalArchived,

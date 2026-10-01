@@ -100,5 +100,10 @@ export const MAX_SHORT_ORDERS_PER_DAY = 4;
 // deliberate, all-or-nothing action (password-confirmed) rather than a
 // partial edit that could leave totals inconsistent with payments made.
 export function bookingEditLockedMessage(status, { noun = 'booking' } = {}) {
+  // The payment-history reason only fits records that took payments.
+  // A Rejected or Cancelled record is simply closed.
+  if (status === 'Rejected' || status === 'Cancelled') {
+    return `This ${noun} can't be edited — it's ${status}, so it is closed.`;
+  }
   return `This ${noun} can't be edited anymore — it's ${status}, and changing details now would conflict with the payment history already on record.`;
 }
