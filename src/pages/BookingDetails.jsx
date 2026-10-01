@@ -2434,7 +2434,10 @@ export default function BookingDetails() {
             <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
               <div className="flex justify-between items-center mb-4">
                 <div className="flex items-center gap-[11px] min-w-0"><span className="inline-flex items-center justify-center w-8 h-8 rounded-[10px] bg-[#f4f6f8] text-slate-600 shrink-0"><UtensilsCrossed size={17} /></span><h3 className="text-[15px] font-bold tracking-[-0.015em] text-slate-900">Menu Selections</h3></div>
-                <span className="text-xs font-medium text-slate-500">{menuSelections.length} item{menuSelections.length !== 1 ? 's' : ''}</span>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="text-xs font-medium text-slate-500">{menuSelections.length} item{menuSelections.length !== 1 ? 's' : ''}</span>
+                  <button onClick={openEditModal} className="text-[13px] font-bold text-[#007038] hover:text-[#00532a] cursor-pointer shrink-0">Edit</button>
+                </div>
               </div>
               {menuSelections.length === 0 ? (
                 <p className="text-sm text-slate-500 italic">No menu selections recorded.</p>
