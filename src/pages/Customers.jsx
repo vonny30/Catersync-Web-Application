@@ -21,7 +21,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
-  Search, LayoutGrid, RefreshCw, UserPlus, X, ChevronLeft, ChevronRight,
+  Search, RefreshCw, UserPlus, X, ChevronLeft, ChevronRight,
   ArrowUp, ArrowDown, ArrowUpDown, Eye, Edit, Ban, ShieldCheck, Trash2,
   CalendarDays, ShoppingBag, Wallet, Undo2, Mail, Phone, MapPin, ExternalLink,
   StickyNote, Clock,
@@ -109,8 +109,10 @@ const PAYMENT_STATUS_PILL = {
   'Pending Verification': 'bg-amber-50 text-amber-700',
   'Proof Rejected': 'bg-red-50 text-red-700',
 };
-const STATUS_CARD_BAR = { All: 'bg-slate-400', Active: 'bg-[#008A45]', Inactive: 'bg-slate-400', Blocked: 'bg-red-500' };
-const STATUS_CARD_TEXT = { All: 'text-slate-900', Active: 'text-[#007038]', Inactive: 'text-slate-600', Blocked: 'text-red-700' };
+// The list's four zones: who, booking history, Accounts Receivable, actions.
+// One column on a phone; the header row only appears with the grid.
+const ROW_COLS = 'grid grid-cols-1 md:grid-cols-[minmax(0,2.1fr)_minmax(0,1.6fr)_minmax(0,1.2fr)_104px] gap-x-5 gap-y-2';
+const ZONE_HEAD = 'text-[12.5px] font-bold tracking-[0.05em] uppercase text-slate-700';
 
 const SORT_DEFAULT_DIRECTION = {
   full_name: 'asc',
@@ -146,17 +148,30 @@ function Pill({ className, children, title }) {
   );
 }
 
-function SkeletonRows({ columns }) {
+function SkeletonRows() {
   return Array.from({ length: PAGE_SIZE }, (_, i) => (
-    <tr key={i} className="animate-pulse">
-      {Array.from({ length: columns }, (_, c) => (
-        <td key={c} className="px-4 py-[15px]">
-          <div className={`h-3.5 rounded bg-slate-100 ${c === 0 ? 'w-40' : 'w-16'}`} />
-          {c === 0 && <div className="h-3 w-28 rounded bg-slate-100 mt-2" />}
-        </td>
-      ))}
-    </tr>
+    <div key={i} className={`${ROW_COLS} items-center px-4 py-[15px] border-b border-[#f6f8fa] animate-pulse`}>
+      <div className="flex items-center gap-3">
+        <div className="w-[38px] h-[38px] rounded-full bg-slate-100 shrink-0" />
+        <div className="space-y-2"><div className="h-3.5 w-36 rounded bg-slate-100" /><div className="h-3 w-28 rounded bg-slate-100" /></div>
+      </div>
+      <div className="space-y-2"><div className="h-3.5 w-20 rounded bg-slate-100" /><div className="h-3 w-32 rounded bg-slate-100" /></div>
+      <div className="md:flex md:justify-end"><div className="h-5 w-20 rounded bg-slate-100" /></div>
+      <div />
+    </div>
   ));
+}
+
+// A quiet action: grey until hovered, so a column of icons does not read as a
+// column of warnings.
+function IconBtn({ label, Icon, onClick, hover }) {
+  const hoverCls = hover === 'red' ? 'hover:bg-red-50 hover:text-red-700' : 'hover:bg-slate-100 hover:text-slate-700';
+  return (
+    <button type="button" onClick={onClick} aria-label={label} title={label}
+      className={`inline-flex items-center justify-center w-[30px] h-[30px] rounded-[9px] text-slate-400 transition-colors ${hoverCls}`}>
+      <Icon size={15} />
+    </button>
+  );
 }
 
 function ModalShell({ title, onClose, children, footer, maxWidth = 'max-w-lg' }) {
@@ -499,30 +514,34 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
                   actually collectible (Confirmed + Completed, the same
                   population Collectible uses on the Receivables page).
                   Pending and Approved work is not shown as money here. */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <div className="rounded-xl border border-slate-200/70 bg-white p-3.5">
-                  {/* The same figure as the list's Total Value
-                      column: Confirmed and Completed bookings. */}
-                  <p className="text-[12.5px] font-semibold text-slate-600 mb-1">Total Value</p>
-                  <p className="text-[19px] font-semibold tabular-nums text-slate-900">{peso(customer?.contracted_gross)}</p>
-                </div>
-                <div className="rounded-xl border border-slate-200/70 bg-white p-3.5">
-                  <p className="text-[12.5px] font-semibold text-slate-600 mb-1">Total Collected</p>
-                  <p className="text-[19px] font-semibold tabular-nums text-slate-900">{peso(customer?.contracted_paid)}</p>
-                </div>
-                <div className={`relative overflow-hidden rounded-xl border p-3.5 ${Number(periodCollectible) > 0 ? 'border-amber-200 bg-amber-50/60' : 'border-slate-200/70 bg-white'}`}>
-                  <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${Number(periodCollectible) > 0 ? 'bg-amber-500' : 'bg-[#008A45]'}`} />
-                  <p className="text-[12.5px] font-bold text-slate-700 mb-1">Accounts Receivable</p>
-                  <p className={`text-[21px] font-bold tabular-nums ${Number(periodCollectible) > 0 ? 'text-amber-700' : 'text-slate-900'}`}>{periodCollectible === null ? '—' : peso(periodCollectible)}</p>
-                  <p className="text-[11.5px] text-slate-500 mt-1 leading-snug">{collectSpan ? `Still owed on services ${collectSpan}` : 'Not yet collected'}</p>
-                </div>
-                {/* Claimed, not received. Kept apart from Total Collected on
-                    purpose — it must never read as money in hand. */}
-                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3.5">
-                  <p className="text-[12.5px] font-semibold text-slate-500 mb-1">Awaiting Verification</p>
-                  <p className="text-[19px] font-medium tabular-nums text-slate-500">{peso(balance?.awaiting_verification)}</p>
-                  <p className="text-[11.5px] text-slate-500 mt-1 leading-snug">Not yet verified</p>
-                </div>
+              {/* Accounts Receivable leads, as a banner: it is the figure this
+                  page exists for, and it is the PERIOD's figure (same rule as
+                  the Payments page), so it says which days it counts. */}
+              <div className={`relative overflow-hidden rounded-2xl border p-[22px] ${Number(periodCollectible) > 0 ? 'border-[#f0cf8a] bg-[#fffdf7]' : 'border-slate-200/70 bg-white'}`}>
+                <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${Number(periodCollectible) > 0 ? 'bg-amber-500' : 'bg-[#008A45]'}`} />
+                <p className="text-[13px] font-bold text-slate-600">Accounts Receivable</p>
+                <p className={`mt-[7px] text-[34px] font-extrabold tracking-[-0.035em] leading-none tabular-nums ${Number(periodCollectible) > 0 ? 'text-[#8a5a0a]' : 'text-slate-900'}`}>
+                  {periodCollectible === null ? '—' : peso(periodCollectible)}
+                </p>
+                <p className="mt-2 text-[13px] leading-snug text-slate-500">{collectSpan ? `Still owed on services ${collectSpan}` : 'Not yet collected'}</p>
+              </div>
+
+              {/* The rest, quiet. Total Value and Total Collected are the list's
+                  figures (Confirmed + Completed). Awaiting Verification is
+                  claimed, not received — dashed so it never reads as money in
+                  hand. */}
+              <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr))]">
+                {[
+                  { label: 'Total Value', value: customer?.contracted_gross, dashed: false },
+                  { label: 'Total Collected', value: customer?.contracted_paid, dashed: false },
+                  { label: 'Awaiting Verification', value: balance?.awaiting_verification, dashed: true, note: 'Not yet verified' },
+                ].map((m) => (
+                  <div key={m.label} className={`rounded-[13px] p-3.5 min-w-0 ${m.dashed ? 'border border-dashed border-slate-300 bg-slate-50' : 'border border-slate-200/70 bg-white'}`}>
+                    <p className="text-[12.5px] font-semibold text-slate-600">{m.label}</p>
+                    <p className={`mt-1 text-[18px] font-bold tracking-[-0.02em] tabular-nums ${m.dashed ? 'text-slate-600' : 'text-slate-900'}`}>{peso(m.value)}</p>
+                    {m.note && <p className="mt-0.5 text-[11.5px] text-slate-500">{m.note}</p>}
+                  </div>
+                ))}
               </div>
 
               <div className="rounded-xl border border-slate-200/70 bg-white p-4 space-y-2.5 text-sm text-slate-700">
@@ -559,6 +578,16 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
             drawer.bookings.length === 0 ? (
               <p className="text-sm text-slate-500 italic text-center py-10">This customer has no bookings.</p>
             ) : (
+              <>
+              {/* What the list below holds, counted from the rows themselves,
+                  so the line can never disagree with the table it heads. */}
+              <p className="mb-2.5 text-[13px] font-bold text-slate-600">
+                {(() => {
+                  const pkg = drawer.bookings.filter((b) => b.booking_type !== 'Short Order').length;
+                  const so = drawer.bookings.length - pkg;
+                  return `${drawer.bookings.length} booking${drawer.bookings.length === 1 ? '' : 's'} · ${pkg} package${pkg === 1 ? '' : 's'}, ${so} short order${so === 1 ? '' : 's'}`;
+                })()}
+              </p>
               <div className="bg-white rounded-xl border border-slate-200/70 overflow-x-auto">
                 <table className="w-full text-left border-collapse text-sm">
                   <thead>
@@ -622,6 +651,7 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
                   </tbody>
                 </table>
               </div>
+              </>
             )
           ) : tab === 'Activity' ? (
             drawer.activity.length === 0 ? (
@@ -1137,7 +1167,8 @@ export default function Customers() {
       // page, so the two cards read the same number.
       value: moneyLoaded ? peso(collect.total) : null,
       sub: span ? `Still owed on services ${span}` : 'Not yet collected',
-      accent: 'bg-amber-500',
+      accent: moneyLoaded && collect.total > 0 ? 'bg-amber-500' : 'bg-slate-300',
+      tone: moneyLoaded && collect.total > 0 ? 'text-[#8a5a0a]' : 'text-slate-900',
       onClick: () => setShowCollectible(true),
     },
     {
@@ -1146,6 +1177,7 @@ export default function Customers() {
       value: t?.total_customers,
       sub: 'Accounts on record',
       accent: 'bg-[#008A45]',
+      tone: 'text-slate-900',
       onClick: () => { clearFilters(); scrollToTable(); },
     },
   ];
@@ -1153,7 +1185,7 @@ export default function Customers() {
   // Counts follow every OTHER active filter — search, type, repeat,
   // receivables, joined — so a card's number is what clicking it will show.
   // They used to be the unfiltered totals from v_customer_totals.
-  const statusCards = [
+  const statusChips = [
     { key: 'All', label: 'All', count: statusCounts?.All },
     { key: 'Active', label: 'Active', count: statusCounts?.Active },
     { key: 'Inactive', label: 'Inactive', count: statusCounts?.Inactive },
@@ -1252,116 +1284,152 @@ export default function Customers() {
           page shows for the same period. */}
       <PeriodTitle>{periodTitle(periodPreset, periodStart, periodEnd)}</PeriodTitle>
 
-      {/* SUMMARY CARDS — each opens a filtered view of the table below. */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+      {/* ONE CARD ROW. Accounts Receivable is the figure this page exists
+          for; it opens the same breakdown as the Payments page. */}
+      <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr))]">
         {summaryCards.map((card) => (
           <button
             key={card.key}
             onClick={card.onClick}
-            title={card.title}
-            className="relative overflow-hidden flex flex-col justify-start rounded-2xl border border-slate-200/70 bg-white p-5 text-left transition-all cursor-pointer hover:shadow-[0_2px_8px_rgba(15,23,42,0.05)]"
+            className="relative overflow-hidden flex flex-col justify-start rounded-2xl border border-slate-200/70 bg-white p-5 text-left transition-[border-color,box-shadow] cursor-pointer hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)]"
           >
             <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${card.accent}`} />
-            <p className="text-[13px] font-semibold text-slate-600 mb-2">{card.label}</p>
+            <p className="text-[13px] font-bold text-slate-600">{card.label}</p>
             {t ? (
-              <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{card.value}</h3>
+              <p className={`mt-2 text-[30px] font-bold tracking-[-0.03em] leading-none tabular-nums ${card.tone}`}>{card.value}</p>
             ) : (
-              <div className="h-[28px] w-16 rounded bg-slate-100 animate-pulse" />
+              <div className="mt-2 h-[30px] w-20 rounded bg-slate-100 animate-pulse" />
             )}
-            <p className="text-[13px] text-slate-600 mt-2.5">{t ? card.sub : ' '}</p>
+            <p className="mt-2 text-[13px] leading-snug text-slate-500">{t ? card.sub : ' '}</p>
           </button>
         ))}
       </div>
 
-      {/* STATUS CARDS */}
-      <div className="bg-white rounded-2xl border border-slate-200/70 p-5">
-        <div className="flex items-center gap-1.5 mb-3">
-          <LayoutGrid size={13} className="text-slate-500" />
-          <span className="text-[13px] font-bold text-slate-600 tracking-[0.04em] whitespace-nowrap">Account Status</span>
-        </div>
-        <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,132px),1fr))]">
-          {statusCards.map((s) => (
-            <button
-              key={s.key}
-              onClick={() => { setStatusFilter(statusFilter === s.key ? 'All' : s.key); scrollToTable(); }}
-              className={`text-left rounded-xl border border-slate-100 bg-[#fbfcfd] p-3.5 relative overflow-hidden transition-all ${
-                statusFilter === s.key ? 'ring-2 ring-[#008A45]/20 shadow-sm' : 'hover:shadow-[0_4px_14px_rgba(15,23,42,0.06)] hover:-translate-y-0.5 hover:border-[#008A45]/30'
-              }`}
-            >
-              <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${STATUS_CARD_BAR[s.key]}`} />
-              <p className="text-[13px] font-semibold text-slate-600 mb-1.5 whitespace-nowrap">{s.label}</p>
-              <p className={`text-[23px] font-semibold tracking-[-0.02em] tabular-nums ${STATUS_CARD_TEXT[s.key]}`}>{statusCounts ? s.count : '—'}</p>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* TABLE */}
+      {/* LIST. The account-status filter sits on top of it as chips — it is a
+          control, not a set of figures, so it is no longer drawn like the
+          cards above. Counts follow every other active filter. */}
       <div ref={tableRef} className="bg-white rounded-2xl border border-slate-200/70 overflow-hidden scroll-mt-4">
-        <div className="overflow-x-auto">
-          <table className="w-full table-fixed text-left border-collapse [&_th]:px-2.5 [&_td]:px-2.5 min-[1440px]:[&_th]:px-4 min-[1440px]:[&_td]:px-4">
-            <thead>
-              <tr className="bg-[#fbfcfd] border-b border-slate-100 text-[12.5px] font-bold uppercase tracking-[0.05em] text-slate-700">
-                <th className="px-4 py-3 w-[21%]">{renderSortHeader('full_name', 'Customer')}</th>
-                <th className="px-4 py-3 w-[11.5%] whitespace-nowrap">Contact</th>
-                <th className="px-4 py-3 w-[12%]">{renderSortHeader('total_bookings', 'Bookings')}</th>
-                {/* contracted_gross, never lifetime_gross: the lifetime figure
-                    counted Pending requests, so one customer read as worth
-                    PHP 603,400 against PHP 46,000 actually contracted — and
-                    led the list on it. Contracted Value is what the business
-                    committed to perform: Confirmed and Completed only. */}
-                <th className="px-4 py-3 w-[10.5%] text-right">{renderSortHeader('contracted_gross', 'Total Value', 'right')}</th>
-                {/* Collectible now. Same measure and same word as the card
-                    above and as the Receivables page. */}
-                <th className="px-4 py-3 w-[12%] text-right">{renderSortHeader('receivable_due', 'Accounts Receivable', 'right')}</th>
-                <th className="px-4 py-3 w-[11%]">{renderSortHeader('next_event_at', 'Next Booking')}</th>
-                <th className="px-4 py-3 w-[9%] whitespace-nowrap">Status</th>
-                <th className="px-4 py-3 w-[13%] whitespace-nowrap text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className={`divide-y divide-slate-100 text-sm text-slate-700 transition-opacity ${listLoading && hasListLoaded ? 'opacity-60' : ''}`}>
-              {!hasListLoaded ? (
-                <SkeletonRows columns={8} />
-              ) : list.rows.length === 0 ? (
-                <tr><td colSpan="8"><EmptyResult canClear={hasFilters} onClear={clearFilters} /></td></tr>
-              ) : (
-                list.rows.map((c) => (
-                  <tr key={c.customer_id} onClick={() => openDrawer(c.customer_id)} className="hover:bg-[#fbfcfd] transition-colors cursor-pointer">
-                    <td className="px-4 py-[15px]">
-                      <div className="flex items-center gap-x-2 gap-y-1 flex-wrap">
-                        <p className="text-[15px] font-semibold text-slate-900 break-words min-w-0">{c.full_name}</p>
+        <div className="flex items-center gap-2.5 flex-wrap px-4 py-3.5 border-b border-slate-100">
+          <span className="text-[10.5px] font-bold tracking-[0.12em] uppercase text-slate-500 whitespace-nowrap">Account Status</span>
+          {statusChips.map(({ key, label, count }) => {
+            const on = statusFilter === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setStatusFilter(key)}
+                className={`inline-flex items-center gap-[7px] px-[13px] py-1.5 rounded-full border text-[13px] font-bold whitespace-nowrap transition-colors ${
+                  on ? 'border-[#b9e3cd] bg-[#e7f6ee] text-[#00703a]' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {label}
+                <span className={`text-[11.5px] font-bold tabular-nums ${on ? 'text-[#00703a]' : 'text-slate-400'}`}>
+                  {statusCounts ? count : '—'}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Header — shown with the grid only. */}
+        <div className={`${ROW_COLS} hidden md:grid px-4 py-[11px] bg-[#fbfcfd] border-b border-[#eef2f6]`}>
+          <span className={ZONE_HEAD}>{renderSortHeader('full_name', 'Customer')}</span>
+          <span className={`${ZONE_HEAD} flex items-center gap-3 flex-wrap`}>
+            {renderSortHeader('total_bookings', 'Bookings')}
+            {renderSortHeader('contracted_gross', 'Total Value')}
+          </span>
+          <span className={`${ZONE_HEAD} flex justify-end`}>{renderSortHeader('receivable_due', 'Accounts Receivable', 'right')}</span>
+          <span className={`${ZONE_HEAD} text-right`}>Actions</span>
+        </div>
+
+        <div className={`transition-opacity ${listLoading && hasListLoaded ? 'opacity-60' : ''}`}>
+          {!hasListLoaded ? (
+            <SkeletonRows />
+          ) : list.rows.length === 0 ? (
+            <EmptyResult canClear={hasFilters} onClear={clearFilters} />
+          ) : (
+            list.rows.map((c) => {
+              const owed = (collect.byCustomer[c.customer_id] || 0) > 0;
+              const blocked = c.account_status === 'Blocked';
+              const initials = `${c.first_name?.[0] || ''}${c.last_name?.[0] || ''}`.toUpperCase();
+              const parts = [];
+              if (Number(c.package_bookings)) parts.push(`${c.package_bookings} package${Number(c.package_bookings) === 1 ? '' : 's'}`);
+              if (Number(c.short_orders)) parts.push(`${c.short_orders} short order${Number(c.short_orders) === 1 ? '' : 's'}`);
+              return (
+                <div
+                  key={c.customer_id}
+                  onClick={() => openDrawer(c.customer_id)}
+                  className={`${ROW_COLS} items-center px-4 py-[15px] border-b border-[#f6f8fa] last:border-b-0 cursor-pointer hover:bg-[#fbfcfd] transition-colors`}
+                >
+                  {/* WHO */}
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className={`flex items-center justify-center w-[38px] h-[38px] rounded-full shrink-0 text-[13px] font-extrabold ${
+                      blocked ? 'bg-slate-100 text-slate-500' : 'bg-[#e7f6ee] text-[#00703a]'
+                    }`}>
+                      {initials}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-[7px] flex-wrap">
+                        <span className="text-[14.5px] font-bold text-slate-900 truncate">{c.full_name}</span>
+                        <Pill className={ACCOUNT_STATUS_PILL[c.account_status] || ACCOUNT_STATUS_PILL.Inactive} title={c.status_reason || undefined}>{c.account_status}</Pill>
                         {c.source !== 'Unknown' && <Pill className={SOURCE_PILL[c.source]}>{c.source}</Pill>}
                       </div>
-                      <p className="text-[13px] text-slate-500 mt-0.5 [overflow-wrap:anywhere]">{c.email_address}</p>
-                    </td>
-                    <td className="px-4 py-[15px] text-sm text-slate-700 tabular-nums whitespace-nowrap">{c.contact_no || '—'}</td>
-                    <td className="px-4 py-[15px]">
-                      <p className="text-[15px] font-semibold text-slate-900 tabular-nums">{c.total_bookings}</p>
-                      <p className="text-[12.5px] text-slate-500">{c.package_bookings} package · {c.short_orders} short order</p>
-                    </td>
-                    <td className="px-4 py-[15px] text-right text-[15px] font-semibold text-slate-900 tabular-nums whitespace-nowrap">
-                      {Number(c.contracted_gross) > 0
-                        ? peso(c.contracted_gross)
-                        : <span className="text-slate-400">—</span>}
-                    </td>
-                    <td className="px-4 py-[15px] text-right tabular-nums whitespace-nowrap">
-                      {(collect.byCustomer[c.customer_id] || 0) > 0
-                        ? <span className="text-[15px] font-semibold text-amber-700">{peso(collect.byCustomer[c.customer_id])}</span>
-                        : <span className="text-slate-400">—</span>}
-                    </td>
-                    <td className="px-4 py-[15px] text-sm text-slate-700 tabular-nums whitespace-nowrap">{dateOrDash(c.next_event_at)}</td>
-                    <td className="px-4 py-[15px]">
-                      <Pill className={ACCOUNT_STATUS_PILL[c.account_status] || ACCOUNT_STATUS_PILL.Inactive} title={c.status_reason || undefined}>{c.account_status}</Pill>
-                    </td>
-                    <td className="px-4 py-[15px]">{renderActions(c, { compact: true })}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                      <span className="block mt-0.5 text-[12.5px] text-slate-500 truncate">{c.email_address}</span>
+                      {/* The phone gives way first on narrow screens; it is always in the detail view. */}
+                      <span className="hidden min-[1100px]:block mt-px text-[12.5px] text-slate-400 truncate tabular-nums">{c.contact_no || '—'}</span>
+                    </div>
+                  </div>
+
+                  {/* BOOKING HISTORY — Total Value is context here, not a rival to Accounts Receivable. */}
+                  <div className="min-w-0 pl-[50px] md:pl-0">
+                    <div className="flex items-baseline gap-[7px] flex-wrap">
+                      <span className="text-sm font-bold text-slate-800 tabular-nums whitespace-nowrap">
+                        {c.total_bookings} booking{Number(c.total_bookings) === 1 ? '' : 's'}
+                      </span>
+                      {Number(c.total_bookings) > 1 && (
+                        <span className="px-2 py-px rounded-full bg-[#eef2f6] text-[11px] font-bold text-slate-600 whitespace-nowrap">Repeat</span>
+                      )}
+                    </div>
+                    <span className="block mt-1 text-[12.5px] text-slate-500 truncate">
+                      {c.next_event_at ? `Next booking ${dateOrDash(c.next_event_at)}` : 'No upcoming booking'}
+                    </span>
+                    <span className="block mt-px text-[12.5px] text-slate-400 truncate">
+                      {[...parts, Number(c.contracted_gross) > 0 ? `Total Value ${peso(c.contracted_gross)}` : null].filter(Boolean).join(' · ') || '—'}
+                    </span>
+                  </div>
+
+                  {/* ACCOUNTS RECEIVABLE — the period's figure, as on the card. */}
+                  <div className="min-w-0 pl-[50px] md:pl-0 md:text-right">
+                    <span className={`block text-[21px] font-extrabold tracking-[-0.03em] leading-none tabular-nums whitespace-nowrap ${owed ? 'text-[#8a5a0a]' : 'text-slate-400'}`}>
+                      {owed ? peso(collect.byCustomer[c.customer_id]) : '—'}
+                    </span>
+                    <span className="block mt-1 text-[11.5px] font-bold tracking-[0.06em] uppercase text-slate-500">
+                      {owed ? 'Not fully collected' : 'Fully collected'}
+                    </span>
+                  </div>
+
+                  {/* ACTIONS — Delete lives in the detail view, away from a row that is itself a click target. */}
+                  <div className="flex md:justify-end gap-0.5 pl-[50px] md:pl-0" onClick={(e) => e.stopPropagation()}>
+                    <IconBtn label="View" Icon={Eye} onClick={() => openDrawer(c.customer_id)} />
+                    <IconBtn label="Edit" Icon={Edit} onClick={() => setFormModal({ mode: 'edit', customer: c })} />
+                    <IconBtn
+                      label={blocked ? 'Unblock' : 'Block'}
+                      Icon={blocked ? ShieldCheck : Ban}
+                      onClick={() => setStatusTarget(c)}
+                      hover="red"
+                    />
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
         <div className="px-5 py-4 border-t border-slate-100 flex justify-between items-center bg-white text-sm text-slate-600">
-          <span className="tabular-nums">Showing {list.rows.length} of {list.count} customers</span>
+          <span className="tabular-nums">
+            {list.count === 0
+              ? 'Showing 0 customers'
+              : `Showing ${(page - 1) * PAGE_SIZE + 1}–${(page - 1) * PAGE_SIZE + list.rows.length} of ${list.count} customers`}
+          </span>
           <div className="flex items-center gap-1">
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
