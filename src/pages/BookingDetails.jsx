@@ -4,9 +4,11 @@ import Select from '../components/Select';
 import AssignVehicleModal from '../components/AssignVehicleModal';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Search,
-  MapPin, Calendar, User, Phone, Mail, Pencil, UtensilsCrossed, Briefcase, CreditCard, Truck, ArrowUpRight, ArrowDownLeft, AlertTriangle, ChevronDown, ChevronRight, ShieldAlert } from 'lucide-react';
+  MapPin, Calendar, User, Phone, Mail, Pencil, UtensilsCrossed, Briefcase, CreditCard, Truck, ArrowUpRight, ArrowDownLeft, AlertTriangle, ChevronDown, ChevronRight, ShieldAlert, FileDown } from 'lucide-react';
 import { SectionHeader, SectionCard, Field, CardScrollArea } from '../components/DetailPrimitives';
 import { initialsOf, fmtDateTime, fmtShortDate, fmtTime, displayNotes } from '../utils/detailFormat';
+import { useBusinessProfile } from '../utils/businessProfile';
+import { printBookingSheet } from '../utils/bookingSheet';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -206,6 +208,16 @@ export default function BookingDetails() {
   // --- Proof Image Modal state ---
   const [isProofModalOpen, setIsProofModalOpen] = useState(false);
   const [proofModalUrl, setProofModalUrl] = useState('');
+
+  // --- Booking details sheet (PDF) ---
+  const business = useBusinessProfile();
+  const downloadSheet = () => printBookingSheet({
+    business,
+    booking,
+    packageLabel: booking.package?.pkg_name,
+    menu: menuSelections.map(m => ({ name: m.menu_name, detail: m.category_name })),
+    notes: displayNotes(booking.notes),
+  });
 
   // --- FETCH DATA ---
   const fetchBooking = async () => {
@@ -1885,6 +1897,15 @@ export default function BookingDetails() {
     Balance Remaining
   </span>
 )}
+
+          <button
+            type="button"
+            onClick={downloadSheet}
+            title="Download the booking details sheet as a PDF"
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold border border-white/40 bg-white/[0.14] text-white hover:bg-white/[0.24] transition-colors cursor-pointer"
+          >
+            <FileDown size={14} /> Download PDF
+          </button>
           </div>
         </div>
 

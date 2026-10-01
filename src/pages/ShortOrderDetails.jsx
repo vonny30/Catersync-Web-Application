@@ -4,9 +4,11 @@ import Select from '../components/Select';
 import AssignVehicleModal from '../components/AssignVehicleModal';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, X, Plus, RefreshCw, Edit, Trash2, Lock, ClipboardList, Truck, AlertTriangle, Package as PackageIcon,
-  MapPin, Calendar, User, Phone, Mail, Pencil, UtensilsCrossed, CreditCard, ArrowUpRight, ArrowDownLeft, ShieldAlert } from 'lucide-react';
+  MapPin, Calendar, User, Phone, Mail, Pencil, UtensilsCrossed, CreditCard, ArrowUpRight, ArrowDownLeft, ShieldAlert, FileDown } from 'lucide-react';
 import { SectionHeader, SectionCard, Field, CardScrollArea } from '../components/DetailPrimitives';
 import { initialsOf, fmtDateTime, fmtShortDate, fmtTime, displayNotes } from '../utils/detailFormat';
+import { useBusinessProfile } from '../utils/businessProfile';
+import { printBookingSheet } from '../utils/bookingSheet';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -113,6 +115,16 @@ export default function ShortOrderDetails() {
   const [proofModalUrl, setProofModalUrl] = useState('');
 
   // --- Fetch order data ---
+  // --- Booking details sheet (PDF) ---
+  const business = useBusinessProfile();
+  const downloadSheet = () => printBookingSheet({
+    business,
+    booking: order,
+    packageLabel: 'Short Order',
+    menu: menuSelections.map(m => ({ name: m.menu_name, detail: `× ${m.quantity} tray${Number(m.quantity) === 1 ? '' : 's'}` })),
+    notes: displayNotes(order.notes),
+  });
+
   const fetchOrder = async () => {
     setLoading(true);
     try {
@@ -1054,6 +1066,15 @@ export default function ShortOrderDetails() {
     ⚠️ Balance Remaining
   </span>
 )}
+
+          <button
+            type="button"
+            onClick={downloadSheet}
+            title="Download the booking details sheet as a PDF"
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold border border-white/40 bg-white/[0.14] text-white hover:bg-white/[0.24] transition-colors cursor-pointer"
+          >
+            <FileDown size={14} /> Download PDF
+          </button>
           </div>
         </div>
 
