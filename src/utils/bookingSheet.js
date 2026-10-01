@@ -6,9 +6,9 @@
 // it is a working sheet, not a statement.
 //
 // Built as one standalone HTML page, used twice: shown in the preview modal
-// (components/BookingSheetPreview.jsx) and printed from there. The PDF is
-// real text (sharp, searchable, small) and needs no PDF library; the
-// browser's print dialog saves it, and the file name comes from the title.
+// (components/BookingSheetPreview.jsx), and drawn to a canvas off screen to
+// download as a PNG or an A4 PDF. A real download rather than the print
+// dialog, so the file is always named Name_BookingNo (Juan Dela Cruz_BKG-112).
 
 import { formatPhone } from './businessProfile';
 
@@ -36,6 +36,9 @@ const STYLES = `
   @media screen and (max-width: 840px) {
     .page { width: auto; min-height: 0; margin: 0; padding: 20px 16px; box-shadow: none; }
   }
+  /* The off-screen copy that is drawn for the download: the bare page. */
+  html.capture { background: #fff; }
+  html.capture .page { width: 210mm; min-height: 297mm; margin: 0; padding: 16mm; box-shadow: none; }
   body { font-family: 'Segoe UI', Inter, Roboto, Arial, sans-serif; color: #0f172a; font-size: 12.5pt; line-height: 1.45;
          -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .head { display: flex; align-items: center; gap: 18px; padding-bottom: 14px; border-bottom: 2px solid #0f6b3c; }
@@ -67,8 +70,8 @@ const STYLES = `
 `;
 
 /**
- * The booking sheet as a standalone HTML page, and the title its PDF is
- * saved under.
+ * The booking sheet as a standalone HTML page, and the file name its
+ * download is saved under (no extension).
  * @param business  from useBusinessProfile()
  * @param booking   the booking row with `customer` joined
  * @param packageLabel  package name, or "Short Order"
@@ -96,6 +99,9 @@ export function buildBookingSheet({ business, booking, packageLabel, menu, notes
     : '<p class="empty">No menu selected yet.</p>';
 
   const title = `${number ? `${number} ` : ''}Booking Details - ${customerName}`;
+  // Name_BookingNo, minus anything a file system refuses.
+  const fileName = [customerName, number].filter(v => v && v !== '—').join('_')
+    .replace(/[\\/:*?"<>|]+/g, '').trim() || 'Booking Details';
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${STYLES}</style></head><body><div class="page">
     <header class="head">
       <img src="${esc(`${window.location.origin}/logo.png`)}" alt="">
@@ -115,18 +121,62 @@ export function buildBookingSheet({ business, booking, packageLabel, menu, notes
     <footer class="foot"><span>${esc(business.business_name)} · CaterSync</span><span>Printed ${esc(new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></footer>
   </div></body></html>`;
 
-  return { html, title };
+  return { html, title, fileName };
 }
 
-/**
- * Opens the print dialog for a sheet already loaded in an iframe (the
- * preview). Borrows the sheet's title meanwhile: most browsers name the
- * saved PDF after the page title.
- */
-export function printSheetFrame(frame, title) {
-  const previousTitle = document.title;
-  document.title = title;
-  frame.contentWindow.focus();
-  frame.contentWindow.print();
-  document.title = previousTitle;
+/** Draws the sheet off screen, at A4 width, and returns the canvas. */
+async function renderSheet(html) {
+  const { default: html2canvas } = await import('html2canvas');
+  const frame = document.createElement('iframe');
+  frame.setAttribute('aria-hidden', 'true');
+  // Wide enough that the narrow-screen layout never applies.
+  Object.assign(frame.style, { position: 'fixed', left: '-10000px', top: '0', width: '1000px', height: '1500px', border: '0' });
+  document.body.appendChild(frame);
+  try {
+    const doc = frame.contentDocument;
+    doc.open();
+    doc.write(html.replace('<html>', '<html class="capture">'));
+    doc.close();
+    // The logo must be in before it is drawn.
+    await Promise.all([...doc.images].map(img => (img.complete ? null
+      : new Promise(resolve => { img.onload = resolve; img.onerror = () => { img.remove(); resolve(); }; }))));
+    if (doc.fonts?.ready) await doc.fonts.ready;
+    return await html2canvas(doc.querySelector('.page'), { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+  } finally {
+    frame.remove();
+  }
+}
+
+function saveBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Downloads the sheet as Name_BookingNo.png. */
+export async function downloadSheetImage(sheet) {
+  const canvas = await renderSheet(sheet.html);
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  saveBlob(blob, `${sheet.fileName}.png`);
+}
+
+/** Downloads the sheet as Name_BookingNo.pdf — A4, more pages if the menu runs long. */
+export async function downloadSheetPdf(sheet) {
+  const [canvas, { jsPDF }] = await Promise.all([renderSheet(sheet.html), import('jspdf')]);
+  const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+  const pageW = 210;
+  const pageH = 297;
+  const imgH = (canvas.height * pageW) / canvas.width;
+  const img = canvas.toDataURL('image/jpeg', 0.92);
+  for (let y = 0; y < imgH - 0.5; y += pageH) {
+    if (y > 0) pdf.addPage();
+    pdf.addImage(img, 'JPEG', 0, -y, pageW, imgH);
+  }
+  pdf.setProperties({ title: sheet.title });
+  pdf.save(`${sheet.fileName}.pdf`);
 }
