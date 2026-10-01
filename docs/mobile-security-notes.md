@@ -34,9 +34,10 @@ Once a booking is no longer `Pending`, its price and event details can only be c
 by the manager. Changes to those fields from the app are **silently kept at their old
 values**, not rejected, so a screen that sends the whole record back still saves.
 
-The Operations Manager app can still mark a booking **`Completed`** (from `Approved` or
-`Confirmed`) and update equipment returns, vehicle assignments and vehicle status. It can
-no longer change a booking's price, customer or event details.
+The Operations Manager app can still mark a booking **`Completed`** and update equipment
+returns, vehicle assignments and vehicle status — **since 1 Oct only from `Confirmed`,
+after the event has started and when fully paid; see §7.** It can no longer change a
+booking's price, customer or event details.
 
 ## 3. Payments
 
@@ -96,3 +97,9 @@ Blocked changes are kept silently — the update succeeds but the row stays as i
 so the app never errors. **Please update the app** to hide or disable *Complete*,
 *Return* and *Close trip* until those conditions hold (and show the balance still due),
 then reload the row after saving, so staff see why nothing changed.
+
+The app can't read payments, so it can't work out the balance itself. Call
+`supabase.rpc('f_completion_check', { p_booking_id })` instead
+(`sql/ops_completion_check_2026-10-01.sql`). It returns `can_complete`, `reason` and a
+ready-to-show `message`. The full list of app changes is in
+`docs/mobile-update-prompt-2026-10-01.md`.
