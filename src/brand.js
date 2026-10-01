@@ -10,6 +10,8 @@
 //      wide both work — logos are fitted inside their frame, never cropped).
 //   2. Point LOGO_SRC at it, e.g. '/pgs-logo.png'.
 //   3. Rebuild (npm run build) and deploy.
+// An SVG needs a fixed width and height on its <svg> tag (not 100%), or it
+// comes out blank on the downloaded Booking Details sheet.
 // Plain JS on purpose: vite.config.js imports this file too.
 
 export const LOGO_SRC = '/logo.svg';
