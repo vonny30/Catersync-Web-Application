@@ -27,7 +27,13 @@ import TimelineTrack from './DayTimeline';
 import { makeAxis, blockGeometry, toneFor, PROPOSED_TONE, LEG_TONE } from '../utils/timeline';
 import { MAX_SHORT_ORDERS_PER_DAY } from '../utils/bookingStatus';
 
-export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, onEquipmentStatusChange, onVehicleSelectionChange }) {
+/**
+ * @param compact  The booking detail page's view (1 Oct 2026): one short card
+ *                 with the verdict and the three statuses — the same checks and
+ *                 the same labels as the full panel, which stays in the Approve
+ *                 pop-up where the manager actually decides.
+ */
+export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, onEquipmentStatusChange, onVehicleSelectionChange, compact = false }) {
   const [dayBookings, setDayBookings] = useState([]);
   const [loadingDay, setLoadingDay] = useState(false);
   const [equipmentAvailability, setEquipmentAvailability] = useState([]);
@@ -201,6 +207,65 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
     pickup: { wrap: 'border-slate-200 bg-gradient-to-br from-slate-50 to-white', bar: 'bg-slate-400', icon: 'text-slate-500', pill: 'bg-slate-600 text-white' },
   }[fleetStatus];
 
+  // The three status labels — one wording, used by the full panel AND the
+  // compact summary, so the two can never describe the same day differently.
+  const dayLabel = isShortOrder
+    ? atDailyLimit
+      ? `Full (${dayBookings.length}/${MAX_SHORT_ORDERS_PER_DAY})`
+      : `${dayBookings.length} of ${MAX_SHORT_ORDERS_PER_DAY} booked`
+    : dayBookings.length === 0
+      ? 'Clear day'
+      : `${dayBookings.length} other event${dayBookings.length > 1 ? 's' : ''}${isConflict ? ' — check time' : ''}`;
+  const eqLabel = equipmentAvailability.length === 0
+    ? 'Nothing to assign'
+    : eqAllSufficient ? 'Sufficient stock' : `${eqShortCount} item${eqShortCount > 1 ? 's' : ''} short`;
+  const fleetLabel = !fleet
+    ? 'No date yet'
+    : isPickupOrder
+      ? 'No vehicle needed'
+      : fleet.sufficient
+        ? `${fleet.picks.length} of ${fleet.fleetSize} ready`
+        : `Short by ${fleet.shortfall.needed - fleet.picks.length}`;
+
+  if (compact) {
+    const loading = loadingDay || (booking.package_id && loadingEquipment) || loadingFleet;
+    const blocked = atDailyLimit || eqStatus === 'warning' || fleetStatus === 'warning';
+    const timeClash = !atDailyLimit && isConflict;
+    const verdict = loading
+      ? { tone: 'text-slate-500', text: 'Checking availability…' }
+      : blocked
+        ? { tone: 'text-red-700', text: 'Not enough for this date — see the details when you approve.' }
+        : timeClash
+          ? { tone: 'text-amber-700', text: 'Another event is close in time — check the schedule when you approve.' }
+          : dayBookings.length > 0
+            ? { tone: 'text-emerald-700', text: 'There are other bookings this day, but equipment and vehicles are still available — it can be booked.' }
+            : { tone: 'text-emerald-700', text: 'Available — nothing else is booked, and equipment and vehicles are free.' };
+    const items = [
+      { key: 'day', Icon: Calendar, label: 'Day', status: dayStatus, text: dayLabel, theme: dayTheme, loading: loadingDay },
+      booking.package_id
+        ? { key: 'eq', Icon: PackageCheck, label: 'Equipment', status: eqStatus, text: eqLabel, theme: eqTheme, loading: loadingEquipment }
+        : null,
+      { key: 'fleet', Icon: Truck, label: 'Vehicles', status: fleetStatus, text: fleetLabel, theme: fleetTheme, loading: loadingFleet },
+    ].filter(Boolean);
+    return (
+      <div className="rounded-2xl border border-slate-200/70 bg-white px-5 py-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <span className="text-[13px] font-semibold text-slate-600">Availability</span>
+          {items.map(({ key, Icon, label, text, theme, loading: itemLoading }) => (
+            <span key={key} className="inline-flex items-center gap-1.5 text-[13px] text-slate-600">
+              <Icon size={14} className={theme.icon} />
+              {label}
+              {itemLoading
+                ? <Loader2 size={12} className="animate-spin text-slate-400" />
+                : <span className={`text-[12px] font-semibold px-2 py-0.5 rounded-full ${theme.pill}`}>{text}</span>}
+            </span>
+          ))}
+        </div>
+        <p className={`mt-2 text-[13px] font-semibold ${verdict.tone}`}>{verdict.text}</p>
+      </div>
+    );
+  }
+
   const atTime = (d) => new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   // The scale the per-vehicle strips are drawn on: the booking's OWN event
@@ -236,13 +301,7 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
             </div>
             {!loadingDay && (
               <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${dayTheme.pill}`}>
-                {isShortOrder
-                  ? atDailyLimit
-                    ? `Full (${dayBookings.length}/${MAX_SHORT_ORDERS_PER_DAY})`
-                    : `${dayBookings.length} of ${MAX_SHORT_ORDERS_PER_DAY} booked`
-                  : dayBookings.length === 0
-                  ? 'Clear day'
-                  : `${dayBookings.length} other event${dayBookings.length > 1 ? 's' : ''}${isConflict ? ' — check time' : ''}`}
+                {dayLabel}
               </span>
             )}
           </div>
@@ -318,7 +377,7 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
               </div>
               {!loadingEquipment && equipmentAvailability.length > 0 && (
                 <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${eqTheme.pill}`}>
-                  {eqAllSufficient ? 'Sufficient stock' : `${eqShortCount} item${eqShortCount > 1 ? 's' : ''} short`}
+                  {eqLabel}
                 </span>
               )}
             </div>
@@ -374,11 +433,7 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
             </div>
             {!loadingFleet && fleet && (
               <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${fleetTheme.pill}`}>
-                {isPickupOrder
-                  ? 'No vehicle needed'
-                  : fleet.sufficient
-                    ? `${fleet.picks.length} of ${fleet.fleetSize} ready`
-                    : `Short by ${fleet.shortfall.needed - fleet.picks.length}`}
+                {fleetLabel}
               </span>
             )}
           </div>

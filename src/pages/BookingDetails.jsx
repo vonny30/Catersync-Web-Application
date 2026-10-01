@@ -2035,9 +2035,9 @@ export default function BookingDetails() {
       {/* Day / Equipment Availability — any Pending booking, same shared layout as the Approve modal */}
       {booking.booking_status === 'Pending' && booking.event_datetime && !money?.is_lapsed && (
         <ApprovalAvailabilityCheck
-                onVehicleSelectionChange={setApprovalVehicleIds}
           booking={booking}
           effectivePaxCount={booking.pax_count || 0}
+          compact
         />
       )}
 

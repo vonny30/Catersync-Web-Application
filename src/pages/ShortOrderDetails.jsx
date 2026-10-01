@@ -1196,9 +1196,9 @@ export default function ShortOrderDetails() {
       {/* Day Availability — same shared layout as the Approve modal */}
       {order.booking_status === 'Pending' && order.event_datetime && !money?.is_lapsed && (
         <ApprovalAvailabilityCheck
-                onVehicleSelectionChange={setApprovalVehicleIds}
           booking={order}
           effectivePaxCount={0}
+          compact
         />
       )}
 
