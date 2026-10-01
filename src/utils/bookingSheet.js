@@ -5,9 +5,10 @@
 // contact, venue, time, package, pax, motif, menu, notes). No money on it:
 // it is a working sheet, not a statement.
 //
-// Rendered as its own print document in a hidden iframe, so the PDF is real
-// text (sharp, searchable, small) and needs no PDF library. The browser's
-// print dialog saves it as a PDF; the file name comes from the title.
+// Built as one standalone HTML page, used twice: shown in the preview modal
+// (components/BookingSheetPreview.jsx) and printed from there. The PDF is
+// real text (sharp, searchable, small) and needs no PDF library; the
+// browser's print dialog saves it, and the file name comes from the title.
 
 const esc = (v) => String(v ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -24,6 +25,15 @@ const STYLES = `
   @page { size: A4; margin: 16mm 16mm 14mm; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
+  /* On screen (the preview) the sheet sits on a grey desk as an A4 page. */
+  @media screen {
+    html { background: #e2e8f0; }
+    .page { width: 210mm; min-height: 297mm; margin: 18px auto; padding: 16mm; background: #fff;
+            box-shadow: 0 2px 12px rgba(15, 23, 42, 0.12); }
+  }
+  @media screen and (max-width: 840px) {
+    .page { width: auto; min-height: 0; margin: 0; padding: 20px 16px; box-shadow: none; }
+  }
   body { font-family: 'Segoe UI', Inter, Roboto, Arial, sans-serif; color: #0f172a; font-size: 12.5pt; line-height: 1.45;
          -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .head { display: flex; align-items: center; gap: 18px; padding-bottom: 14px; border-bottom: 2px solid #0f6b3c; }
@@ -55,14 +65,15 @@ const STYLES = `
 `;
 
 /**
- * Opens the print dialog with the booking sheet.
+ * The booking sheet as a standalone HTML page, and the title its PDF is
+ * saved under.
  * @param business  from useBusinessProfile()
  * @param booking   the booking row with `customer` joined
  * @param packageLabel  package name, or "Short Order"
  * @param menu      [{ name, detail }] — detail is the category or "× 3 trays"
  * @param notes     display-ready notes (displayNotes())
  */
-export function printBookingSheet({ business, booking, packageLabel, menu, notes }) {
+export function buildBookingSheet({ business, booking, packageLabel, menu, notes }) {
   const number = booking.booking_number || '';
   const customerName = [booking.customer?.first_name, booking.customer?.last_name].filter(Boolean).join(' ') || '—';
   const contact = [business.phone, business.email].filter(Boolean).join(' · ');
@@ -83,7 +94,7 @@ export function printBookingSheet({ business, booking, packageLabel, menu, notes
     : '<p class="empty">No menu selected yet.</p>';
 
   const title = `${number ? `${number} ` : ''}Booking Details - ${customerName}`;
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${STYLES}</style></head><body>
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${STYLES}</style></head><body><div class="page">
     <header class="head">
       <img src="${esc(`${window.location.origin}/logo.png`)}" alt="">
       <div class="biz">
@@ -100,33 +111,20 @@ export function printBookingSheet({ business, booking, packageLabel, menu, notes
     <div class="section"><h3>Menu</h3>${menuHtml}</div>
     <div class="section"><h3>Notes</h3><div class="notes">${notes ? esc(notes) : ''}</div></div>
     <footer class="foot"><span>${esc(business.business_name)} · CaterSync</span><span>Printed ${esc(new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' }))}</span></footer>
-  </body></html>`;
+  </div></body></html>`;
 
-  const frame = document.createElement('iframe');
-  frame.setAttribute('aria-hidden', 'true');
-  Object.assign(frame.style, { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' });
-  document.body.appendChild(frame);
-  const doc = frame.contentDocument;
-  doc.open();
-  doc.write(html);
-  doc.close();
+  return { html, title };
+}
 
-  // The saved PDF is named after the page title in most browsers, so borrow
-  // it for the duration of the dialog.
+/**
+ * Opens the print dialog for a sheet already loaded in an iframe (the
+ * preview). Borrows the sheet's title meanwhile: most browsers name the
+ * saved PDF after the page title.
+ */
+export function printSheetFrame(frame, title) {
   const previousTitle = document.title;
-  const print = () => {
-    document.title = title;
-    frame.contentWindow.focus();
-    frame.contentWindow.print();
-    document.title = previousTitle;
-    setTimeout(() => frame.remove(), 1000);
-  };
-  // Wait for the logo, or the PDF can come out without it.
-  const img = doc.querySelector('img');
-  if (img && !img.complete) {
-    img.onload = print;
-    img.onerror = () => { img.remove(); print(); };
-  } else {
-    print();
-  }
+  document.title = title;
+  frame.contentWindow.focus();
+  frame.contentWindow.print();
+  document.title = previousTitle;
 }
