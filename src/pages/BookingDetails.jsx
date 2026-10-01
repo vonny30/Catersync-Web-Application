@@ -551,8 +551,7 @@ export default function BookingDetails() {
   // --- Completion Handlers (Confirmed -> Completed) ---
   const {
     canMarkCompleted,
-    isFullyPaid: isCompletionFullyPaid,
-    remainingBalance: completionRemainingBalance,
+    completeLock,
     isCompleting,
     handleMarkCompleted,
   } = useCompletionHandlers({
@@ -1944,10 +1943,10 @@ export default function BookingDetails() {
             <button
               onClick={handleMarkCompleted}
               disabled={isCompleting}
-              className={isCompletionFullyPaid ? 'bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50' : 'bg-white border border-slate-300 text-slate-500 font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 hover:bg-slate-50 transition-colors'}
-              title={isCompletionFullyPaid ? undefined : `Locked — ₱${completionRemainingBalance.toLocaleString()} balance due`}
+              className={!completeLock ? 'bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50' : 'bg-white border border-slate-300 text-slate-500 font-bold text-sm px-6 py-2.5 rounded-lg flex items-center gap-2 hover:bg-slate-50 transition-colors'}
+              title={completeLock || undefined}
             >
-              {isCompletionFullyPaid ? <Check size={18} /> : <Lock size={18} />} {isCompleting ? 'Completing...' : 'Mark Completed'}
+              {!completeLock ? <Check size={18} /> : <Lock size={18} />} {isCompleting ? 'Completing...' : 'Mark Completed'}
             </button>
           )}
           {canCancel && (

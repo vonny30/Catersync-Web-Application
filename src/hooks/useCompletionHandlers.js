@@ -17,6 +17,7 @@ import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { sumVerifiedPositivePayments } from '../utils/payments';
 import { STATUS_ORDER } from '../utils/bookingStatus';
+import { eventNotYetHappened, completeLockReason, completeBeforeEventMessage } from '../utils/completion';
 
 export function useCompletionHandlers({ booking, payments, fetchData, noun = 'booking' }) {
   const { showConfirm } = useConfirm();
@@ -31,6 +32,14 @@ export function useCompletionHandlers({ booking, payments, fetchData, noun = 'bo
 
   const handleMarkCompleted = async () => {
     if (!booking) return;
+
+    // The event has to have happened. Completing marks the equipment
+    // returned and the vehicle runs closed, which would free them for other
+    // bookings on the event day.
+    if (eventNotYetHappened(booking.event_datetime)) {
+      toast.error(completeBeforeEventMessage(noun, booking.event_datetime));
+      return;
+    }
 
     if (!isFullyPaid) {
       toast.error(`Can't mark this ${noun} as completed — a balance of ₱${remainingBalance.toLocaleString()} is still due. The account must be fully settled first.`);
@@ -81,5 +90,7 @@ export function useCompletionHandlers({ booking, payments, fetchData, noun = 'bo
     }
   };
 
-  return { canMarkCompleted, isFullyPaid, remainingBalance, isCompleting, handleMarkCompleted };
+  // Why Complete is locked right now (null when it may be pressed).
+  const completeLock = completeLockReason({ eventDatetime: booking?.event_datetime, owed: remainingBalance });
+  return { canMarkCompleted, isFullyPaid, remainingBalance, isCompleting, handleMarkCompleted, completeLock };
 }

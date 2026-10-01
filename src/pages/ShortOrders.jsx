@@ -38,6 +38,7 @@ import { getBookingsOnDate } from '../utils/availability';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { FilterBar, QuickFilters, EmptyResult, FILTER_LABEL_ROW } from '../components/FilterBar';
 import { getRangeBounds } from './Reports/helpers';
+import { eventNotYetHappened, completeLockReason, completeBeforeEventMessage } from '../utils/completion';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { buildBookingSearch } from '../utils/bookingSearch';
 import { filterCustomersForPicker } from '../utils/customerPicker';
@@ -1159,6 +1160,14 @@ export default function ShortOrders() {
   const remainingBalance = Math.max(0, totalAmount - totalPaid);
   const isFullyPaid = remainingBalance <= 0;
 
+  // The event has to have happened. Completing marks the equipment
+  // returned and the vehicle runs closed, which would free them for other
+  // bookings on the event day.
+  if (eventNotYetHappened(order?.event_datetime)) {
+    toast.error(completeBeforeEventMessage('order', order.event_datetime));
+    return;
+  }
+
   if (!isFullyPaid) {
     toast.error(`Can't mark this order as completed — a balance of ₱${remainingBalance.toLocaleString()} is still due. The account must be fully settled first.`);
     return;
@@ -1649,7 +1658,7 @@ export default function ShortOrders() {
                 }
               } catch (e) { cardTrays = 0; }
               const cardFullyPaid = (order.positivePayments || 0) >= (order.total_amount || 0);
-              const cardOwed = Math.max(0, (order.total_amount || 0) - (order.positivePayments || 0));
+              const cardCompleteLock = completeLockReason({ eventDatetime: order.event_datetime, owed: cardFullyPaid ? 0 : (order.total_amount || 0) - (order.positivePayments || 0) });
               const cardMoney = order.money;
               const cardOverdue = !!cardMoney?.is_overdue;
               const cardLapsed = !!cardMoney?.is_lapsed;
@@ -1754,10 +1763,10 @@ export default function ShortOrders() {
                     {order.booking_status === 'Confirmed' && (
                       <button
                         onClick={() => handleMarkCompleted(order.booking_id)}
-                        title={cardFullyPaid ? undefined : `Locked — ₱${cardOwed.toLocaleString()} balance due`}
-                        className={`font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 border transition-colors ${cardFullyPaid ? 'bg-blue-50 hover:bg-blue-100 border-blue-100 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
+                        title={cardCompleteLock || undefined}
+                        className={`font-semibold text-[12.5px] px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 border transition-colors ${!cardCompleteLock ? 'bg-blue-50 hover:bg-blue-100 border-blue-100 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
                       >
-                        {cardFullyPaid ? <Check size={13} /> : <Lock size={13} />} Complete
+                        {!cardCompleteLock ? <Check size={13} /> : <Lock size={13} />} Complete
                       </button>
                     )}
                     <button onClick={() => navigate(`/app/orders/${order.booking_id}`)} className="bg-white border border-slate-200 text-slate-700 font-semibold text-[12.5px] px-3 py-[7px] rounded-[9px] hover:bg-slate-50 transition-colors">
@@ -1846,7 +1855,7 @@ export default function ShortOrders() {
                   // need these, and inlining them twice invited the two to
                   // disagree.
                   const orderFullyPaid = (order.positivePayments || 0) >= (order.total_amount || 0);
-                  const orderOwed = Math.max(0, (order.total_amount || 0) - (order.positivePayments || 0));
+                  const rowCompleteLock = completeLockReason({ eventDatetime: order.event_datetime, owed: orderFullyPaid ? 0 : (order.total_amount || 0) - (order.positivePayments || 0) });
                   const money = order.money;
                   const isOverdue = !!money?.is_overdue;
                   const isLapsed = !!money?.is_lapsed;
@@ -1998,12 +2007,12 @@ export default function ShortOrders() {
                             {order.booking_status === 'Confirmed' && (
                               <button
                                 onClick={() => handleMarkCompleted(order.booking_id)}
-                                title={orderFullyPaid ? 'Mark completed' : `Locked — ₱${orderOwed.toLocaleString()} balance due`}
+                                title={rowCompleteLock || 'Mark completed'}
                                 className={`w-[30px] min-[1920px]:w-[106px] shrink-0 justify-center font-semibold text-[12.5px] px-0 min-[1920px]:px-[11px] py-[7px] rounded-[9px] flex items-center gap-1.5 border transition-colors ${
-                                  orderFullyPaid ? 'bg-blue-50 hover:bg-blue-100 border-blue-100 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'
+                                  !rowCompleteLock ? 'bg-blue-50 hover:bg-blue-100 border-blue-100 text-blue-700' : 'bg-slate-50 border-slate-200 text-slate-400'
                                 }`}
                               >
-                                {orderFullyPaid ? <Check size={13} /> : <Lock size={13} />} <span className="hidden min-[1920px]:inline">Complete</span>
+                                {!rowCompleteLock ? <Check size={13} /> : <Lock size={13} />} <span className="hidden min-[1920px]:inline">Complete</span>
                               </button>
                             )}
                           </div>
