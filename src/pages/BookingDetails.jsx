@@ -950,9 +950,14 @@ export default function BookingDetails() {
       // Whichever package is actually in effect after this save — needed so
       // a pax-only change (package unchanged) still knows what to re-allocate against.
       const effectivePackageId = newPackageId || oldPackageId;
-      const shouldReallocateEquipment = !!effectivePackageId && (packageChanged || paxChanged);
+      // A Pending booking holds no equipment yet — approval allocates it.
+      // Allocating here reserved stock for an unapproved request, and then
+      // approval tried to allocate the same items again and failed on the
+      // unique key, so an extra-pax approval kept the old quantities.
+      const holdsEquipment = !['Pending', 'Rejected', 'Cancelled'].includes(booking.booking_status);
+      const shouldReallocateEquipment = holdsEquipment && !!effectivePackageId && (packageChanged || paxChanged);
 
-      if (packageChanged || paxChanged) {
+      if (shouldReallocateEquipment) {
         const shouldContinue = await showConfirm({
           title: packageChanged ? 'Package Changed' : 'Guest Count Changed',
           message: packageChanged

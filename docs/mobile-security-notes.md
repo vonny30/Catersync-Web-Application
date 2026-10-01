@@ -76,3 +76,23 @@ Payment proofs are still reachable by anyone who has the exact link. To close th
 make the `images` bucket's `payments/` and `refunds/` folders private and show them with
 `createSignedUrl()` instead of `getPublicUrl()`. That needs a matching change in both the
 app and the web, so it has not been done.
+
+## 7. Operations Manager app — completing, returns and trips (1 Oct 2026)
+
+The 1 Oct run-through found bookings marked **Completed** from the Operations Manager
+app before their event and with a balance still due (BKG-110, 111, 116, 117), with
+equipment marked returned and trips closed days early. The database now applies the
+web's rule to the app (`sql/ops_app_completion_guards_2026-10-01.sql`):
+
+- **Completed** only from **Confirmed**, only once the event has started, and only when
+  nothing is owed. Any other status change from the app is ignored.
+- **Equipment returns** (`returned`, `returned_at`, `returned_quantity`,
+  `return_checked_at`) are only saved once the event has started. The app cannot change
+  the item, booking or quantity of an allocation.
+- **Trips** (`vehicle_assign.assignment_status`) can only change once the trip's window
+  has started. The app cannot move a trip to another vehicle, booking or time.
+
+Blocked changes are kept silently — the update succeeds but the row stays as it was —
+so the app never errors. **Please update the app** to hide or disable *Complete*,
+*Return* and *Close trip* until those conditions hold (and show the balance still due),
+then reload the row after saving, so staff see why nothing changed.

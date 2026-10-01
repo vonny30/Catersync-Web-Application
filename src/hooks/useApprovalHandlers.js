@@ -310,6 +310,16 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
       // 3. Allocate equipment (only for packages)
       if (approvalType === 'package' && approvalBooking.package_id) {
         try {
+          // Start from a clean slate so approval always allocates for the
+          // approved guest count. A Pending booking should hold nothing, but
+          // one edited before this fix may already have rows, and inserting
+          // on top of them fails on the unique key.
+          const { error: clearError } = await supabase
+            .from('booking_equipment')
+            .delete()
+            .eq('booking_id', approvalBooking.booking_id)
+            .eq('returned', false);
+          if (clearError) throw clearError;
           await allocateEquipmentForBooking(approvalBooking.booking_id, approvalBooking.package_id, approvalBooking.pax_count + (approvalData.extraPax || 0));
         } catch (allocError) {
           console.warn('Equipment allocation warning:', allocError);
