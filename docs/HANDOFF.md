@@ -221,6 +221,23 @@ out-of-service moved off the row — out of service appears as a red sub-line
 under the item name only when it is non-zero, which is what explains a reduced
 usable figure.
 
+## Replacing the logo at handover
+
+The logo is set in one place: `LOGO_SRC` in `src/brand.js`. Everything reads
+it — the browser tab icon (`index.html` gets it through a small plugin in
+`vite.config.js`), the top bar and mobile menu, the Login / Forgot Password /
+Reset Password pages, and the downloadable Booking Details sheet.
+
+1. Put the logo file in `frontend/public/` (PNG, JPG, SVG or WebP).
+2. Set `LOGO_SRC` to its path, e.g. `'/pgs-logo.png'`, and `LOGO_ALT` to a
+   short description.
+3. `npm run build`, then deploy.
+
+Any shape works: logo slots fit the image inside a white circle
+(`object-contain`), so a wide or oval logo is shrunk, never cropped. The word
+"CaterSync" next to the logo is the system's name, not part of the logo; the
+business name and contact details come from Settings → Business Details.
+
 ## Things that will bite you
 
 - **Every client-side "can I?" check has to mirror the server-side guards, or

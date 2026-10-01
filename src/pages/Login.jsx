@@ -6,6 +6,7 @@ import { supabase } from '../supabase';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { BusinessName } from '../utils/businessProfile';
+import { LOGO_SRC, LOGO_ALT } from '../brand';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -193,8 +194,8 @@ export default function Login() {
         <div className="absolute top-[190px] right-[90px] w-[130px] h-[130px] rounded-full bg-white/[0.04]" />
 
         <div className="relative w-full max-w-[560px] mx-auto flex items-center gap-3.5">
-          <div className="w-[52px] h-[52px] rounded-full overflow-hidden bg-white/10 ring-2 ring-white/50 shrink-0">
-            <img src="/logo.svg" alt="CaterSync" className="w-full h-full object-cover" />
+          <div className="w-[52px] h-[52px] rounded-full overflow-hidden bg-white ring-2 ring-white/50 shrink-0">
+            <img src={LOGO_SRC} alt={LOGO_ALT} className="w-full h-full object-contain" />
           </div>
           <span className="text-[clamp(22px,1.6vw,26px)] font-bold tracking-[0.02em] text-white">CaterSync</span>
         </div>
@@ -227,7 +228,7 @@ export default function Login() {
         <div className="w-full max-w-[440px]">
           <div className="flex lg:hidden items-center gap-3 mb-9">
             <div className="w-12 h-12 rounded-full overflow-hidden ring-2 ring-[#008A45]/20 shrink-0">
-              <img src="/logo.svg" alt="CaterSync" className="w-full h-full object-cover" />
+              <img src={LOGO_SRC} alt={LOGO_ALT} className="w-full h-full object-contain" />
             </div>
             <span className="text-[22px] font-bold text-slate-900">CaterSync</span>
           </div>

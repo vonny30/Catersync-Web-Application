@@ -21,6 +21,7 @@ import {
   ArrowUp,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { LOGO_SRC, LOGO_ALT } from '../brand';
 
 const styles = {
   wrapper: 'flex flex-col h-screen bg-slate-50 font-sans overflow-hidden',
@@ -258,11 +259,11 @@ export default function ManagerLayout() {
             <MenuIcon size={24} />
           </button>
           <Link to="/app" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
-            <div className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-white/40 flex-shrink-0 bg-white/10">
+            <div className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-white/40 flex-shrink-0 bg-white">
               <img
-                src="/logo.svg"
-                alt="CaterSync"
-                className="w-full h-full object-cover"
+                src={LOGO_SRC}
+                alt={LOGO_ALT}
+                className="w-full h-full object-contain"
               />
             </div>
             <h1 className="text-xl font-bold tracking-wide">CaterSync</h1>
@@ -333,8 +334,8 @@ export default function ManagerLayout() {
           {/* Header – compact */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0 bg-gradient-to-r from-[#00753b] to-[#009c4d]">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full overflow-hidden ring-2 ring-white/40 bg-white/10">
-                <img src="/logo.svg" alt="CaterSync" className="w-full h-full object-cover" />
+              <div className="w-8 h-8 rounded-full overflow-hidden ring-2 ring-white/40 bg-white">
+                <img src={LOGO_SRC} alt={LOGO_ALT} className="w-full h-full object-contain" />
               </div>
               <span className="font-bold text-white">CaterSync</span>
             </div>

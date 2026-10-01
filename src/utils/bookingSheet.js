@@ -11,6 +11,7 @@
 // dialog, so the file is always named Name_BookingNo (Juan Dela Cruz_BKG-112).
 
 import { formatPhone } from './businessProfile';
+import { LOGO_SRC } from '../brand';
 
 const esc = (v) => String(v ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -104,7 +105,7 @@ export function buildBookingSheet({ business, booking, packageLabel, menu, notes
     .replace(/[\\/:*?"<>|]+/g, '').trim() || 'Booking Details';
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${STYLES}</style></head><body><div class="page">
     <header class="head">
-      <img src="${esc(`${window.location.origin}/logo.png`)}" alt="">
+      <img src="${esc(new URL(LOGO_SRC, window.location.origin).href)}" alt="">
       <div class="biz">
         <h1>${esc(business.business_name)}</h1>
         ${business.address ? `<p>${esc(business.address)}</p>` : ''}
