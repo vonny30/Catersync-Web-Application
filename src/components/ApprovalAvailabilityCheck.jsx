@@ -19,7 +19,7 @@
 // at dispatch time. Approving now shows the plan and then commits it, the same
 // way equipment already worked.
 import { useState, useEffect, useRef } from 'react';
-import { Calendar, Clock, Users, PackageCheck, MapPin, Loader2, AlertTriangle, Check, Truck, Package as PackageIcon } from 'lucide-react';
+import { Calendar, Clock, Users, PackageCheck, MapPin, Loader2, AlertTriangle, Check, CheckCircle2, XCircle, Truck, Package as PackageIcon } from 'lucide-react';
 import { getBookingsOnDate } from '../utils/availability';
 import { getEquipmentAvailabilityPreview } from '../utils/equipment';
 import { getVehicleAvailabilityPreview, completionVerbFor } from '../utils/vehicle';
@@ -209,59 +209,89 @@ export default function ApprovalAvailabilityCheck({ booking, effectivePaxCount, 
 
   // The three status labels — one wording, used by the full panel AND the
   // compact summary, so the two can never describe the same day differently.
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
   const dayLabel = isShortOrder
     ? atDailyLimit
-      ? `Full (${dayBookings.length}/${MAX_SHORT_ORDERS_PER_DAY})`
-      : `${dayBookings.length} of ${MAX_SHORT_ORDERS_PER_DAY} booked`
+      ? `Fully booked (${dayBookings.length} of ${MAX_SHORT_ORDERS_PER_DAY} orders)`
+      : `${dayBookings.length} of ${MAX_SHORT_ORDERS_PER_DAY} order slots taken`
     : dayBookings.length === 0
-      ? 'Clear day'
-      : `${dayBookings.length} other event${dayBookings.length > 1 ? 's' : ''}${isConflict ? ' — check time' : ''}`;
+      ? 'Date is free'
+      : `${plural(dayBookings.length, 'other booking')} that day${isConflict ? ' · close in time' : ''}`;
   const eqLabel = equipmentAvailability.length === 0
-    ? 'Nothing to assign'
-    : eqAllSufficient ? 'Sufficient stock' : `${eqShortCount} item${eqShortCount > 1 ? 's' : ''} short`;
+    ? 'No equipment needed'
+    : eqAllSufficient ? 'Enough equipment' : `Short on ${plural(eqShortCount, 'item')}`;
   const fleetLabel = !fleet
-    ? 'No date yet'
+    ? 'No date set'
     : isPickupOrder
-      ? 'No vehicle needed'
+      ? 'Customer pickup — no vehicle needed'
       : fleet.sufficient
-        ? `${fleet.picks.length} of ${fleet.fleetSize} ready`
-        : `Short by ${fleet.shortfall.needed - fleet.picks.length}`;
+        ? `${plural(fleet.picks.length, 'vehicle')} ready to send`
+        : `Need ${plural(fleet.shortfall.needed - fleet.picks.length, 'more vehicle')}`;
 
   if (compact) {
     const loading = loadingDay || (booking.package_id && loadingEquipment) || loadingFleet;
     const blocked = atDailyLimit || eqStatus === 'warning' || fleetStatus === 'warning';
     const timeClash = !atDailyLimit && isConflict;
+    const what = isShortOrder ? 'order' : 'booking';
+    // One headline the manager can act on, then the three facts behind it.
     const verdict = loading
-      ? { tone: 'text-slate-500', text: 'Checking availability…' }
+      ? { tone: 'slate', Icon: Loader2, spin: true, title: 'Checking availability…', text: 'Looking at the date, equipment and vehicles.' }
       : blocked
-        ? { tone: 'text-red-700', text: 'Not enough for this date — see the details when you approve.' }
+        ? { tone: 'red', Icon: XCircle, title: 'Not enough for this date',
+            text: `Something this ${what} needs is not available. Open Approve to see what is short.` }
         : timeClash
-          ? { tone: 'text-amber-700', text: 'Another event is close in time — check the schedule when you approve.' }
+          ? { tone: 'amber', Icon: AlertTriangle, title: 'Can be approved — check the time',
+              text: 'Another booking that day is close in time. Open Approve to see the schedule.' }
           : dayBookings.length > 0
-            ? { tone: 'text-emerald-700', text: 'There are other bookings this day, but equipment and vehicles are still available — it can be booked.' }
-            : { tone: 'text-emerald-700', text: 'Available — nothing else is booked, and equipment and vehicles are free.' };
-    const items = [
-      { key: 'day', Icon: Calendar, label: 'Day', status: dayStatus, text: dayLabel, theme: dayTheme, loading: loadingDay },
+            ? { tone: 'green', Icon: CheckCircle2, title: 'Can be approved',
+                text: `There are other bookings that day, but everything this ${what} needs is still available.` }
+            : { tone: 'green', Icon: CheckCircle2, title: 'Ready to approve',
+                text: `The date is free and everything this ${what} needs is available.` };
+    const TONE = {
+      green: { rail: 'bg-emerald-500', ring: 'bg-emerald-50 text-emerald-600', title: 'text-emerald-800', wrap: 'from-emerald-50/70' },
+      amber: { rail: 'bg-amber-500', ring: 'bg-amber-50 text-amber-600', title: 'text-amber-800', wrap: 'from-amber-50/70' },
+      red: { rail: 'bg-red-500', ring: 'bg-red-50 text-red-600', title: 'text-red-800', wrap: 'from-red-50/70' },
+      slate: { rail: 'bg-slate-300', ring: 'bg-slate-100 text-slate-500', title: 'text-slate-700', wrap: 'from-slate-50' },
+    }[verdict.tone];
+    // Each fact's colour follows its own check: green fine, amber worth a
+    // look, red not enough, dark for plain information.
+    const dayTone = atDailyLimit ? 'text-red-700' : timeClash ? 'text-amber-700' : dayBookings.length > 0 ? 'text-slate-800' : 'text-emerald-700';
+    const checkTone = (status) => (status === 'warning' ? 'text-red-700' : status === 'clear' || status === 'pickup' ? 'text-emerald-700' : 'text-slate-500');
+    const facts = [
+      { key: 'day', Icon: Calendar, label: 'Date', text: dayLabel, tone: dayTone, loading: loadingDay },
       booking.package_id
-        ? { key: 'eq', Icon: PackageCheck, label: 'Equipment', status: eqStatus, text: eqLabel, theme: eqTheme, loading: loadingEquipment }
+        ? { key: 'eq', Icon: PackageCheck, label: 'Equipment', text: eqLabel, tone: checkTone(eqStatus), loading: loadingEquipment }
         : null,
-      { key: 'fleet', Icon: Truck, label: 'Vehicles', status: fleetStatus, text: fleetLabel, theme: fleetTheme, loading: loadingFleet },
+      { key: 'fleet', Icon: Truck, label: 'Vehicles', text: fleetLabel, tone: checkTone(fleetStatus), loading: loadingFleet },
     ].filter(Boolean);
+    const VerdictIcon = verdict.Icon;
     return (
-      <div className="rounded-2xl border border-slate-200/70 bg-white px-5 py-4">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <span className="text-[13px] font-semibold text-slate-600">Availability</span>
-          {items.map(({ key, Icon, label, text, theme, loading: itemLoading }) => (
-            <span key={key} className="inline-flex items-center gap-1.5 text-[13px] text-slate-600">
-              <Icon size={14} className={theme.icon} />
-              {label}
-              {itemLoading
-                ? <Loader2 size={12} className="animate-spin text-slate-400" />
-                : <span className={`text-[12px] font-semibold px-2 py-0.5 rounded-full ${theme.pill}`}>{text}</span>}
-            </span>
+      <div className={`relative overflow-hidden rounded-2xl border border-slate-200/70 bg-gradient-to-br ${TONE.wrap} to-white`}>
+        <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${TONE.rail}`} />
+        <div className="flex items-start gap-3.5 px-5 pt-4">
+          <span className={`flex items-center justify-center w-10 h-10 rounded-full shrink-0 ${TONE.ring}`}>
+            <VerdictIcon size={20} className={verdict.spin ? 'animate-spin' : ''} />
+          </span>
+          <div className="min-w-0">
+            <p className={`text-[15px] font-semibold ${TONE.title}`}>{verdict.title}</p>
+            <p className="text-[13px] text-slate-600 mt-0.5">{verdict.text}</p>
+          </div>
+        </div>
+        <div className={`grid gap-2.5 px-5 py-4 ${facts.length === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+          {facts.map(({ key, Icon, label, text, tone, loading: factLoading }) => (
+            <div key={key} className="flex items-center gap-3 rounded-xl border border-slate-200/70 bg-white px-3.5 py-3 min-w-0">
+              <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-slate-50 shrink-0">
+                <Icon size={16} className="text-slate-500" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-[12px] font-semibold uppercase tracking-[0.05em] text-slate-500">{label}</p>
+                {factLoading
+                  ? <p className="text-[13px] text-slate-400 flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Checking…</p>
+                  : <p className={`text-[14px] font-semibold ${tone}`}>{text}</p>}
+              </div>
+            </div>
           ))}
         </div>
-        <p className={`mt-2 text-[13px] font-semibold ${verdict.tone}`}>{verdict.text}</p>
       </div>
     );
   }
