@@ -1,4 +1,12 @@
 // src/pages/Reports/index.jsx
+//
+// Reports -- /app/reports
+//
+// Read-only reporting over a chosen period, in four tabs: Overview, Financial,
+// Menu & Packages, and Booking Summary. Loads the rows once
+// and derives every tab from them; it never writes.
+// Page reference: docs/pages/reports.md
+
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabase';
 import toast from 'react-hot-toast';
@@ -240,7 +248,7 @@ export default function Reports() {
       outstandingContracted: Number(periodTotals?.outstanding_contracted) || 0,
       // TWO SIMILAR COLUMNS, and the difference matters.
       //   paid_contracted      — Confirmed + Completed, the SAME population as
-      //                          Estimated Gross Revenue. This is the one the
+      //                          Gross Revenue. This is the one the
       //                          bridge card shows, and it is what makes
       //                          collections + receivables = revenue hold.
       //   paid_against_events  — adds Approved. Kept for reference only.
@@ -252,10 +260,10 @@ export default function Reports() {
       // Payment-anchored, by payment date.
       cashReceipts: Number(periodTotals?.cash_receipts) || 0,
       refundsIssued: Number(periodTotals?.refunds_issued) || 0,
-      // Payments Received: kept money — receipts less refunds.
+      // Cash Receipts: kept money — receipts less refunds.
       // PAYMENTS RECEIVED (22 Sep 2026): paid toward the period's bookings,
-      // whenever the money came in — so Payments Received + Collectible =
-      // Estimated Gross Revenue. Not cash by payment date.
+      // whenever the money came in — so Cash Receipts + Accounts Receivable =
+      // Gross Revenue. Not cash by payment date.
       paymentsReceived: paymentsReceivedForEvents(periodTotals?.paid_contracted, keptTotal),
       reversalsRecorded: Number(periodTotals?.reversals_recorded) || 0,
       receiptCount: Number(periodTotals?.receipt_count) || 0,
@@ -277,7 +285,7 @@ export default function Reports() {
         ...moneyInEventRange.filter(m => m.counts_toward_revenue).map(breakdownRow),
         ...keptInRange.map(keptDepositRow),
       ],
-      // The bookings behind Payments Received: paid-toward contracted work
+      // The bookings behind Cash Receipts: paid-toward contracted work
       // plus kept deposits.
       _collectedBreakdown: [
         ...moneyInEventRange.filter(m => m.counts_toward_revenue && Number(m.net_paid) > 0).map(breakdownRow),
@@ -550,7 +558,7 @@ export default function Reports() {
     // The Financial tab's three-line trend. Built by a pure helper, given the
     // FULL booking and payment lists rather than the range-scoped copies —
     // this series ignores the period filter by design, and the chart says so.
-    // Contracted work only, matching Estimated Gross Revenue on the cards: a
+    // Contracted work only, matching Gross Revenue on the cards: a
     // Pending request is not revenue. Paid uses counted entries for the same
     // reason the cards do.
     const monthlyFinancialTrend = buildMonthlyFinancialTrend(

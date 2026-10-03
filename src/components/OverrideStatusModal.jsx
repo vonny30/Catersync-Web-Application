@@ -40,7 +40,6 @@ export default function OverrideStatusModal({ booking, isOpen, onClose, onDone, 
 
   if (!isOpen || !booking) return null;
 
-  const noun = booking.booking_type === 'Short Order' ? 'order' : 'booking';
   const total = Number(booking.total_amount) || 0;
   const required = total * CONFIRM_PAID_FRACTION;
   const paid = Number(verifiedPaid) || 0;

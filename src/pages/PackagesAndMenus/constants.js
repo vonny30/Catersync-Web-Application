@@ -1,4 +1,8 @@
 // src/pages/PackagesAndMenus/constants.js
+//
+// Shared values for Packages & Menus: the motif colour list and its swatches,
+// and the empty form a new package or menu item starts from.
+
 export const DEFAULT_COLORS = [
   'Burgundy', 'Navy Blue', 'Emerald Green', 'Gold', 'Silver', 'White',
   'Cream', 'Blush Pink', 'Lavender', 'Champagne', 'Mint Green', 'Peach',

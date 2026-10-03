@@ -1,4 +1,8 @@
 // src/pages/Reports/helpers.js
+//
+// Formatting and period helpers for Reports: peso and date formats, the
+// date-range presets, period wording ("for September"), card styles, and
+// month grouping for the charts.
 
 export const formatCurrency = (amount) => {
   return new Intl.NumberFormat('en-PH', {
@@ -9,6 +13,7 @@ export const formatCurrency = (amount) => {
   }).format(amount || 0).replace('PHP', '₱');
 };
 
+/** "Sep 30, 2026" (Philippine format); "N/A" when empty. */
 export const formatDate = (dateString) => {
   if (!dateString) return 'N/A';
   return new Date(dateString).toLocaleDateString('en-PH', {
@@ -23,6 +28,7 @@ export const formatDate = (dateString) => {
 // leaves the reader wondering which figure is wrong.
 export const formatPercent = (value, digits = 1) => `${(value || 0).toFixed(digits)}%`;
 
+/** The booking number (BKG-112 / SO-026), or a short id when a row has none. */
 export const getBookingRef = (booking) => {
   if (booking.booking_number) return booking.booking_number;
   const prefix = booking.booking_type === 'Short Order' ? 'SO' : 'BKG';
@@ -59,14 +65,15 @@ export const DEFAULT_DATE_PRESET = 'This Month';
 // financial reporting states a period, and hiding them only makes the card
 // vague. What the rule stops is a second money figure or a row count sitting
 // under the first number, which is what invites a reader to reconcile them.
-// "for September" / "during September" / "in September" — and, when the range
+// "for September" / "in September" — and, when the range
 // is unbounded, just "all time". Without these, a subtext reads "Collected
 // during all time".
 export const ALL_TIME_LABEL = 'all time';
+/** "for September" / "in September", or just "all time". */
 export const forPeriod = (period) => (period === ALL_TIME_LABEL ? ALL_TIME_LABEL : `for ${period}`);
-export const duringPeriod = (period) => (period === ALL_TIME_LABEL ? ALL_TIME_LABEL : `during ${period}`);
 export const inPeriod = (period) => (period === ALL_TIME_LABEL ? ALL_TIME_LABEL : `in ${period}`);
 
+/** The period in words for headings: "September", "2026", "1–15 September", or "all time". */
 export function periodLabel(preset, start, end) {
   if ((preset === 'This Month' || preset === 'Last Month') && start) {
     return start.toLocaleString('en-PH', { month: 'long', timeZone: MANILA });
@@ -219,6 +226,7 @@ export function getRangeBounds(preset, customStart, customEnd) {
   return { start: null, end: null };
 }
 
+/** True when the date falls inside [start, end]; a missing bound is open-ended. */
 export function isWithinRange(dateValue, start, end) {
   if (!dateValue) return false;
   const d = new Date(dateValue);
@@ -248,14 +256,9 @@ export function cardColorClasses() {
   return 'relative overflow-hidden bg-white border-slate-200/70 hover:border-[#c9dfd4] hover:shadow-[0_3px_12px_rgba(15,23,42,0.05)]';
 }
 
+/** The thin coloured bar on the left edge of a report card. */
 export function cardAccentClass(color = 'green') {
   return `absolute left-0 top-0 bottom-0 w-[3px] ${CARD_ACCENTS[color] || CARD_ACCENTS.green}`;
-}
-
-// Figures are near-black everywhere now; colour lives in the accent bar, not
-// the number. The red "damaged" card is the one intentional exception.
-export function cardValueClass(color = 'green') {
-  return color === 'red' ? 'text-red-700' : 'text-slate-900';
 }
 
 
@@ -285,7 +288,7 @@ export const monthLabel = (date) => date.toLocaleString('default', { month: 'sho
  * last six months plus anything already scheduled ahead.
  *
  * Pending bookings are EXCLUDED by the caller (excludeStatuses), which keeps
- * this consistent with the Estimated Gross Revenue card and with every other
+ * this consistent with the Gross Revenue card and with every other
  * money figure on the page: a request nobody has agreed to is a lead, not a
  * sale. "Estimated" still earns its name — an accepted booking's total can
  * change before the event.
@@ -343,9 +346,9 @@ export const buildMonthlyFinancialTrend = (
       ? {
           month: hit.month,
           estimatedGrossRevenue: hit.estimatedGrossRevenue,
-          // Paid toward that month's bookings — the Payments Received card's rule.
+          // Paid toward that month's bookings — the Cash Receipts card's rule.
           paymentsReceived: hit.paidToDate,
-          // Still owed on that month's services — the Collectible card's rule.
+          // Still owed on that month's services — the Accounts Receivable card's rule.
           collectible: Math.max(0, hit.estimatedGrossRevenue - hit.paidToDate),
         }
       : {

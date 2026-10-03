@@ -1,4 +1,9 @@
 // src/hooks/useRealtimeRefresh.js
+//
+// Keeps a page live: subscribes to database changes on the given tables and
+// re-fetches when they happen. Every page that shows shared data uses this
+// instead of its own subscription (see the notes below and CLAUDE.md).
+
 import { useEffect, useRef } from 'react';
 import { supabase } from '../supabase';
 

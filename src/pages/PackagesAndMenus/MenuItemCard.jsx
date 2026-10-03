@@ -1,4 +1,8 @@
 // src/pages/PackagesAndMenus/MenuItemCard.jsx
+//
+// One menu item in the Packages & Menus grid: photo, name, category, price
+// per tray, and its Edit / Archive / Delete actions.
+
 import { Trash2 } from 'lucide-react';
 import ImageWithFallback from './ImageWithFallback';
 

@@ -1,4 +1,8 @@
 // src/pages/Reports/DateRangeFilter.jsx
+//
+// The date-range control used across the app (Reports and Receivables
+// period, and every list's date filters). See the component's notes below.
+
 import { useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { DATE_RANGE_PRESETS, formatDate } from './helpers';

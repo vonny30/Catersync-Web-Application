@@ -1,4 +1,12 @@
 // src/pages/ShortOrderDetails.jsx
+//
+// Short Order Details -- /app/orders/:id
+//
+// One tray order in full: customer, delivery, ordered items, the delivery
+// vehicle run, payments and refunds, status history, and the same lifecycle
+// actions as a booking through the same hooks. Short orders have no equipment.
+// Page reference: docs/pages/short-order-details.md
+
 import { useState, useEffect, useMemo} from 'react';
 import Select from '../components/Select';
 import AssignVehicleModal from '../components/AssignVehicleModal';
@@ -200,7 +208,7 @@ export default function ShortOrderDetails() {
           } else if (Array.isArray(orderData.menu_selections)) {
             selections = orderData.menu_selections;
           }
-        } catch (e) {
+        } catch {
           selections = [];
         }
       }
@@ -614,7 +622,7 @@ export default function ShortOrderDetails() {
           selections = order.menu_selections;
         }
       }
-    } catch (e) { selections = []; }
+    } catch { selections = []; }
     setEditFormData({
       customer_id: order.customer_id || '',
       event_datetime: toDateTimeLocalValue(order.event_datetime),
@@ -1025,59 +1033,59 @@ export default function ShortOrderDetails() {
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
-        <span className={`px-4 py-1.5 rounded-full text-xs font-bold border ${
-          order.booking_status === 'Pending' ? 'bg-amber-50 border-amber-200 text-amber-700' :
-          order.booking_status === 'Approved' ? 'bg-[#EAF3F2] border-[#C1DEDC] text-slate-800' :
-          order.booking_status === 'Confirmed' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
-          order.booking_status === 'Completed' ? 'bg-blue-50 border-blue-200 text-blue-700' :
-          order.booking_status === 'Cancelled' ? 'bg-slate-100 border-slate-300 text-slate-600' :
-          'bg-red-50 border-red-200 text-red-700'
-        }`}>
-          {order.booking_status}
-        </span>
-        {/* Grey, never the rose used for overdue — see utils/lapsed.js. */}
-        {money?.is_lapsed && (
-          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-slate-100 border-slate-300 text-slate-600" title={LAPSED_ACCEPT_TOOLTIP}>
-            {lapsedBlockedLabel(order.booking_status)}
-          </span>
-        )}
-        {hasUnpaidPastEvent({ booking_status: order.booking_status, event_datetime: order.event_datetime, total_amount: order.total_amount, positivePayments }) && (
-          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
-            Past Event — ₱{remainingBalance.toLocaleString()} Remaining
-          </span>
-        )}
-        {refundStatus === 'Fully Refunded' && (
-          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-blue-50 border-blue-200 text-blue-700">
-            Fully Refunded
-          </span>
-        )}
-        {refundStatus === 'Refundable' && (
-          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-green-50 border-green-200 text-green-700">
-            Refundable
-          </span>
-        )}
-        {refundStatus === 'Non-Refundable' && (
-          <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
-            Non-Refundable
-          </span>
-        )}
+            <span className={`px-4 py-1.5 rounded-full text-xs font-bold border ${
+              order.booking_status === 'Pending' ? 'bg-amber-50 border-amber-200 text-amber-700' :
+              order.booking_status === 'Approved' ? 'bg-[#EAF3F2] border-[#C1DEDC] text-slate-800' :
+              order.booking_status === 'Confirmed' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
+              order.booking_status === 'Completed' ? 'bg-blue-50 border-blue-200 text-blue-700' :
+              order.booking_status === 'Cancelled' ? 'bg-slate-100 border-slate-300 text-slate-600' :
+              'bg-red-50 border-red-200 text-red-700'
+            }`}>
+              {order.booking_status}
+            </span>
+            {/* Grey, never the rose used for overdue — see utils/lapsed.js. */}
+            {money?.is_lapsed && (
+              <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-slate-100 border-slate-300 text-slate-600" title={LAPSED_ACCEPT_TOOLTIP}>
+                {lapsedBlockedLabel(order.booking_status)}
+              </span>
+            )}
+            {hasUnpaidPastEvent({ booking_status: order.booking_status, event_datetime: order.event_datetime, total_amount: order.total_amount, positivePayments }) && (
+              <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
+                Past Event — ₱{remainingBalance.toLocaleString()} Remaining
+              </span>
+            )}
+            {refundStatus === 'Fully Refunded' && (
+              <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-blue-50 border-blue-200 text-blue-700">
+                Fully Refunded
+              </span>
+            )}
+            {refundStatus === 'Refundable' && (
+              <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-green-50 border-green-200 text-green-700">
+                Refundable
+              </span>
+            )}
+            {refundStatus === 'Non-Refundable' && (
+              <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
+                Non-Refundable
+              </span>
+            )}
 
-        {/* ✅ NEW: Show balance remaining for completed orders */}
-{order.booking_status === 'Completed' && positivePayments < (order.total_amount || 0) && (
-  <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-amber-50 border-amber-200 text-amber-700">
-    ⚠️ Balance Remaining
-  </span>
-)}
+            {/* A Completed order that still has a balance. */}
+            {order.booking_status === 'Completed' && positivePayments < (order.total_amount || 0) && (
+              <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-amber-50 border-amber-200 text-amber-700">
+                ⚠️ Balance Remaining
+              </span>
+            )}
 
-          <button
-            type="button"
-            onClick={openSheet}
-            title="Preview the booking details sheet and save it as a PDF"
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold border border-white/40 bg-white/[0.14] text-white hover:bg-white/[0.24] transition-colors cursor-pointer"
-          >
-            <FileDown size={14} /> Booking Sheet PDF
-          </button>
-          {sheet && <BookingSheetPreview sheet={sheet} onClose={() => setSheet(null)} />}
+            <button
+              type="button"
+              onClick={openSheet}
+              title="Preview the booking details sheet and save it as a PDF"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold border border-white/40 bg-white/[0.14] text-white hover:bg-white/[0.24] transition-colors cursor-pointer"
+            >
+              <FileDown size={14} /> Booking Sheet PDF
+            </button>
+            {sheet && <BookingSheetPreview sheet={sheet} onClose={() => setSheet(null)} />}
           </div>
         </div>
 
@@ -2062,51 +2070,51 @@ export default function ShortOrderDetails() {
                 />
               </div>
 
-          {isRefundable && (() => {
-  const maxRefundable = positivePayments;
-  return maxRefundable > 0 && (
-    <div className="border-t border-slate-200 pt-3 mt-3">
-      <p className="text-xs font-bold text-slate-700 mb-2">
-        Record Refund Details <span className="font-normal text-slate-400">(optional – leave blank to skip)</span>
-      </p>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-semibold text-slate-600 mb-0.5">Refund Amount (₱)</label>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={refundAmount}
-            onChange={(e) => setRefundAmount(e.target.value)}
-            placeholder="Enter amount (optional)"
-            className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
-          />
-          <p className="text-[10px] text-slate-400 mt-0.5">Max: ₱{positivePayments.toLocaleString()}</p>
-        </div>
-        <div>
-          <label className="block text-xs font-semibold text-slate-600 mb-0.5">Remarks</label>
-          <input
-            type="text"
-            value={refundRemarks}
-            onChange={(e) => setRefundRemarks(e.target.value)}
-            placeholder="Reason for refund"
-            className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
-          />
-        </div>
-      </div>
-      <div className="mt-2">
-        <RefundMethodField value={refundMethod} onChange={setRefundMethod} receiptNo={refundReceiptNo} onReceiptNoChange={setRefundReceiptNo} />
-        <ImageUploadField
-          label="Receipt / Proof of Refund"
-          required={refundMethod !== 'Cash'}
-          note={refundMethod === 'Cash' ? '(optional for cash)' : '(required if amount entered)'}
-          file={refundFile}
-          onChange={(e) => setRefundFile(e.target.files[0])}
-        />
-      </div>
-    </div>
-  );
-})()}
+              {isRefundable && (() => {
+                const maxRefundable = positivePayments;
+                return maxRefundable > 0 && (
+                  <div className="border-t border-slate-200 pt-3 mt-3">
+                    <p className="text-xs font-bold text-slate-700 mb-2">
+                      Record Refund Details <span className="font-normal text-slate-400">(optional – leave blank to skip)</span>
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-0.5">Refund Amount (₱)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={refundAmount}
+                          onChange={(e) => setRefundAmount(e.target.value)}
+                          placeholder="Enter amount (optional)"
+                          className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
+                        />
+                        <p className="text-[10px] text-slate-400 mt-0.5">Max: ₱{positivePayments.toLocaleString()}</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-0.5">Remarks</label>
+                        <input
+                          type="text"
+                          value={refundRemarks}
+                          onChange={(e) => setRefundRemarks(e.target.value)}
+                          placeholder="Reason for refund"
+                          className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-[#008A45] outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-2">
+                      <RefundMethodField value={refundMethod} onChange={setRefundMethod} receiptNo={refundReceiptNo} onReceiptNoChange={setRefundReceiptNo} />
+                      <ImageUploadField
+                        label="Receipt / Proof of Refund"
+                        required={refundMethod !== 'Cash'}
+                        note={refundMethod === 'Cash' ? '(optional for cash)' : '(required if amount entered)'}
+                        file={refundFile}
+                        onChange={(e) => setRefundFile(e.target.files[0])}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
 
               {positivePayments > 0 && !isRefundable && downpaymentPaid > 0 && (
                 <div className="border-t border-slate-200 pt-3 mt-3 text-xs text-slate-500">

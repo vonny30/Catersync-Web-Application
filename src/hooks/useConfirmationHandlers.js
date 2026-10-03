@@ -7,7 +7,7 @@
 // booking reaches Confirmed.
 //
 // The rule, the dialog copy and the write now live in utils/confirmBooking.js
-// so the Payments page's verify -> confirm chain can reach the same behaviour
+// so the Receivables page's verify -> confirm chain can reach the same behaviour
 // without a fourth copy of it.
 import { useState } from 'react';
 import toast from 'react-hot-toast';
@@ -22,6 +22,7 @@ import {
   applyConfirmation,
 } from '../utils/confirmBooking';
 
+/** Whether this booking can be Confirmed (at least 50% paid and verified), and the handler that does it. */
 export function useConfirmationHandlers({ booking, payments, fetchData }) {
   const { showConfirm } = useConfirm();
   const [isConfirming, setIsConfirming] = useState(false);

@@ -1,6 +1,11 @@
 // src/components/ConfirmModal.jsx
+//
+// The app-wide "Are you sure?" dialog. Rendered once in App.jsx and driven
+// by ConfirmContext: a page calls `await showConfirm({...})` and gets true or
+// false back. `confirmVariant` (danger / warning / success) sets the colour.
+
 import { createPortal } from 'react-dom';
-import { X, AlertTriangle, Info } from 'lucide-react';
+import { AlertTriangle, Info } from 'lucide-react';
 
 export default function ConfirmModal({
   isOpen,
@@ -52,8 +57,8 @@ export default function ConfirmModal({
         {/* Body */}
         <div className="p-6">
           <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap font-mono">
-  {message}
-</p>
+            {message}
+          </p>
         </div>
 
         {/* Footer */}

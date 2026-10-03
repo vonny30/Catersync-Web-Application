@@ -28,6 +28,7 @@ function publish(profile) {
   listeners.forEach((listener) => listener(profile));
 }
 
+/** Fetches the business profile once and caches it; `force` re-reads it. */
 export async function loadBusinessProfile({ force = false } = {}) {
   if (cache && !force) return cache;
   if (inflight && !force) return inflight;
@@ -58,6 +59,7 @@ export function setBusinessProfile(profile) {
   publish({ ...DEFAULT_BUSINESS, ...profile });
 }
 
+/** The business profile for a component, kept current when Settings saves it. */
 export function useBusinessProfile() {
   const [profile, setProfile] = useState(cache || DEFAULT_BUSINESS);
   useEffect(() => {

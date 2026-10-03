@@ -29,6 +29,7 @@ export function eventDateKey(eventDatetime) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/** "18 Sep" — the event's day, for availability messages. */
 export function eventDayLabel(eventDatetime) {
   if (!eventDatetime) return '';
   const d = new Date(eventDatetime);

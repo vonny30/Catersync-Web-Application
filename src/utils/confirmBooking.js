@@ -9,7 +9,7 @@
 //
 // This was implemented three times — useConfirmationHandlers.js,
 // Bookings.jsx and ShortOrders.jsx — before the verify -> confirm chain needed
-// a fourth caller on the Payments page. Three copies of a money rule is how
+// a fourth caller on the Receivables page. Three copies of a money rule is how
 // this codebase ended up with three drifting versions of the completion
 // filter, so the rule moved here instead of being pasted again.
 //
@@ -50,6 +50,7 @@ export function getConfirmEligibility(booking, paid) {
   return { eligible: true, paid, required, totalAmount, isFullyPaid: paid >= totalAmount };
 }
 
+/** Why a booking cannot be confirmed yet: less than 50% paid and verified. */
 export function underpaidMessage(paid, required) {
   return `Needs at least 50% paid and verified before this can be confirmed (₱${paid.toLocaleString()} of ₱${required.toLocaleString()} required).`;
 }

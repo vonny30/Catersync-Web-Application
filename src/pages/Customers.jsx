@@ -15,7 +15,7 @@
 // compatibility and are deprecated for display: bind to receivable_due and
 // its totals instead, so this page agrees with Receivables and Reports.
 // (pipeline_due — unpaid Pending + Approved work — is not shown: it was
-// removed on 21 Sep 2026 as confusing next to Collectible, the same reason
+// removed on 21 Sep 2026 as confusing next to Accounts Receivable, the same reason
 // the Approved card left Reports.)
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -43,7 +43,7 @@ import { createWalkInCustomer } from '../utils/createWalkInCustomer';
 
 const PAGE_SIZE = 10;
 
-// Same presentation as the Payments table: whole pesos stay whole, centavos
+// Same presentation as the Receivables table: whole pesos stay whole, centavos
 // are kept rather than rounded away.
 const peso = (value) => `₱${Number(value || 0).toLocaleString()}`;
 const dateOrDash = (value) => (value ? formatDate(value) : '—');
@@ -761,8 +761,8 @@ export default function Customers() {
   const [sourceFilter, setSourceFilter] = useState('All');
   const [balanceFilter, setBalanceFilter] = useState('All');
   const [repeatOnly, setRepeatOnly] = useState(false);
-  // THE PERIOD — which month's Collectible this page shows (22 Sep 2026). The
-  // same control and default as the Payments page, so the two Collectible
+  // THE PERIOD — which month's Accounts Receivable this page shows (22 Sep 2026). The
+  // same control and default as the Receivables page, so the two Accounts Receivable
   // figures are the same figure.
   const [periodPreset, setPeriodPreset] = useState(DEFAULT_DATE_PRESET);
   const [periodCustomStart, setPeriodCustomStart] = useState('');
@@ -788,7 +788,7 @@ export default function Customers() {
   const span = periodSpan(periodStart, periodEnd);
 
   // Every Confirmed / Completed booking's balance, from v_booking_money — the
-  // rows the Payments page reads. Collectible for the period, per customer and
+  // rows the Receivables page reads. Accounts Receivable for the period, per customer and
   // in total, comes from the one shared rule (collectibleInPeriod).
   const moneyKey = String(refreshTick);
   const [moneyState, setMoneyState] = useState({ key: null, rows: [] });
@@ -819,7 +819,7 @@ export default function Customers() {
     balance: balanceFilter,
     repeatOnly,
     // [customer_id, collectible] for the period, largest first: what the
-    // Collectible filter and the Collectible sort run on.
+    // Accounts Receivable filter and the Accounts Receivable sort run on.
     owing: Object.entries(collect.byCustomer).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)),
     moneyLoaded,
   };
@@ -893,7 +893,7 @@ export default function Customers() {
           // [] would mean "no filter" to .in(); a nil uuid means "nobody".
           query = query.in('customer_id', overdueIds.length ? overdueIds : ['00000000-0000-0000-0000-000000000000']);
         }
-        // Collectible for the PERIOD (f.owing), not the all-time has_receivable_due.
+        // Accounts Receivable for the PERIOD (f.owing), not the all-time has_receivable_due.
         const owingIds = f.owing.map(([id]) => id);
         if (f.balance === 'Has receivables') query = query.in('customer_id', owingIds.length ? owingIds : ['00000000-0000-0000-0000-000000000000']);
         if (f.balance === 'Settled' && owingIds.length) query = query.not('customer_id', 'in', `(${owingIds.join(',')})`);
@@ -903,7 +903,7 @@ export default function Customers() {
       const from = (p - 1) * PAGE_SIZE;
       let data; let count; let error;
       if (s.field === 'receivable_due') {
-        // Sorted by the PERIOD's Collectible, which the database does not hold:
+        // Sorted by the PERIOD's Accounts Receivable, which the database does not hold:
         // read every matching customer, order them here, and show this page's
         // slice. The count is every match, as the paged query reports it.
         const amount = Object.fromEntries(f.owing);
@@ -959,7 +959,7 @@ export default function Customers() {
         // [] would mean "no filter" to .in(); a nil uuid means "nobody".
         query = query.in('customer_id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']);
       }
-      // Collectible for the PERIOD (f.owing), not the all-time has_receivable_due.
+      // Accounts Receivable for the PERIOD (f.owing), not the all-time has_receivable_due.
       const owingIds = f.owing.map(([id]) => id);
       if (f.balance === 'Has receivables') query = query.in('customer_id', owingIds.length ? owingIds : ['00000000-0000-0000-0000-000000000000']);
       if (f.balance === 'Settled' && owingIds.length) query = query.not('customer_id', 'in', `(${owingIds.join(',')})`);
@@ -1281,7 +1281,7 @@ export default function Customers() {
           </Select>
         </FilterField>
       </FilterBar>
-      {/* The period of the Collectible figures — the same title the Payments
+      {/* The period of the Accounts Receivable figures — the same title the Payments
           page shows for the same period. */}
       <PeriodTitle>{periodTitle(periodPreset, periodStart, periodEnd)}</PeriodTitle>
 

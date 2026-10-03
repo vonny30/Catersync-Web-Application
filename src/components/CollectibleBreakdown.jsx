@@ -1,6 +1,6 @@
 // src/components/CollectibleBreakdown.jsx
 //
-// Where the Collectible figure comes from: every Confirmed or Completed booking
+// Where the Accounts Receivable figure comes from: every Confirmed or Completed booking
 // with an event in the period and money still owed, one row each. The Balance
 // Due column adds up to the card. Shared by the Payments and Customers pages,
 // which compute it with the same rule (utils/reportMetrics collectibleInPeriod).

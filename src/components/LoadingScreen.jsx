@@ -1,4 +1,9 @@
 // src/components/LoadingScreen.jsx
+//
+// Full-screen spinner shown while the app checks for an existing session on
+// first load (AuthContext `initializing`), so a signed-in manager never sees
+// the login page flash before being let in.
+
 export default function LoadingScreen() {
   return (
     <div className="flex items-center justify-center min-h-screen bg-white">

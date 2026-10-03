@@ -35,6 +35,7 @@ export function SectionHeader({ icon: Icon, title, children }) {
   );
 }
 
+/** The white rounded card every detail-page section sits in. */
 export function SectionCard({ children, className = '' }) {
   return (
     <div className={`bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs ${className}`}>
@@ -90,15 +91,6 @@ export function Field({ label, value, children, wide = false }) {
       <div className="mt-[5px] text-[14.5px] font-semibold leading-[1.4] text-slate-900 [text-wrap:pretty]">
         {children ?? value}
       </div>
-    </div>
-  );
-}
-
-/** A row inside a list card — menu items, equipment, ledger entries. */
-export function ListRow({ children, className = '' }) {
-  return (
-    <div className={`flex justify-between items-center gap-3 px-3.5 py-[11px] bg-[#fbfcfd] border border-[#eef2f6] rounded-[11px] ${className}`}>
-      {children}
     </div>
   );
 }

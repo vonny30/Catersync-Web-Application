@@ -1,4 +1,13 @@
 // src/pages/Vehicles.jsx
+//
+// Vehicles -- /app/vehicles
+//
+// The fleet and its trips. A vehicle is committed only for a trip's time
+// window, so one vehicle can serve a morning setup and an afternoon delivery.
+// Tabs: Day schedule, Find a window, Vehicles, Trips and History. Window rules
+// live in utils/vehicle.js.
+// Page reference: docs/pages/vehicles.md
+
 import { useState, useEffect, useRef, useMemo } from 'react';
 import Select from '../components/Select';
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';

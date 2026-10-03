@@ -1,4 +1,12 @@
 // src/pages/SettingsPage.jsx
+//
+// Settings -- /app/settings
+//
+// Four tabs: Business Details (name and contact details customers see),
+// Manager Profile (name, phone, login email), Security (change password) and
+// Payment Details (the GCash and bank accounts customers pay into).
+// Page reference: docs/pages/settings.md
+
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -46,7 +54,6 @@ export default function SettingsPage() {
     confirm: false,
   });
 
-  const [userId, setUserId] = useState(null);
 
   const handleError = (error, userMessage = 'Something went wrong.') => {
     console.error('Error:', error);
@@ -78,7 +85,6 @@ export default function SettingsPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { navigate('/login'); return; }
-      setUserId(user.id);
 
       const { data: manager, error } = await supabase
         .from('manager')

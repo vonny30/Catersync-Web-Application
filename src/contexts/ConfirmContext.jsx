@@ -1,8 +1,14 @@
 // src/contexts/ConfirmContext.jsx
-import React, { createContext, useContext, useState } from 'react';
+//
+// Promise-based confirm dialog. `showConfirm(options)` opens ConfirmModal and
+// resolves to true (confirmed) or false (cancelled), so an action reads as
+// `if (!(await showConfirm({...}))) return;`.
+
+import { createContext, useContext, useState } from 'react';
 
 const ConfirmContext = createContext();
 
+/** Holds the state of the one app-wide confirm dialog (rendered in App.jsx). */
 export function ConfirmProvider({ children }) {
   const [confirmState, setConfirmState] = useState({
     isOpen: false,
@@ -46,6 +52,7 @@ export function ConfirmProvider({ children }) {
   );
 }
 
+/** { showConfirm } — `await showConfirm({ title, message, confirmLabel, confirmVariant })` resolves true/false. */
 export function useConfirm() {
   const context = useContext(ConfirmContext);
   if (!context) {

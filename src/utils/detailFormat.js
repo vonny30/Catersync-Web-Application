@@ -14,12 +14,15 @@ export function initialsOf(customer) {
   return ((a + b) || '?').toUpperCase();
 }
 
+/** Date and time in the browser's format; "N/A" when empty. */
 export const fmtDateTime = (v) => (v ? new Date(v).toLocaleString() : 'N/A');
 
+/** "Sep 30, 2026"; "N/A" when empty. */
 export const fmtShortDate = (v) => (
   v ? new Date(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'
 );
 
+/** "2:30 PM"; empty when there is no time. */
 export const fmtTime = (v) => (
   v ? new Date(v).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : ''
 );

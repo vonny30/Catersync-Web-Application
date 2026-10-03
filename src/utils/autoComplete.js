@@ -17,6 +17,7 @@ import { STATUS_ORDER } from './bookingStatus';
 
 export const AUTO_COMPLETE_GRACE_HOURS = 5;
 
+/** True once AUTO_COMPLETE_GRACE_HOURS have passed since the event started. */
 export function isPastGracePeriod(eventDatetime) {
   if (!eventDatetime) return false;
   return Date.now() - new Date(eventDatetime).getTime() > AUTO_COMPLETE_GRACE_HOURS * 60 * 60 * 1000;

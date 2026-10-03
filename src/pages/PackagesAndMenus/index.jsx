@@ -1,4 +1,13 @@
 // src/pages/PackagesAndMenus/index.jsx
+//
+// Packages & Menus -- /app/packages-menu
+//
+// The catalogue: catering packages, short-order menu items, and the categories
+// that link them. Packages include whole categories, so any available item in
+// an included category can be chosen for a booking. Items are archived rather
+// than deleted once anything refers to them.
+// Page reference: docs/pages/packages-and-menu.md
+
 import { useState, useEffect } from 'react';
 import Select from '../../components/Select';
 import { Search } from 'lucide-react';
@@ -509,7 +518,7 @@ export default function PackagesAndMenus() {
   };
 
   // ============================================================
-  // ✅ VALIDATION – with duplicate check, image, and description
+  // Validation – duplicate name, image and description
   // ============================================================
   const validatePackageForm = async () => {
     const { title, price, minPax, selectedCategories, selectedEquipment, equipmentQuantities, description, imageFile, pricing_type, max_pax } = formData;
@@ -520,7 +529,7 @@ export default function PackagesAndMenus() {
       return false;
     }
 
-    // 2. ✅ DUPLICATE CHECK for Package Name
+    // 2. Package name must be unique
     const isDuplicate = await checkDuplicatePackageName(title, editingId);
     if (isDuplicate) {
       toast.error(`A package named "${title}" already exists. Please use a different name.`);
@@ -569,13 +578,13 @@ export default function PackagesAndMenus() {
       }
     }
 
-    // 5. ✅ DESCRIPTION is required
+    // 5. A description is required
     if (!description || description.trim() === '') {
       toast.error('Package description is required.');
       return false;
     }
 
-    // 6. ✅ IMAGE is required for NEW packages (or if no existing image)
+    // 6. An image is required for new packages (or if no existing image)
     if (!editingId && !imageFile) {
       toast.error('Please upload an image for this package.');
       return false;
@@ -617,7 +626,7 @@ export default function PackagesAndMenus() {
       return false;
     }
 
-    // 2. ✅ DUPLICATE CHECK for Menu Item Name
+    // 2. Menu item name must be unique
     const isDuplicate = await checkDuplicateMenuItemName(title, editingId);
     if (isDuplicate) {
       toast.error(`A menu item named "${title}" already exists. Please use a different name.`);
@@ -637,13 +646,13 @@ export default function PackagesAndMenus() {
       return false;
     }
 
-    // 5. ✅ DESCRIPTION is required
+    // 5. A description is required
     if (!description || description.trim() === '') {
       toast.error('Menu item description is required.');
       return false;
     }
 
-    // 6. ✅ IMAGE is required for NEW menu items (or if no existing image)
+    // 6. An image is required for new menu items (or if no existing image)
     if (!editingId && !imageFile) {
       toast.error('Please upload an image for this menu item.');
       return false;
@@ -656,12 +665,9 @@ export default function PackagesAndMenus() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    let isValid = false;
-    if (modalType === 'Package') {
-      isValid = await validatePackageForm();
-    } else {
-      isValid = await validateMenuItemForm();
-    }
+    const isValid = modalType === 'Package'
+      ? await validatePackageForm()
+      : await validateMenuItemForm();
     if (!isValid) return;
 
     setIsSubmitting(true);
@@ -1036,7 +1042,7 @@ export default function PackagesAndMenus() {
 
     setIsCategorySubmitting(true);
     try {
-      // ✅ DUPLICATE CHECK for Category Name (case-insensitive)
+      // Category name must be unique (case-insensitive)
       const isDuplicate = await checkDuplicateCategoryName(name, categoryForm.category_id);
       if (isDuplicate) {
         toast.error(`A category named "${name}" already exists. Please use a different name.`);
@@ -1072,7 +1078,7 @@ export default function PackagesAndMenus() {
   };
 
   const handleDeleteCategory = async (categoryId) => {
-    // ✅ USAGE CHECK — categories can be referenced by menu items and by
+    // Usage check — categories can be referenced by menu items and by
     // packages (via package_category); deleting one out from under either
     // would either fail with a raw DB foreign-key error or, worse, silently
     // orphan those references. Same pattern as the package/menu delete guards.

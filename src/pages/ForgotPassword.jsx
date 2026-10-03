@@ -1,4 +1,12 @@
 // src/pages/ForgotPassword.jsx
+//
+// Forgot Password -- /forgot-password
+//
+// Step one of a password reset: the manager enters their email, Supabase sends
+// an 8-digit code, and the code is exchanged here for a recovery session
+// before moving on to Reset Password.
+// Page reference: docs/pages/forgot-password.md
+
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Mail, AlertCircle, ArrowLeft, MailCheck, Info, KeyRound } from 'lucide-react';

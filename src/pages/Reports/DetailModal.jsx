@@ -1,4 +1,9 @@
 // src/pages/Reports/DetailModal.jsx
+//
+// The record list that opens when a Reports card or chart is clicked: the
+// bookings or payments behind the figure, with a search box, so a
+// manager can check any number against its rows.
+
 import { useState } from 'react';
 import ModalTotal from '../../components/ModalTotal';
 import Select from '../../components/Select';
@@ -13,7 +18,7 @@ const HEAD_CLASS = 'px-5 py-3 text-[12.5px] font-bold uppercase tracking-[0.05em
 export default function DetailModal({ detailModal, onClose }) {
   const navigate = useNavigate();
 
-  // --- Search/filter — same pattern as Payments.jsx's summary modals and
+  // --- Search/filter — same pattern as Receivables.jsx's summary modals and
   // Dashboard.jsx's stats modal, applied here so every card-click record
   // list filters the same way.
   const [searchTerm, setSearchTerm] = useState('');

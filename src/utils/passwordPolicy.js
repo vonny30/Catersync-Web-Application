@@ -1,4 +1,9 @@
 // src/utils/passwordPolicy.js
+//
+// The password rules (at least 8 characters, upper and lower case, a number
+// and a symbol), as one error message (getPasswordPolicyError) and as a
+// per-rule checklist (getPasswordChecklist).
+
 export const PASSWORD_MIN_LENGTH = 8;
 
 // Returns an error message string if the password is too weak, or null if it passes.
@@ -12,9 +17,6 @@ export function getPasswordPolicyError(password) {
   if (!/[^A-Za-z0-9]/.test(password)) return 'Password must include at least one special character.';
   return null;
 }
-
-export const PASSWORD_POLICY_HINT =
-  `At least ${PASSWORD_MIN_LENGTH} characters, with uppercase, lowercase, a number, and a special character.`;
 
 // Per-rule pass/fail list, for live "as you type" feedback next to a
 // password field (rather than only telling the manager what's wrong after

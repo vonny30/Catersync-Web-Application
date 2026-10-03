@@ -8,6 +8,7 @@
 // it hasn't happened yet.
 export const UNVERIFIED_PAY_STATUSES = ['Pending Verification', 'Proof Rejected'];
 
+/** True while a payment is awaiting verification or its proof was rejected. */
 export function isUnverifiedPayment(payment) {
   return UNVERIFIED_PAY_STATUSES.includes(payment?.pay_status);
 }
@@ -39,6 +40,7 @@ export const REFUNDED_STATUS = 'Refunded';
 export const REVERSED_STATUS = 'Reversed';
 export const ENTRY_TYPES = { receipt: 'Receipt', refund: 'Refund', reversal: 'Reversal' };
 
+/** True for the receipt stages: Deposit Collected, Partially Settled, Fully Settled. */
 export const isReceiptStage = (status) => RECEIPT_STAGE_ORDER.includes(status);
 
 // Pill colours for a stored status, one map for every page.
@@ -51,8 +53,10 @@ export const PAY_STATUS_PILL = {
   [REFUNDED_STATUS]: 'bg-red-50 text-red-700 border-red-200',
   [REVERSED_STATUS]: 'bg-slate-100 text-slate-600 border-slate-200',
 };
+/** The pill colours for a payment status (grey for anything unknown). */
 export const payStatusPillClass = (status) => PAY_STATUS_PILL[status] || 'bg-slate-100 text-slate-600 border-slate-200';
 
+/** True for a reversal row (a correction, never money moving). */
 export const isReversalEntry = (payment) => payment?.entry_type === ENTRY_TYPES.reversal;
 // A refund is money going back out. A reversal is also negative, but it is a
 // correction, not money moving — never list or sum the two together.
@@ -293,16 +297,19 @@ export function carriedTotalShortfall(totalToSave, requiredTotal) {
   return diff > ADJUSTMENT_TOLERANCE ? diff : 0;
 }
 
+/** The message shown when an edit would drop fees that were added at approval. */
 export function carriedTotalShortfallMessage(totalToSave, requiredTotal, carried, { noun = 'booking' } = {}) {
   return `This ${noun} wasn't saved — its total would be ${peso(totalToSave)}, but the package and guests come to ${peso(requiredTotal - carried)} plus ${peso(carried)} in fees added at approval, which is ${peso(requiredTotal)}. Close the form and open it again, then retry.`;
 }
 
+/** Why a booking whose total includes approval fees cannot be edited. */
 export function totalLossLockedMessage(storedTotal, recomputedTotal, { noun = 'booking' } = {}) {
   return `This ${noun} can't be edited — its total (${peso(storedTotal)}) is higher than the package and menu it is built from (${peso(recomputedTotal)}), usually because a fee was added at approval. Saving would recalculate it down to ${peso(recomputedTotal)} and lose the difference. Record a refund or a new payment instead.`;
 }
 
 export const PAYMENT_LOCKED_STATUSES = ['Confirmed', 'Completed', 'Cancelled', 'Rejected'];
 
+/** True once a booking is Confirmed or closed: its details can no longer be edited. */
 export function isPaymentLedgerLocked(bookingStatus) {
   return PAYMENT_LOCKED_STATUSES.includes(bookingStatus);
 }

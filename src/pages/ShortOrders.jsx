@@ -1,4 +1,12 @@
 // src/pages/ShortOrders.jsx
+//
+// Short Orders -- /app/orders
+//
+// The list of tray orders, the counterpart of Bookings: search, filter, sort,
+// create a walk-in order, and act on orders without opening them. Short orders
+// carry a delivery fee and no equipment.
+// Page reference: docs/pages/short-orders.md
+
 import { useState, useEffect, useRef, useMemo} from 'react';
 import Select from '../components/Select';
 import { createPortal } from 'react-dom';
@@ -716,7 +724,7 @@ export default function ShortOrders() {
         if (typeof order.menu_selections === 'string') selections = JSON.parse(order.menu_selections);
         else if (Array.isArray(order.menu_selections)) selections = order.menu_selections;
       }
-    } catch (e) { selections = []; }
+    } catch { selections = []; }
     setFormData({
       customer_id: order.customer_id || '',
       booking_type: 'Short Order',
@@ -964,7 +972,7 @@ export default function ShortOrders() {
         }
       }
 
-      // ✅ DUPLICATE CHECK – only active bookings (not Rejected or Cancelled)
+      // Duplicate check – only active bookings (not Rejected or Cancelled)
       // on the same date. Skipped for a brand-new walk-in customer: they
       // were just created a few lines up, so they can't possibly already
       // have a booking on this date — and running the check (and letting
@@ -986,7 +994,7 @@ export default function ShortOrders() {
           .eq('booking_type', 'Short Order')
           .gte('event_datetime', startISO)
           .lte('event_datetime', endISO)
-          .not('booking_status', 'in', '("Rejected","Cancelled")'); // ✅ exclude
+          .not('booking_status', 'in', '("Rejected","Cancelled")'); // exclude
 
         if (editingId) dupQuery = dupQuery.neq('booking_id', editingId);
 
@@ -1085,12 +1093,11 @@ export default function ShortOrders() {
         setIsSubmitting(false);
         return;
       } else {
-        const { data: newOrder, error } = await supabase
+        const { error } = await supabase
           .from('booking')
           .insert([payload])
           .select();
         if (error) throw error;
-        const orderId = newOrder[0].booking_id;
 
         if (customerMode === 'new') await new Promise(resolve => setTimeout(resolve, 500));
         toast.success('Short order created.');
@@ -1373,7 +1380,7 @@ export default function ShortOrders() {
   // single Clear filters on the bar.
   const canClearFilters = !!(hasActiveFilters || searchTerm || moneyFilter || activeTab !== 'All');
 
-  // The only status pill map on this page. Payments.jsx keeps a bordered
+  // The only status pill map on this page. Receivables.jsx keeps a bordered
   // variant alongside its soft one because its modals put pills on coloured
   // surfaces; nothing here does, so there is one map rather than two.
   const getStatusBadgeSoft = (status) => ({
@@ -1656,7 +1663,7 @@ export default function ShortOrders() {
                 if (Array.isArray(selections)) {
                   cardTrays = selections.reduce((sum, sel) => sum + (sel.quantity || 0), 0);
                 }
-              } catch (e) { cardTrays = 0; }
+              } catch { cardTrays = 0; }
               const cardFullyPaid = (order.positivePayments || 0) >= (order.total_amount || 0);
               const cardCompleteLock = completeLockReason({ eventDatetime: order.event_datetime, owed: cardFullyPaid ? 0 : (order.total_amount || 0) - (order.positivePayments || 0) });
               const cardMoney = order.money;
@@ -1850,7 +1857,7 @@ export default function ShortOrders() {
                     if (Array.isArray(selections)) {
                       totalTrays = selections.reduce((sum, s) => sum + (s.quantity || 0), 0);
                     }
-                  } catch (e) { totalTrays = 0; }
+                  } catch { totalTrays = 0; }
                   // Hoisted: the Complete button and the Past Due pill both
                   // need these, and inlining them twice invited the two to
                   // disagree.

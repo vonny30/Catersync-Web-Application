@@ -39,6 +39,7 @@ export const BACK_TONE = { bg: '#f1f4f7', bd: '#dde3ea', fg: '#64748b' };
  */
 export const PROPOSED_TONE = { bg: '#EAF3F2', bd: '#008A45', fg: '#00603a' };
 
+/** The colours of a run on the vehicle timeline: by leg, or grey once it is back. */
 export const toneFor = (legLabel, completed) =>
   completed ? BACK_TONE : (LEG_TONE[legLabel] || LEG_TONE['Setup run']);
 

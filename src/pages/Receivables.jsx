@@ -683,11 +683,11 @@ export default function Receivables() {
   // pipeline. Its DEPOSITS are untouched by this — they are cash, and Cash
   // Receipts counts them on the day they arrived whatever the booking status.
   // One rule, shared with the Customers page (utils/reportMetrics), so the
-  // two Collectible cards always agree. owing = the rows behind the card.
+  // two Accounts Receivable cards always agree. owing = the rows behind the card.
   const { total: totalReceivables, owing: owingInPeriod } = collectibleInPeriod(money, start, end);
   // PAYMENTS RECEIVED: paid toward the period's Confirmed / Completed bookings,
   // plus deposits kept on its cancelled ones — the Reports and Dashboard rule,
-  // so Payments Received + Collectible = Estimated Gross Revenue. The rows and
+  // so Cash Receipts + Accounts Receivable = Gross Revenue. The rows and
   // the total come from ONE call, so the breakdown modal can never show a
   // different set of records than what the card's number adds up to.
   const paymentsReceivedBreakdown = paymentsReceivedBreakdownFor(money, kept.byBooking, start, end);
@@ -718,7 +718,7 @@ export default function Receivables() {
   // Same booking scope as paymentsReceivedBreakdown: Confirmed/Completed
   // (counts_toward_revenue) or a cancelled/rejected booking whose deposit was
   // actually forfeited (kept.byBooking). Keeps the Receipts tab's default
-  // list — and its total — matching the Payments Received card exactly.
+  // list — and its total — matching the Cash Receipts card exactly.
   const inPaymentsReceivedScope = (e) => {
     // Not moneyFor(): that helper is declared further down this component,
     // and calling it from here — evaluated on every render, before its own
@@ -769,7 +769,7 @@ export default function Receivables() {
   // below so "why does the total not match the rows" has its answer right
   // there, not just the word "reversed" on an unrelated line.
   const listedReversedAmount = listedReversedRows.reduce((sum, r) => sum + Number(r.entry.amount_paid), 0);
-  // With every other filter cleared, this list IS what Payments Received
+  // With every other filter cleared, this list IS what Cash Receipts
   // counts — so its footer states that exact figure (net of a refund on a
   // partially-refunded forfeited deposit, e.g. BKG-107, and of any reversed
   // receipt above) rather than a raw sum that would double-count either and
@@ -919,7 +919,7 @@ export default function Receivables() {
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-amber-500" />
           <p className="text-[13px] font-semibold text-slate-600 mb-2">Accounts Receivable</p>
           <h3 className="text-[27px] font-semibold tracking-[-0.03em] leading-[1.05] tabular-nums text-slate-900">{loaded ? peso(totalReceivables) : '—'}</h3>
-          {/* The same subtext as the Collectible card on Reports: the days it
+          {/* The same subtext as the Accounts Receivable card on Reports: the days it
               counts, so no basis label is needed. */}
           <p className="text-[13px] text-slate-600 mt-2.5">{periodSpan(start, end) ? `Still owed on services ${periodSpan(start, end)}` : 'Not yet collected'}</p>
           <span className="flex items-center gap-0.5 text-[12.5px] font-semibold text-[#007038] mt-2">Show balances due <ChevronRight size={13} /></span>

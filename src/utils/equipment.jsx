@@ -1,4 +1,11 @@
+// src/utils/equipment.jsx
+//
+// Equipment rules shared by Bookings, Booking Details, Equipment and Reports:
+// how many units an event needs (deriveEquipmentDemand), allocating them on
+// approval (allocateEquipmentForBooking), stock totals (getStockBreakdown), and
+// availability on a date.
 // src/utils/equipment.js
+
 import { supabase } from '../supabase';
 import { ACTIVE_BOOKING_STATUSES } from './bookingStatus';
 import { fetchAllRows } from './fetchAllRows';
@@ -23,7 +30,7 @@ export const deriveEquipmentDemand = (templateRows, equipmentById, paxCount) => 
 
   for (const item of (templateRows || [])) {
     const equip = equipmentById?.[item.equipment_id];
-    let quantity = 0;
+    let quantity;
 
     if (item.per_pax) {
       // Countable item – quantity depends on pax count
@@ -89,7 +96,7 @@ export const computeEquipmentDemand = async (packageId, paxCount) => {
     return deriveEquipmentDemand(equipTemplate, equipMap, paxCount);
   } catch (error) {
     console.error('Error in computeEquipmentDemand:', error);
-    throw new Error(`Failed to compute equipment demand: ${error.message}`);
+    throw new Error(`Failed to compute equipment demand: ${error.message}`, { cause: error });
   }
 };
 
@@ -161,11 +168,11 @@ export const allocateEquipmentForBooking = async (bookingId, packageId, paxCount
 
     if (insertError) throw insertError;
 
-    if (import.meta.env.DEV) console.log(`✅ Allocated ${allocations.length} equipment items for booking ${bookingId}`);
+    if (import.meta.env.DEV) console.log(`Allocated ${allocations.length} equipment items for booking ${bookingId}`);
     return allocations;
   } catch (error) {
     console.error('Error allocating equipment:', error);
-    throw new Error(`Failed to allocate equipment: ${error.message}`);
+    throw new Error(`Failed to allocate equipment: ${error.message}`, { cause: error });
   }
 };
 
@@ -263,6 +270,10 @@ export const revalidateAssignmentCapacity = async (eventDate, bookingId, items) 
   return violations;
 };
 
+/**
+ * Every equipment item short on a date: stock in service minus what other bookings
+ * that day already hold. `excludeBookingId` leaves one booking out of the count.
+ */
 export const checkEquipmentCapacityForDate = async (eventDate, excludeBookingId = null) => {
   if (!eventDate) {
     throw new Error('Event date is required for capacity check.');
@@ -361,7 +372,7 @@ export const checkEquipmentCapacityForDate = async (eventDate, excludeBookingId 
     return shortages;
   } catch (error) {
     console.error('Error checking equipment capacity:', error);
-    throw new Error(`Failed to check equipment capacity: ${error.message}`);
+    throw new Error(`Failed to check equipment capacity: ${error.message}`, { cause: error });
   }
 };
 
@@ -529,6 +540,10 @@ export const getStockBreakdown = (item, committedOverride) => {
   };
 };
 
+/**
+ * Everything about one day for the Equipment page: each item's stock and what is
+ * committed, and the events on that date.
+ */
 export const getDailyEquipmentSnapshot = async (dateStr) => {
   if (!dateStr) return { items: [], eventsOnDate: [] };
 
@@ -754,47 +769,4 @@ export const checkEquipmentAvailabilityImpact = async (equipmentId, proposedAvai
       events: info.events.sort((x, y) => new Date(x.event_datetime) - new Date(y.event_datetime)),
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
-};
-
-/**
- * Calculate the recommended quantity for a specific equipment item
- * based on pax count and the equipment's pax_per_unit.
- * 
- * Returns the recommended quantity (number).
- * If equipment not found or pax_per_unit missing, returns fallback.
- */
-export const calculateRecommendedQuantity = async (equipmentId, paxCount, includedQuantity = 1, perPax = true) => {
-  if (!equipmentId) {
-    console.warn('Equipment ID is required for recommended quantity.');
-    return includedQuantity || 1;
-  }
-
-  if (!perPax) {
-    return includedQuantity || 1;
-  }
-
-  const pax = paxCount || 0;
-  if (pax <= 0) {
-    return includedQuantity || 1;
-  }
-
-  try {
-    const { data, error } = await supabase
-      .from('equipment')
-      .select('pax_per_unit, equipment_type')
-      .eq('equipment_id', equipmentId)
-      .single();
-
-    if (error) throw error;
-
-    if (data?.pax_per_unit && data.pax_per_unit > 0) {
-      return Math.max(1, Math.ceil(pax / data.pax_per_unit));
-    } else {
-      // Fallback: multiply included quantity by pax
-      return Math.max(1, Math.ceil(includedQuantity * pax));
-    }
-  } catch (error) {
-    console.warn('Error fetching pax_per_unit, using fallback:', error);
-    return Math.max(1, Math.ceil(includedQuantity * pax));
-  }
 };

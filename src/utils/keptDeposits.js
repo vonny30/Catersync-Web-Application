@@ -1,7 +1,7 @@
 // src/utils/keptDeposits.js
 //
 // Reads what keptDepositsFor needs for one period and returns its answer.
-// Used by the Payments page and the Dashboard, which do not otherwise load
+// Used by the Receivables page and the Dashboard, which do not otherwise load
 // closed bookings; Reports already has the rows and calls keptDepositsFor
 // directly.
 import { supabase } from '../supabase';

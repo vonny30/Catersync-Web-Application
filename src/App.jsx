@@ -1,8 +1,14 @@
 // src/App.jsx
+//
+// The application shell: the providers every page relies on (auth, the
+// confirm dialog, the password-confirm dialog), the toast container, and the
+// route table. Public routes are /login, /forgot-password, /reset-password and
+// the legal pages; everything under /app is wrapped in ProtectedRoute and
+// ManagerLayout, so only a signed-in manager reaches it.
+
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { ErrorProvider } from './contexts/ErrorContext';
 import { ConfirmProvider } from './contexts/ConfirmContext';
 import { PasswordConfirmProvider, usePasswordConfirm } from './contexts/PasswordConfirmContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -110,7 +116,7 @@ function AppContent() {
           <Route path="packages" element={<Navigate to="/app/packages-menu" replace />} />
           <Route path="*" element={<Navigate to="/app" replace />} />
         </Route>
-        {/* ✅ Catch-all: redirect to login */}
+        {/* Catch-all: anything else goes to the login page. */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
@@ -144,13 +150,11 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <ErrorProvider>
-          <ConfirmProvider>
-            <PasswordConfirmProvider>
-              <AppContent />
-            </PasswordConfirmProvider>
-          </ConfirmProvider>
-        </ErrorProvider>
+        <ConfirmProvider>
+          <PasswordConfirmProvider>
+            <AppContent />
+          </PasswordConfirmProvider>
+        </ConfirmProvider>
       </AuthProvider>
     </BrowserRouter>
   );

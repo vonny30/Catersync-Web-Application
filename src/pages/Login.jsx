@@ -1,4 +1,12 @@
 // src/pages/Login.jsx
+//
+// Login -- /login
+//
+// Manager sign-in. Brand panel on the left, form on the right (form only on
+// small screens). Explains a refused sign-in in plain words, including when the
+// account is already in use on another device.
+// Page reference: docs/pages/login.md
+
 import { useState, useEffect } from 'react';
 import { Eye, EyeOff, Mail, Lock, AlertCircle, Info, Check } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';

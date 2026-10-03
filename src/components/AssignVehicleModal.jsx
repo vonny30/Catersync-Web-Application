@@ -1,3 +1,5 @@
+// src/components/AssignVehicleModal.jsx
+//
 // Assign a vehicle to a booking, from the booking's own page.
 //
 // Previously the detail pages' "Assign vehicle" button navigated to the

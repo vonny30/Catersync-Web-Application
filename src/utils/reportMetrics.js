@@ -18,6 +18,7 @@
 // A booking in one of these statuses is dead: no future work, no receivable.
 export const CANCELLED_BOOKING_STATUSES = ['Rejected', 'Cancelled'];
 
+/** True for Cancelled and Rejected bookings. */
 export const isCancelledBooking = (status) => CANCELLED_BOOKING_STATUSES.includes(status);
 
 // Panel, 29 May 2026 (Förster): "Only confirmed & completed bookings should
@@ -27,6 +28,7 @@ export const isCancelledBooking = (status) => CANCELLED_BOOKING_STATUSES.include
 // client's copy of it, for code that needs the statuses by name.
 export const REVENUE_BOOKING_STATUSES = ['Confirmed', 'Completed'];
 
+/** True for the statuses whose total counts as revenue (Confirmed and Completed). */
 export const countsTowardRevenue = (status) => REVENUE_BOOKING_STATUSES.includes(status);
 
 // Duplicated from pages/Reports/helpers.js on purpose, for now: a util reaching
@@ -73,7 +75,7 @@ export function keptOnClosedBooking({ eventDatetime, closedAt, netPaid, deposit 
 }
 
 /**
- * COLLECTIBLE for a period — one rule for the Payments page and the Customers
+ * ACCOUNTS RECEIVABLE for a period — one rule for the Receivables page and the Customers
  * page, so the two cards cannot disagree. The v_booking_money rows that count
  * toward revenue (Confirmed + Completed) with an event in the period; the
  * figure is their `outstanding`. start/end null = all time.
@@ -92,7 +94,7 @@ export function collectibleInPeriod(moneyRows, start, end) {
 
 /**
  * Deposits KEPT on the period's cancelled / rejected bookings — forfeited only
- * (keptOnClosedBooking). One implementation for Reports, the Payments page and
+ * (keptOnClosedBooking). One implementation for Reports, the Receivables page and
  * the Dashboard.
  *
  * @param closedRows       v_booking_money rows with is_closed (event_datetime, net_paid)
@@ -119,7 +121,7 @@ export function keptDepositsFor({ closedRows, closedAtById, depositByBooking }) 
  * period's bookings, whenever it was paid — net paid on Confirmed + Completed
  * bookings with an event in the period (f_report_period.paid_contracted), plus
  * deposits kept on the period's cancelled bookings. By construction
- *   Payments Received + Collectible = Estimated Gross Revenue.
+ *   Cash Receipts + Accounts Receivable = Gross Revenue.
  */
 export function paymentsReceivedForEvents(paidContracted, keptTotal) {
   return (Number(paidContracted) || 0) + (Number(keptTotal) || 0);

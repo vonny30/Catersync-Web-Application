@@ -19,6 +19,10 @@ import { sumVerifiedPositivePayments } from '../utils/payments';
 import { STATUS_ORDER } from '../utils/bookingStatus';
 import { eventNotYetHappened, completeLockReason, completeBeforeEventMessage } from '../utils/completion';
 
+/**
+ * Whether this booking can be marked Completed, why not (completeLock), and the handler that does it.
+ * @param noun  "booking" or "order", for the messages
+ */
 export function useCompletionHandlers({ booking, payments, fetchData, noun = 'booking' }) {
   const { showConfirm } = useConfirm();
   const [isCompleting, setIsCompleting] = useState(false);

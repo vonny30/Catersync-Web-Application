@@ -1,3 +1,11 @@
+// src/hooks/usePaymentHandlers.js
+//
+// Recording a payment against a booking or short order.
+//
+// Owns the Record Payment pop-up: amount, method, receipt number, proof image
+// upload, and the checks in utils/payments.js (validateReceipt) before the
+// payment row is written. Money rules themselves live in utils/payments.js.
+
 import { useState } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -6,6 +14,12 @@ import {
   methodNeedsReceiptNumber, ENTRY_TYPES,
 } from '../utils/payments';
 
+/**
+ * State and handlers for the Record Payment pop-up.
+ * @param bookingId    the booking or short order being paid
+ * @param totalAmount  its total, for the remaining-balance checks
+ * @param customerId   written on the payment row
+ */
 export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData, customerId }) {
   // Modal state
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);

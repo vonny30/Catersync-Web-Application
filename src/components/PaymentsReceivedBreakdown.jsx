@@ -1,11 +1,11 @@
 // src/components/PaymentsReceivedBreakdown.jsx
 //
-// Where the Payments Received figure comes from: every Confirmed / Completed
+// Where the Cash Receipts figure comes from: every Confirmed / Completed
 // booking with an event in the period and money paid toward it, plus the
 // period's cancelled/rejected bookings that forfeited a deposit — one row
 // each, exactly as utils/reportMetrics paymentsReceivedBreakdownFor computes
-// the card. Shared by Reports, the Payments page and the Dashboard's link
-// target, so clicking "Payments Received" always opens the same records that
+// the card. Shared by Reports, the Receivables page and the Dashboard's link
+// target, so clicking "Cash Receipts" always opens the same records that
 // summed to the number just clicked, never a differently-scoped list.
 import { createPortal } from 'react-dom';
 import { X, ExternalLink } from 'lucide-react';

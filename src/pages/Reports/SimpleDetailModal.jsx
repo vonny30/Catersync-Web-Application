@@ -1,4 +1,9 @@
 // src/pages/Reports/SimpleDetailModal.jsx
+//
+// A small read-only pop-up with the key facts of one record (title, a line of
+// explanation, a status badge, a short list of fields). Opened from Reports
+// tables outside the Financial tab.
+
 import { createPortal } from 'react-dom';
 
 const BADGE_STYLES = {

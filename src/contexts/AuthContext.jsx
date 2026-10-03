@@ -1,4 +1,16 @@
 // src/contexts/AuthContext.jsx
+//
+// Who is signed in, and whether they are a manager. Provides `user`,
+// `isManager`, `login` and `logout` to the whole app (useAuth).
+//
+// Also enforces the rules around a session:
+//   - only managers get in (a customer account is signed straight back out);
+//   - one active session per manager account (utils/managerSession.js) -- a
+//     newer sign-in elsewhere ends this one;
+//   - automatic sign-out after 30 minutes of inactivity;
+//   - walk-in customer creation briefly signs in as the new customer, so auth
+//     events during it are ignored (withWalkInCreation).
+
 import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { supabase } from '../supabase';
 import { clearCurrentManagerCache } from '../utils/currentManager';
@@ -14,6 +26,7 @@ import {
 
 const AuthContext = createContext();
 
+/** Wraps the app and owns the signed-in session. See the notes at the top of this file. */
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -360,7 +373,7 @@ export const AuthProvider = ({ children }) => {
 
         if (import.meta.env.DEV) console.log('Auth event:', event);
 
-if (event === 'SIGNED_OUT') {
+        if (event === 'SIGNED_OUT') {
           clearInactivityTimer();
           verifiedManagerUserIdRef.current = null;
           teardownSessionLock();
@@ -513,4 +526,5 @@ if (event === 'SIGNED_OUT') {
   );
 };
 
+/** { user, isManager, loading, initializing, login, logout, ... } for any component. */
 export const useAuth = () => useContext(AuthContext);

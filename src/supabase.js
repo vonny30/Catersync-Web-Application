@@ -1,4 +1,9 @@
 // src/supabase.js
+//
+// The one Supabase client the whole app shares, built from the
+// VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables. Every
+// database, storage, auth and realtime call goes through `supabase` from here.
+
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;

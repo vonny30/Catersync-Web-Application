@@ -1,4 +1,9 @@
 // src/pages/Reports/FinancialTab.jsx
+//
+// Reports -> Financial tab: Gross Revenue, Cash Receipts and Accounts
+// Receivable for the period, the monthly trend, and refunds. Every figure is
+// computed in utils/reportMetrics.js; this file only lays them out.
+
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LabelList,
 } from 'recharts';

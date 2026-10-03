@@ -24,6 +24,7 @@ import { X, Search } from 'lucide-react';
  */
 export const FILTER_LABEL_ROW = 'h-[22px] flex items-center gap-1.5 text-[12.5px] font-semibold';
 
+/** The filter row at the top of a list page, with "Clear filters" when any filter is set. */
 export function FilterBar({ children, canClear = false, onClear }) {
   return (
     <div className="flex flex-wrap items-start gap-3 bg-white rounded-2xl border border-slate-200/70 px-4 py-3.5">

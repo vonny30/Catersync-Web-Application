@@ -1,4 +1,10 @@
 // src/layouts/ManagerLayout.jsx
+//
+// The frame around every signed-in page: the green top bar (logo, name,
+// profile menu, sign out), the sidebar navigation (Management and Inventory
+// groups, Settings), and the slide-out menu on phones. Pages render inside it
+// through <Outlet />.
+
 import { useState, useRef, useEffect } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -155,7 +161,7 @@ export default function ManagerLayout() {
       // AuthContext's own SIGNED_OUT handler already shows the
       // "Logged out successfully" toast — don't show a second one here.
       await logout();
-    } catch (error) {
+    } catch {
       toast.error('Failed to log out');
     }
   };

@@ -1,11 +1,20 @@
 // src/pages/Bookings.jsx
+//
+// Bookings -- /app/bookings
+//
+// The list of package bookings: search, filter, sort and page through them,
+// create a new (walk-in) booking, and approve, reject, confirm, complete,
+// cancel or delete without opening each one. Lifecycle actions run through the
+// shared handler hooks in src/hooks.
+// Page reference: docs/pages/bookings.md
+
 import { useState, useEffect, useRef, useMemo} from 'react';
 import Select from '../components/Select';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
   Search, Check, Edit, Trash2, Lock, ChevronLeft, ChevronRight,
-  X, RefreshCw, UserPlus, User, Users,
+  X, RefreshCw, UserPlus, Users,
   LayoutGrid, Plus, Eye, ArrowUp, ArrowDown, ArrowUpDown
 } from 'lucide-react';
 import { supabase } from '../supabase';
@@ -13,7 +22,6 @@ import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
-import { checkEquipmentCapacityForDate, allocateEquipmentForBooking } from '../utils/equipment';
 import { createWalkInCustomer } from '../utils/createWalkInCustomer';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
@@ -459,10 +467,9 @@ export default function Bookings() {
           let isRefundable = false;
           if (booking.booking_status === 'Rejected' || booking.booking_status === 'Cancelled') {
             const eventDate = booking.event_datetime ? new Date(booking.event_datetime) : null;
-            let daysUntilEvent = null;
             if (eventDate) {
               const diffTime = eventDate.getTime() - now.getTime();
-              daysUntilEvent = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+              const daysUntilEvent = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
               isRefundable = daysUntilEvent >= 3;
             }
             if (positivePayments > 0) {
@@ -1062,7 +1069,7 @@ export default function Bookings() {
         }
       }
 
-      // ✅ DUPLICATE CHECK – only active bookings (not Rejected or Cancelled).
+      // Duplicate check – only active bookings (not Rejected or Cancelled).
       // Skipped for a brand-new walk-in customer: they were just created a
       // few lines up, so they can't possibly already have a booking on
       // this date — and running the check (and letting the manager Cancel
@@ -1182,7 +1189,7 @@ export default function Bookings() {
         setIsSubmitting(false);
         return;
       } else {
-        const { data: newBooking, error } = await supabase
+        const { error } = await supabase
           .from('booking')
           .insert([payload])
           .select();
@@ -1493,7 +1500,7 @@ const handleMarkCompleted = async (id) => {
   // single Clear filters on the bar.
   const canClearFilters = !!(hasActiveFilters || searchTerm || moneyFilter || activeTab !== 'All');
 
-  // The only status pill map on this page. Payments.jsx keeps a bordered
+  // The only status pill map on this page. Receivables.jsx keeps a bordered
   // variant alongside its soft one because its modals put pills on coloured
   // surfaces; nothing here does, so there is one map rather than two.
   const getStatusBadgeSoft = (status) => ({

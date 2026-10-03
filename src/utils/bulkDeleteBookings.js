@@ -31,6 +31,10 @@ const CHILD_LABELS = {
   vehicle_assign: 'vehicle assignments',
 };
 
+/**
+ * Deletes many bookings in batches, child rows first. Stops at the first failure and
+ * throws an error saying exactly how many were deleted before it.
+ */
 export async function bulkDeleteBookings(ids, { childTables = [], noun = 'booking', client = supabase } = {}) {
   const plural = (n) => `${n} ${noun}${n === 1 ? '' : 's'}`;
   let deleted = 0;

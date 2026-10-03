@@ -1,4 +1,13 @@
 // src/pages/Equipment.jsx
+//
+// Equipment -- /app/equipment
+//
+// Is there enough equipment for what is coming? Five tabs: Upcoming (prep by
+// day), Availability (on a chosen date), Inventory (stock, damaged and
+// maintenance counts), Active (what is out at events) and History. Stock
+// totals come from getStockBreakdown in utils/equipment.jsx.
+// Page reference: docs/pages/equipment.md
+
 import { useState, useEffect, useRef, Fragment, useMemo} from 'react';
 import Select from '../components/Select';
 import { useNavigate } from 'react-router-dom';
@@ -1838,7 +1847,7 @@ export default function Equipment() {
   // eight different items produced eight history rows carrying the same
   // reference, customer and event date. Grouped by booking the way the Active
   // Assignments tab already groups, and expandable to the individual items --
-  // the same shape the Payments page uses for a booking's payments.
+  // the same shape the Receivables page uses for a booking's payments.
   //
   // Grouping happens AFTER filtering, so a group summarises what matched: a
   // search for one equipment name shows that booking with the one item that

@@ -32,14 +32,3 @@ export const toDateTimeLocalValue = (value) => {
   const local = new Date(d.getTime() - d.getTimezoneOffset() * 60 * 1000);
   return local.toISOString().slice(0, 16);
 };
-
-/**
- * The inverse, for symmetry and so call sites can stop constructing it inline.
- * `new Date(v)` already reads a datetime-local value as local time — this exists
- * so the round trip is written down in one place rather than assumed.
- */
-export const fromDateTimeLocalValue = (value) => {
-  if (!value) return null;
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
-};

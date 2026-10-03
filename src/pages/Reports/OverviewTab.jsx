@@ -1,13 +1,10 @@
 // src/pages/Reports/OverviewTab.jsx
 //
-// ONE ROW of money (22 Sep 2026): Estimated Gross Revenue, Payments Received,
-// Collectible. Each card's subtext names the days it counts — the services in
-// the period for revenue and collectible, the payments made in the period for
-// Payments Received — so no "service date / payment date" or "accrual / cash
-// basis" headings are needed, and none are shown.
-//
-// A card shows ONE number; its subtext says what the number is and names the
-// period.
+// Reports -> Overview tab. One row of money for the selected period: Gross
+// Revenue, Cash Receipts and Accounts Receivable (Cash Receipts + Accounts
+// Receivable = Gross Revenue), then the top package and menu items and the
+// customer counts. A card shows one number and no subtext: the period is in
+// the page title.
 //
 // Every figure comes from f_report_period. Pending bookings are in none of
 // them: a request nobody has agreed to is not revenue.

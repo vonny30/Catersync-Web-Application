@@ -23,6 +23,7 @@ export function normalizePhone(value) {
 
 const collapse = (value) => (value || '').replace(/\s+/g, ' ').trim();
 
+/** Checks the Business Details form; returns { field: message } for each problem (empty when valid). */
 export function validateBusiness(form) {
   const errors = {};
   const name = collapse(form.business_name);

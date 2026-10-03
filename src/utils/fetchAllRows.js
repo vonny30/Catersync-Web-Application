@@ -24,6 +24,11 @@
 export const PAGE_SIZE = 1000;
 const MAX_PAGES = 200; // 200k rows — a guard against an unterminated loop
 
+/**
+ * Reads every row of a query, 1,000 at a time (Supabase returns at most 1,000 per request).
+ * @param buildQuery  a function that builds a fresh query each call (see the notes above)
+ * @param label       names the query in error messages
+ */
 export async function fetchAllRows(buildQuery, label = 'query') {
   const rows = [];
   for (let page = 0; page < MAX_PAGES; page++) {

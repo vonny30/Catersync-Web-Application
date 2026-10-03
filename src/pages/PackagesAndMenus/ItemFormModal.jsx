@@ -1,4 +1,10 @@
 // src/pages/PackagesAndMenus/ItemFormModal.jsx
+//
+// The Add / Edit form for a catering package or a menu item: name, price and
+// pricing type, guest limits, included categories and equipment (packages),
+// motif colours, photo and description. Validation runs in the parent page
+// (PackagesAndMenus/index.jsx) before saving.
+
 import { useEffect, useState } from 'react';
 import Select from '../../components/Select';
 import { createPortal } from 'react-dom';

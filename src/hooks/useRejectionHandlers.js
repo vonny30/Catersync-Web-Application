@@ -1,4 +1,9 @@
 // src/hooks/useRejectionHandlers.js
+//
+// Rejecting a booking or short order, with a reason and,
+// where money was paid, a refund. Owns the Reject pop-up and the write; the
+// list pages and detail pages share it.
+
 import { useState } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -7,6 +12,12 @@ import { useConfirm } from '../contexts/ConfirmContext';
 import { STATUS_ORDER } from '../utils/bookingStatus';
 import { prepareRefundEvidence } from '../utils/refundEvidence';
 
+/**
+ * State and handlers for the Reject pop-up.
+ * @param getBooking         looks up the booking being rejected by id
+ * @param getPaymentSummary  what has been paid on it (for the refund)
+ * @param fetchData          reloads the page afterwards
+ */
 export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData }) {
   const { showConfirm } = useConfirm();
 
@@ -94,7 +105,7 @@ export function useRejectionHandlers({ getBooking, getPaymentSummary, fetchData 
     if (!booking) return;
     const noun = booking.booking_type === 'Short Order' ? 'order' : 'booking';
 
-    // --- ✅ VALIDATE: Rejection reason is required ---
+    // --- A rejection reason is required ---
     if (!rejectionReason || rejectionReason.trim() === '') {
       toast.error('Please provide a reason for rejection.');
       return;

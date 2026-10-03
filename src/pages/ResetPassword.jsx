@@ -1,4 +1,12 @@
 // src/pages/ResetPassword.jsx
+//
+// Reset Password -- /reset-password
+//
+// Sets the new password once the manager's identity is proven (a link token or
+// the recovery session from Forgot Password), checked against the password
+// policy, then signs out so they log in with the new one.
+// Page reference: docs/pages/reset-password.md
+
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';

@@ -12,6 +12,7 @@ import { verifyPassword } from '../utils/verifyPassword';
 
 const PasswordConfirmContext = createContext();
 
+/** Holds the state of the app-wide "enter your password to continue" dialog. */
 export function PasswordConfirmProvider({ children }) {
   const { user } = useAuth();
   const [passwordConfirmState, setPasswordConfirmState] = useState({
@@ -92,6 +93,7 @@ export function PasswordConfirmProvider({ children }) {
   );
 }
 
+/** { requestPasswordConfirm } — asks for the manager's password before a sensitive action; resolves with the result. */
 export function usePasswordConfirm() {
   const context = useContext(PasswordConfirmContext);
   if (!context) {

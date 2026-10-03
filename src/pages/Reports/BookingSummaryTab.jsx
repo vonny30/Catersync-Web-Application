@@ -1,4 +1,9 @@
 // src/pages/Reports/BookingSummaryTab.jsx
+//
+// Reports -> Booking Summary tab: the bookings in the selected period as one
+// table, with totals cards computed from the same rows so the two always
+// agree.
+
 import { formatCurrency, cardColorClasses, cardAccentClass } from './helpers';
 import { EmptyResult } from '../../components/FilterBar';
 

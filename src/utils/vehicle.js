@@ -96,6 +96,7 @@ export const isWithinFreeDeliveryArea = (venue) => {
 export const PICKUP_VENUE_MARKER = 'Pickup - Main Branch';
 const PICKUP_VENUE_RE = /^pick\s*-?\s*up\s*-\s*main\s+branch$/i;
 
+/** True when the customer app recorded a pickup ("Pickup - Main Branch") as the venue. */
 export const isPickupVenue = (venue) =>
   PICKUP_VENUE_RE.test(String(venue || '').trim().replace(/\s+/g, ' '));
 
@@ -152,6 +153,7 @@ export const getServiceMethod = (booking) => {
 export const needsTransport = (booking) =>
   getServiceMethod(booking)?.mode !== 'Pickup';
 
+/** Delivery for a short order, event setup for a package booking. */
 export const getTripType = (booking) =>
   booking?.booking_type === 'Short Order' ? TRIP_TYPE.delivery : TRIP_TYPE.eventSetup;
 
@@ -322,6 +324,7 @@ export const LEG_COMPLETION_VERB = {
   [TRIP_TYPE.delivery]:   'delivered by',
 };
 
+/** "set up by" or "delivered by", for the trip's timing line. */
 export const completionVerbFor = (type) =>
   LEG_COMPLETION_VERB[type] || LEG_COMPLETION_VERB[TRIP_TYPE.eventSetup];
 
@@ -557,6 +560,7 @@ export const TRIP_STATE = {
   unscheduled: 'No event date',
 };
 
+/** Where a trip stands now — committed, on the road, back, overdue, cancelled — with its label. */
 export function getTripState(assignment, booking, now = new Date()) {
   if (assignment?.assignment_status === 'Completed') return { key: 'back', label: TRIP_STATE.back };
 
@@ -958,6 +962,7 @@ export const FLEET_SIZING = {
   delivery: { vehicles: 1, preferType: 'Motorcycle' },
 };
 
+/** How many vehicles a booking needs: none for a pickup, one for a delivery, FLEET_SIZING for an event. */
 export function vehiclesNeededFor(booking, allocatedUnits = 0, serviceableFleetSize = null) {
   // The customer is collecting this one themselves — no van leaves the yard.
   if (!needsTransport(booking)) return 0;
@@ -996,6 +1001,10 @@ const fmtWhen = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-di
 // same way wherever it turns up.
 const refOf = (b) => b?.booking_number || 'an earlier booking';
 
+/**
+ * The suggested vehicles and departure times for a booking, avoiding vehicles already
+ * committed at that time, plus any warning (e.g. not enough vehicles free).
+ */
 export function suggestDispatchPlan(booking, fleet, tripsByVehicle = {}, allocatedUnits = 0) {
   const tripType = getTripType(booking);
   // Sized against vehicles that are actually in service — a van in the
@@ -1572,6 +1581,10 @@ export const reconcileServiceMethodChange = async (booking, previousVenue) => {
   return { cleared: 0, nowNeedsVehicle: true };
 };
 
+/**
+ * Assigns vehicles to a booking (the chosen ones, or the suggested plan) and writes its
+ * trips. Returns what was picked and any shortfall.
+ */
 export const allocateVehiclesForBooking = async (booking, chosenVehicleIds = null) => {
   const event = asDate(booking?.event_datetime);
   if (!event) return { picks: [], shortfall: null, pickupsSkipped: false };

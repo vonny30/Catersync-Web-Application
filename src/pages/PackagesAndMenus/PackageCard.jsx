@@ -1,4 +1,9 @@
 // src/pages/PackagesAndMenus/PackageCard.jsx
+//
+// One catering package in the Packages & Menus grid: photo, price and pricing
+// type, guest limits, included categories and equipment, and its Edit /
+// Archive / Delete actions.
+
 import { Trash2 } from 'lucide-react';
 import ImageWithFallback from './ImageWithFallback';
 

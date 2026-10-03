@@ -1,4 +1,12 @@
 // src/pages/Dashboard.jsx
+//
+// Overview (Dashboard) -- /app
+//
+// The first screen after sign-in. Answers "what needs me today?": today's
+// events, the next seven days, requests awaiting a decision, Cash Receipts for
+// the month, and a month calendar of confirmed bookings and orders.
+// Page reference: docs/pages/dashboard.md
+
 import { useState, useEffect, useCallback } from 'react';
 import Select from '../components/Select';
 import ModalTotal from '../components/ModalTotal';
@@ -8,7 +16,6 @@ import { useNavigate } from 'react-router-dom';
 import { Calendar as CalendarIcon, Clock, CheckCircle, TrendingUp, ChevronLeft, ChevronRight, RefreshCw, X, Eye } from 'lucide-react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
-import { useConfirm } from '../contexts/ConfirmContext';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
 import { ACTIVE_BOOKING_STATUSES } from '../utils/bookingStatus';
@@ -80,7 +87,6 @@ const requestedAt = (item) => new Date(item.book_datetime || 0).getTime();
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { showConfirm } = useConfirm();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     todayEvents: 0,
@@ -717,7 +723,7 @@ export default function Dashboard() {
     resetStatsFilters();
   };
 
-  // --- Stats modal search/filter — same pattern as Payments.jsx's summary
+  // --- Stats modal search/filter — same pattern as Receivables.jsx's summary
   // modals, applied here so every card-click record list filters the same way.
 
   const filteredStatsModalData = statsModalData.filter(item => {

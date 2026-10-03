@@ -1,13 +1,25 @@
+// src/hooks/useCancellationHandlers.js
+//
+// Cancelling a booking or short order, with an optional refund.
+//
+// Owns the Cancel pop-up (reason, refund amount, method, remarks, proof),
+// records the refund as a ledger entry, releases the booking's equipment and
+// vehicle runs, and sets the status to Cancelled.
+
 import { useState } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
-import { useConfirm } from '../contexts/ConfirmContext';
 import { sumVerifiedPositivePayments, sumDepositsCollected, ENTRY_TYPES, REFUNDED_STATUS, RECEIPT_METHODS, REFUND_METHOD_MESSAGE } from '../utils/payments';
 import { STATUS_ORDER } from '../utils/bookingStatus';
 import { prepareRefundEvidence } from '../utils/refundEvidence';
 
+/**
+ * State and handlers for the Cancel pop-up.
+ * @param booking    the booking or short order being cancelled
+ * @param payments   its payment rows (to work out what can be refunded)
+ * @param fetchData  reloads the page afterwards
+ */
 export function useCancellationHandlers({ booking, payments, fetchData }) {
-  const { showConfirm } = useConfirm();
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [refundAmount, setRefundAmount] = useState('');

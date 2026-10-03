@@ -20,14 +20,6 @@
 export const LAPSED_CHIP_CLASS =
   'inline-flex items-center px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-300 text-[11px] font-bold whitespace-nowrap';
 
-/** `Lapsed · 18 Sep` — the date is the event's, which is the fact that killed it. */
-export function lapsedChipLabel(eventDatetime) {
-  if (!eventDatetime) return 'Lapsed';
-  const d = new Date(eventDatetime);
-  if (Number.isNaN(d.getTime())) return 'Lapsed';
-  return `Lapsed · ${d.getDate()} ${d.toLocaleString('en', { month: 'short' })}`;
-}
-
 /**
  * The row of a lapsed booking (22 Sep 2026): a quiet slate tint and edge —
  * grey like every lapsed signal, never the rose of Overdue — so a manager can

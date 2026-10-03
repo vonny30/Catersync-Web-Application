@@ -1,4 +1,9 @@
 // src/components/ProtectedRoute.jsx
+//
+// Guards every /app route. Shows a spinner while the session is being
+// checked, sends anyone who is not a signed-in manager to /login, and
+// otherwise renders the page.
+
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 

@@ -1,4 +1,8 @@
 // src/pages/PackagesAndMenus/ImageWithFallback.jsx
+//
+// A package or menu-item photo that falls back to a placeholder icon when
+// the image is missing or fails to load.
+
 import { useState } from 'react';
 
 const FallbackIcon = ({ className }) => (

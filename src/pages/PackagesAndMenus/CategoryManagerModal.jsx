@@ -1,4 +1,9 @@
 // src/pages/PackagesAndMenus/CategoryManagerModal.jsx
+//
+// Pop-up for managing menu categories (add, edit, delete). A category in
+// use by a menu item or a package cannot be deleted; the parent page checks
+// that before calling onDelete.
+
 import { createPortal } from 'react-dom';
 
 export default function CategoryManagerModal({

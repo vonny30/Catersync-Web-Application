@@ -1,4 +1,13 @@
 // src/hooks/useApprovalHandlers.js
+//
+// Approving a Pending booking or short order (Pending -> Approved).
+//
+// Owns the Approve pop-up: the fees the manager can adjust (extra guests,
+// extra trays, delivery and additional fees), the new total, and the write
+// itself. Approval also allocates the package's equipment
+// (allocateEquipmentForBooking) and refuses a request whose event date has
+// passed. Shared by the list pages and the detail pages.
+
 import { useState } from 'react';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
@@ -34,7 +43,11 @@ export const extraPaxRate = (pkg) => {
     : (pkg.extra_pax_price || 0);
 };
 
-export function useApprovalHandlers({ booking, payments, fetchData }) {
+/**
+ * State and handlers for the Approve pop-up.
+ * @param fetchData  reloads the page after a successful approval
+ */
+export function useApprovalHandlers({ fetchData }) {
   const { showConfirm } = useConfirm();
   const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
   const [approvalBooking, setApprovalBooking] = useState(null);
@@ -152,12 +165,12 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
     const numValue = Math.max(0, parseFloat(value) || 0);
     setApprovalData(prev => {
       const updated = { ...prev, [name]: numValue };
-      let newTotal = updated.baseTotal;
+      let newTotal;
       if (approvalType === 'package') {
         const extraPaxCost = (updated.extraPax || 0) * extraPaxRate(approvalBooking?.package);
         newTotal = updated.baseTotal + extraPaxCost + (updated.additionalFee || 0);
       } else {
-        // ✅ Now extraQuantity and extraDeliveryFee are guaranteed to exist
+        // Short order: extraQuantity and extraDeliveryFee are always set by now.
         newTotal = updated.baseTotal + (updated.extraQuantity || 0) + (updated.extraDeliveryFee || 0) + (updated.additionalFee || 0);
       }
       return { ...updated, newTotal };
@@ -355,7 +368,7 @@ export function useApprovalHandlers({ booking, payments, fetchData }) {
         toast('Approved, but no vehicle was assigned: ' + vehicleError.message, { icon: '⚠️', duration: 8000 });
       }
 
-      // ✅ 4. Approval can change the total (fees, extra pax), which changes
+      // 4. Approval can change the total (fees, extra pax), which changes
       // which receipt, if any, settled the account. Re-stage the counted
       // receipts in the order they came in against the NEW total — each one
       // individually, never all to one label. Unverified claims are left

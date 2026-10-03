@@ -1,4 +1,9 @@
 // src/components/PasswordChecklist.jsx
+//
+// Live checklist under a new-password field: one line per rule in
+// utils/passwordPolicy.js, turning green as each is met. Used on Reset Password
+// and in Settings -> Security.
+
 import { Check, X } from 'lucide-react';
 import { getPasswordChecklist } from '../utils/passwordPolicy';
 

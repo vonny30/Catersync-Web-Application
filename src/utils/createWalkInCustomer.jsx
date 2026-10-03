@@ -1,4 +1,10 @@
 // src/utils/createWalkInCustomer.jsx
+//
+// Creates an account for a walk-in customer (someone booking at the counter
+// rather than through the mobile app): signs them up with a one-time password,
+// saves the customer row, shows the password to the manager once, and keeps
+// the manager signed in throughout.
+
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 
@@ -163,7 +169,7 @@ export async function createWalkInCustomer(walkInData) {
       }
     }
 
-    // ✅ CRITICAL: Wait for auth events to settle while counter is still > 0
+    // Important: wait for auth events to settle while counter is still > 0
     await new Promise((resolve) => setTimeout(resolve, 500));
 
     toast.success(
@@ -174,7 +180,7 @@ export async function createWalkInCustomer(walkInData) {
     return newCustomer.customer_id;
   } catch (error) {
     console.error('Error creating walk-in customer:', error);
-    throw new Error(error.message || 'Failed to create customer account. Please try again.');
+    throw new Error(error.message || 'Failed to create customer account. Please try again.', { cause: error });
   } finally {
     // Decrement counter with a tiny delay to catch any late events
     setTimeout(() => {
