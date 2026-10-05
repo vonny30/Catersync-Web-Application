@@ -1,6 +1,6 @@
 # Source index
 
-103 files, 41,163 lines. Every source file in `src/`, grouped by
+104 files, 41,334 lines. Every source file in `src/`, grouped by
 folder, with the opening sentence of its header comment. Generated from the
 files on 3 October 2026; if this list and a file ever disagree, the file is
 right.
@@ -75,20 +75,20 @@ right.
 
 | File | Lines | What it is |
 |---|---:|---|
-| `BookingDetails.jsx` | 3,732 | Booking Details -- /app/bookings/:id |
-| `Bookings.jsx` | 2,764 | Bookings -- /app/bookings |
-| `Customers.jsx` | 1,505 | The customer directory. |
-| `Dashboard.jsx` | 1,358 | Overview (Dashboard) -- /app |
-| `Equipment.jsx` | 4,095 | Equipment -- /app/equipment |
+| `BookingDetails.jsx` | 3,734 | Booking Details -- /app/bookings/:id |
+| `Bookings.jsx` | 2,774 | Bookings -- /app/bookings |
+| `Customers.jsx` | 1,527 | The customer directory. |
+| `Dashboard.jsx` | 1,361 | Overview (Dashboard) -- /app |
+| `Equipment.jsx` | 4,097 | Equipment -- /app/equipment |
 | `ForgotPassword.jsx` | 334 | Forgot Password -- /forgot-password |
 | `LegalPages.jsx` | 195 | Public Privacy Notice (/privacy) and Terms of Service (/terms) for PG's Catering / CaterSync. |
 | `Login.jsx` | 350 | Login -- /login |
 | `Receivables.jsx` | 1,080 | Money collected, and money still to collect. |
 | `ResetPassword.jsx` | 238 | Reset Password -- /reset-password |
 | `SettingsPage.jsx` | 560 | Settings -- /app/settings |
-| `ShortOrderDetails.jsx` | 2,511 | Short Order Details -- /app/orders/:id |
-| `ShortOrders.jsx` | 2,592 | Short Orders -- /app/orders |
-| `Vehicles.jsx` | 3,096 | Vehicles -- /app/vehicles |
+| `ShortOrderDetails.jsx` | 2,514 | Short Order Details -- /app/orders/:id |
+| `ShortOrders.jsx` | 2,599 | Short Orders -- /app/orders |
+| `Vehicles.jsx` | 3,097 | Vehicles -- /app/vehicles |
 
 ## `src/pages/PackagesAndMenus/`
 
@@ -122,7 +122,7 @@ right.
 |---|---:|---|
 | `autoComplete.js` | 77 | There's no backend cron/scheduled job in this stack — the DB is Supabase with no server-side functions wired up here — so "automatically" marking a Confirmed... |
 | `availability.js` | 72 | Shows a manager reviewing a Pending booking/order what else is already approved on that same calendar day, so they can judge whether the date and time actually work... |
-| `bookingSearch.js` | 47 | The search box on the Bookings and Short Orders lists: "Customer name or reference". |
+| `bookingSearch.js` | 66 | The search box on the Bookings and Short Orders lists: "Customer name or reference". |
 | `bookingSheet.js` | 183 | The one-page "Booking Details" sheet the kitchen and staff work from — a clean version of the paper form PG's Catering already uses (date, name, contact, venue, time,... |
 | `bookingStatus.js` | 109 | Full booking lifecycle: Pending -> Approved -> Confirmed -> Completed, with Rejected/Cancelled as terminal branches. |
 | `bulkDeleteBookings.js` | 79 | Bulk-deletes bookings or short orders by id, for the Bookings and Short Orders lists. |
@@ -134,12 +134,13 @@ right.
 | `customerPicker.js` | 18 | Which customers the "Existing customer" picker on the new Booking and new Short Order forms lists. |
 | `datetimeLocal.js` | 34 | One conversion, because getting it wrong is silent and cumulative. |
 | `detailFormat.js` | 50 | Display helpers for the Booking Details and Short Order Details pages. |
-| `equipment.jsx` | 772 | Equipment rules shared by Bookings, Booking Details, Equipment and Reports: how many units an event needs (deriveEquipmentDemand), allocating them on approval... |
+| `equipment.jsx` | 773 | Equipment rules shared by Bookings, Booking Details, Equipment and Reports: how many units an event needs (deriveEquipmentDemand), allocating them on approval... |
 | `equipmentAvailability.js` | 81 | "How much of this item is actually free on the event's date?" — asked of the database, which owns the answer. |
-| `fetchAllRows.js` | 46 | Paged reads, so a page's figures don't silently go wrong as the data grows. |
+| `fetchAllRows.js` | 68 | Paged reads, so a page's figures don't silently go wrong as the data grows. |
 | `formErrors.js` | 13 | Shared helper so every form in the app highlights an invalid field the same way — red border/ring/tint on the input, red inline text below it — instead of leaving the... |
-| `keptDeposits.js` | 35 | Reads what keptDepositsFor needs for one period and returns its answer. |
+| `keptDeposits.js` | 49 | Reads what keptDepositsFor needs for one period and returns its answer. |
 | `lapsed.js` | 70 | A booking request whose event date passed while it was still waiting for a decision has LAPSED. |
+| `listFilters.js` | 65 | Filters the Bookings and Short Orders lists receive as a list of booking ids rather than a column: the Overdue / Lapsed / Flagged quick filters, and a customer-name... |
 | `managerSession.js` | 252 | Enforces "one active BROWSER session per manager account" by storing a per-login session id on manager.active_session_id and comparing it against an id kept in... |
 | `overdue.js` | 53 | How a past-due booking looks and reads, in one place, because the Bookings page and the Short Orders page both show it and a manager comparing the two must not see... |
 | `packageRules.js` | 72 | What headcount a package will actually accept. |

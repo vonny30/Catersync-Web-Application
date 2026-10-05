@@ -20,6 +20,7 @@ import { buildBookingSheet } from '../utils/bookingSheet';
 import BookingSheetPreview from '../components/BookingSheetPreview';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
+import { fetchAllRows } from '../utils/fetchAllRows';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
@@ -257,12 +258,14 @@ export default function ShortOrderDetails() {
     fetchOrder();
     const fetchDropdownData = async () => {
       try {
-        const { data: cust } = await supabase
+        // Paged: past 1,000 customers an unpaged read would drop the rest.
+        const cust = await fetchAllRows(() => supabase
           .from('customer')
           .select('customer_id, first_name, last_name')
           .eq('account_status', 'Active')
-          .order('first_name');
-        setCustomers(cust || []);
+          .order('first_name')
+          .order('customer_id', { ascending: true }), 'active customers');
+        setCustomers(cust);
         const { data: menuData } = await supabase
           .from('menu_item')
           .select('menu_item_id, menu_name, menu_price')

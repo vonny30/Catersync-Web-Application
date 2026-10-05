@@ -221,6 +221,37 @@ out-of-service moved off the row — out of service appears as a red sub-line
 under the item name only when it is non-zero, which is what explains a reduced
 usable figure.
 
+## Record numbers (BKG-, SO-, EQP-)
+
+Set by the database on insert (`set_booking_number`, `set_assignment_number`;
+`sql/record_numbers_reuse_and_scale_2026-10-05.sql`), so the web app and both
+mobile apps always agree. Since 5 Oct 2026:
+
+- **The next number is the highest in use plus one**, per prefix. Deleting
+  the newest record frees its number for the next one; deleting one from the
+  middle leaves a gap. Numbers always rise with time.
+- **No upper limit.** At least three digits (BKG-007), then BKG-1000,
+  BKG-10000... The old `LPAD(n, 3)` cut 1000 down to "100".
+- **Unique** — a unique index refuses a duplicate even if something bypasses
+  the trigger, and an advisory lock makes two saves at the same moment take
+  turns. A fast index keeps numbering instant at any table size.
+- The numbers live only on `booking` and `booking_equipment`; every view reads
+  them live, and logs refer to bookings by id, so a reused number never meets
+  leftovers of the deleted record. (A number printed or sent before the
+  delete will, once reused, name the new booking.)
+
+## Reading large tables
+
+Supabase returns at most 1,000 rows per request, silently. Anything that is
+not limited to a day or a month reads through `fetchAllRows`, and a list of
+ids goes 100 per request through `fetchByIds` (`utils/fetchAllRows.js`) —
+longer lists make the request too long and it fails. On the Bookings and
+Short Orders lists, a filter that is a long id list (Overdue / Lapsed /
+Flagged, or a name search matching many customers) is applied after reading
+(`utils/listFilters.js`); Customers does the same for its balance filters.
+Rehearsed with 5,000+ bookings in the database and checked against 3,000
+bookings and 1,500 customers in the app code.
+
 ## Replacing the logo at handover
 
 The logo is set in one place: `LOGO_SRC` in `src/brand.js`. Everything reads

@@ -425,7 +425,8 @@ export default function Equipment() {
       // package_id + package name come along for the Upcoming Prep tab,
       // which has to answer "which package is this event, and what does
       // that package require?" — not just "which booking is this?".
-      const { data: bookingData, error: bookingError } = await supabase
+      // Not limited by date, so paged: open bookings from past months add up.
+      const bookingData = await fetchAllRows(() => supabase
         .from('booking')
         .select(`
           booking_id, booking_number, booking_type, booking_status, event_datetime, venue, pax_count, notes, package_id,
@@ -434,8 +435,8 @@ export default function Equipment() {
         `)
         .eq('booking_type', 'Package')
         .in('booking_status', [...ACTIVE_BOOKING_STATUSES, 'Pending'])
-        .order('event_datetime', { ascending: true });
-      if (bookingError) throw bookingError;
+        .order('event_datetime', { ascending: true })
+        .order('booking_id', { ascending: true }), 'open package bookings');
 
       // The whole package→equipment template table. It is small (one row
       // per equipment line per package) and fetching it once here lets the
@@ -465,11 +466,12 @@ export default function Equipment() {
         .order('assigned_at', { ascending: false })
         .order('assignment_id', { ascending: true }), 'equipment assignments');
 
-      const { data: lapsedRows, error: lapsedError } = await supabase
+      // Lapsed requests are never cleared away, so this list only grows.
+      const lapsedRows = await fetchAllRows(() => supabase
         .from('v_booking_money')
         .select('booking_id')
-        .eq('is_lapsed', true);
-      if (lapsedError) throw lapsedError;
+        .eq('is_lapsed', true)
+        .order('booking_id', { ascending: true }), 'lapsed bookings');
       // ALL AT ONCE, after every read — the same fix as Vehicles. Setting
       // bookings before the assignments were read rendered every upcoming
       // event as unassigned for a moment, then corrected itself.

@@ -49,6 +49,7 @@ import { getRangeBounds } from './Reports/helpers';
 import { eventNotYetHappened, completeLockReason, completeBeforeEventMessage } from '../utils/completion';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { buildBookingSearch } from '../utils/bookingSearch';
+import { idListFilters, orderIdsByBalance, KEEP_COLUMNS } from '../utils/listFilters';
 import { filterCustomersForPicker } from '../utils/customerPicker';
 import { bulkDeleteBookings } from '../utils/bulkDeleteBookings';
 import ImageUploadField from '../components/ImageUploadField';
@@ -177,13 +178,16 @@ export default function ShortOrders() {
   };
 
   const buildCommonFilters = async () => {
-    const moneyFilterIds = await fetchMoneyFilterIds();
+    const quickFilterIds = await fetchMoneyFilterIds();
     const { start: dateStart, end: dateEnd } = getRangeBounds(datePreset, customStart, customEnd);
 
     // --- SEARCH: resolve once, reused by both the main query and the
     // status-count query below, so a search term narrows both. Customer
     // name (every word) or booking reference — utils/bookingSearch.
-    const applySearch = await buildBookingSearch(searchTerm);
+    const search = await buildBookingSearch(searchTerm);
+    // Short id lists go into the query; long ones come back as `keep`, a
+    // test run on rows already read (utils/listFilters).
+    const { applyIds, keep } = idListFilters({ search, quickFilterIds });
 
     // Every filter except status and pagination — shared by the main
     // paginated query and the lightweight status-count query.
@@ -199,23 +203,29 @@ export default function ShortOrders() {
       if (dateEnd && !skipDate) q = q.lte(dateFilterField, dateEnd.toISOString());
       if (filters.customerId) q = q.eq('customer_id', filters.customerId);
       if (filters.venue) q = q.ilike('venue', `%${filters.venue}%`);
-      if (applySearch) q = applySearch(q);
-      if (moneyFilterIds && !forChips) q = q.in('booking_id', moneyFilterIds);
-      return q;
+      return applyIds(q, { forChips });
     };
-    return applyCommonFilters;
+    return { applyCommonFilters, keep };
   };
   const applyStatusTab = (q) => (activeTab !== 'All' ? q.eq('booking_status', activeTab) : q);
+  // The list's display order (see the note in fetchData), ending on the key
+  // so paging is stable. Status is the PRIMARY grouping, is_read only breaks
+  // ties inside it — see the matching note in Bookings.jsx.
+  const orderAsListed = (q) => q
+    .order('status_order', { ascending: true })
+    .order('is_read', { ascending: true, nullsFirst: true })
+    .order('book_datetime', { ascending: false })
+    .order('booking_id', { ascending: false });
 
   // The primary key of every record matching the current filters and status
   // tab: the list's own query, ids only, no .range(). fetchAllRows pages it so
   // it cannot stop at PostgREST's 1000-row cap, on a total sort by the key.
   const fetchMatchingIds = async () => {
-    const applyCommonFilters = await buildCommonFilters();
+    const { applyCommonFilters, keep } = await buildCommonFilters();
     const matching = await fetchAllRows(() => applyStatusTab(applyCommonFilters(
-      supabase.from('booking').select('booking_id')
+      supabase.from('booking').select(KEEP_COLUMNS)
     )).order('booking_id', { ascending: true }), 'short order select-all ids');
-    return (matching || []).map(r => r.booking_id);
+    return (keep ? matching.filter(r => keep(r)) : matching).map(r => r.booking_id);
   };
 
   // --- SELECTION -----------------------------------------------------------
@@ -241,7 +251,7 @@ export default function ShortOrders() {
       const from = (currentPage - 1) * pageSize;
       const to = from + pageSize - 1;
 
-      const applyCommonFilters = await buildCommonFilters();
+      const { applyCommonFilters, keep } = await buildCommonFilters();
 
       let query = applyCommonFilters(
         supabase.from('booking').select('*, customer:customer_id (first_name, last_name, contact_no)', { count: 'exact' })
@@ -250,25 +260,29 @@ export default function ShortOrders() {
 
       // Sorting by balance is decided in v_booking_money over every matching
       // row, then this page is read back by id — the same approach, and the
-      // same reason, as the Bookings page.
-      let balanceOrderedIds = null;
-      let balanceTotal = 0;
+      // same reason, as the Bookings page. A long id-list filter
+      // (utils/listFilters) is the same shape: read the matching rows in the
+      // list's own order, keep the ones that pass, read this page back by id.
+      let pageIds = null;
+      let pageTotal = 0;
       if (balanceSort) {
         const matchingIds = await fetchMatchingIds();
-        balanceTotal = matchingIds.length;
+        pageTotal = matchingIds.length;
         if (matchingIds.length === 0) {
           setOrders([]);
           setTotalCount(0);
           setTotalPages(0);
           return;
         }
-        const ordered = await fetchAllRows(() => supabase
-          .from('v_booking_money')
-          .select('booking_id, outstanding')
-          .in('booking_id', matchingIds)
-          .order('outstanding', { ascending: balanceSort === 'asc' })
-          .order('booking_id', { ascending: true }), 'short order balance order');
-        balanceOrderedIds = (ordered || []).slice(from, to + 1).map(r => r.booking_id);
+        const ordered = await orderIdsByBalance(matchingIds, balanceSort);
+        pageIds = ordered.slice(from, to + 1);
+      } else if (keep) {
+        const listed = await fetchAllRows(() => orderAsListed(applyStatusTab(applyCommonFilters(
+          supabase.from('booking').select(KEEP_COLUMNS)
+        ))), 'short order list order');
+        const kept = listed.filter(r => keep(r));
+        pageTotal = kept.length;
+        pageIds = kept.slice(from, to + 1).map(r => r.booking_id);
       }
 
       // Unread ("NEW") orders float above read ones first — is_read is
@@ -283,26 +297,19 @@ export default function ShortOrders() {
       // (status_order encodes exactly this priority), then most-recently-
       // created first within each status group. That sequence is
       // unchanged — is_read is only an extra sort key ahead of it.
-      if (balanceOrderedIds) {
-        query = query.in('booking_id', balanceOrderedIds);
+      if (pageIds) {
+        query = query.in('booking_id', pageIds);
       } else {
-        query = query
-          // Status is the PRIMARY grouping, is_read only breaks ties inside it —
-          // see the matching note in Bookings.jsx. Reversed, it split every
-          // status in two, so the same status appeared twice down the list.
-          .order('status_order', { ascending: true })
-          .order('is_read', { ascending: true, nullsFirst: true })
-          .order('book_datetime', { ascending: false })
-          .order('booking_id', { ascending: false })
-          .range(from, to);
+        query = orderAsListed(query).range(from, to);
       }
 
       const { data: rawOrders, count: rawCount, error: ordersError } = await query;
       if (ordersError) throw ordersError;
-      const ordersData = balanceOrderedIds
-        ? balanceOrderedIds.map(id => (rawOrders || []).find(o => o.booking_id === id)).filter(Boolean)
+      // `.in()` returns its own order, so the chosen order is re-imposed here.
+      const ordersData = pageIds
+        ? pageIds.map(id => (rawOrders || []).find(o => o.booking_id === id)).filter(Boolean)
         : rawOrders;
-      const count = balanceOrderedIds ? balanceTotal : rawCount;
+      const count = pageIds ? pageTotal : rawCount;
 
       // Self-heal rows whose status_order contradicts their status — same
       // reasoning as Bookings.jsx: nothing in the database keeps the two in
@@ -416,17 +423,17 @@ export default function ShortOrders() {
       // and pagination, fetching only the columns the cards/quick-filters
       // need, so it stays cheap even as the table grows.
       const countRows = await fetchAllRows(() => applyCommonFilters(
-        supabase.from('booking').select('booking_id, booking_status, event_datetime')
+        supabase.from('booking').select(`booking_status, event_datetime, ${KEEP_COLUMNS}`)
       ).order('booking_id', { ascending: true }), 'short order status counts');
-      setStatusCountRows(countRows || []);
+      setStatusCountRows(keep ? countRows.filter(r => keep(r)) : countRows);
 
       // The quick-filter badges: the filter bar, minus the status tab and
       // anything a chip set. Each badge is a fixed answer ("how many are
       // overdue") that must not drop to zero because a different chip is on.
       const chipRows = await fetchAllRows(() => applyCommonFilters(
-        supabase.from('booking').select('booking_id, booking_status, event_datetime'), { forChips: true }
+        supabase.from('booking').select(`booking_status, event_datetime, ${KEEP_COLUMNS}`), { forChips: true }
       ).order('booking_id', { ascending: true }), 'short order chip counts');
-      setChipCountRows(chipRows || []);
+      setChipCountRows(keep ? chipRows.filter(r => keep(r, { forChips: true })) : chipRows);
 
       // Flags for the two quick-filter counts.
       const flagged = await fetchAllRows(() => supabase

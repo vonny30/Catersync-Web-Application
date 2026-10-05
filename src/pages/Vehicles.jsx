@@ -412,11 +412,12 @@ export default function Vehicles() {
       // Mark runs on lapsed bookings. They hold nothing live — v_vehicle_trip
       // no longer calls them overdue — so every overdue rule on this page has
       // to skip them too. Read from v_booking_money, never worked out here.
-      const { data: lapsedRows, error: lapsedError } = await supabase
+      // Paged: lapsed requests are never cleared away, so this list only grows.
+      const lapsedRows = await fetchAllRows(() => supabase
         .from('v_booking_money')
         .select('booking_id')
-        .eq('is_lapsed', true);
-      if (lapsedError) throw lapsedError;
+        .eq('is_lapsed', true)
+        .order('booking_id', { ascending: true }), 'lapsed bookings');
       const lapsedIds = new Set((lapsedRows || []).map(r => r.booking_id));
       (assignData || []).forEach(a => {
         if (a.booking && lapsedIds.has(a.booking_id)) a.booking.is_lapsed = true;

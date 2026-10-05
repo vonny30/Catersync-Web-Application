@@ -403,12 +403,14 @@ export default function BookingDetails() {
     fetchBooking();
     const fetchDropdownData = async () => {
       try {
-        const { data: cust } = await supabase
+        // Paged: past 1,000 customers an unpaged read would drop the rest.
+        const cust = await fetchAllRows(() => supabase
           .from('customer')
           .select('customer_id, first_name, last_name')
           .eq('account_status', 'Active')
-          .order('first_name');
-        setCustomers(cust || []);
+          .order('first_name')
+          .order('customer_id', { ascending: true }), 'active customers');
+        setCustomers(cust);
         const { data: pkgs } = await supabase
           .from('package')
           .select('package_id, pkg_name, pricing_type, max_pax, extra_pax_price')

@@ -15,6 +15,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Calendar as CalendarIcon, Clock, CheckCircle, TrendingUp, ChevronLeft, ChevronRight, RefreshCw, X, Eye } from 'lucide-react';
 import { supabase } from '../supabase';
+import { fetchAllRows, fetchByIds } from '../utils/fetchAllRows';
 import toast from 'react-hot-toast';
 import { useApprovalHandlers } from '../hooks/useApprovalHandlers';
 import { useRejectionHandlers } from '../hooks/useRejectionHandlers';
@@ -224,7 +225,9 @@ export default function Dashboard() {
       setStats(prev => ({ ...prev, todayEvents: todayData?.length || 0 }));
 
       // --- Pending Package Bookings (with package data) ---
-      const { data: pendingPackages, error: pendingPackageError } = await supabase
+      // Paged, like every list here: requests that lapse while still Pending
+      // stay Pending, so this list is not bounded by date.
+      const pendingPackages = await fetchAllRows(() => supabase
         .from('booking')
         .select(`
           booking_id,
@@ -244,12 +247,11 @@ export default function Dashboard() {
         `)
         .eq('booking_type', 'Package')
         .eq('booking_status', 'Pending')
-        .order('event_datetime', { ascending: true });
-
-      if (pendingPackageError) throw pendingPackageError;
+        .order('event_datetime', { ascending: true })
+        .order('booking_id', { ascending: true }), 'pending package bookings');
 
       // --- Pending Short Orders ---
-      const { data: pendingShortOrders, error: pendingShortError } = await supabase
+      const pendingShortOrders = await fetchAllRows(() => supabase
         .from('booking')
         .select(`
           booking_id,
@@ -268,9 +270,8 @@ export default function Dashboard() {
         `)
         .eq('booking_type', 'Short Order')
         .eq('booking_status', 'Pending')
-        .order('event_datetime', { ascending: true });
-
-      if (pendingShortError) throw pendingShortError;
+        .order('event_datetime', { ascending: true })
+        .order('booking_id', { ascending: true }), 'pending short orders');
 
       // Combine both kinds of request. Sorted after the lapsed check below.
       const combined = [...(pendingPackages || []), ...(pendingShortOrders || [])];
@@ -281,19 +282,21 @@ export default function Dashboard() {
       // stub, which meant rejecting a Pending item with an existing verified
       // downpayment never warned about it and never allowed a refund amount.
       if (combined.length > 0) {
-        const { data: pendingPayments, error: pendingPaymentsError } = await supabase
+        // 100 ids per request (fetchByIds): the pending list has no upper bound.
+        const pendingIds = combined.map(b => b.booking_id);
+        const pendingPayments = await fetchByIds(pendingIds, (batch) => supabase
           .from('v_payment_ledger')
           .select('booking_id, amount_paid, pay_status, counts_in_ledger')
-          .in('booking_id', combined.map(b => b.booking_id));
-        if (pendingPaymentsError) throw pendingPaymentsError;
+          .in('booking_id', batch)
+          .order('payment_id', { ascending: true }), 'payments on pending requests');
         // Which of these requests have lapsed — read from the view, never
         // worked out here — so Approve is disabled on them the same way the
         // list pages do it.
-        const { data: lapsedRows, error: lapsedError } = await supabase
+        const lapsedRows = await fetchByIds(pendingIds, (batch) => supabase
           .from('v_booking_money')
           .select('booking_id, is_lapsed')
-          .in('booking_id', combined.map(b => b.booking_id));
-        if (lapsedError) throw lapsedError;
+          .in('booking_id', batch)
+          .order('booking_id', { ascending: true }), 'lapsed pending requests');
         const lapsedIds = new Set((lapsedRows || []).filter(r => r.is_lapsed).map(r => r.booking_id));
         combined.forEach(item => {
           const itemPayments = (pendingPayments || []).filter(p => p.booking_id === item.booking_id);

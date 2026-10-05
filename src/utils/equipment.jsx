@@ -690,7 +690,8 @@ export const checkEquipmentAvailabilityImpact = async (equipmentId, proposedAvai
 
   // 1. Real manual assignments for this item, still out, tied to a
   // currently-active booking.
-  const { data: realAssignments, error: assignError } = await supabase
+  // Paged: not limited by date, so it grows with the business.
+  const realAssignments = await fetchAllRows(() => supabase
     .from('booking_equipment')
     .select(`
       assignment_id, booking_id, quantity,
@@ -700,8 +701,8 @@ export const checkEquipmentAvailabilityImpact = async (equipmentId, proposedAvai
       )
     `)
     .eq('equipment_id', equipmentId)
-    .eq('returned', false);
-  if (assignError) throw assignError;
+    .eq('returned', false)
+    .order('assignment_id', { ascending: true }), 'unreturned assignments for item');
 
   const activeRealAssignments = (realAssignments || []).filter(
     a => a.booking && ACTIVE_BOOKING_STATUSES.includes(a.booking.booking_status)
@@ -719,15 +720,15 @@ export const checkEquipmentAvailabilityImpact = async (equipmentId, proposedAvai
 
   let theoreticalBookings = [];
   if (relevantPackageIds.length > 0) {
-    const { data: candidateBookings, error: bookingError } = await supabase
+    const candidateBookings = await fetchAllRows(() => supabase
       .from('booking')
       .select(`
         booking_id, booking_number, booking_type, venue, event_datetime, booking_status, package_id, pax_count,
         customer:customer_id (first_name, last_name)
       `)
       .in('booking_status', ACTIVE_BOOKING_STATUSES)
-      .in('package_id', relevantPackageIds);
-    if (bookingError) throw bookingError;
+      .in('package_id', relevantPackageIds)
+      .order('booking_id', { ascending: true }), 'active bookings using item');
     theoreticalBookings = (candidateBookings || []).filter(b => !bookingIdsWithRealAllocations.has(b.booking_id));
   }
 

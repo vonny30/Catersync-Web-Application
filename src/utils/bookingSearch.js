@@ -11,8 +11,13 @@
 //
 // A row matches when its customer matches the name, OR its booking_number
 // contains the text.
+//
+// The matching customers travel as a list of ids. A short list goes to the
+// database with the query (`apply`). A long one (a search like "a" can match
+// hundreds of customers) does not fit in one request, so it comes back as a
+// test to run on rows already read (`keep`) — the same answer either way.
 import { supabase } from '../supabase';
-import { fetchAllRows } from './fetchAllRows';
+import { fetchAllRows, ID_BATCH_SIZE } from './fetchAllRows';
 
 // PostgREST filter syntax treats these as structure, so they are removed from
 // the text before it goes into a filter string (same rule as Customers).
@@ -20,7 +25,9 @@ export const searchPattern = (term) => (term || '').replace(/[\\"*%,()]/g, ' ').
 
 /**
  * Resolve a search term into a filter for a `booking` query.
- * @returns {Promise<null | ((query) => query)>} null when there is no term.
+ * @returns {Promise<null | { apply: null | ((query) => query), keep: null | ((row) => boolean) }>}
+ *   null when there is no term. Exactly one of apply / keep is set; `keep`
+ *   needs each row's customer_id and booking_number.
  */
 export async function buildBookingSearch(term) {
   const clean = searchPattern(term);
@@ -40,8 +47,20 @@ export async function buildBookingSearch(term) {
     console.warn('Customer search failed:', e);
   }
 
-  const byReference = `booking_number.ilike.*${clean}*`;
-  return (query) => query.or(customerIds.length
-    ? `customer_id.in.(${customerIds.join(',')}),${byReference}`
-    : byReference);
+  if (customerIds.length <= ID_BATCH_SIZE) {
+    const byReference = `booking_number.ilike.*${clean}*`;
+    return {
+      apply: (query) => query.or(customerIds.length
+        ? `customer_id.in.(${customerIds.join(',')}),${byReference}`
+        : byReference),
+      keep: null,
+    };
+  }
+  const matchingCustomers = new Set(customerIds);
+  const reference = clean.toLowerCase();
+  return {
+    apply: null,
+    keep: (row) => matchingCustomers.has(row.customer_id)
+      || (row.booking_number || '').toLowerCase().includes(reference),
+  };
 }

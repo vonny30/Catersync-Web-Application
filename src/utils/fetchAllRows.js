@@ -44,3 +44,25 @@ export async function fetchAllRows(buildQuery, label = 'query') {
   console.warn(`[fetchAllRows] ${label} hit the ${MAX_PAGES}-page ceiling; results may be truncated.`);
   return rows;
 }
+
+// Ids sent in one .in() filter. Every id travels in the request URL, and a
+// few hundred uuids make the URL too long for the server, which then refuses
+// the whole request. Same batch size as utils/bulkDeleteBookings.
+export const ID_BATCH_SIZE = 100;
+
+/**
+ * Reads the rows for a list of ids of any length: 100 ids per request, each
+ * batch paged with fetchAllRows, results joined.
+ * @param ids         the ids to look up (blanks and repeats are ignored)
+ * @param buildQuery  (batch) => a fresh query using .in(column, batch), with a total .order()
+ * @param label       names the query in error messages
+ */
+export async function fetchByIds(ids, buildQuery, label = 'query') {
+  const unique = [...new Set((ids || []).filter(Boolean))];
+  const rows = [];
+  for (let i = 0; i < unique.length; i += ID_BATCH_SIZE) {
+    const batch = unique.slice(i, i + ID_BATCH_SIZE);
+    rows.push(...await fetchAllRows(() => buildQuery(batch), label));
+  }
+  return rows;
+}

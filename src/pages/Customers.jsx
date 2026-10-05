@@ -747,6 +747,30 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
   );
 }
 
+/**
+ * The Balance filter as a test on a customer row, or null when it is off.
+ *   Overdue          has a booking past due (v_booking_money.is_overdue)
+ *   Has receivables  owes money for the selected period (f.owing)
+ *   Settled          owes nothing for the selected period
+ * Applied after the customers are read rather than sent to the database:
+ * each is a list of customers, and a long list does not fit in one request.
+ */
+async function balanceTest(f) {
+  if (f.balance === 'Overdue') {
+    const rows = await fetchAllRows(() => supabase
+      .from('v_booking_money')
+      .select('booking_id, customer_id')
+      .eq('is_overdue', true)
+      .order('booking_id', { ascending: true }), 'overdue bookings');
+    const overdue = new Set(rows.map(r => r.customer_id).filter(Boolean));
+    return (c) => overdue.has(c.customer_id);
+  }
+  const owing = new Set(f.owing.map(([id]) => id));
+  if (f.balance === 'Has receivables') return (c) => owing.has(c.customer_id);
+  if (f.balance === 'Settled') return (c) => !owing.has(c.customer_id);
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -871,13 +895,13 @@ export default function Customers() {
     const { filters: f, sort: s, page: p } = JSON.parse(listKey);
     let ignore = false;
     (async () => {
-      let overdueIds = null;
-      if (f.balance === 'Overdue') {
-        const { data: overdueRows } = await supabase
-          .from('v_booking_money')
-          .select('customer_id')
-          .eq('is_overdue', true);
-        overdueIds = [...new Set((overdueRows || []).map(r => r.customer_id).filter(Boolean))];
+      let keep;
+      try {
+        keep = await balanceTest(f);
+      } catch (err) {
+        console.error('Customer balance filter failed:', err);
+        toast.error('Could not load customers.');
+        return;
       }
       // A fresh, filtered query each time it is called — paging below reads
       // the list more than once, and a query object must not be reused.
@@ -889,37 +913,38 @@ export default function Customers() {
         }
         if (f.status !== 'All') query = query.eq('account_status', f.status);
         if (f.source !== 'All') query = query.eq('source', f.source);
-        if (overdueIds) {
-          // [] would mean "no filter" to .in(); a nil uuid means "nobody".
-          query = query.in('customer_id', overdueIds.length ? overdueIds : ['00000000-0000-0000-0000-000000000000']);
-        }
-        // Accounts Receivable for the PERIOD (f.owing), not the all-time has_receivable_due.
-        const owingIds = f.owing.map(([id]) => id);
-        if (f.balance === 'Has receivables') query = query.in('customer_id', owingIds.length ? owingIds : ['00000000-0000-0000-0000-000000000000']);
-        if (f.balance === 'Settled' && owingIds.length) query = query.not('customer_id', 'in', `(${owingIds.join(',')})`);
         if (f.repeatOnly) query = query.eq('is_repeat', true);
         return query;
       };
       const from = (p - 1) * PAGE_SIZE;
       let data; let count; let error;
-      if (s.field === 'receivable_due') {
-        // Sorted by the PERIOD's Accounts Receivable, which the database does not hold:
-        // read every matching customer, order them here, and show this page's
-        // slice. The count is every match, as the paged query reports it.
+      if (s.field === 'receivable_due' || keep) {
+        // Read every matching customer, in pages, then filter and order here
+        // and show this page's slice. Needed when sorting by the PERIOD's
+        // Accounts Receivable (the database does not hold it), and when a
+        // balance filter is on (it is a list of customers, which can be too
+        // long to send to the database). Read in the same order the database
+        // would use, so the result matches the paged query exactly.
         const amount = Object.fromEntries(f.owing);
-        const matching = [];
-        const pageSize = 1000;
-        for (let offset = 0; ; offset += pageSize) {
-          const { data: chunk, error: chunkError } = await build()
-            .order('customer_id', { ascending: true })
-            .range(offset, offset + pageSize - 1);
-          if (chunkError) { error = chunkError; break; }
-          matching.push(...(chunk || []));
-          if (!chunk || chunk.length < pageSize) break;
+        const sortHere = s.field === 'receivable_due';
+        let matching = [];
+        try {
+          matching = await fetchAllRows(() => {
+            const q = build();
+            return sortHere
+              ? q.order('customer_id', { ascending: true })
+              : q.order(s.field, { ascending: s.direction === 'asc', nullsFirst: false })
+                .order('customer_id', { ascending: true });
+          }, 'customer list');
+        } catch (err) {
+          error = err;
         }
-        const dir = s.direction === 'asc' ? 1 : -1;
-        matching.sort((a, b) => ((amount[a.customer_id] || 0) - (amount[b.customer_id] || 0)) * dir
-          || (a.customer_id < b.customer_id ? -1 : 1));
+        if (keep) matching = matching.filter(keep);
+        if (sortHere) {
+          const dir = s.direction === 'asc' ? 1 : -1;
+          matching.sort((a, b) => ((amount[a.customer_id] || 0) - (amount[b.customer_id] || 0)) * dir
+            || (a.customer_id < b.customer_id ? -1 : 1));
+        }
         data = matching.slice(from, from + PAGE_SIZE);
         count = matching.length;
       } else {
@@ -944,29 +969,26 @@ export default function Customers() {
     const f = JSON.parse(statusCountKey);
     let ignore = false;
     (async () => {
-      let query = supabase.from('v_customer_summary').select('customer_id, account_status');
-      if (f.search) {
-        const like = `"*${f.search}*"`;
-        query = query.or(`full_name.ilike.${like},email_address.ilike.${like},contact_no.ilike.${like}`);
+      let data;
+      try {
+        const keep = await balanceTest(f);
+        // Paged: past 1,000 customers an unpaged read would undercount.
+        data = await fetchAllRows(() => {
+          let query = supabase.from('v_customer_summary').select('customer_id, account_status');
+          if (f.search) {
+            const like = `"*${f.search}*"`;
+            query = query.or(`full_name.ilike.${like},email_address.ilike.${like},contact_no.ilike.${like}`);
+          }
+          if (f.source !== 'All') query = query.eq('source', f.source);
+          if (f.repeatOnly) query = query.eq('is_repeat', true);
+          return query.order('customer_id', { ascending: true });
+        }, 'customer status counts');
+        if (keep) data = data.filter(keep);
+      } catch (error) {
+        if (!ignore) console.error('Status counts failed:', error);
+        return;
       }
-      if (f.source !== 'All') query = query.eq('source', f.source);
-      if (f.balance === 'Overdue') {
-        const { data: overdueRows } = await supabase
-          .from('v_booking_money')
-          .select('customer_id')
-          .eq('is_overdue', true);
-        const ids = [...new Set((overdueRows || []).map(r => r.customer_id).filter(Boolean))];
-        // [] would mean "no filter" to .in(); a nil uuid means "nobody".
-        query = query.in('customer_id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']);
-      }
-      // Accounts Receivable for the PERIOD (f.owing), not the all-time has_receivable_due.
-      const owingIds = f.owing.map(([id]) => id);
-      if (f.balance === 'Has receivables') query = query.in('customer_id', owingIds.length ? owingIds : ['00000000-0000-0000-0000-000000000000']);
-      if (f.balance === 'Settled' && owingIds.length) query = query.not('customer_id', 'in', `(${owingIds.join(',')})`);
-      if (f.repeatOnly) query = query.eq('is_repeat', true);
-      const { data, error } = await query.order('customer_id', { ascending: true });
       if (ignore) return;
-      if (error) { console.error('Status counts failed:', error); return; }
       const counts = { All: 0, Active: 0, Inactive: 0, Blocked: 0 };
       (data || []).forEach(r => { counts.All += 1; if (counts[r.account_status] !== undefined) counts[r.account_status] += 1; });
       setStatusCountState({ key: statusCountKey, counts });
