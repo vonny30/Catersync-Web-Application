@@ -95,3 +95,16 @@ create index if not exists booking_equipment_number_prefix_value_idx
 
 create unique index if not exists booking_equipment_assignment_number_key
   on public.booking_equipment (assignment_number);
+
+-- ---------------------------------------------------------------------
+-- Follow-up, same day: the numbering functions must see EVERY row.
+-- Run as the person saving, a customer booking from the mobile app sees
+-- only their own bookings (row-level security), takes a number already
+-- used by someone else, and the unique index refuses their booking.
+-- SECURITY DEFINER runs the functions as their owner, which reads the
+-- whole table. They only set the number; search_path is pinned to ''.
+-- Checked as a real customer account: BKG-139 / SO-032 saved, and the
+-- customer still sees only their own bookings.
+-- ---------------------------------------------------------------------
+alter function public.set_booking_number() security definer;
+alter function public.set_assignment_number() security definer;
