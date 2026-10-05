@@ -1,6 +1,9 @@
 -- =====================================================================
 -- Record numbers: BKG- (package bookings), SO- (short orders) and EQP-
--- (equipment assignments). Applied 5 Oct 2026 at Vaughn's request.
+-- (equipment assignments). Applied 5 Oct 2026 at Vaughn's request, as two
+-- Supabase migrations: record_numbers_reuse_and_scale and
+-- record_numbers_see_all_rows. This file is the state of the database after
+-- both, and is safe to run again.
 --
 -- 1. REUSE. The next number is the highest number in use plus one, so
 --    deleting the newest record frees its number for the next one
@@ -14,20 +17,36 @@
 --    a duplicate. Numbers now keep at least three digits (BKG-007) and
 --    grow past that (BKG-1000, BKG-10000, ...).
 --
--- 3. SAFE AT THE SAME MOMENT. Two bookings saved at once (the web app and
+-- 3. SEES EVERY ROW (SECURITY DEFINER). The functions must find the highest
+--    number among ALL bookings. Run with the saving user's permissions, a
+--    customer booking from the mobile app sees only their own bookings
+--    (row-level security), takes a number already in use, and the unique
+--    index refuses the booking. SECURITY DEFINER runs them as their owner,
+--    which reads the whole table. They only set the number, and their
+--    search_path is pinned to '' so nothing can be substituted into them.
+--    Do not drop SECURITY DEFINER from these two functions.
+--
+-- 4. SAFE AT THE SAME MOMENT. Two bookings saved at once (the web app and
 --    the customer mobile app, say) would both read the same highest number.
 --    A transaction-level advisory lock per prefix makes the second wait
 --    until the first is saved, so it reads the new highest number.
 --
--- 4. NO DUPLICATES, EVER. A unique index on each number column: the
+-- 5. NO DUPLICATES, EVER. A unique index on each number column: the
 --    database refuses a duplicate even if something bypasses the trigger.
 --
--- 5. FAST AT ANY SIZE. An index on (prefix, numeric part) lets "highest
+-- 6. FAST AT ANY SIZE. An index on (prefix, numeric part) lets "highest
 --    number" be read from the end of the index instead of scanning the
 --    table, so saving a booking costs the same at 100 rows or 1,000,000.
 --
--- Existing numbers are not changed. The old sequences are left in place
--- but no longer used.
+-- Verified 5 Oct 2026 in rolled-back transactions: BKG-139 reused after a
+-- delete; BKG-999 -> BKG-1000; 5,000 bookings in 0.7 s with no duplicates;
+-- 0.7 ms per booking after; duplicates refused; and as a real customer
+-- account, BKG-139 / SO-032 saved while the customer still saw only their
+-- own bookings.
+--
+-- Existing numbers are not changed. The old sequences (package_booking_seq,
+-- short_order_seq, assignment_number_seq) are left in place but no longer
+-- used.
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -36,6 +55,7 @@
 create or replace function public.set_booking_number()
 returns trigger
 language plpgsql
+security definer
 set search_path to ''
 as $$
 declare
@@ -73,6 +93,7 @@ create unique index if not exists booking_booking_number_key
 create or replace function public.set_assignment_number()
 returns trigger
 language plpgsql
+security definer
 set search_path to ''
 as $$
 declare
@@ -95,16 +116,3 @@ create index if not exists booking_equipment_number_prefix_value_idx
 
 create unique index if not exists booking_equipment_assignment_number_key
   on public.booking_equipment (assignment_number);
-
--- ---------------------------------------------------------------------
--- Follow-up, same day: the numbering functions must see EVERY row.
--- Run as the person saving, a customer booking from the mobile app sees
--- only their own bookings (row-level security), takes a number already
--- used by someone else, and the unique index refuses their booking.
--- SECURITY DEFINER runs the functions as their owner, which reads the
--- whole table. They only set the number; search_path is pinned to ''.
--- Checked as a real customer account: BKG-139 / SO-032 saved, and the
--- customer still sees only their own bookings.
--- ---------------------------------------------------------------------
-alter function public.set_booking_number() security definer;
-alter function public.set_assignment_number() security definer;
