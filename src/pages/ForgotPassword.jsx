@@ -13,7 +13,7 @@ import { Mail, AlertCircle, ArrowLeft, MailCheck, Info, KeyRound } from 'lucide-
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
 import { BusinessName } from '../utils/businessProfile';
-import { LOGO_SRC, LOGO_ALT } from '../brand';
+import { BrandLogo, BrandName } from '../components/Brand';
 
 // Supabase throttles reset emails per address. Matching that here means the
 // button says how long to wait instead of letting someone press it three times
@@ -150,10 +150,8 @@ export default function ForgotPassword() {
         <div className="absolute -bottom-[180px] -left-[120px] w-[460px] h-[460px] rounded-full bg-white/[0.05]" />
 
         <div className="relative w-full max-w-[560px] mx-auto flex items-center gap-3.5">
-          <div className="h-[52px] w-[78px] rounded-xl overflow-hidden bg-white ring-2 ring-white/50 shrink-0">
-            <img src={LOGO_SRC} alt={LOGO_ALT} className="w-full h-full object-contain" />
-          </div>
-          <span className="text-[clamp(22px,1.6vw,26px)] font-bold tracking-[0.02em] text-white">CaterSync</span>
+          <BrandLogo className="w-[60px] h-[60px] ring-2 ring-white/50" />
+          <span className="text-[clamp(22px,1.6vw,26px)] font-bold tracking-[0.02em] text-white"><BrandName /></span>
         </div>
 
         <div className="relative w-full max-w-[560px] mx-auto py-8">
@@ -173,10 +171,8 @@ export default function ForgotPassword() {
       <div className="flex-[1_1_54%] min-w-0 flex items-center justify-center px-[clamp(1.25rem,3.5vw,4.5rem)] py-[clamp(2.5rem,4vh,3.5rem)] bg-slate-50">
         <div className="w-full max-w-[440px]">
           <div className="flex lg:hidden items-center gap-3 mb-8">
-            <div className="h-11 w-[66px] rounded-xl overflow-hidden bg-white ring-2 ring-[#008A45]/20 shrink-0">
-              <img src={LOGO_SRC} alt={LOGO_ALT} className="w-full h-full object-contain" />
-            </div>
-            <span className="text-xl font-bold text-slate-900">CaterSync</span>
+            <BrandLogo className="w-11 h-11 ring-2 ring-[#008A45]/20" />
+            <span className="text-[19px] sm:text-xl leading-tight font-bold text-slate-900"><BrandName /></span>
           </div>
 
           {!submitted ? (

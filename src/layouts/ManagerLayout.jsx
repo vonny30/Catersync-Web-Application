@@ -27,7 +27,7 @@ import {
   ArrowUp,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { LOGO_SRC, LOGO_ALT } from '../brand';
+import { BrandLogo, BrandName } from '../components/Brand';
 
 const styles = {
   wrapper: 'flex flex-col h-screen bg-slate-50 font-sans overflow-hidden',
@@ -256,7 +256,7 @@ export default function ManagerLayout() {
     <div className={styles.wrapper}>
       {/* TOP NAVIGATION BAR */}
       <header className={styles.header}>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={toggleSidebar}
             className="md:hidden p-1 rounded-lg hover:bg-white/10 transition-colors"
@@ -264,15 +264,9 @@ export default function ManagerLayout() {
           >
             <MenuIcon size={24} />
           </button>
-          <Link to="/app" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
-            <div className="h-9 w-[54px] rounded-lg overflow-hidden ring-2 ring-white/40 flex-shrink-0 bg-white">
-              <img
-                src={LOGO_SRC}
-                alt={LOGO_ALT}
-                className="w-full h-full object-contain"
-              />
-            </div>
-            <h1 className="text-xl font-bold tracking-wide">CaterSync</h1>
+          <Link to="/app" className="flex items-center gap-3 min-w-0 hover:opacity-90 transition-opacity">
+            <BrandLogo className="w-11 h-11 ring-2 ring-white/40" />
+            <h1 className="text-[15px] sm:text-xl font-bold tracking-wide truncate"><BrandName /></h1>
           </Link>
         </div>
 
@@ -339,11 +333,11 @@ export default function ManagerLayout() {
         >
           {/* Header – compact */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0 bg-gradient-to-r from-[#00753b] to-[#009c4d]">
-            <div className="flex items-center gap-3">
-              <div className="h-8 w-12 rounded-md overflow-hidden ring-2 ring-white/40 bg-white">
-                <img src={LOGO_SRC} alt={LOGO_ALT} className="w-full h-full object-contain" />
-              </div>
-              <span className="font-bold text-white">CaterSync</span>
+            <div className="flex items-center gap-3 min-w-0">
+              <BrandLogo className="w-9 h-9 ring-2 ring-white/40" />
+              {/* The drawer is 256px wide: the name wraps to two lines here
+                  rather than being cut off. */}
+              <span className="font-bold text-white text-[15px] leading-tight"><BrandName /></span>
             </div>
             <button
               onClick={closeSidebar}

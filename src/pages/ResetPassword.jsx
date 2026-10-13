@@ -16,7 +16,7 @@ import toast from 'react-hot-toast';
 import { getPasswordPolicyError } from '../utils/passwordPolicy';
 import PasswordChecklist from '../components/PasswordChecklist';
 import { BusinessName } from '../utils/businessProfile';
-import { LOGO_SRC, LOGO_ALT } from '../brand';
+import { BrandLogo, BrandName } from '../components/Brand';
 
 // One-time proof that THIS tab just completed a code-based password recovery.
 // ResetPassword.jsx reads it and clears it. The key and shape are written out
@@ -150,10 +150,8 @@ export default function ResetPassword() {
     <div className="min-h-screen flex flex-col bg-white font-sans">
       <header className="bg-[#008A45] text-white h-[72px] flex items-center px-6 w-full shrink-0 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="h-12 w-[72px] rounded-xl overflow-hidden border-2 border-white bg-white shadow-sm flex-shrink-0">
-            <img src={LOGO_SRC} alt={LOGO_ALT} className="w-full h-full object-contain" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-wide">CaterSync</h1>
+          <BrandLogo className="w-12 h-12 border-2 border-white shadow-sm" />
+          <h1 className="text-lg sm:text-2xl font-bold tracking-wide"><BrandName /></h1>
         </div>
       </header>
 

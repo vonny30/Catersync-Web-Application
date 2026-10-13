@@ -6,8 +6,12 @@
 // downloadable Booking Details sheet.
 //
 // The logo is PGS Foods & Catering's own (public/pgs-logo.jpg, 2000 x 1333,
-// set 14 Oct 2026). It is wide, so its frames are white 3:2 badges rather
-// than circles; it is fitted inside them, never cropped.
+// set 14 Oct 2026). It sits in a white circle (components/Brand.jsx
+// BrandLogo), fitted and enlarged so the oval fills it without being cut.
+//
+// The name shown beside it is "PG's Catering · CaterSync": the business name
+// comes from Settings -> Business Details, the product name from APP_NAME
+// below (components/Brand.jsx BrandName).
 //
 // To change it later:
 //   1. Put the file in frontend/public/ (PNG, JPG, SVG or WebP).
@@ -23,3 +27,10 @@ export const LOGO_SRC = '/pgs-logo.jpg';
 
 // Read aloud by screen readers in place of the image.
 export const LOGO_ALT = 'PGS Foods & Catering logo';
+
+// The product's name, shown after the business's name.
+export const APP_NAME = 'CaterSync';
+
+// The business's name until Settings -> Business Details has been read (and
+// the browser tab's title before the page has loaded: index.html).
+export const BUSINESS_NAME_DEFAULT = "PG's Catering";

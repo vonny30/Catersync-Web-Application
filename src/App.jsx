@@ -33,6 +33,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import { PrivacyNotice, TermsOfService } from './pages/LegalPages';
 import LoadingScreen from './components/LoadingScreen';
+import { BrandTitle } from './components/Brand';
 
 function AppContent() {
   const { confirmState } = useConfirm();
@@ -150,6 +151,7 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <BrandTitle />
         <ConfirmProvider>
           <PasswordConfirmProvider>
             <AppContent />

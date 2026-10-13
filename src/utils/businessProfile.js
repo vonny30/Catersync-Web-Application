@@ -10,9 +10,10 @@
 // so it is fetched once per page load and shared by every component.
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabase';
+import { BUSINESS_NAME_DEFAULT } from '../brand';
 
 export const DEFAULT_BUSINESS = {
-  business_name: "PG's Catering",
+  business_name: BUSINESS_NAME_DEFAULT,
   email: null,
   phone: null,
   address: null,
