@@ -13,9 +13,21 @@
 // The stage is shown read-only. The manager does not choose it: it follows
 // from the money already in (stageForReceipt), and the line below the amount
 // says what this receipt will be recorded as before anything is saved.
+//
+// On an installment plan there is no 50% deposit: the hint shows what is due
+// now and next instead, with a one-click fill for the amount due now (or the
+// next installment when nothing is due yet).
 import ImageUploadField from './ImageUploadField';
 import { RECEIPT_METHODS, methodNeedsReceiptNumber, stageForReceipt, payStatusPillClass } from '../utils/payments';
+import { longYmd } from '../utils/installments';
 
+const peso = (n) => `₱${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/**
+ * @param plan  for an installment-plan booking, its v_booking_money row
+ *              ({ payment_plan, amount_due_now, next_due_amount, next_due_date });
+ *              omit (or a Standard booking) for the usual deposit hint
+ */
 export default function ReceiptFields({
   amount,
   onAmountChange,
@@ -29,7 +41,11 @@ export default function ReceiptFields({
   priorPaid = 0,
   total = 0,
   disabled = false,
+  plan = null,
 }) {
+  const onPlan = plan?.payment_plan === 'Installment';
+  const dueNow = Number(plan?.amount_due_now) || 0;
+  const quickFill = dueNow > 0 ? dueNow : Number(plan?.next_due_amount) || 0;
   const value = Number(amount) || 0;
   const owed = Number(total) || 0;
   const remaining = Math.max(0, owed - (Number(priorPaid) || 0));
@@ -58,6 +74,19 @@ export default function ReceiptFields({
         />
         {errors.amount ? (
           <p className="text-xs text-red-600 mt-1 font-semibold">{errors.amount}</p>
+        ) : onPlan ? (
+          <div className="mt-1 flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-xs text-slate-600">
+              Installment plan — due now {peso(dueNow)}
+              {plan.next_due_date ? `; next ${peso(plan.next_due_amount)} on ${longYmd(plan.next_due_date)}` : ''}.
+            </p>
+            {quickFill > 0 && !disabled && (
+              <button type="button" onClick={() => onAmountChange({ target: { name: 'amount', value: String(quickFill) } })}
+                className="text-xs font-bold text-[#007038] hover:text-[#00532a]">
+                {dueNow > 0 ? 'Use amount due now' : 'Use next installment'}
+              </button>
+            )}
+          </div>
         ) : owed > 0 ? (
           <p className="text-xs text-slate-600 mt-1">
             {isFirst

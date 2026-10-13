@@ -240,6 +240,7 @@ function RecordReceiptModal({ receivables, onClose, onRecorded }) {
       hasImage: !!file,
       priorPaid: booking.verified_paid,
       total: booking.total_amount,
+      paymentPlan: booking.payment_plan,
     });
     if (!check.ok) {
       setErrors({ [check.field]: check.message });
@@ -347,6 +348,7 @@ function RecordReceiptModal({ receivables, onClose, onRecorded }) {
             errors={errors}
             priorPaid={Number(booking.verified_paid) || 0}
             total={Number(booking.total_amount) || 0}
+            plan={booking}
           />
         )}
       </div>
@@ -634,6 +636,7 @@ export default function Receivables() {
             .select(`
               booking_id, booking_number, booking_type, booking_status, customer_id, event_datetime, total_amount,
               verified_paid, net_paid, outstanding, awaiting_count, is_receivable, counts_toward_revenue,
+              payment_plan, amount_due_now, next_due_date, next_due_amount,
               customer:customer_id (first_name, last_name)
             `)
             .order('event_datetime', { ascending: true, nullsFirst: false })

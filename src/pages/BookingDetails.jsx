@@ -478,6 +478,7 @@ export default function BookingDetails() {
     totalAmount: booking?.total_amount || 0,
     fetchData: fetchBooking,
     customerId: booking?.customer_id,
+    paymentPlan: booking?.payment_plan,
   });
 
   // --- Approval Handlers ---
@@ -3097,6 +3098,7 @@ export default function BookingDetails() {
                 errors={{ amount: paymentAmountError, receipt: paymentReceiptError, file: paymentFileError }}
                 priorPaid={priorPaid}
                 total={booking.total_amount || 0}
+                plan={money}
               />
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">

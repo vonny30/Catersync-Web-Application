@@ -19,8 +19,9 @@ import {
  * @param bookingId    the booking or short order being paid
  * @param totalAmount  its total, for the remaining-balance checks
  * @param customerId   written on the payment row
+ * @param paymentPlan  the booking's payment_plan (no 50% deposit rule on 'Installment')
  */
-export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData, customerId }) {
+export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData, customerId, paymentPlan }) {
   // Modal state
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -134,6 +135,7 @@ export function usePaymentHandlers({ bookingId, payments, totalAmount, fetchData
       hasImage: !!selectedFile,
       priorPaid,
       total: totalAmount,
+      paymentPlan,
     });
     if (!check.ok) {
       toast.error(check.message);

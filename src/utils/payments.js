@@ -159,9 +159,11 @@ export const REFUND_METHOD_MESSAGE = 'Choose the refund method.';
  * Every rule a new receipt must pass, in one place, for both receipt forms
  * (the Receivables page and the booking detail pages).
  *
+ * @param paymentPlan  the booking's payment_plan; an 'Installment' booking has
+ *                     no 50% deposit rule (every other rule still applies)
  * @returns { ok: true, stage } or { ok: false, field: 'amount'|'receipt'|'file'|'form', message }
  */
-export function validateReceipt({ amount, method, receiptReference, hasImage, priorPaid, total }) {
+export function validateReceipt({ amount, method, receiptReference, hasImage, priorPaid, total, paymentPlan }) {
   const value = Number(amount) || 0;
   const owed = Number(total) || 0;
   const prior = Number(priorPaid) || 0;
@@ -175,7 +177,8 @@ export function validateReceipt({ amount, method, receiptReference, hasImage, pr
     return { ok: false, field: 'amount', message: `Amount exceeds the balance due of ₱${remaining.toLocaleString()}.` };
   }
   // The deposit that secures a booking: at least half, on the first receipt.
-  if (prior <= 0 && owed > 0 && value < owed * 0.5 - 0.005) {
+  // Not on an installment plan: the manager confirmed it without a deposit.
+  if (paymentPlan !== 'Installment' && prior <= 0 && owed > 0 && value < owed * 0.5 - 0.005) {
     return { ok: false, field: 'amount', message: `The deposit must be at least 50% of the transaction amount (₱${(owed * 0.5).toLocaleString()}).` };
   }
   if (methodNeedsReceiptNumber(method)) {

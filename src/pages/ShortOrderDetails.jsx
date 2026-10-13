@@ -327,6 +327,7 @@ export default function ShortOrderDetails() {
     totalAmount: order?.total_amount || 0,
     fetchData: fetchOrder,
     customerId: order?.customer_id,
+    paymentPlan: order?.payment_plan,
   });
 
   // Approval Handlers (works for short orders as well)
@@ -2016,6 +2017,7 @@ export default function ShortOrderDetails() {
                 errors={{ amount: paymentAmountError, receipt: paymentReceiptError, file: paymentFileError }}
                 priorPaid={priorPaid}
                 total={order.total_amount || 0}
+                plan={money}
               />
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
