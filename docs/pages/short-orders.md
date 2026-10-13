@@ -10,6 +10,7 @@ equipment; excluding them from equipment views is correct, not an oversight.
 - Identical sort and self-heal rules to Bookings.
 - A daily cap applies — see `MAX_SHORT_ORDERS_PER_DAY` in `utils/bookingStatus`, enforced at approval.
 - Short Orders have no equipment. Approval allocates none.
+- **Suki customers and installment plans (14 Oct 2026).** Same as Bookings: Suki badge, Installment chip, the **Installment plans** quick filter, the Standard / Installment choice in Approve for a suki customer, and completion allowed after the event with installments owed.
 
 ## Data it reads
 

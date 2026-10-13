@@ -83,6 +83,25 @@ recorded Receipt.
 Payments are never edited or deleted. A correction is a Reversal, money back is a Refund,
 and neither touches the original row.
 
+## Installment plans (suki customers, 14 Oct 2026)
+
+A booking with `payment_plan = 'Installment'` (spec: `docs/feature-suki-installments.md`)
+follows its schedule instead of the 50% deposit rule. On this page:
+
+- **Record Receipt** skips only the 50% first-deposit rule for a plan booking
+  (`validateReceipt` with `paymentPlan`); every other rule still applies. The booking
+  picker marks plan bookings and shows what is due now, and the receipt form shows
+  "due now / next" with a one-click fill instead of the deposit hint.
+- A **Payment plan** filter (All / Installment plans) narrows the receipt rows. It
+  never narrows the Accounts Receivable breakdown, whose Balance Due must still add
+  up to the card.
+- The **Accounts Receivable** breakdown marks plan rows with "Due now · Next … on …"
+  and the overdue chip. For a plan booking `is_overdue` / `days_overdue` come from the
+  schedule (`v_booking_money`), never computed here. A completed plan booking with
+  installments still owed stays receivable.
+- A reversal never sends a plan booking back to Approved (`f_maybe_unconfirm_booking`
+  returns early for plans); its installments simply become unpaid again.
+
 ## Open
 
 - Approved sat outside the payment-locked status list before the rework, which caused the

@@ -11,6 +11,7 @@ through the shared handler hooks.
 - Sort order is `status_order`, then unread, then `book_datetime`, then `booking_id`. The final unique key matters: `.range()` paging over a non-total ordering skips and repeats rows.
 - `status_order` is **not** maintained by the database. Every write that changes `booking_status` must set the matching value from `utils/bookingStatus`. The page self-heals drift via `findStatusOrderDrift`.
 - Realtime is filtered to `booking_type=eq.Package`.
+- **Suki customers and installment plans (14 Oct 2026).** A Suki badge beside the customer and an Installment chip on plan bookings (`customer.is_suki`, `booking.payment_plan`). The **Installment plans** quick filter is an id list from `v_booking_money.payment_plan`, applied through `utils/listFilters` like Overdue and Flagged. The Approve pop-up offers Standard / Installment only for a suki customer. A plan booking may be completed after its event with installments still owed.
 
 ## Data it reads
 

@@ -16,6 +16,7 @@ a list page.
 - Cash retained from cancelled bookings is reported on its own line, never folded into the headline collections figure.
 - Date windows are sent as **instants** (`toISOString()`), never naive local strings. `pay_datetime` and `event_datetime` are `timestamptz`; a naive string is read in the database's timezone (UTC), which shifted every window 8 hours in Manila.
 - Windows are half-open `[start, end)`. An inclusive `23:59:59` end drops the final second.
+- The Approve pop-up is the shared `components/ApprovalModal`: for a suki customer it offers Standard / Installment (14 Oct 2026); for anyone else it is unchanged.
 
 ## Data it reads
 

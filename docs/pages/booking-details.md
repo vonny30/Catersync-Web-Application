@@ -18,6 +18,10 @@ app and the one that writes the most.
 - **Assigning a vehicle happens here**, in `components/AssignVehicleModal`, not by navigating to the Vehicles page. Same booking, same page, same place on it. Conflict detection and the dispatch window come from `utils/vehicle` (`findConflictingAssignment`, `describeAssignment`) — the Vehicles page calls the same functions, so the two can never disagree about whether a van is free.
 - Card order is the lifecycle order: **what was ordered → the money → its exceptions → what has to be loaded → what carries it.**
 
+- **Installment plans (suki customers, 14 Oct 2026; spec `docs/feature-suki-installments.md`).** `components/InstallmentPlanCard` sits above Payment Tracking. It reads `v_booking_installments` and `booking_installment_log`, and every change goes through `f_save_installment_plan` / `f_end_installment_plan` (both refuse with a sentence that is shown as is). It renders nothing for a Standard booking unless the customer is suki and the booking is Approved or Confirmed ("Start installment plan").
+- The **Approve** pop-up offers Standard / Installment only for a suki customer; for anyone else it is unchanged. Approving on a plan confirms the booking at once (status history source "Suki installment plan").
+- On a plan booking: Record Payment skips only the 50% first-deposit rule; Complete is allowed after the event with installments still owed ("₱X in installments will stay receivable"); Override cannot move it to Pending or Approved (end the plan first); and the "Past Event — ₱X Remaining" and "Balance Remaining" chips are not shown, because the plan card shows what is due and when.
+
 ## Data it reads
 
 | Table | Queries | Whole-table with no row bound |

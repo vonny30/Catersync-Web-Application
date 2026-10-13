@@ -16,6 +16,8 @@ none; otherwise the same lifecycle actions through the same hooks.
 
 - A **Dispatch** section, same as Booking Details. A short order's trip type is Delivery, matching `getTripType`.
 
+- **Installment plans (suki customers, 14 Oct 2026).** The same plan card, Approve choice and plan rules as Booking Details: plan card above Payment Tracking, no 50% first-deposit rule on a plan, Complete allowed after the event with installments owed, Override cannot go back to Pending or Approved, and the past-event / balance-remaining chips hidden for plan orders. Spec: `docs/feature-suki-installments.md`.
+
 ## Data it reads
 
 | Table | Queries | Whole-table with no row bound |

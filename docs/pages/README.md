@@ -59,6 +59,14 @@ drop off this table.
 
 ## Recently settled
 
+- **Suki customers and installment plans** (14 Oct 2026, spec
+  `../feature-suki-installments.md`). Suki status is set on the Customers page
+  (which has no page file here yet); plans live on both detail pages, with
+  markers and filters on Bookings, Short Orders and Receivables. The rules are
+  recorded in each page's file. Standard bookings behave exactly as before:
+  verified 14 Oct 2026 by comparing the old and new views row by row,
+  old-vs-new money and completion rules on 60,000 inputs, and the Approve
+  pop-up rendered before and after.
 - **Blueprint-03 §5.8 built** (30 Aug 2026). Both detail pages now show what
   is carrying the booking and can open the assign modal for it directly.
 - **`vehicle_assign` has no unique constraint on booking+vehicle** (30 Aug
@@ -77,3 +85,14 @@ edit the page file; this index is rebuilt from those files, so a gap struck
 through there disappears from the table above on the next rebuild.
 
 _Last regenerated 30 Aug 2026._
+
+**Known drift (checked 14 Oct 2026).** The generator that produced the tables
+is not in the repository, and the tables predate later work: for example the
+suki feature's reads (`v_booking_installments`, `booking_installment_log`) and
+database functions (`f_save_installment_plan`, `f_end_installment_plan`,
+`f_set_customer_suki`) are not listed yet, and several pages read
+`v_booking_money` / `v_payment_ledger`, which the tables do not show. An attempt
+to rebuild the generator could not reproduce the 30 Aug tables from the source
+of that date (the line counts match no committed revision), so the tables were
+left as they are rather than replaced with numbers counted a different way. The
+rules sections are current.

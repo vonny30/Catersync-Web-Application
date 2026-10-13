@@ -393,10 +393,11 @@ order by sort_order, method, account_name;
 - The table is in the `supabase_realtime` publication, so an open payment
   screen can subscribe and pick up an edit without a restart.
 
-### 7.2 Suki customers and installment plans (13 Oct 2026, pending rollout)
+### 7.2 Suki customers and installment plans (live since 13 Oct 2026)
 
-Comes with `sql/suki_installments_2026-10-13.sql`. **Not live until the website team
-applies it.** The full prompt for the apps is `docs/mobile-suki-installments.md`.
+Comes with `sql/suki_installments_2026-10-13.sql`, **applied to the shared database on
+13 Oct 2026** (migration `suki_installments`). The website's suki and installment screens
+shipped on 14 Oct 2026. The full prompt for the apps is `docs/mobile-suki-installments.md`.
 
 - `booking.payment_plan` is `'Standard'` or `'Installment'`. Only the manager sets it,
   through `f_save_installment_plan` / `f_end_installment_plan`. App writes are reset.
