@@ -393,6 +393,25 @@ order by sort_order, method, account_name;
 - The table is in the `supabase_realtime` publication, so an open payment
   screen can subscribe and pick up an edit without a restart.
 
+### 7.2 Suki customers and installment plans (13 Oct 2026, pending rollout)
+
+Comes with `sql/suki_installments_2026-10-13.sql`. **Not live until the website team
+applies it.** The full prompt for the apps is `docs/mobile-suki-installments.md`.
+
+- `booking.payment_plan` is `'Standard'` or `'Installment'`. Only the manager sets it,
+  through `f_save_installment_plan` / `f_end_installment_plan`. App writes are reset.
+- A plan booking is **Confirmed without the 50% deposit**. Don't show 50% wording on it,
+  and don't enforce a 50% minimum on the customer's payments.
+- Read the schedule from `v_booking_installments` (one row per installment, with
+  `status`, `covered`, `remaining`). Read the plan summary from the new
+  `v_booking_money` columns: `installment_count`, `amount_due_now`, `next_due_date`,
+  `next_due_amount`.
+- For plan bookings, `v_booking_money.is_overdue` / `days_overdue` follow the
+  **schedule**, not the event date.
+- `customer.is_suki` is a manager-only label. Don't display it in the customer app.
+- `f_completion_check` also returns `payment_plan`. A plan booking can be completed
+  after its event even while installments remain.
+
 ## 8. Keeping this honest as we keep updating
 
 1. **This file changes first.** Any change to a shared table's meaning — a new
