@@ -133,6 +133,16 @@ export function validateSchedule({ total, rows, isNew, today = todayManila() }) 
   };
 }
 
+/**
+ * The event's Manila date when any installment falls after it, else null.
+ * Allowed for suki customers (§9); the editor warns, it never blocks.
+ */
+export function dueAfterEventDate(rows, eventDatetime) {
+  const eventDay = manilaYmd(eventDatetime);
+  if (!eventDay) return null;
+  return (rows || []).some(r => isValidYmd(r.due_date) && r.due_date > eventDay) ? eventDay : null;
+}
+
 /** The rows as the RPC expects them: plain date strings, amounts rounded to centavos. */
 export const toRpcRows = (rows) => rows.map(r => ({
   due_date: r.due_date,

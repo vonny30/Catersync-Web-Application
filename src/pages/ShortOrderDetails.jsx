@@ -21,6 +21,8 @@ import BookingSheetPreview from '../components/BookingSheetPreview';
 import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import { fetchAllRows } from '../utils/fetchAllRows';
+import InstallmentPlanCard from '../components/InstallmentPlanCard';
+import { isInstallmentPlan } from '../utils/installments';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
@@ -143,7 +145,7 @@ export default function ShortOrderDetails() {
         .from('booking')
         .select(`
           *,
-          customer:customer_id (first_name, last_name, contact_no, cus_address, email_address, customer_id)
+          customer:customer_id (first_name, last_name, contact_no, cus_address, email_address, customer_id, is_suki)
         `)
         .eq('booking_id', id)
         .eq('booking_type', 'Short Order')
@@ -167,7 +169,7 @@ export default function ShortOrderDetails() {
       // The money row, including the review flags.
       const { data: moneyRow, error: moneyError } = await supabase
         .from('v_booking_money')
-        .select('booking_id, outstanding, net_paid, verified_paid, awaiting_verification, is_overdue, days_overdue, flagged_for_review, flag_reason, flagged_at, is_lapsed')
+        .select('booking_id, outstanding, net_paid, verified_paid, awaiting_verification, is_overdue, days_overdue, flagged_for_review, flag_reason, flagged_at, is_lapsed, payment_plan, installment_count, amount_due_now, next_due_date, next_due_amount')
         .eq('booking_id', id)
         .maybeSingle();
       if (moneyError) console.error('Could not read the order money row:', moneyError);
@@ -1052,7 +1054,9 @@ export default function ShortOrderDetails() {
                 {lapsedBlockedLabel(order.booking_status)}
               </span>
             )}
-            {hasUnpaidPastEvent({ booking_status: order.booking_status, event_datetime: order.event_datetime, total_amount: order.total_amount, positivePayments }) && (
+            {/* Not for an installment plan: its schedule, not the event, says
+                when money is due, and the plan card shows it. */}
+            {!isInstallmentPlan(order) && hasUnpaidPastEvent({ booking_status: order.booking_status, event_datetime: order.event_datetime, total_amount: order.total_amount, positivePayments }) && (
               <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
                 Past Event — ₱{remainingBalance.toLocaleString()} Remaining
               </span>
@@ -1074,7 +1078,7 @@ export default function ShortOrderDetails() {
             )}
 
             {/* A Completed order that still has a balance. */}
-            {order.booking_status === 'Completed' && positivePayments < (order.total_amount || 0) && (
+            {!isInstallmentPlan(order) && order.booking_status === 'Completed' && positivePayments < (order.total_amount || 0) && (
               <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-amber-50 border-amber-200 text-amber-700">
                 ⚠️ Balance Remaining
               </span>
@@ -1351,6 +1355,10 @@ export default function ShortOrderDetails() {
               stranded after a gap. */}
           <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-start">
             <div className="min-[980px]:col-span-7 flex flex-col gap-6 min-w-0">
+              {/* Installment plan (suki customers). Renders nothing for a
+                  Standard order unless the customer is suki and it can start. */}
+              <InstallmentPlanCard booking={order} money={money} onChanged={() => { fetchOrder(); setHistoryKey(k => k + 1); }} />
+
               {/* Payment Tracking */}
             <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
               <div className="flex justify-between items-center mb-4">

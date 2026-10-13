@@ -53,6 +53,8 @@ import ApprovalAvailabilityCheck from '../components/ApprovalAvailabilityCheck';
 import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
 import { fetchAllRows } from '../utils/fetchAllRows';
+import InstallmentPlanCard from '../components/InstallmentPlanCard';
+import { isInstallmentPlan } from '../utils/installments';
 import { getAssignmentStatus } from '../utils/statusLabels';
 import ImageUploadField from '../components/ImageUploadField';
 import RefundMethodField from '../components/RefundMethodField';
@@ -238,7 +240,7 @@ export default function BookingDetails() {
         .from('booking')
         .select(`
           *,
-          customer:customer_id (first_name, last_name, contact_no, cus_address, email_address, customer_id),
+          customer:customer_id (first_name, last_name, contact_no, cus_address, email_address, customer_id, is_suki),
           package:package_id (pkg_name, pkg_price, pkg_description, pricing_type, minimum_pax, max_pax, extra_pax_price)
         `)
         .eq('booking_id', id)
@@ -262,7 +264,7 @@ export default function BookingDetails() {
       // database believes about this booking right now.
       const { data: moneyRow, error: moneyError } = await supabase
         .from('v_booking_money')
-        .select('booking_id, outstanding, net_paid, verified_paid, awaiting_verification, is_overdue, days_overdue, flagged_for_review, flag_reason, flagged_at, is_lapsed')
+        .select('booking_id, outstanding, net_paid, verified_paid, awaiting_verification, is_overdue, days_overdue, flagged_for_review, flag_reason, flagged_at, is_lapsed, payment_plan, installment_count, amount_due_now, next_due_date, next_due_amount')
         .eq('booking_id', id)
         .maybeSingle();
       if (moneyError) console.error('Could not read the booking money row:', moneyError);
@@ -1881,7 +1883,9 @@ export default function BookingDetails() {
               </span>
             )}
 
-            {hasUnpaidPastEvent({ booking_status: booking.booking_status, event_datetime: booking.event_datetime, total_amount: booking.total_amount, positivePayments }) && (
+            {/* Not for an installment plan: its schedule, not the event, says
+                when money is due, and the plan card shows it. */}
+            {!isInstallmentPlan(booking) && hasUnpaidPastEvent({ booking_status: booking.booking_status, event_datetime: booking.event_datetime, total_amount: booking.total_amount, positivePayments }) && (
               <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-red-50 border-red-200 text-red-700">
                 Past Event — ₱{remainingBalance.toLocaleString()} Remaining
               </span>
@@ -1904,8 +1908,9 @@ export default function BookingDetails() {
               </span>
             )}
 
-            {/* A Completed booking that still has a balance. */}
-            {booking.booking_status === 'Completed' && positivePayments < (booking.total_amount || 0) && (
+            {/* A Completed booking that still has a balance (a plan booking's
+                balance is shown, with its schedule, on the plan card). */}
+            {!isInstallmentPlan(booking) && booking.booking_status === 'Completed' && positivePayments < (booking.total_amount || 0) && (
               <span className="px-4 py-1.5 rounded-full text-xs font-bold border bg-amber-50 border-amber-200 text-amber-700">
                 Balance Remaining
               </span>
@@ -2223,6 +2228,10 @@ export default function BookingDetails() {
             a single flowing grid. */}
         <div className="grid grid-cols-1 min-[980px]:grid-cols-12 gap-6 items-start">
           <div className="min-[980px]:col-span-7 flex flex-col gap-6 min-w-0">
+            {/* Installment plan (suki customers). Renders nothing for a
+                Standard booking unless the customer is suki and it can start. */}
+            <InstallmentPlanCard booking={booking} money={money} onChanged={() => { fetchBooking(); setHistoryKey(k => k + 1); }} />
+
             {/* Payment Tracking */}
             <div className="bg-white border border-slate-200 rounded-2xl p-[clamp(20px,2.2vw,24px)] shadow-xs">
               <div className="flex justify-between items-center mb-4">
