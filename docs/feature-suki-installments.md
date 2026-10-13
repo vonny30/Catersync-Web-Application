@@ -264,13 +264,14 @@ Add unit-style checks next to the existing ones, if there are any; otherwise a s
 
 ### 5.2 New `src/components/InstallmentScheduleEditor.jsx`
 
-This is a controlled component with props `{ total, rows, onChange, isNew, paidSoFar }`. It shows:
+This is a controlled component with props `{ total, rows, onChange, isNew, paidSoFar, eventDatetime }`. It shows:
 
 - a **count stepper** (2 to 12) and a **"Split evenly"** button;
 - changing the count regenerates the schedule with `buildEvenSchedule`, keeping the current first due date. When editing an existing plan, ask before overwriting rows the manager typed by hand;
 - one row per installment: a number, a date input, and an amount input (₱, 2 decimals). Inline errors come from `validateSchedule`;
 - a footer that reads **"Schedule ₱X of ₱Total"**, with the difference shown in red while it is not zero, and a **"Put difference on last"** button;
-- when `paidSoFar > 0`, a note that payments are applied oldest first, and how many rows are already covered.
+- when `paidSoFar > 0`, a note that payments are applied oldest first, and how many rows are already covered;
+- a **warning, not an error**, on every row whose due date is after the event date (compare against the event's Manila date), for example in amber: *"Due after the event (Oct 25). Allowed for suki customers. Make sure this was agreed."* The warning never disables Save. Show the same note once in the Approval modal and the Edit modal when any row is after the event.
 
 ### 5.3 New `src/components/InstallmentPlanCard.jsx`, used on `BookingDetails.jsx` and `ShortOrderDetails.jsx`
 
@@ -388,7 +389,7 @@ Add `payment_plan` (and, only where needed, `amount_due_now`, `next_due_date`, `
 | The manager picks Installment for a customer who stopped being suki in another tab | The RPC refuses with "Only suki customers…"; the booking stays Approved. |
 | Two managers edit the same plan at once | The RPC locks the booking row (`for update`), so the last save wins and both saves are logged. The card refreshes through realtime. |
 | A schedule with 3-decimal amounts, or "abc" as a date | The client editor blocks it; the database refuses it if it gets through. |
-| An installment's due date is after the event | Allowed. That is the point of the feature for trusted customers. |
+| An installment's due date is after the event | Allowed. The editor shows an amber warning on those rows but never blocks saving. |
 | The customer pays more than an installment | The extra covers the next installment, because payments are applied oldest first. |
 | The customer pays everything early | Every row becomes Paid, `next_due_*` becomes null, `is_fully_paid` becomes true, and auto-complete applies as normal after the event. |
 | A payment is reversed | The booking stays Confirmed (R9). Installment statuses go back to unpaid, and overdue appears if a due date has passed. |
@@ -429,14 +430,14 @@ Add `payment_plan` (and, only where needed, `amount_due_now`, `next_due_date`, `
 - Do not change `stageForReceipt`, `autoComplete.js` or the kept-deposit rule.
 - Do not apply the migration before the dry run passes.
 
-## 9. Decisions taken (change them here before building if the business disagrees)
+## 9. Decisions taken (confirmed by the business on 13 Oct 2026)
 
 | Question | Decision |
 |---|---|
 | Can a plan be started after approval? | Yes, on any Approved or Confirmed booking of a suki customer, from the detail page. |
 | Minimum and maximum number of installments | 2 to 12. |
-| Must the last installment be due before the event? | No. |
-| Late fees or interest | None. Overdue is only flagged. |
-| Does the customer see that they are "suki"? | No. The mobile app shows the plan, not the label. |
+| Can an installment be due after the event? | Yes. The editor warns (amber) but allows it. Confirmed by the business on 13 Oct 2026. |
+| Late fees or interest | None. Overdue is only flagged. Confirmed by the business. |
+| Does the customer see that they are "suki"? | No. The mobile app shows only "Installment plan". Confirmed by the business. |
 | Removing suki status | Does not end existing plans. |
 | Kept deposit on cancellation within 3 days | The first plan receipt counts as the deposit, same as today. |
