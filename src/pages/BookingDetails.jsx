@@ -54,7 +54,8 @@ import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import InstallmentPlanCard from '../components/InstallmentPlanCard';
-import ApprovalPaymentChoice, { ApprovalDepositLine, SukiBadge } from '../components/ApprovalPaymentChoice';
+import ApprovalPaymentChoice, { ApprovalDepositLine } from '../components/ApprovalPaymentChoice';
+import SukiBadge from '../components/SukiBadge';
 import { isInstallmentPlan } from '../utils/installments';
 import { getAssignmentStatus } from '../utils/statusLabels';
 import ImageUploadField from '../components/ImageUploadField';
@@ -3446,7 +3447,7 @@ export default function BookingDetails() {
                   <span className="font-medium text-slate-600">Customer:</span>
                   <span className="font-bold text-slate-900">
                     {approvalBooking.customer?.first_name} {approvalBooking.customer?.last_name}
-                    {approvalInstallment.isSuki && <SukiBadge />}
+                    {approvalInstallment.isSuki && <SukiBadge className="ml-1.5" />}
                   </span>
                   <span className="font-medium text-slate-600">Package:</span>
                   <span className="font-bold text-slate-900">{approvalBooking.package?.pkg_name}</span>

@@ -22,7 +22,8 @@ import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import InstallmentPlanCard from '../components/InstallmentPlanCard';
-import ApprovalPaymentChoice, { ApprovalDepositLine, SukiBadge } from '../components/ApprovalPaymentChoice';
+import ApprovalPaymentChoice, { ApprovalDepositLine } from '../components/ApprovalPaymentChoice';
+import SukiBadge from '../components/SukiBadge';
 import { isInstallmentPlan } from '../utils/installments';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -2276,7 +2277,7 @@ export default function ShortOrderDetails() {
               <div className="bg-white p-4 rounded-2xl border border-slate-200 text-sm">
                 <div className="grid grid-cols-2 gap-2">
                   <span className="font-medium text-slate-600">Customer:</span>
-                  <span className="font-bold text-slate-900">{approvalOrder.customer?.first_name} {approvalOrder.customer?.last_name}{approvalInstallment.isSuki && <SukiBadge />}</span>
+                  <span className="font-bold text-slate-900">{approvalOrder.customer?.first_name} {approvalOrder.customer?.last_name}{approvalInstallment.isSuki && <SukiBadge className="ml-1.5" />}</span>
                   <span className="font-medium text-slate-600">Venue:</span>
                   <span className="font-bold text-slate-900">{approvalOrder.venue || 'N/A'}</span>
                   <span className="font-medium text-slate-600">Current Total:</span>

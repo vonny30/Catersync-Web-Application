@@ -18,7 +18,8 @@ import { X } from 'lucide-react';
 import ApprovalAvailabilityCheck from './ApprovalAvailabilityCheck';
 import { extraPaxRate } from '../hooks/useApprovalHandlers';
 import { getServiceMethod } from '../utils/vehicle';
-import ApprovalPaymentChoice, { ApprovalDepositLine, SukiBadge } from './ApprovalPaymentChoice';
+import ApprovalPaymentChoice, { ApprovalDepositLine } from './ApprovalPaymentChoice';
+import SukiBadge from './SukiBadge';
 
 const INPUT = 'w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none';
 const NO_EQUIPMENT_CHECK = { applicable: false, loading: false, sufficient: true, shortages: [] };
@@ -59,7 +60,7 @@ export default function ApprovalModal({
           <div className="bg-white p-4 rounded-2xl border border-slate-200 text-sm">
             <div className="grid grid-cols-2 gap-2">
               <span className="font-medium text-slate-600">Customer:</span>
-              <span className="font-bold text-slate-900">{booking.customer?.first_name} {booking.customer?.last_name}{installment?.isSuki && <SukiBadge />}</span>
+              <span className="font-bold text-slate-900">{booking.customer?.first_name} {booking.customer?.last_name}{installment?.isSuki && <SukiBadge className="ml-1.5" />}</span>
               {isShortOrder ? (
                 <>
                   <span className="font-medium text-slate-600">Venue:</span>

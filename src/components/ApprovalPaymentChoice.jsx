@@ -10,20 +10,10 @@
 // renders nothing and the deposit line is the old one, word for word.
 //
 // The state lives in useApprovalHandlers (`installment`).
-import { Star } from 'lucide-react';
 import InstallmentScheduleEditor, { DueAfterEventNote } from './InstallmentScheduleEditor';
 import { PAYMENT_PLAN, dueAfterEventDate, longYmd } from '../utils/installments';
 
 const money = (n) => `₱${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-/** The small badge beside a suki customer's name. */
-export function SukiBadge() {
-  return (
-    <span className="inline-flex items-center gap-1 ml-1.5 px-1.5 py-px rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-bold align-middle">
-      <Star size={10} className="fill-emerald-500 text-emerald-500" /> Suki
-    </span>
-  );
-}
 
 /**
  * Standard or Installment plan, and the schedule when a plan is chosen.

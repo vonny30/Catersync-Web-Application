@@ -24,7 +24,7 @@ import {
   Search, RefreshCw, UserPlus, X, ChevronLeft, ChevronRight,
   ArrowUp, ArrowDown, ArrowUpDown, Eye, Edit, Ban, ShieldCheck, Trash2,
   CalendarDays, ShoppingBag, Wallet, Undo2, Mail, Phone, MapPin, ExternalLink,
-  StickyNote, Clock,
+  StickyNote, Clock, Star,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../supabase';
@@ -40,6 +40,9 @@ import { usePasswordConfirm } from '../contexts/PasswordConfirmContext';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { getCurrentManagerId } from '../utils/currentManager';
 import { createWalkInCustomer } from '../utils/createWalkInCustomer';
+import SukiBadge from '../components/SukiBadge';
+import InstallmentChip from '../components/InstallmentChip';
+import { isInstallmentPlan } from '../utils/installments';
 
 const PAGE_SIZE = 10;
 
@@ -130,7 +133,7 @@ const SORT_DEFAULT_DIRECTION = {
 const LIST_COLUMNS = [
   'customer_id', 'first_name', 'last_name', 'full_name', 'email_address', 'contact_no', 'cus_address',
   'account_status', 'status_reason', 'source', 'has_login', 'total_bookings', 'package_bookings',
-  'short_orders', 'contracted_gross', 'receivable_due', 'next_event_at', 'is_deletable',
+  'short_orders', 'contracted_gross', 'receivable_due', 'next_event_at', 'is_deletable', 'is_suki',
 ].join(', ');
 
 const inputClass = (hasError) => `w-full border rounded-[10px] px-3 py-2.5 text-sm text-slate-800 outline-none transition-colors ${
@@ -408,10 +411,90 @@ function StatusModal({ customer, onClose, onSaved }) {
         </div>
         <p className="text-[12.5px] text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
           Blocking keeps the customer and all their history. Use it instead of deleting.
+          {/* The database clears the flag on block (trg_customer_suki). */}
+          {customer.is_suki && nextStatus === 'Blocked' && ' Their suki status will be removed.'}
         </p>
         {saveError && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{saveError}</p>}
       </div>
     </ModalShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Suki status (the drawer's Overview tab)
+// ---------------------------------------------------------------------------
+// Only the manager decides who is suki, and only through f_set_customer_suki;
+// the database stamps when and by whom, clears the flag when an account is
+// blocked, and refuses to mark a blocked account. Removing suki status does
+// not end plans already running: the manager ends those one by one.
+function SukiSection({ customer, setByName, onChanged }) {
+  const { showConfirm } = useConfirm();
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const blocked = customer.account_status === 'Blocked';
+
+  const save = async (makeSuki) => {
+    if (saving) return;
+    if (!makeSuki) {
+      const ok = await showConfirm({
+        title: `Remove suki status from ${customer.full_name}?`,
+        message: 'New bookings for this customer will need the standard 50% deposit. Existing installment plans stay as they are.',
+        confirmLabel: 'Remove suki status',
+        confirmVariant: 'warning',
+      });
+      if (!ok) return;
+    }
+    setSaving(true);
+    const { error } = await supabase.rpc('f_set_customer_suki', {
+      p_customer_id: customer.customer_id,
+      p_is_suki: makeSuki,
+      p_note: makeSuki ? (note.trim() || null) : null,
+    });
+    setSaving(false);
+    if (error) { toast.error(error.message); return; }
+    toast.success(makeSuki ? `${customer.full_name} is now a suki customer.` : `${customer.full_name} is no longer a suki customer.`);
+    setNote('');
+    onChanged();
+  };
+
+  return (
+    <div className="rounded-xl border border-slate-200/70 bg-white p-4 space-y-2.5">
+      <p className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+        <Star size={14} className={customer.is_suki ? 'fill-emerald-500 text-emerald-500' : 'text-slate-400'} />
+        Suki customer
+      </p>
+      {customer.is_suki ? (
+        <>
+          <p className="text-[13px] text-slate-600">
+            Suki since {dateOrDash(customer.suki_since)} · set by {setByName || 'a manager'}
+          </p>
+          {customer.suki_note && <p className="text-[13px] text-slate-800 whitespace-pre-wrap">{customer.suki_note}</p>}
+          <p className="text-[12.5px] text-slate-500">Can pay a booking in installments instead of the 50% deposit.</p>
+          <div className="flex justify-end">
+            <button onClick={() => save(false)} disabled={saving}
+              className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-[13px] px-3.5 py-2 rounded-lg border border-slate-300 transition-colors disabled:opacity-50">
+              {saving ? 'Saving…' : 'Remove suki status'}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-[12.5px] text-slate-500">
+            A suki (loyal) customer can pay a booking in installments instead of the 50% deposit.
+          </p>
+          <label htmlFor="suki-note" className="sr-only">Suki note</label>
+          <textarea id="suki-note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} disabled={blocked}
+            placeholder="Note (optional), e.g. Loyal since 2019, church events" className={inputClass(false)} />
+          <div className="flex justify-end">
+            <button onClick={() => save(true)} disabled={saving || blocked}
+              title={blocked ? 'Unblock the account first.' : undefined}
+              className="bg-[#008A45] hover:bg-[#007038] text-white font-semibold text-[13px] px-3.5 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              {saving ? 'Saving…' : 'Mark as suki'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -426,7 +509,7 @@ const ACTIVITY_ICON = {
   refund: { icon: Undo2, tone: 'bg-red-50 text-red-600' },
 };
 
-function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBooking, onNoteAdded, actions, periodCollectible, periodSpan: collectSpan }) {
+function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBooking, onNoteAdded, onSukiChanged, actions, periodCollectible, periodSpan: collectSpan }) {
   const [noteBody, setNoteBody] = useState('');
   const [noteSaving, setNoteSaving] = useState(false);
   const customer = drawer.customer;
@@ -465,6 +548,7 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
               <h2 className="text-xl font-bold tracking-[-0.01em] text-slate-900 truncate">{customer?.full_name || 'Loading…'}</h2>
               {customer && (
                 <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                  {customer.is_suki && <SukiBadge />}
                   <Pill className={ACCOUNT_STATUS_PILL[customer.account_status] || ACCOUNT_STATUS_PILL.Inactive}>{customer.account_status}</Pill>
                   {customer.source !== 'Unknown' && <Pill className={SOURCE_PILL[customer.source]}>{customer.source}</Pill>}
                   <span className="text-[13px] text-slate-500 truncate">{customer.email_address}</span>
@@ -545,6 +629,8 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
                 ))}
               </div>
 
+              <SukiSection customer={customer} setByName={drawer.sukiSetByName} onChanged={onSukiChanged} />
+
               <div className="rounded-xl border border-slate-200/70 bg-white p-4 space-y-2.5 text-sm text-slate-700">
                 <p className="flex items-center gap-2"><Mail size={14} className="text-slate-400 shrink-0" /> {customer.email_address}</p>
                 <p className="flex items-center gap-2"><Phone size={14} className="text-slate-400 shrink-0" /> {customer.contact_no || '—'}</p>
@@ -589,6 +675,13 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
                   return `${drawer.bookings.length} booking${drawer.bookings.length === 1 ? '' : 's'} · ${pkg} package${pkg === 1 ? '' : 's'}, ${so} short order${so === 1 ? '' : 's'}`;
                 })()}
               </p>
+              {/* Open installment plans, from v_customer_summary. */}
+              {Number(customer.installment_bookings) > 0 && (
+                <p className="-mt-1.5 mb-2.5 text-[13px] text-slate-600">
+                  {customer.installment_bookings} installment plan{Number(customer.installment_bookings) === 1 ? '' : 's'}
+                  {`, ${customer.overdue_installment_bookings} overdue`}
+                </p>
+              )}
               <div className="bg-white rounded-xl border border-slate-200/70 overflow-x-auto">
                 <table className="w-full text-left border-collapse text-sm">
                   <thead>
@@ -620,6 +713,7 @@ function CustomerDrawer({ drawer, loading, tab, onTabChange, onClose, onOpenBook
                           <span className="flex items-center gap-1 text-[12px] text-slate-500 mt-0.5 whitespace-nowrap">
                             {b.booking_type === 'Short Order' ? <ShoppingBag size={11} /> : <CalendarDays size={11} />} {b.booking_type}
                           </span>
+                          {isInstallmentPlan(b) && <InstallmentChip className="mt-1" />}
                         </td>
                         <td className="px-3 py-3 align-top">
                           <span className="block whitespace-nowrap">{dateOrDash(b.event_datetime)}</span>
@@ -785,6 +879,7 @@ export default function Customers() {
   const [sourceFilter, setSourceFilter] = useState('All');
   const [balanceFilter, setBalanceFilter] = useState('All');
   const [repeatOnly, setRepeatOnly] = useState(false);
+  const [sukiOnly, setSukiOnly] = useState(false);
   // THE PERIOD — which month's Accounts Receivable this page shows (22 Sep 2026). The
   // same control and default as the Receivables page, so the two Accounts Receivable
   // figures are the same figure.
@@ -842,6 +937,7 @@ export default function Customers() {
     source: sourceFilter,
     balance: balanceFilter,
     repeatOnly,
+    sukiOnly,
     // [customer_id, collectible] for the period, largest first: what the
     // Accounts Receivable filter and the Accounts Receivable sort run on.
     owing: Object.entries(collect.byCustomer).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)),
@@ -849,7 +945,7 @@ export default function Customers() {
   };
   const filterKey = JSON.stringify(filters);
   const hasFilters = !!search.trim() || statusFilter !== 'All' || sourceFilter !== 'All'
-    || balanceFilter !== 'All' || repeatOnly || periodPreset !== DEFAULT_DATE_PRESET;
+    || balanceFilter !== 'All' || repeatOnly || sukiOnly || periodPreset !== DEFAULT_DATE_PRESET;
 
   // A filter change goes back to page 1. Reset during render, not in an effect.
   const [pageFilterKey, setPageFilterKey] = useState(filterKey);
@@ -864,6 +960,7 @@ export default function Customers() {
     setSourceFilter('All');
     setBalanceFilter('All');
     setRepeatOnly(false);
+    setSukiOnly(false);
     setPeriodPreset(DEFAULT_DATE_PRESET);
     setPeriodCustomStart('');
     setPeriodCustomEnd('');
@@ -914,6 +1011,7 @@ export default function Customers() {
         if (f.status !== 'All') query = query.eq('account_status', f.status);
         if (f.source !== 'All') query = query.eq('source', f.source);
         if (f.repeatOnly) query = query.eq('is_repeat', true);
+        if (f.sukiOnly) query = query.eq('is_suki', true);
         return query;
       };
       const from = (p - 1) * PAGE_SIZE;
@@ -981,6 +1079,7 @@ export default function Customers() {
           }
           if (f.source !== 'All') query = query.eq('source', f.source);
           if (f.repeatOnly) query = query.eq('is_repeat', true);
+          if (f.sukiOnly) query = query.eq('is_suki', true);
           return query.order('customer_id', { ascending: true });
         }, 'customer status counts');
         if (keep) data = data.filter(keep);
@@ -1021,7 +1120,7 @@ export default function Customers() {
           supabase.from('v_customer_balance').select('*').eq('customer_id', id).maybeSingle(),
           fetchAllRows(() => supabase
             .from('v_booking_money')
-            .select('booking_id, booking_number, booking_type, booking_status, event_datetime, venue, total_amount, net_paid, awaiting_verification, outstanding, is_closed')
+            .select('booking_id, booking_number, booking_type, booking_status, event_datetime, venue, total_amount, net_paid, awaiting_verification, outstanding, is_closed, payment_plan')
             .eq('customer_id', id)
             .order('event_datetime', { ascending: false, nullsFirst: false })
             .order('booking_id', { ascending: true }), 'customer bookings'),
@@ -1045,8 +1144,19 @@ export default function Customers() {
         ]);
         if (summaryRes.error) throw summaryRes.error;
         if (balanceRes.error) throw balanceRes.error;
+        // Who made them suki. A manager row may be readable only by its owner,
+        // so the name can come back empty; the section then says "a manager".
+        let sukiSetByName = null;
+        if (summaryRes.data?.is_suki && summaryRes.data.suki_set_by) {
+          const { data: setBy } = await supabase
+            .from('manager')
+            .select('first_name, last_name')
+            .eq('manager_id', summaryRes.data.suki_set_by)
+            .maybeSingle();
+          if (setBy) sukiSetByName = `${setBy.first_name} ${setBy.last_name}`;
+        }
         if (ignore) return;
-        setDrawer({ key: drawerKey, customer: summaryRes.data, balance: balanceRes.data, bookings, activity, notes, error: null });
+        setDrawer({ key: drawerKey, customer: summaryRes.data, balance: balanceRes.data, bookings, activity, notes, sukiSetByName, error: null });
       } catch (err) {
         console.error('Customer detail failed:', err);
         if (!ignore) setDrawer((prev) => ({ ...prev, key: drawerKey, error: err }));
@@ -1291,6 +1401,12 @@ export default function Customers() {
             <option value="Repeat">Booked more than once</option>
           </Select>
         </FilterField>
+        <FilterField label="Suki customer" active={sukiOnly}>
+          <Select value={sukiOnly ? 'Suki' : 'All'} onChange={(e) => { setSukiOnly(e.target.value === 'Suki'); setPage(1); }} className={filterControlClass(sukiOnly)}>
+            <option value="All">All</option>
+            <option value="Suki">Suki only</option>
+          </Select>
+        </FilterField>
         <FilterField label="Accounts Receivable" active={balanceFilter !== 'All'}>
           <Select value={balanceFilter} onChange={(e) => setBalanceFilter(e.target.value)} className={filterControlClass(balanceFilter !== 'All')}>
             <option value="All">All</option>
@@ -1392,6 +1508,7 @@ export default function Customers() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-[7px] flex-wrap">
                         <span className="text-[15px] font-semibold text-slate-900 truncate">{c.full_name}</span>
+                        {c.is_suki && <SukiBadge />}
                         <Pill className={ACCOUNT_STATUS_PILL[c.account_status] || ACCOUNT_STATUS_PILL.Inactive} title={c.status_reason || undefined}>{c.account_status}</Pill>
                         {c.source !== 'Unknown' && <Pill className={SOURCE_PILL[c.source]}>{c.source}</Pill>}
                       </div>
@@ -1502,6 +1619,7 @@ export default function Customers() {
           onClose={closeDrawer}
           onOpenBooking={(id, type) => navigate(bookingPath(id, type))}
           onNoteAdded={(note) => setDrawer((prev) => ({ ...prev, notes: [note, ...prev.notes] }))}
+          onSukiChanged={refresh}
           actions={(customer) => <div className="flex">{renderActions(customer)}</div>}
         />
       )}
