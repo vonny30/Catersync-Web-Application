@@ -54,7 +54,7 @@ import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import InstallmentPlanCard from '../components/InstallmentPlanCard';
-import ApprovalPaymentChoice, { ApprovalDepositLine } from '../components/ApprovalPaymentChoice';
+import ApprovalPaymentChoice, { ApprovalDepositLine, ApprovalPanel } from '../components/ApprovalPaymentChoice';
 import SukiBadge from '../components/SukiBadge';
 import { isInstallmentPlan } from '../utils/installments';
 import { getAssignmentStatus } from '../utils/statusLabels';
@@ -1571,13 +1571,15 @@ export default function BookingDetails() {
   // The Reference / Proof cell: the receipt number when there is one (Cash
   // records the number on the paper receipt instead of a photo), then the
   // proof image when there is one. Only the image was shown before, so a cash
-  // receipt read "None" here while Receivables showed its number.
+  // receipt read "None" here while Receivables showed its number. The number
+  // wraps inside its narrow column (at a hyphen, or anywhere if it must)
+  // rather than running into the Date column.
   const renderEvidence = (p) => {
     const hasProof = p.pay_proof && p.pay_proof !== 'placeholder.png' && p.pay_proof !== 'refund_placeholder.png';
     if (!p.receipt_reference && !hasProof) return renderProof(null);
     return (
-      <div className="flex items-center gap-2">
-        {p.receipt_reference && <span className="text-[13px] whitespace-nowrap">No. {p.receipt_reference}</span>}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+        {p.receipt_reference && <span className="text-[13px] min-w-0 [overflow-wrap:anywhere]">No. {p.receipt_reference}</span>}
         {hasProof && renderProof(p.pay_proof)}
       </div>
     );
@@ -3431,126 +3433,137 @@ export default function BookingDetails() {
       {/* ===== APPROVAL MODAL ===== */}
       {isApprovalModalOpen && approvalBooking && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
-              <h2 className="text-lg font-bold text-slate-900">Approve Booking – Adjust Fees</h2>
-              <button
-                onClick={() => setIsApprovalModalOpen(false)}
-                className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto space-y-6 bg-[#fbfcfd] text-left">
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 text-sm">
-                <div className="grid grid-cols-2 gap-2">
-                  <span className="font-medium text-slate-600">Customer:</span>
-                  <span className="font-bold text-slate-900">
-                    {approvalBooking.customer?.first_name} {approvalBooking.customer?.last_name}
-                    {approvalInstallment.isSuki && <SukiBadge className="ml-1.5" />}
-                  </span>
-                  <span className="font-medium text-slate-600">Package:</span>
-                  <span className="font-bold text-slate-900">{approvalBooking.package?.pkg_name}</span>
-                  <span className="font-medium text-slate-600">Current Pax:</span>
-                  <span className="font-bold text-slate-900">{approvalBooking.pax_count}</span>
-                  <span className="font-medium text-slate-600">Current Total:</span>
-                  <span className="font-bold text-slate-900">₱{approvalBooking.total_amount?.toLocaleString() || '0'}</span>
-                </div>
-                <p className="text-xs text-slate-500 mt-2">
-                  {/* The extra-pax input is hidden on a fixed package — it covers
-                      a band and refuses anything outside it — so this line must
-                      not keep offering it. Per-pax packages still have it. */}
-                  {approvalBooking.package?.pricing_type === 'fixed'
-                    ? '* Add fees below.'
-                    : '* Adjust extra pax or add fees below.'}
-                </p>
+          <ApprovalPanel
+            wide={approvalInstallment.isSuki}
+            header={(
+              <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
+                <h2 className="text-lg font-bold text-slate-900">Approve Booking – Adjust Fees</h2>
+                <button
+                  onClick={() => setIsApprovalModalOpen(false)}
+                  className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors"
+                >
+                  <X size={18} />
+                </button>
               </div>
-
-              <ApprovalAvailabilityCheck
-                onVehicleSelectionChange={setApprovalVehicleIds}
-                booking={approvalBooking}
-                effectivePaxCount={(approvalBooking.pax_count || 0) + (approvalData.extraPax || 0)}
-                onEquipmentStatusChange={setApprovalEquipmentStatus}
-              />
-
-              <div className="space-y-4">
-                {/* Hidden on a fixed package. It covers a band now, and a
-                    booking outside that band is refused — so extra guests
-                    cannot change the total, and a field that cannot change
-                    anything should not be asking for a number. Per-pax
-                    packages have no cap and keep it. */}
-                {approvalBooking.package?.pricing_type !== 'fixed' && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Extra Pax (additional guests)</label>
-                  <input
-                    type="number"
-                    name="extraPax"
-                    min="0"
-                    value={approvalData.extraPax}
-                    onChange={handleApprovalInputChange}
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                  />
-                  <p className="text-xs text-slate-400 mt-1">
-                    Each extra guest costs ₱{extraPaxRate(approvalBooking.package).toLocaleString()}
-                    {approvalBooking.package?.pricing_type === 'per_pax'
-                      ? ' (this package is priced per guest).'
-                      : ' (the extra-guest rate for this fixed-price package).'}
+            )}
+            details={(
+              <>
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 text-sm">
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium text-slate-600">Customer:</span>
+                    <span className="font-bold text-slate-900">
+                      {approvalBooking.customer?.first_name} {approvalBooking.customer?.last_name}
+                      {approvalInstallment.isSuki && <SukiBadge className="ml-1.5" />}
+                    </span>
+                    <span className="font-medium text-slate-600">Package:</span>
+                    <span className="font-bold text-slate-900">{approvalBooking.package?.pkg_name}</span>
+                    <span className="font-medium text-slate-600">Current Pax:</span>
+                    <span className="font-bold text-slate-900">{approvalBooking.pax_count}</span>
+                    <span className="font-medium text-slate-600">Current Total:</span>
+                    <span className="font-bold text-slate-900">₱{approvalBooking.total_amount?.toLocaleString() || '0'}</span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2">
+                    {/* The extra-pax input is hidden on a fixed package — it covers
+                        a band and refuses anything outside it — so this line must
+                        not keep offering it. Per-pax packages still have it. */}
+                    {approvalBooking.package?.pricing_type === 'fixed'
+                      ? '* Add fees below.'
+                      : '* Adjust extra pax or add fees below.'}
                   </p>
                 </div>
-                )}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons, extra services)</label>
-                  <input
-                    type="number"
-                    name="additionalFee"
-                    min="0"
-                    step="0.01"
-                    value={approvalData.additionalFee}
-                    onChange={handleApprovalInputChange}
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
-                    placeholder="e.g. 2000"
-                  />
+
+                <ApprovalAvailabilityCheck
+                  onVehicleSelectionChange={setApprovalVehicleIds}
+                  booking={approvalBooking}
+                  effectivePaxCount={(approvalBooking.pax_count || 0) + (approvalData.extraPax || 0)}
+                  onEquipmentStatusChange={setApprovalEquipmentStatus}
+                />
+
+                <div className="space-y-4">
+                  {/* Hidden on a fixed package. It covers a band now, and a
+                      booking outside that band is refused — so extra guests
+                      cannot change the total, and a field that cannot change
+                      anything should not be asking for a number. Per-pax
+                      packages have no cap and keep it. */}
+                  {approvalBooking.package?.pricing_type !== 'fixed' && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Extra Pax (additional guests)</label>
+                    <input
+                      type="number"
+                      name="extraPax"
+                      min="0"
+                      value={approvalData.extraPax}
+                      onChange={handleApprovalInputChange}
+                      className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                    />
+                    <p className="text-xs text-slate-400 mt-1">
+                      Each extra guest costs ₱{extraPaxRate(approvalBooking.package).toLocaleString()}
+                      {approvalBooking.package?.pricing_type === 'per_pax'
+                        ? ' (this package is priced per guest).'
+                        : ' (the extra-guest rate for this fixed-price package).'}
+                    </p>
+                  </div>
+                  )}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons, extra services)</label>
+                    <input
+                      type="number"
+                      name="additionalFee"
+                      min="0"
+                      step="0.01"
+                      value={approvalData.additionalFee}
+                      onChange={handleApprovalInputChange}
+                      className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none"
+                      placeholder="e.g. 2000"
+                    />
+                  </div>
                 </div>
-              </div>
+              </>
+            )}
+            payment={(
+              <>
+                <div className="bg-[#EAF3F2] border border-[#d2e8e5] rounded-lg p-4 flex justify-between items-center">
+                  <span className="font-bold text-slate-800">New Total:</span>
+                  <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                </div>
+                <ApprovalPaymentChoice installment={approvalInstallment} total={approvalData.newTotal} eventDatetime={approvalBooking.event_datetime} />
+                <ApprovalDepositLine
+                  installment={approvalInstallment}
+                  total={approvalData.newTotal}
+                  depositNote="A deposit is required to secure the booking. Non-refundable within 3 days of the event."
+                />
+              </>
+            )}
+            footer={(
+              <>
+                {approvalEquipmentStatus.applicable && !approvalEquipmentStatus.loading && !approvalEquipmentStatus.sufficient && (
+                  <p className="text-xs font-semibold text-red-600 text-right">
+                    Can't approve — not enough {approvalEquipmentStatus.shortages.map(s => s.eqm_name).join(', ')} for this date.
+                  </p>
+                )}
 
-              <div className="bg-[#EAF3F2] border border-[#d2e8e5] rounded-lg p-4 flex justify-between items-center">
-                <span className="font-bold text-slate-800">New Total:</span>
-                <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-              </div>
-              <ApprovalPaymentChoice installment={approvalInstallment} total={approvalData.newTotal} eventDatetime={approvalBooking.event_datetime} />
-              <ApprovalDepositLine
-                installment={approvalInstallment}
-                total={approvalData.newTotal}
-                depositNote="A deposit is required to secure the booking. Non-refundable within 3 days of the event."
-              />
-
-              {approvalEquipmentStatus.applicable && !approvalEquipmentStatus.loading && !approvalEquipmentStatus.sufficient && (
-                <p className="text-xs font-semibold text-red-600 text-right">
-                  Can't approve — not enough {approvalEquipmentStatus.shortages.map(s => s.eqm_name).join(', ')} for this date.
-                </p>
-              )}
-
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setIsApprovalModalOpen(false)}
-                  className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => handleFinalizeApproval('package')}
-                  disabled={approveDisabled}
-                  title={approveDisabled && !isApprovalSubmitting
-                    ? (approvalInstallment.ready ? 'Not enough equipment for this date' : 'Fix the installment schedule first')
-                    : undefined}
-                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isApprovalSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}
-                </button>
-              </div>
-            </div>
-          </div>
+                <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setIsApprovalModalOpen(false)}
+                    className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleFinalizeApproval('package')}
+                    disabled={approveDisabled}
+                    title={approveDisabled && !isApprovalSubmitting
+                      ? (approvalInstallment.ready ? 'Not enough equipment for this date' : 'Fix the installment schedule first')
+                      : undefined}
+                    className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isApprovalSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}
+                  </button>
+                </div>
+              </>
+            )}
+          />
         </div>,
         document.body
       )}

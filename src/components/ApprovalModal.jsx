@@ -18,7 +18,7 @@ import { X } from 'lucide-react';
 import ApprovalAvailabilityCheck from './ApprovalAvailabilityCheck';
 import { extraPaxRate } from '../hooks/useApprovalHandlers';
 import { getServiceMethod } from '../utils/vehicle';
-import ApprovalPaymentChoice, { ApprovalDepositLine } from './ApprovalPaymentChoice';
+import ApprovalPaymentChoice, { ApprovalDepositLine, ApprovalPanel } from './ApprovalPaymentChoice';
 import SukiBadge from './SukiBadge';
 
 const INPUT = 'w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none';
@@ -46,131 +46,152 @@ export default function ApprovalModal({
   const approveDisabled = submitting || equipmentBlocked || planBlocked;
   const money = (n) => `₱${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+  // A suki customer gets a wider pop-up: the payment choice and schedule sit
+  // beside the customer details and the date's availability instead of below
+  // them. Everyone else gets the pop-up exactly as before.
+  const wide = !!installment?.isSuki;
+
+  const details = (
+    <>
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 text-sm">
+        <div className="grid grid-cols-2 gap-2">
+          <span className="font-medium text-slate-600">Customer:</span>
+          <span className="font-bold text-slate-900">{booking.customer?.first_name} {booking.customer?.last_name}{installment?.isSuki && <SukiBadge className="ml-1.5" />}</span>
+          {isShortOrder ? (
+            <>
+              <span className="font-medium text-slate-600">Venue:</span>
+              <span className="font-bold text-slate-900">{booking.venue || 'N/A'}</span>
+            </>
+          ) : (
+            <>
+              <span className="font-medium text-slate-600">Package:</span>
+              <span className="font-bold text-slate-900">{pkg?.pkg_name}</span>
+              <span className="font-medium text-slate-600">Current Pax:</span>
+              <span className="font-bold text-slate-900">{booking.pax_count}</span>
+            </>
+          )}
+          <span className="font-medium text-slate-600">Current Total:</span>
+          <span className="font-bold text-slate-900">₱{booking.total_amount?.toLocaleString() || '0'}</span>
+        </div>
+        <p className="text-xs text-slate-500 mt-2">
+          {/* The extra-pax input is hidden on a fixed package — it covers a
+              band and refuses anything outside it — so this line must not
+              keep offering it. */}
+          {isShortOrder
+            ? 'Short order pricing is per tray. You can add extra fees below.'
+            : isFixed ? '* Add fees below.' : '* Adjust extra pax or add fees below.'}
+        </p>
+      </div>
+
+      <ApprovalAvailabilityCheck
+        onVehicleSelectionChange={onVehicleSelectionChange}
+        booking={booking}
+        effectivePaxCount={isShortOrder ? 0 : (booking.pax_count || 0) + (data.extraPax || 0)}
+        onEquipmentStatusChange={isShortOrder ? undefined : setEquipment}
+      />
+
+      <div className="space-y-4">
+        {isShortOrder ? (
+          <>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Extra Quantity Fee (additional trays / items)</label>
+              <input type="number" name="extraQuantity" min="0" step="0.01" value={data.extraQuantity} onChange={onInputChange} className={INPUT} placeholder="e.g. 1000" />
+            </div>
+            {/* No delivery fee on a pickup order — withhold the field rather
+                than flag the mistake later. */}
+            {getServiceMethod(booking)?.mode !== 'Pickup' && (
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Additional Delivery Fee</label>
+                <input type="number" name="extraDeliveryFee" min="0" step="0.01" value={data.extraDeliveryFee} onChange={onInputChange} className={INPUT} placeholder="e.g. 500" />
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons)</label>
+              <input type="number" name="additionalFee" min="0" step="0.01" value={data.additionalFee} onChange={onInputChange} className={INPUT} placeholder="e.g. 2000" />
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Hidden on a fixed package: extra guests cannot change its
+                total, so the field should not ask for a number. */}
+            {!isFixed && (
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Extra Pax (additional guests)</label>
+                <input type="number" name="extraPax" min="0" value={data.extraPax} onChange={onInputChange} className={INPUT} />
+                <p className="text-xs text-slate-400 mt-1">
+                  Each extra guest costs ₱{extraPaxRate(pkg).toLocaleString()}
+                  {pkg?.pricing_type === 'per_pax' ? ' (this package is priced per guest).' : ' (the extra-guest rate for this fixed-price package).'}
+                </p>
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons, extra services)</label>
+              <input type="number" name="additionalFee" min="0" step="0.01" value={data.additionalFee} onChange={onInputChange} className={INPUT} placeholder="e.g. 2000" />
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+
+  const payment = (
+    <>
+      <div className="bg-[#EAF3F2] border border-[#d2e8e5] rounded-lg p-4 flex justify-between items-center">
+        <span className="font-bold text-slate-800">New Total:</span>
+        <span className="text-xl font-extrabold text-[#008A45]">{money(data.newTotal)}</span>
+      </div>
+      <ApprovalPaymentChoice installment={installment} total={data.newTotal} eventDatetime={booking.event_datetime} />
+      <ApprovalDepositLine
+        installment={installment}
+        total={data.newTotal}
+        depositNote={isShortOrder
+          ? 'A deposit may be required for large orders.'
+          : 'A deposit is required to secure the booking. Non-refundable within 3 days of the event.'}
+      />
+    </>
+  );
+
+  const footer = (
+    <>
+      {!isShortOrder && equipment.applicable && !equipment.loading && !equipment.sufficient && (
+        <p className="text-xs font-semibold text-red-600 text-right">
+          Can't approve — not enough {equipment.shortages.map(s => s.eqm_name).join(', ')} for this date.
+        </p>
+      )}
+
+      <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+        <button type="button" onClick={onClose} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">
+          Cancel
+        </button>
+        <button
+          onClick={onSubmit}
+          disabled={approveDisabled}
+          title={equipmentBlocked && !submitting ? 'Not enough equipment for this date'
+            : planBlocked && !submitting ? 'Fix the installment schedule first' : undefined}
+          className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {submitting ? 'Approving...' : 'Confirm Approval & Update Total'}
+        </button>
+      </div>
+    </>
+  );
+
   return createPortal(
     <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
-        <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
-          <h2 className="text-lg font-bold text-slate-900">{isShortOrder ? 'Approve Short Order – Adjust Fees' : 'Approve Booking – Adjust Fees'}</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors">
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="p-6 overflow-y-auto space-y-6 bg-[#fbfcfd] text-left">
-          <div className="bg-white p-4 rounded-2xl border border-slate-200 text-sm">
-            <div className="grid grid-cols-2 gap-2">
-              <span className="font-medium text-slate-600">Customer:</span>
-              <span className="font-bold text-slate-900">{booking.customer?.first_name} {booking.customer?.last_name}{installment?.isSuki && <SukiBadge className="ml-1.5" />}</span>
-              {isShortOrder ? (
-                <>
-                  <span className="font-medium text-slate-600">Venue:</span>
-                  <span className="font-bold text-slate-900">{booking.venue || 'N/A'}</span>
-                </>
-              ) : (
-                <>
-                  <span className="font-medium text-slate-600">Package:</span>
-                  <span className="font-bold text-slate-900">{pkg?.pkg_name}</span>
-                  <span className="font-medium text-slate-600">Current Pax:</span>
-                  <span className="font-bold text-slate-900">{booking.pax_count}</span>
-                </>
-              )}
-              <span className="font-medium text-slate-600">Current Total:</span>
-              <span className="font-bold text-slate-900">₱{booking.total_amount?.toLocaleString() || '0'}</span>
+      <ApprovalPanel
+        wide={wide}
+        header={(
+            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
+              <h2 className="text-lg font-bold text-slate-900">{isShortOrder ? 'Approve Short Order – Adjust Fees' : 'Approve Booking – Adjust Fees'}</h2>
+              <button onClick={onClose} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors">
+                <X size={18} />
+              </button>
             </div>
-            <p className="text-xs text-slate-500 mt-2">
-              {/* The extra-pax input is hidden on a fixed package — it covers a
-                  band and refuses anything outside it — so this line must not
-                  keep offering it. */}
-              {isShortOrder
-                ? 'Short order pricing is per tray. You can add extra fees below.'
-                : isFixed ? '* Add fees below.' : '* Adjust extra pax or add fees below.'}
-            </p>
-          </div>
-
-          <ApprovalAvailabilityCheck
-            onVehicleSelectionChange={onVehicleSelectionChange}
-            booking={booking}
-            effectivePaxCount={isShortOrder ? 0 : (booking.pax_count || 0) + (data.extraPax || 0)}
-            onEquipmentStatusChange={isShortOrder ? undefined : setEquipment}
-          />
-
-          <div className="space-y-4">
-            {isShortOrder ? (
-              <>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Extra Quantity Fee (additional trays / items)</label>
-                  <input type="number" name="extraQuantity" min="0" step="0.01" value={data.extraQuantity} onChange={onInputChange} className={INPUT} placeholder="e.g. 1000" />
-                </div>
-                {/* No delivery fee on a pickup order — withhold the field rather
-                    than flag the mistake later. */}
-                {getServiceMethod(booking)?.mode !== 'Pickup' && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Additional Delivery Fee</label>
-                    <input type="number" name="extraDeliveryFee" min="0" step="0.01" value={data.extraDeliveryFee} onChange={onInputChange} className={INPUT} placeholder="e.g. 500" />
-                  </div>
-                )}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons)</label>
-                  <input type="number" name="additionalFee" min="0" step="0.01" value={data.additionalFee} onChange={onInputChange} className={INPUT} placeholder="e.g. 2000" />
-                </div>
-              </>
-            ) : (
-              <>
-                {/* Hidden on a fixed package: extra guests cannot change its
-                    total, so the field should not ask for a number. */}
-                {!isFixed && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Extra Pax (additional guests)</label>
-                    <input type="number" name="extraPax" min="0" value={data.extraPax} onChange={onInputChange} className={INPUT} />
-                    <p className="text-xs text-slate-400 mt-1">
-                      Each extra guest costs ₱{extraPaxRate(pkg).toLocaleString()}
-                      {pkg?.pricing_type === 'per_pax' ? ' (this package is priced per guest).' : ' (the extra-guest rate for this fixed-price package).'}
-                    </p>
-                  </div>
-                )}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons, extra services)</label>
-                  <input type="number" name="additionalFee" min="0" step="0.01" value={data.additionalFee} onChange={onInputChange} className={INPUT} placeholder="e.g. 2000" />
-                </div>
-              </>
-            )}
-          </div>
-
-          <div className="bg-[#EAF3F2] border border-[#d2e8e5] rounded-lg p-4 flex justify-between items-center">
-            <span className="font-bold text-slate-800">New Total:</span>
-            <span className="text-xl font-extrabold text-[#008A45]">{money(data.newTotal)}</span>
-          </div>
-          <ApprovalPaymentChoice installment={installment} total={data.newTotal} eventDatetime={booking.event_datetime} />
-          <ApprovalDepositLine
-            installment={installment}
-            total={data.newTotal}
-            depositNote={isShortOrder
-              ? 'A deposit may be required for large orders.'
-              : 'A deposit is required to secure the booking. Non-refundable within 3 days of the event.'}
-          />
-
-          {!isShortOrder && equipment.applicable && !equipment.loading && !equipment.sufficient && (
-            <p className="text-xs font-semibold text-red-600 text-right">
-              Can't approve — not enough {equipment.shortages.map(s => s.eqm_name).join(', ')} for this date.
-            </p>
-          )}
-
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-            <button type="button" onClick={onClose} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">
-              Cancel
-            </button>
-            <button
-              onClick={onSubmit}
-              disabled={approveDisabled}
-              title={equipmentBlocked && !submitting ? 'Not enough equipment for this date'
-                : planBlocked && !submitting ? 'Fix the installment schedule first' : undefined}
-              className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {submitting ? 'Approving...' : 'Confirm Approval & Update Total'}
-            </button>
-          </div>
-        </div>
-      </div>
+        )}
+        details={details}
+        payment={payment}
+        footer={footer}
+      />
     </div>,
     document.body
   );

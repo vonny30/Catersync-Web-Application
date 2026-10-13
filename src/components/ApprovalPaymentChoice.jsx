@@ -56,6 +56,41 @@ export default function ApprovalPaymentChoice({ installment, total, eventDatetim
 }
 
 /**
+ * The white panel of an Approve pop-up, used by all three. For a suki customer
+ * (`wide`) it is wider and two columns on a large screen: the customer
+ * details, the date's availability and the fees on the left; the new total and
+ * the payment choice on the right, staying in view while the left side
+ * scrolls. On a small screen the columns stack. For everyone else the panel is
+ * exactly the old single column: details, then payment, then the footer.
+ * @param header   the title row
+ * @param details  customer card, availability check, fee inputs
+ * @param payment  new total, payment choice, deposit / first-installment line
+ * @param footer   the shortage warning (if any) and the buttons
+ */
+export function ApprovalPanel({ wide, header, details, payment, footer }) {
+  return (
+    <div className={`bg-white rounded-xl shadow-2xl ${wide ? 'max-w-5xl' : 'max-w-2xl'} w-full max-h-[90vh] flex flex-col overflow-hidden`}>
+      {header}
+      {wide ? (
+        <div className="p-6 overflow-y-auto bg-[#fbfcfd] text-left">
+          <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+            <div className="space-y-6 min-w-0">{details}</div>
+            <div className="space-y-6 min-w-0 lg:sticky lg:top-0">{payment}</div>
+          </div>
+          <div className="space-y-6 mt-6">{footer}</div>
+        </div>
+      ) : (
+        <div className="p-6 overflow-y-auto space-y-6 bg-[#fbfcfd] text-left">
+          {details}
+          {payment}
+          {footer}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * The line under the new total: the 50% deposit, or — on an installment plan —
  * the first installment and its due date.
  * @param depositNote  the small print each pop-up already shows under the deposit

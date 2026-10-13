@@ -22,7 +22,7 @@ import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import InstallmentPlanCard from '../components/InstallmentPlanCard';
-import ApprovalPaymentChoice, { ApprovalDepositLine } from '../components/ApprovalPaymentChoice';
+import ApprovalPaymentChoice, { ApprovalDepositLine, ApprovalPanel } from '../components/ApprovalPaymentChoice';
 import SukiBadge from '../components/SukiBadge';
 import { isInstallmentPlan } from '../utils/installments';
 import toast from 'react-hot-toast';
@@ -820,13 +820,15 @@ export default function ShortOrderDetails() {
   // The Reference / Proof cell: the receipt number when there is one (Cash
   // records the number on the paper receipt instead of a photo), then the
   // proof image when there is one. Only the image was shown before, so a cash
-  // receipt read "None" here while Receivables showed its number.
+  // receipt read "None" here while Receivables showed its number. The number
+  // wraps inside its narrow column (at a hyphen, or anywhere if it must)
+  // rather than running into the Date column.
   const renderEvidence = (p) => {
     const hasProof = p.pay_proof && p.pay_proof !== 'placeholder.png' && p.pay_proof !== 'refund_placeholder.png';
     if (!p.receipt_reference && !hasProof) return renderProof(null);
     return (
-      <div className="flex items-center gap-2">
-        {p.receipt_reference && <span className="text-[13px] whitespace-nowrap">No. {p.receipt_reference}</span>}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+        {p.receipt_reference && <span className="text-[13px] min-w-0 [overflow-wrap:anywhere]">No. {p.receipt_reference}</span>}
         {hasProof && renderProof(p.pay_proof)}
       </div>
     );
@@ -2266,68 +2268,79 @@ export default function ShortOrderDetails() {
       {/* ===== APPROVAL MODAL ===== */}
       {isApprovalModalOpen && approvalOrder && createPortal(
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
-              <h2 className="text-lg font-bold text-slate-900">Approve Short Order – Adjust Fees</h2>
-              <button onClick={() => setIsApprovalModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto space-y-6 bg-[#fbfcfd] text-left">
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 text-sm">
-                <div className="grid grid-cols-2 gap-2">
-                  <span className="font-medium text-slate-600">Customer:</span>
-                  <span className="font-bold text-slate-900">{approvalOrder.customer?.first_name} {approvalOrder.customer?.last_name}{approvalInstallment.isSuki && <SukiBadge className="ml-1.5" />}</span>
-                  <span className="font-medium text-slate-600">Venue:</span>
-                  <span className="font-bold text-slate-900">{approvalOrder.venue || 'N/A'}</span>
-                  <span className="font-medium text-slate-600">Current Total:</span>
-                  <span className="font-bold text-slate-900">₱{approvalOrder.total_amount?.toLocaleString() || '0'}</span>
-                </div>
-                <p className="text-xs text-slate-500 mt-2">Short order pricing is per tray. You can add extra fees below.</p>
-              </div>
-
-              <ApprovalAvailabilityCheck
-                onVehicleSelectionChange={setApprovalVehicleIds}
-                booking={approvalOrder}
-                effectivePaxCount={0}
-              />
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Extra Quantity Fee (additional trays / items)</label>
-                  <input type="number" name="extraQuantity" min="0" step="0.01" value={approvalData.extraQuantity} onChange={handleApprovalInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" placeholder="e.g. 1000" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Additional Delivery Fee</label>
-                  <input type="number" name="extraDeliveryFee" min="0" step="0.01" value={approvalData.extraDeliveryFee} onChange={handleApprovalInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" placeholder="e.g. 500" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons)</label>
-                  <input type="number" name="additionalFee" min="0" step="0.01" value={approvalData.additionalFee} onChange={handleApprovalInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" placeholder="e.g. 2000" />
-                </div>
-              </div>
-
-              <div className="bg-[#EAF3F2] border border-[#d2e8e5] rounded-lg p-4 flex justify-between items-center">
-                <span className="font-bold text-slate-800">New Total:</span>
-                <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-              </div>
-              <ApprovalPaymentChoice installment={approvalInstallment} total={approvalData.newTotal} eventDatetime={approvalOrder.event_datetime} />
-              <ApprovalDepositLine
-                installment={approvalInstallment}
-                total={approvalData.newTotal}
-                depositNote="A deposit may be required for large orders."
-              />
-
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-                <button type="button" onClick={() => setIsApprovalModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">Cancel</button>
-                <button onClick={handleFinalizeApproval} disabled={isApprovalSubmitting || !approvalInstallment.ready}
-                  title={!approvalInstallment.ready && !isApprovalSubmitting ? 'Fix the installment schedule first' : undefined}
-                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50">
-                  {isApprovalSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}
+          <ApprovalPanel
+            wide={approvalInstallment.isSuki}
+            header={(
+              <div className="flex justify-between items-center px-6 py-5 border-b border-slate-200 shrink-0">
+                <h2 className="text-lg font-bold text-slate-900">Approve Short Order – Adjust Fees</h2>
+                <button onClick={() => setIsApprovalModalOpen(false)} className="text-slate-400 hover:text-slate-700 border border-slate-300 rounded-md p-1 transition-colors">
+                  <X size={18} />
                 </button>
               </div>
-            </div>
-          </div>
+            )}
+            details={(
+              <>
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 text-sm">
+                  <div className="grid grid-cols-2 gap-2">
+                    <span className="font-medium text-slate-600">Customer:</span>
+                    <span className="font-bold text-slate-900">{approvalOrder.customer?.first_name} {approvalOrder.customer?.last_name}{approvalInstallment.isSuki && <SukiBadge className="ml-1.5" />}</span>
+                    <span className="font-medium text-slate-600">Venue:</span>
+                    <span className="font-bold text-slate-900">{approvalOrder.venue || 'N/A'}</span>
+                    <span className="font-medium text-slate-600">Current Total:</span>
+                    <span className="font-bold text-slate-900">₱{approvalOrder.total_amount?.toLocaleString() || '0'}</span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2">Short order pricing is per tray. You can add extra fees below.</p>
+                </div>
+
+                <ApprovalAvailabilityCheck
+                  onVehicleSelectionChange={setApprovalVehicleIds}
+                  booking={approvalOrder}
+                  effectivePaxCount={0}
+                />
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Extra Quantity Fee (additional trays / items)</label>
+                    <input type="number" name="extraQuantity" min="0" step="0.01" value={approvalData.extraQuantity} onChange={handleApprovalInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" placeholder="e.g. 1000" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Additional Delivery Fee</label>
+                    <input type="number" name="extraDeliveryFee" min="0" step="0.01" value={approvalData.extraDeliveryFee} onChange={handleApprovalInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" placeholder="e.g. 500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Other Fees (add-ons)</label>
+                    <input type="number" name="additionalFee" min="0" step="0.01" value={approvalData.additionalFee} onChange={handleApprovalInputChange} className="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none" placeholder="e.g. 2000" />
+                  </div>
+                </div>
+              </>
+            )}
+            payment={(
+              <>
+                <div className="bg-[#EAF3F2] border border-[#d2e8e5] rounded-lg p-4 flex justify-between items-center">
+                  <span className="font-bold text-slate-800">New Total:</span>
+                  <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                </div>
+                <ApprovalPaymentChoice installment={approvalInstallment} total={approvalData.newTotal} eventDatetime={approvalOrder.event_datetime} />
+                <ApprovalDepositLine
+                  installment={approvalInstallment}
+                  total={approvalData.newTotal}
+                  depositNote="A deposit may be required for large orders."
+                />
+              </>
+            )}
+            footer={(
+              <>
+                <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                  <button type="button" onClick={() => setIsApprovalModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">Cancel</button>
+                  <button onClick={handleFinalizeApproval} disabled={isApprovalSubmitting || !approvalInstallment.ready}
+                    title={!approvalInstallment.ready && !isApprovalSubmitting ? 'Fix the installment schedule first' : undefined}
+                    className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50">
+                    {isApprovalSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}
+                  </button>
+                </div>
+              </>
+            )}
+          />
         </div>,
         document.body
       )}
