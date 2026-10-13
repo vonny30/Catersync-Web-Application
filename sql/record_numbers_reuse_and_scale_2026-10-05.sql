@@ -2,8 +2,9 @@
 -- Record numbers: BKG- (package bookings), SO- (short orders) and EQP-
 -- (equipment assignments). Applied 5 Oct 2026 at Vaughn's request, as two
 -- Supabase migrations: record_numbers_reuse_and_scale and
--- record_numbers_see_all_rows. This file is the state of the database after
--- both, and is safe to run again.
+-- record_numbers_see_all_rows, plus record_numbers_revoke_execute on
+-- 14 Oct 2026 (section 7). This file is the state of the database after
+-- all three, and is safe to run again.
 --
 -- 1. REUSE. The next number is the highest number in use plus one, so
 --    deleting the newest record frees its number for the next one
@@ -116,3 +117,18 @@ create index if not exists booking_equipment_number_prefix_value_idx
 
 create unique index if not exists booking_equipment_assignment_number_key
   on public.booking_equipment (assignment_number);
+
+-- ---------------------------------------------------------------------
+-- 7. ONLY THEIR TRIGGERS RUN THEM (applied 14 Oct 2026, migration
+--    record_numbers_revoke_execute). Both are SECURITY DEFINER, and new
+--    functions are executable by PUBLIC, anon and authenticated by default,
+--    which the Supabase security advisor flags. They are trigger functions:
+--    PostgreSQL checks EXECUTE when a trigger is created, not each time it
+--    fires, so revoking it changes nothing for the web app, the customer
+--    mobile app or the Operations Manager app. Their triggers still number
+--    every booking and assignment. Verified 14 Oct 2026 in rolled-back
+--    transactions: a mobile customer's booking and a manager's equipment
+--    assignment were both numbered after the revoke.
+-- ---------------------------------------------------------------------
+revoke execute on function public.set_booking_number()    from public, anon, authenticated;
+revoke execute on function public.set_assignment_number() from public, anon, authenticated;
