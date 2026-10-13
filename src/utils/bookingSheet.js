@@ -43,7 +43,7 @@ const STYLES = `
   body { font-family: 'Segoe UI', Inter, Roboto, Arial, sans-serif; color: #0f172a; font-size: 12.5pt; line-height: 1.45;
          -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .head { display: flex; align-items: center; gap: 18px; padding-bottom: 14px; border-bottom: 2px solid #0f6b3c; }
-  .head img { width: 74px; height: 74px; object-fit: contain; }
+  .head img { height: 74px; width: auto; max-width: 160px; object-fit: contain; }
   .biz { flex: 1; }
   .biz h1 { margin: 0; font-size: 18pt; letter-spacing: -0.01em; }
   .biz p { margin: 2px 0 0; font-size: 10.5pt; color: #475569; }

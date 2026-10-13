@@ -265,7 +265,7 @@ export default function ManagerLayout() {
             <MenuIcon size={24} />
           </button>
           <Link to="/app" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
-            <div className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-white/40 flex-shrink-0 bg-white">
+            <div className="h-9 w-[54px] rounded-lg overflow-hidden ring-2 ring-white/40 flex-shrink-0 bg-white">
               <img
                 src={LOGO_SRC}
                 alt={LOGO_ALT}
@@ -340,7 +340,7 @@ export default function ManagerLayout() {
           {/* Header – compact */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0 bg-gradient-to-r from-[#00753b] to-[#009c4d]">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full overflow-hidden ring-2 ring-white/40 bg-white">
+              <div className="h-8 w-12 rounded-md overflow-hidden ring-2 ring-white/40 bg-white">
                 <img src={LOGO_SRC} alt={LOGO_ALT} className="w-full h-full object-contain" />
               </div>
               <span className="font-bold text-white">CaterSync</span>
