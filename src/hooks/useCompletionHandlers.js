@@ -1,7 +1,9 @@
 // src/hooks/useCompletionHandlers.js
 //
 // Manual "Mark as Completed" action: Confirmed -> Completed. Only allowed
-// once the booking/order is fully paid — completing it with money still
+// once the booking/order is fully paid (an installment-plan booking is the
+// exception: its remaining installments stay receivable — utils/completion)
+// — completing it with money still
 // owed would bury an unpaid balance behind a "done" status, so that path
 // is blocked outright rather than offered as an override. (Past-due,
 // still-unpaid Confirmed records instead get flagged in the UI — see
@@ -17,7 +19,7 @@ import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
 import { sumVerifiedPositivePayments } from '../utils/payments';
 import { STATUS_ORDER } from '../utils/bookingStatus';
-import { eventNotYetHappened, completeLockReason, completeBeforeEventMessage } from '../utils/completion';
+import { eventNotYetHappened, completeLockReason, completeBeforeEventMessage, balanceBlocksCompletion, completeConfirmMessage } from '../utils/completion';
 
 /**
  * Whether this booking can be marked Completed, why not (completeLock), and the handler that does it.
@@ -45,14 +47,14 @@ export function useCompletionHandlers({ booking, payments, fetchData, noun = 'bo
       return;
     }
 
-    if (!isFullyPaid) {
+    if (balanceBlocksCompletion({ owed: remainingBalance, paymentPlan: booking.payment_plan })) {
       toast.error(`Can't mark this ${noun} as completed — a balance of ₱${remainingBalance.toLocaleString()} is still due. The account must be fully settled first.`);
       return;
     }
 
     const confirmed = await showConfirm({
       title: 'Mark as Completed?',
-      message: `Are you sure you want to mark this ${noun} as completed?\n\n✅ All payments are settled.`,
+      message: completeConfirmMessage(noun, { owed: remainingBalance, paymentPlan: booking.payment_plan }),
       confirmLabel: 'Complete',
       confirmVariant: 'success',
     });
@@ -95,6 +97,6 @@ export function useCompletionHandlers({ booking, payments, fetchData, noun = 'bo
   };
 
   // Why Complete is locked right now (null when it may be pressed).
-  const completeLock = completeLockReason({ eventDatetime: booking?.event_datetime, owed: remainingBalance });
+  const completeLock = completeLockReason({ eventDatetime: booking?.event_datetime, owed: remainingBalance, paymentPlan: booking?.payment_plan });
   return { canMarkCompleted, isFullyPaid, remainingBalance, isCompleting, handleMarkCompleted, completeLock };
 }

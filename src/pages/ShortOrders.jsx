@@ -46,7 +46,7 @@ import { getBookingsOnDate } from '../utils/availability';
 import DateRangeFilter from './Reports/DateRangeFilter';
 import { FilterBar, QuickFilters, EmptyResult, FILTER_LABEL_ROW } from '../components/FilterBar';
 import { getRangeBounds } from './Reports/helpers';
-import { eventNotYetHappened, completeLockReason, completeBeforeEventMessage } from '../utils/completion';
+import { eventNotYetHappened, completeLockReason, completeBeforeEventMessage, balanceBlocksCompletion, completeConfirmMessage } from '../utils/completion';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { buildBookingSearch } from '../utils/bookingSearch';
 import { idListFilters, orderIdsByBalance, KEEP_COLUMNS } from '../utils/listFilters';
@@ -1183,14 +1183,14 @@ export default function ShortOrders() {
     return;
   }
 
-  if (!isFullyPaid) {
+  if (!isFullyPaid && balanceBlocksCompletion({ owed: remainingBalance, paymentPlan: order.payment_plan })) {
     toast.error(`Can't mark this order as completed — a balance of ₱${remainingBalance.toLocaleString()} is still due. The account must be fully settled first.`);
     return;
   }
 
   const confirmed = await showConfirm({
     title: 'Mark as Completed?',
-    message: 'Are you sure you want to mark this order as completed?\n\n✅ All payments are settled.',
+    message: completeConfirmMessage('order', { owed: remainingBalance, paymentPlan: order.payment_plan }),
     confirmLabel: 'Complete',
     confirmVariant: 'success',
   });
@@ -1673,7 +1673,7 @@ export default function ShortOrders() {
                 }
               } catch { cardTrays = 0; }
               const cardFullyPaid = (order.positivePayments || 0) >= (order.total_amount || 0);
-              const cardCompleteLock = completeLockReason({ eventDatetime: order.event_datetime, owed: cardFullyPaid ? 0 : (order.total_amount || 0) - (order.positivePayments || 0) });
+              const cardCompleteLock = completeLockReason({ eventDatetime: order.event_datetime, owed: cardFullyPaid ? 0 : (order.total_amount || 0) - (order.positivePayments || 0), paymentPlan: order.payment_plan });
               const cardMoney = order.money;
               const cardOverdue = !!cardMoney?.is_overdue;
               const cardLapsed = !!cardMoney?.is_lapsed;
@@ -1870,7 +1870,7 @@ export default function ShortOrders() {
                   // need these, and inlining them twice invited the two to
                   // disagree.
                   const orderFullyPaid = (order.positivePayments || 0) >= (order.total_amount || 0);
-                  const rowCompleteLock = completeLockReason({ eventDatetime: order.event_datetime, owed: orderFullyPaid ? 0 : (order.total_amount || 0) - (order.positivePayments || 0) });
+                  const rowCompleteLock = completeLockReason({ eventDatetime: order.event_datetime, owed: orderFullyPaid ? 0 : (order.total_amount || 0) - (order.positivePayments || 0), paymentPlan: order.payment_plan });
                   const money = order.money;
                   const isOverdue = !!money?.is_overdue;
                   const isLapsed = !!money?.is_lapsed;

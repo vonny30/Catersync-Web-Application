@@ -48,7 +48,7 @@ import DateRangeFilter from './Reports/DateRangeFilter';
 import { FilterBar, QuickFilters, EmptyResult, FILTER_LABEL_ROW } from '../components/FilterBar';
 import { getRangeBounds } from './Reports/helpers';
 import { fetchAllRows } from '../utils/fetchAllRows';
-import { eventNotYetHappened, completeLockReason, completeBeforeEventMessage } from '../utils/completion';
+import { eventNotYetHappened, completeLockReason, completeBeforeEventMessage, balanceBlocksCompletion, completeConfirmMessage } from '../utils/completion';
 import { buildBookingSearch } from '../utils/bookingSearch';
 import { idListFilters, orderIdsByBalance, KEEP_COLUMNS } from '../utils/listFilters';
 import { filterCustomersForPicker } from '../utils/customerPicker';
@@ -1293,14 +1293,14 @@ const handleMarkCompleted = async (id) => {
     return;
   }
 
-  if (!isFullyPaid) {
+  if (!isFullyPaid && balanceBlocksCompletion({ owed: remainingBalance, paymentPlan: booking.payment_plan })) {
     toast.error(`Can't mark this booking as completed — a balance of ₱${remainingBalance.toLocaleString()} is still due. The account must be fully settled first.`);
     return;
   }
 
   const confirmed = await showConfirm({
     title: 'Mark as Completed?',
-    message: 'Are you sure you want to mark this booking as completed?\n\n✅ All payments are settled.',
+    message: completeConfirmMessage('booking', { owed: remainingBalance, paymentPlan: booking.payment_plan }),
     confirmLabel: 'Complete',
     confirmVariant: 'success',
   });
@@ -1816,7 +1816,7 @@ const handleMarkCompleted = async (id) => {
           ) : (
             bookings.map((booking) => {
               const cardFullyPaid = (booking.positivePayments || 0) >= (booking.total_amount || 0);
-              const cardCompleteLock = completeLockReason({ eventDatetime: booking.event_datetime, owed: cardFullyPaid ? 0 : (booking.total_amount || 0) - (booking.positivePayments || 0) });
+              const cardCompleteLock = completeLockReason({ eventDatetime: booking.event_datetime, owed: cardFullyPaid ? 0 : (booking.total_amount || 0) - (booking.positivePayments || 0), paymentPlan: booking.payment_plan });
               const cardMoney = booking.money;
               const cardOverdue = !!cardMoney?.is_overdue;
               // Pending or Approved with the event already past: nothing left
@@ -2020,7 +2020,7 @@ const handleMarkCompleted = async (id) => {
                   // need these, and inlining them twice invited the two to
                   // disagree.
                   const bookingFullyPaid = (booking.positivePayments || 0) >= (booking.total_amount || 0);
-                  const rowCompleteLock = completeLockReason({ eventDatetime: booking.event_datetime, owed: bookingFullyPaid ? 0 : (booking.total_amount || 0) - (booking.positivePayments || 0) });
+                  const rowCompleteLock = completeLockReason({ eventDatetime: booking.event_datetime, owed: bookingFullyPaid ? 0 : (booking.total_amount || 0) - (booking.positivePayments || 0), paymentPlan: booking.payment_plan });
                   // The row's own money. is_overdue is the view's answer, and
                   // it is only ever true for a Confirmed or Completed booking
                   // whose event has passed with a balance — so the tint can
