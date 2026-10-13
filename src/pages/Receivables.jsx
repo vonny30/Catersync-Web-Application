@@ -818,7 +818,7 @@ export default function Receivables() {
     // Confirmed — in which case there is nothing to offer.
     const { data: fresh, error: freshError } = await supabase
       .from('v_booking_money')
-      .select('booking_id, booking_number, booking_type, booking_status, total_amount, verified_paid, is_lapsed')
+      .select('booking_id, booking_number, booking_type, booking_status, total_amount, verified_paid, is_lapsed, payment_plan')
       .eq('booking_id', booking.booking_id)
       .maybeSingle();
     if (freshError) console.error('Could not re-read the booking after the receipt:', freshError);

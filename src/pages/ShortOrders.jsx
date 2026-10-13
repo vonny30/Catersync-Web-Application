@@ -364,7 +364,7 @@ export default function ShortOrders() {
         // The order's money, read from the view that defines it.
         const { data: moneyRows, error: moneyError } = await supabase
           .from('v_booking_money')
-          .select('booking_id, outstanding, net_paid, awaiting_verification, is_overdue, days_overdue, flagged_for_review, flag_reason, is_lapsed')
+          .select('booking_id, outstanding, net_paid, awaiting_verification, is_overdue, days_overdue, flagged_for_review, flag_reason, is_lapsed, payment_plan')
           .in('booking_id', bookingIds);
         if (moneyError) throw moneyError;
         const moneyMap = Object.fromEntries((moneyRows || []).map(m => [m.booking_id, m]));
