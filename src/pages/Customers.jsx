@@ -917,7 +917,7 @@ export default function Customers() {
       try {
         const rows = await fetchAllRows(() => supabase
           .from('v_booking_money')
-          .select('booking_id, booking_number, booking_type, booking_status, customer_id, event_datetime, total_amount, net_paid, outstanding, counts_toward_revenue, customer:customer_id (first_name, last_name)')
+          .select('booking_id, booking_number, booking_type, booking_status, customer_id, event_datetime, total_amount, net_paid, outstanding, counts_toward_revenue, payment_plan, amount_due_now, next_due_date, next_due_amount, is_overdue, days_overdue, customer:customer_id (first_name, last_name)')
           .eq('counts_toward_revenue', true)
           .order('booking_id', { ascending: true }), 'customer collectible');
         if (!ignore) setMoneyState({ key: moneyKey, rows: rows || [] });

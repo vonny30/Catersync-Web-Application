@@ -50,6 +50,9 @@ import { eventNotYetHappened, completeLockReason, completeBeforeEventMessage, ba
 import { fetchAllRows } from '../utils/fetchAllRows';
 import { buildBookingSearch } from '../utils/bookingSearch';
 import { idListFilters, orderIdsByBalance, KEEP_COLUMNS } from '../utils/listFilters';
+import SukiBadge from '../components/SukiBadge';
+import InstallmentChip from '../components/InstallmentChip';
+import { isInstallmentPlan } from '../utils/installments';
 import { filterCustomersForPicker } from '../utils/customerPicker';
 import { bulkDeleteBookings } from '../utils/bulkDeleteBookings';
 import ImageUploadField from '../components/ImageUploadField';
@@ -168,12 +171,15 @@ export default function ShortOrders() {
     const column = moneyFilter === 'overdue' ? 'is_overdue'
       : moneyFilter === 'lapsed' ? 'is_lapsed'
         : 'flagged_for_review';
-    const rows = await fetchAllRows(() => supabase
-      .from('v_booking_money')
-      .select('booking_id')
-      .eq('booking_type', 'Short Order')
-      .eq(column, true)
-      .order('booking_id', { ascending: true }), `${moneyFilter} short order ids`);
+    // Installment plans: payment_plan, not a true/false flag.
+    const rows = await fetchAllRows(() => {
+      const q = supabase
+        .from('v_booking_money')
+        .select('booking_id')
+        .eq('booking_type', 'Short Order');
+      return (moneyFilter === 'installment' ? q.eq('payment_plan', 'Installment') : q.eq(column, true))
+        .order('booking_id', { ascending: true });
+    }, `${moneyFilter} short order ids`);
     return (rows || []).map(r => r.booking_id);
   };
 
@@ -254,7 +260,7 @@ export default function ShortOrders() {
       const { applyCommonFilters, keep } = await buildCommonFilters();
 
       let query = applyCommonFilters(
-        supabase.from('booking').select('*, customer:customer_id (first_name, last_name, contact_no)', { count: 'exact' })
+        supabase.from('booking').select('*, customer:customer_id (first_name, last_name, contact_no, is_suki)', { count: 'exact' })
       );
       query = applyStatusTab(query);
 
@@ -438,7 +444,7 @@ export default function ShortOrders() {
       // Flags for the two quick-filter counts.
       const flagged = await fetchAllRows(() => supabase
         .from('v_booking_money')
-        .select('booking_id, is_overdue, flagged_for_review, is_lapsed')
+        .select('booking_id, is_overdue, flagged_for_review, is_lapsed, payment_plan')
         .eq('booking_type', 'Short Order')
         .order('booking_id', { ascending: true }), 'short order money flags');
       setFlagRows(flagged || []);
@@ -1382,6 +1388,10 @@ export default function ShortOrders() {
     () => (flagRows || []).filter(f => f.is_lapsed && matchingIdSet.has(f.booking_id)).length,
     [flagRows, matchingIdSet],
   );
+  const installmentCount = useMemo(
+    () => (flagRows || []).filter(f => f.payment_plan === 'Installment' && matchingIdSet.has(f.booking_id)).length,
+    [flagRows, matchingIdSet],
+  );
 
   const hasActiveFilters = datePreset !== 'All Time' || filters.customerId || filters.venue;
   // Whether anything differs from the page's defaults — the test behind the
@@ -1572,6 +1582,18 @@ export default function ShortOrders() {
             Lapsed
             <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-slate-200 text-slate-700 text-[12.5px] tabular-nums font-bold">{lapsedCount}</span>
           </button>
+          {/* Suki customers paying in installments. */}
+          <button
+            onClick={() => applyMoneyChip('installment')}
+            className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
+              moneyFilter === 'installment'
+                ? 'border-sky-400 bg-sky-50 text-sky-800'
+                : 'border-slate-200 bg-white text-slate-700 hover:border-sky-200 hover:text-sky-700'
+            }`}
+          >
+            Installment plans
+            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-sky-100 text-sky-700 text-[12.5px] tabular-nums font-bold">{installmentCount}</span>
+          </button>
       </QuickFilters>
 
       {/* STATUS OVERVIEW + QUICK FILTERS */}
@@ -1701,6 +1723,8 @@ export default function ShortOrders() {
                           >
                             {order.customer?.first_name} {order.customer?.last_name}
                           </p>
+                          {order.customer?.is_suki && <SukiBadge />}
+                          {isInstallmentPlan(order) && <InstallmentChip />}
                           {!order.is_read && (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-[#EAF3F2] text-[#00703a] text-[11px] font-bold tracking-[0.04em]">
                               NEW
@@ -1900,6 +1924,8 @@ export default function ShortOrders() {
                           >
                             {order.customer?.first_name} {order.customer?.last_name}
                           </p>
+                          {order.customer?.is_suki && <SukiBadge />}
+                          {isInstallmentPlan(order) && <InstallmentChip />}
                           {!order.is_read && (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-[#EAF3F2] text-[#00703a] text-[11px] font-bold tracking-[0.04em]">
                               NEW

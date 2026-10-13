@@ -51,6 +51,9 @@ import { fetchAllRows } from '../utils/fetchAllRows';
 import { eventNotYetHappened, completeLockReason, completeBeforeEventMessage, balanceBlocksCompletion, completeConfirmMessage } from '../utils/completion';
 import { buildBookingSearch } from '../utils/bookingSearch';
 import { idListFilters, orderIdsByBalance, KEEP_COLUMNS } from '../utils/listFilters';
+import SukiBadge from '../components/SukiBadge';
+import InstallmentChip from '../components/InstallmentChip';
+import { isInstallmentPlan } from '../utils/installments';
 import { filterCustomersForPicker } from '../utils/customerPicker';
 import { bulkDeleteBookings } from '../utils/bulkDeleteBookings';
 import ImageUploadField from '../components/ImageUploadField';
@@ -211,12 +214,15 @@ export default function Bookings() {
     const column = moneyFilter === 'overdue' ? 'is_overdue'
       : moneyFilter === 'lapsed' ? 'is_lapsed'
         : 'flagged_for_review';
-    const rows = await fetchAllRows(() => supabase
-      .from('v_booking_money')
-      .select('booking_id')
-      .eq('booking_type', 'Package')
-      .eq(column, true)
-      .order('booking_id', { ascending: true }), `${moneyFilter} booking ids`);
+    // Installment plans: payment_plan, not a true/false flag.
+    const rows = await fetchAllRows(() => {
+      const q = supabase
+        .from('v_booking_money')
+        .select('booking_id')
+        .eq('booking_type', 'Package');
+      return (moneyFilter === 'installment' ? q.eq('payment_plan', 'Installment') : q.eq(column, true))
+        .order('booking_id', { ascending: true });
+    }, `${moneyFilter} booking ids`);
     return (rows || []).map(r => r.booking_id);
   };
 
@@ -399,7 +405,7 @@ export default function Bookings() {
         if (customerIds.length > 0) {
           const { data: customersData, error: customersError } = await supabase
             .from('customer')
-            .select('customer_id, first_name, last_name, contact_no')
+            .select('customer_id, first_name, last_name, contact_no, is_suki')
             .in('customer_id', customerIds);
           if (customersError) throw customersError;
           customersMap = Object.fromEntries(customersData.map(c => [c.customer_id, c]));
@@ -559,7 +565,7 @@ export default function Bookings() {
       // above, so each count means "matching the filters AND overdue".
       const flagged = await fetchAllRows(() => supabase
         .from('v_booking_money')
-        .select('booking_id, is_overdue, flagged_for_review, is_lapsed')
+        .select('booking_id, is_overdue, flagged_for_review, is_lapsed, payment_plan')
         .eq('booking_type', 'Package')
         .order('booking_id', { ascending: true }), 'booking money flags');
       setFlagRows(flagged || []);
@@ -1498,6 +1504,10 @@ const handleMarkCompleted = async (id) => {
     () => (flagRows || []).filter(f => f.is_lapsed && matchingIdSet.has(f.booking_id)).length,
     [flagRows, matchingIdSet],
   );
+  const installmentCount = useMemo(
+    () => (flagRows || []).filter(f => f.payment_plan === 'Installment' && matchingIdSet.has(f.booking_id)).length,
+    [flagRows, matchingIdSet],
+  );
   // How many of the PENDING requests have gone stale. The status cards are
   // where a manager looks to decide what to work on, and a request quietly
   // dying in that pile is the failure this whole task exists to prevent.
@@ -1712,6 +1722,18 @@ const handleMarkCompleted = async (id) => {
             Lapsed
             <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-slate-200 text-slate-700 text-[12.5px] tabular-nums font-bold">{lapsedCount}</span>
           </button>
+          {/* Suki customers paying in installments. */}
+          <button
+            onClick={() => applyMoneyChip('installment')}
+            className={`flex items-center gap-2 rounded-[10px] border px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all ${
+              moneyFilter === 'installment'
+                ? 'border-sky-400 bg-sky-50 text-sky-800'
+                : 'border-slate-200 bg-white text-slate-700 hover:border-sky-200 hover:text-sky-700'
+            }`}
+          >
+            Installment plans
+            <span className="inline-flex items-center justify-center min-w-[21px] h-[21px] px-1.5 rounded-full bg-sky-100 text-sky-700 text-[12.5px] tabular-nums font-bold">{installmentCount}</span>
+          </button>
       </QuickFilters>
 
       {/* STATUS OVERVIEW + QUICK FILTERS */}
@@ -1847,6 +1869,8 @@ const handleMarkCompleted = async (id) => {
                           >
                             {booking.customer?.first_name} {booking.customer?.last_name}
                           </p>
+                          {booking.customer?.is_suki && <SukiBadge />}
+                          {isInstallmentPlan(booking) && <InstallmentChip />}
                           {!booking.is_read && (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-[#EAF3F2] text-[#00703a] text-[11px] font-bold tracking-[0.04em]">
                               NEW
@@ -2061,6 +2085,8 @@ const handleMarkCompleted = async (id) => {
                         >
                           {booking.customer?.first_name} {booking.customer?.last_name}
                         </p>
+                        {booking.customer?.is_suki && <SukiBadge />}
+                        {isInstallmentPlan(booking) && <InstallmentChip />}
                         {!booking.is_read && (
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-[#EAF3F2] text-[#00703a] text-[11px] font-bold tracking-[0.04em]">
                             NEW

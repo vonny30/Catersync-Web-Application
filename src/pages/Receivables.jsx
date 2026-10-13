@@ -30,6 +30,8 @@ import { supabase } from '../supabase';
 import Select from '../components/Select';
 import ReceiptFields from '../components/ReceiptFields';
 import CollectibleBreakdown from '../components/CollectibleBreakdown';
+import InstallmentChip from '../components/InstallmentChip';
+import { isInstallmentPlan } from '../utils/installments';
 import PaymentsReceivedBreakdown from '../components/PaymentsReceivedBreakdown';
 import { collectibleInPeriod, paymentsReceivedBreakdownFor } from '../utils/reportMetrics';
 import { fetchKeptDeposits } from '../utils/keptDeposits';
@@ -327,7 +329,11 @@ function RecordReceiptModal({ receivables, onClose, onRecorded }) {
                   <button key={b.booking_id} type="button" onClick={() => setBookingId(b.booking_id)} className="w-full text-left px-3 py-2.5 hover:bg-slate-50 text-sm">
                     <span className="font-semibold text-slate-900">{bookingRef(b)}</span>
                     <span className="text-slate-600"> · {b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown customer'}</span>
-                    <span className="block text-[12px] text-slate-500 tabular-nums">{b.booking_status} · balance due {peso(b.outstanding)} of {peso(b.total_amount)}</span>
+                    {isInstallmentPlan(b) && <InstallmentChip className="ml-1.5" />}
+                    <span className="block text-[12px] text-slate-500 tabular-nums">
+                      {b.booking_status} · balance due {peso(b.outstanding)} of {peso(b.total_amount)}
+                      {isInstallmentPlan(b) && ` · due now ${peso(b.amount_due_now)}`}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -594,6 +600,7 @@ export default function Receivables() {
   const [typeFilter, setTypeFilter] = useState('All');
   const [methodFilter, setMethodFilter] = useState('All');
   const [stageFilter, setStageFilter] = useState('All');
+  const [planFilter, setPlanFilter] = useState('All'); // 'All' | 'Installment'
   // A page that sends the manager here can name the period it was showing —
   // the Dashboard's Cash Receipts card does, so the receipts listed here are
   // the ones behind the figure that was clicked. Initial state only: once the
@@ -636,7 +643,7 @@ export default function Receivables() {
             .select(`
               booking_id, booking_number, booking_type, booking_status, customer_id, event_datetime, total_amount,
               verified_paid, net_paid, outstanding, awaiting_count, is_receivable, counts_toward_revenue,
-              payment_plan, amount_due_now, next_due_date, next_due_amount,
+              payment_plan, amount_due_now, next_due_date, next_due_amount, is_overdue, days_overdue,
               customer:customer_id (first_name, last_name)
             `)
             .order('event_datetime', { ascending: true, nullsFirst: false })
@@ -705,6 +712,9 @@ export default function Receivables() {
   const passesCommon = (e) => {
     if (typeFilter !== 'All' && e.booking?.booking_type !== typeFilter) return false;
     if (methodFilter !== 'All' && e.pay_method !== methodFilter) return false;
+    // Installment plans: looked up in `money` directly, not through moneyFor,
+    // which is declared further down (see inPaymentsReceivedScope).
+    if (planFilter === 'Installment' && money.find(b => b.booking_id === e.booking_id)?.payment_plan !== 'Installment') return false;
     if (term && !`${customerName(e)} ${bookingRef(e.booking)}`.toLowerCase().includes(term)) return false;
     return true;
   };
@@ -777,7 +787,7 @@ export default function Receivables() {
   // partially-refunded forfeited deposit, e.g. BKG-107, and of any reversed
   // receipt above) rather than a raw sum that would double-count either and
   // no longer agree with the card above.
-  const receiptsUnfiltered = !term && typeFilter === 'All' && methodFilter === 'All' && stageFilter === 'All';
+  const receiptsUnfiltered = !term && typeFilter === 'All' && methodFilter === 'All' && stageFilter === 'All' && planFilter === 'All';
   // The refund total behind that same netting, for the SAME bookings this
   // tab is scoped to (inPaymentsReceivedScope) — so the sentence names an
   // amount that actually reconciles rows.length down to the card's figure,
@@ -790,9 +800,9 @@ export default function Receivables() {
 
   const [showPaymentsReceivedBreakdown, setShowPaymentsReceivedBreakdown] = useState(false);
 
-  const hasFilters = !!term || typeFilter !== 'All' || methodFilter !== 'All' || stageFilter !== 'All' || datePreset !== DEFAULT_DATE_PRESET;
+  const hasFilters = !!term || typeFilter !== 'All' || methodFilter !== 'All' || stageFilter !== 'All' || planFilter !== 'All' || datePreset !== DEFAULT_DATE_PRESET;
   const clearFilters = () => {
-    setSearch(''); setTypeFilter('All'); setMethodFilter('All'); setStageFilter('All');
+    setSearch(''); setTypeFilter('All'); setMethodFilter('All'); setStageFilter('All'); setPlanFilter('All');
     setDatePreset(DEFAULT_DATE_PRESET); setCustomStart(''); setCustomEnd('');
   };
 
@@ -888,6 +898,12 @@ export default function Receivables() {
           <Select value={methodFilter} onChange={(e) => setMethodFilter(e.target.value)} className={filterControl(methodFilter !== 'All')}>
             <option value="All">All</option>
             {RECEIPT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+          </Select>
+        </FilterField>
+        <FilterField label="Payment plan" active={planFilter !== 'All'}>
+          <Select value={planFilter} onChange={(e) => setPlanFilter(e.target.value)} className={filterControl(planFilter !== 'All')}>
+            <option value="All">All</option>
+            <option value="Installment">Installment plans</option>
           </Select>
         </FilterField>
         {/* Stage belongs to receipts only; a refund has no settlement stage. */}

@@ -8,6 +8,9 @@ import { createPortal } from 'react-dom';
 import { X, ExternalLink } from 'lucide-react';
 import { EmptyResult } from './FilterBar';
 import { formatDate } from '../pages/Reports/helpers';
+import InstallmentChip from './InstallmentChip';
+import { isInstallmentPlan, longYmd } from '../utils/installments';
+import { OVERDUE_CHIP_CLASS, overdueChipLabel } from '../utils/overdue';
 
 const peso = (n) => `₱${Number(n || 0).toLocaleString()}`;
 const bookingRef = (b) => b?.booking_number
@@ -51,7 +54,19 @@ export default function CollectibleBreakdown({ bookings, caption, total, onClose
                         <span className="font-semibold text-[#007038] inline-flex items-center gap-1">{bookingRef(b)} <ExternalLink size={11} /></span>
                         <span className="block text-[12px] text-slate-500">{b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown customer'}</span>
                       </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">{b.event_datetime ? formatDate(b.event_datetime) : '—'}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        {b.event_datetime ? formatDate(b.event_datetime) : '—'}
+                        {/* An installment plan is due by its schedule, not by
+                            the event; overdue comes from the view. */}
+                        {isInstallmentPlan(b) && (
+                          <span className="block mt-0.5 text-[12px] text-slate-500 whitespace-normal">
+                            <InstallmentChip className="mr-1" />
+                            Due now {peso(b.amount_due_now)}
+                            {b.next_due_date ? ` · Next ${peso(b.next_due_amount)} on ${longYmd(b.next_due_date)}` : ''}
+                            {b.is_overdue && <span className={`ml-1 ${OVERDUE_CHIP_CLASS}`}>{overdueChipLabel(b.days_overdue)}</span>}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-3 py-2.5">{b.booking_status}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{peso(b.total_amount)}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums">{peso(b.net_paid)}</td>
