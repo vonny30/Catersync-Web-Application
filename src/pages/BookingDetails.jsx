@@ -54,6 +54,7 @@ import { errorInputClass } from '../utils/formErrors';
 import DateTimePicker from '../components/DateTimePicker';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import InstallmentPlanCard from '../components/InstallmentPlanCard';
+import ApprovalPaymentChoice, { ApprovalDepositLine, SukiBadge } from '../components/ApprovalPaymentChoice';
 import { isInstallmentPlan } from '../utils/installments';
 import { getAssignmentStatus } from '../utils/statusLabels';
 import ImageUploadField from '../components/ImageUploadField';
@@ -490,6 +491,7 @@ export default function BookingDetails() {
     handleApprovalInputChange,
     handleFinalizeApproval,
     setApprovalVehicleIds,
+    installment: approvalInstallment,
   } = useApprovalHandlers({
     booking,
     payments,
@@ -500,7 +502,8 @@ export default function BookingDetails() {
   // disable the Approve button instead of letting the manager click through
   // and get blocked by the hook's equipment hard-check afterward.
   const [approvalEquipmentStatus, setApprovalEquipmentStatus] = useState({ applicable: false, loading: false, sufficient: true, shortages: [] });
-  const approveDisabled = isApprovalSubmitting || (approvalEquipmentStatus.applicable && (approvalEquipmentStatus.loading || !approvalEquipmentStatus.sufficient));
+  const approveDisabled = isApprovalSubmitting || (approvalEquipmentStatus.applicable && (approvalEquipmentStatus.loading || !approvalEquipmentStatus.sufficient))
+    || !approvalInstallment.ready;
 
   // --- Rejection Handlers (with wrapper functions) ---
   const getBooking = (bookingId) => (bookingId === booking?.booking_id ? booking : null);
@@ -3441,6 +3444,7 @@ export default function BookingDetails() {
                   <span className="font-medium text-slate-600">Customer:</span>
                   <span className="font-bold text-slate-900">
                     {approvalBooking.customer?.first_name} {approvalBooking.customer?.last_name}
+                    {approvalInstallment.isSuki && <SukiBadge />}
                   </span>
                   <span className="font-medium text-slate-600">Package:</span>
                   <span className="font-bold text-slate-900">{approvalBooking.package?.pkg_name}</span>
@@ -3510,10 +3514,12 @@ export default function BookingDetails() {
                 <span className="font-bold text-slate-800">New Total:</span>
                 <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
               </div>
-              <div className="text-sm text-slate-500">
-                <p>Deposit (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
-                <p className="text-xs mt-1">A deposit is required to secure the booking. Non-refundable within 3 days of the event.</p>
-              </div>
+              <ApprovalPaymentChoice installment={approvalInstallment} total={approvalData.newTotal} eventDatetime={approvalBooking.event_datetime} />
+              <ApprovalDepositLine
+                installment={approvalInstallment}
+                total={approvalData.newTotal}
+                depositNote="A deposit is required to secure the booking. Non-refundable within 3 days of the event."
+              />
 
               {approvalEquipmentStatus.applicable && !approvalEquipmentStatus.loading && !approvalEquipmentStatus.sufficient && (
                 <p className="text-xs font-semibold text-red-600 text-right">
@@ -3532,7 +3538,9 @@ export default function BookingDetails() {
                 <button
                   onClick={() => handleFinalizeApproval('package')}
                   disabled={approveDisabled}
-                  title={approveDisabled && !isApprovalSubmitting ? 'Not enough equipment for this date' : undefined}
+                  title={approveDisabled && !isApprovalSubmitting
+                    ? (approvalInstallment.ready ? 'Not enough equipment for this date' : 'Fix the installment schedule first')
+                    : undefined}
                   className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isApprovalSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}

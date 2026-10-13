@@ -464,6 +464,7 @@ export default function ShortOrders() {
     handleApprovalInputChange,
     handleFinalizeApproval,
     setApprovalVehicleIds,
+    installment: approvalInstallment,
   } = useApprovalHandlers({
     booking: null,
     payments: [],
@@ -2503,6 +2504,7 @@ export default function ShortOrders() {
           onClose={() => setIsApprovalModalOpen(false)}
           submitting={isApprovalSubmitting}
           onVehicleSelectionChange={setApprovalVehicleIds}
+          installment={approvalInstallment}
         />
       )}
 

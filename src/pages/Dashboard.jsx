@@ -392,6 +392,7 @@ export default function Dashboard() {
     handleApprovalInputChange,
     handleFinalizeApproval,
     setApprovalVehicleIds,
+    installment: approvalInstallment,
   } = useApprovalHandlers({
     booking: null,
     payments: [],
@@ -1265,6 +1266,7 @@ export default function Dashboard() {
           onClose={() => setIsApprovalModalOpen(false)}
           submitting={isApprovalSubmitting}
           onVehicleSelectionChange={setApprovalVehicleIds}
+          installment={approvalInstallment}
         />
       )}
 

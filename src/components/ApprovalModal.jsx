@@ -18,6 +18,7 @@ import { X } from 'lucide-react';
 import ApprovalAvailabilityCheck from './ApprovalAvailabilityCheck';
 import { extraPaxRate } from '../hooks/useApprovalHandlers';
 import { getServiceMethod } from '../utils/vehicle';
+import ApprovalPaymentChoice, { ApprovalDepositLine, SukiBadge } from './ApprovalPaymentChoice';
 
 const INPUT = 'w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#008A45]/20 focus:border-[#008A45] outline-none';
 const NO_EQUIPMENT_CHECK = { applicable: false, loading: false, sufficient: true, shortages: [] };
@@ -27,7 +28,7 @@ const NO_EQUIPMENT_CHECK = { applicable: false, loading: false, sufficient: true
  * @param data      approvalData from the hook
  */
 export default function ApprovalModal({
-  booking, data, onInputChange, onSubmit, onClose, submitting, onVehicleSelectionChange,
+  booking, data, onInputChange, onSubmit, onClose, submitting, onVehicleSelectionChange, installment,
 }) {
   // Reported by ApprovalAvailabilityCheck, so Approve is disabled on a
   // shortage instead of letting the manager click through and be refused by
@@ -39,7 +40,9 @@ export default function ApprovalModal({
   const pkg = booking.package;
   const isFixed = pkg?.pricing_type === 'fixed';
   const equipmentBlocked = !isShortOrder && equipment.applicable && (equipment.loading || !equipment.sufficient);
-  const approveDisabled = submitting || equipmentBlocked;
+  // An installment plan has to be a valid schedule before approving.
+  const planBlocked = installment ? !installment.ready : false;
+  const approveDisabled = submitting || equipmentBlocked || planBlocked;
   const money = (n) => `₱${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   return createPortal(
@@ -56,7 +59,7 @@ export default function ApprovalModal({
           <div className="bg-white p-4 rounded-2xl border border-slate-200 text-sm">
             <div className="grid grid-cols-2 gap-2">
               <span className="font-medium text-slate-600">Customer:</span>
-              <span className="font-bold text-slate-900">{booking.customer?.first_name} {booking.customer?.last_name}</span>
+              <span className="font-bold text-slate-900">{booking.customer?.first_name} {booking.customer?.last_name}{installment?.isSuki && <SukiBadge />}</span>
               {isShortOrder ? (
                 <>
                   <span className="font-medium text-slate-600">Venue:</span>
@@ -136,14 +139,14 @@ export default function ApprovalModal({
             <span className="font-bold text-slate-800">New Total:</span>
             <span className="text-xl font-extrabold text-[#008A45]">{money(data.newTotal)}</span>
           </div>
-          <div className="text-sm text-slate-500">
-            <p>Deposit (50%): <span className="font-bold">{money(data.newTotal * 0.5)}</span></p>
-            <p className="text-xs mt-1">
-              {isShortOrder
-                ? 'A deposit may be required for large orders.'
-                : 'A deposit is required to secure the booking. Non-refundable within 3 days of the event.'}
-            </p>
-          </div>
+          <ApprovalPaymentChoice installment={installment} total={data.newTotal} eventDatetime={booking.event_datetime} />
+          <ApprovalDepositLine
+            installment={installment}
+            total={data.newTotal}
+            depositNote={isShortOrder
+              ? 'A deposit may be required for large orders.'
+              : 'A deposit is required to secure the booking. Non-refundable within 3 days of the event.'}
+          />
 
           {!isShortOrder && equipment.applicable && !equipment.loading && !equipment.sufficient && (
             <p className="text-xs font-semibold text-red-600 text-right">
@@ -158,7 +161,8 @@ export default function ApprovalModal({
             <button
               onClick={onSubmit}
               disabled={approveDisabled}
-              title={equipmentBlocked && !submitting ? 'Not enough equipment for this date' : undefined}
+              title={equipmentBlocked && !submitting ? 'Not enough equipment for this date'
+                : planBlocked && !submitting ? 'Fix the installment schedule first' : undefined}
               className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting ? 'Approving...' : 'Confirm Approval & Update Total'}

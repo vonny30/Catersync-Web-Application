@@ -583,6 +583,7 @@ export default function Bookings() {
     handleApprovalInputChange,
     handleFinalizeApproval,
     setApprovalVehicleIds,
+    installment: approvalInstallment,
   } = useApprovalHandlers({
     booking: null,
     payments: [],
@@ -2678,6 +2679,7 @@ const handleMarkCompleted = async (id) => {
           onClose={() => setIsApprovalModalOpen(false)}
           submitting={isApprovalSubmitting}
           onVehicleSelectionChange={setApprovalVehicleIds}
+          installment={approvalInstallment}
         />
       )}
 

@@ -18,6 +18,7 @@ import { validatePaxForPackage } from '../utils/packageRules';
 import { sumVerifiedPositivePayments, restageReceipts } from '../utils/payments';
 import { ACTIVE_BOOKING_STATUSES, MAX_SHORT_ORDERS_PER_DAY, STATUS_ORDER } from '../utils/bookingStatus';
 import { statusWriteErrorMessage, LAPSED_ACCEPT_TOOLTIP } from '../utils/lapsed';
+import { PAYMENT_PLAN, buildEvenSchedule, validateSchedule, toRpcRows, todayManila } from '../utils/installments';
 
 /**
  * What one extra guest costs on a package.
@@ -65,6 +66,13 @@ export function useApprovalHandlers({ fetchData }) {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [approvalType, setApprovalType] = useState('package');
+  // Installment plan (suki customers only): whether the customer is suki,
+  // Standard or Installment, and the schedule. Standard is the default and
+  // the old behaviour; a non-suki customer never sees the choice.
+  const [approvalSuki, setApprovalSuki] = useState(false);
+  const [paymentChoice, setPaymentChoice] = useState(PAYMENT_PLAN.standard);
+  const [planRows, setPlanRows] = useState([]);
+  const isInstallment = approvalSuki && paymentChoice === PAYMENT_PLAN.installment;
 
   // --- ROBUST base total computation ---
   const computeBaseTotal = async (booking) => {
@@ -150,6 +158,20 @@ export function useApprovalHandlers({ fetchData }) {
       extraDeliveryFee: 0,
     };
 
+    // Suki or not, read fresh: the flag can change in another tab.
+    let suki = false;
+    if (booking.customer_id) {
+      const { data: customerRow } = await supabase
+        .from('customer')
+        .select('is_suki')
+        .eq('customer_id', booking.customer_id)
+        .maybeSingle();
+      suki = !!customerRow?.is_suki;
+    }
+    setApprovalSuki(suki);
+    setPaymentChoice(PAYMENT_PLAN.standard);
+    setPlanRows(buildEvenSchedule({ total: baseTotal, count: 3, firstDue: todayManila() }));
+
     setApprovalBooking(booking);
     setApprovalData(initData);
     setIsApprovalModalOpen(true);
@@ -175,10 +197,33 @@ export function useApprovalHandlers({ fetchData }) {
       }
       return { ...updated, newTotal };
     });
+
+    // The schedule follows the total while it is still the untouched even
+    // split; once the manager has typed rows, they are left alone and the
+    // editor shows the difference instead.
+    const next = { ...approvalData, [name]: numValue };
+    const nextTotal = approvalType === 'package'
+      ? next.baseTotal + (next.extraPax || 0) * extraPaxRate(approvalBooking?.package) + (next.additionalFee || 0)
+      : next.baseTotal + (next.extraQuantity || 0) + (next.extraDeliveryFee || 0) + (next.additionalFee || 0);
+    if (planRows.length) {
+      const firstDue = planRows[0].due_date;
+      const even = buildEvenSchedule({ total: approvalData.newTotal, count: planRows.length, firstDue });
+      const untouched = planRows.every((r, i) => r.due_date === even[i].due_date && Math.round(Number(r.amount) * 100) === Math.round(even[i].amount * 100));
+      if (untouched) setPlanRows(buildEvenSchedule({ total: nextTotal, count: planRows.length, firstDue }));
+    }
   };
 
   const handleFinalizeApproval = async () => {
     if (!approvalBooking) return;
+    // An installment plan must be valid before anything is written. The
+    // Approve button is already disabled until it is; this is the backstop.
+    if (isInstallment) {
+      const planCheck = validateSchedule({ total: approvalData.newTotal, rows: planRows, isNew: true });
+      if (!planCheck.ok) {
+        toast.error(planCheck.formError || Object.values(planCheck.rowErrors)[0]);
+        return;
+      }
+    }
     setIsSubmitting(true);
 
     try {
@@ -392,6 +437,27 @@ export function useApprovalHandlers({ fetchData }) {
       }
       const newStatus = paidTotal >= newTotal && paidTotal > 0 ? 'fully settled' : 'part-paid';
 
+      // 5. Installment plan (suki customers): every step above ran exactly as
+      // for a Standard booking. Now save the schedule against the total just
+      // written (approvalData.newTotal), which also confirms the booking. If
+      // the plan is refused, the booking stays Approved — a safe place — and
+      // the manager can set the plan from the booking's own page.
+      if (isInstallment) {
+        const { error: planError } = await supabase.rpc('f_save_installment_plan', {
+          p_booking_id: approvalBooking.booking_id,
+          p_installments: toRpcRows(planRows),
+          p_reason: null,
+        });
+        setIsApprovalModalOpen(false);
+        fetchData();
+        if (planError) {
+          toast.error(`Booking approved, but the installment plan was not saved: ${planError.message}. Open the booking to set the plan.`, { duration: 10000 });
+        } else {
+          toast.success('Approved and confirmed on an installment plan.');
+        }
+        return;
+      }
+
       setIsApprovalModalOpen(false);
       fetchData();
       const noun = approvalType === 'shortorder' ? 'Order' : 'Booking';
@@ -419,5 +485,16 @@ export function useApprovalHandlers({ fetchData }) {
     handleFinalizeApproval,
     approvalVehicleIds,
     setApprovalVehicleIds,
+    // For ApprovalPaymentChoice / ApprovalDepositLine. `ready` is false only
+    // while a chosen installment plan is not yet valid.
+    installment: {
+      isSuki: approvalSuki,
+      choice: paymentChoice,
+      setChoice: setPaymentChoice,
+      rows: planRows,
+      setRows: setPlanRows,
+      isInstallment,
+      ready: !isInstallment || validateSchedule({ total: approvalData.newTotal, rows: planRows, isNew: true }).ok,
+    },
   };
 }

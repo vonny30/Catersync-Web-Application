@@ -22,6 +22,7 @@ import { createPortal } from 'react-dom';
 import { supabase } from '../supabase';
 import { fetchAllRows } from '../utils/fetchAllRows';
 import InstallmentPlanCard from '../components/InstallmentPlanCard';
+import ApprovalPaymentChoice, { ApprovalDepositLine, SukiBadge } from '../components/ApprovalPaymentChoice';
 import { isInstallmentPlan } from '../utils/installments';
 import toast from 'react-hot-toast';
 import { useConfirm } from '../contexts/ConfirmContext';
@@ -339,6 +340,7 @@ export default function ShortOrderDetails() {
     handleApprovalInputChange,
     handleFinalizeApproval,
     setApprovalVehicleIds,
+    installment: approvalInstallment,
   } = useApprovalHandlers({
     booking: order,
     payments,
@@ -2272,7 +2274,7 @@ export default function ShortOrderDetails() {
               <div className="bg-white p-4 rounded-2xl border border-slate-200 text-sm">
                 <div className="grid grid-cols-2 gap-2">
                   <span className="font-medium text-slate-600">Customer:</span>
-                  <span className="font-bold text-slate-900">{approvalOrder.customer?.first_name} {approvalOrder.customer?.last_name}</span>
+                  <span className="font-bold text-slate-900">{approvalOrder.customer?.first_name} {approvalOrder.customer?.last_name}{approvalInstallment.isSuki && <SukiBadge />}</span>
                   <span className="font-medium text-slate-600">Venue:</span>
                   <span className="font-bold text-slate-900">{approvalOrder.venue || 'N/A'}</span>
                   <span className="font-medium text-slate-600">Current Total:</span>
@@ -2306,14 +2308,18 @@ export default function ShortOrderDetails() {
                 <span className="font-bold text-slate-800">New Total:</span>
                 <span className="text-xl font-extrabold text-[#008A45]">₱{approvalData.newTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
               </div>
-              <div className="text-sm text-slate-500">
-                <p>Deposit (50%): <span className="font-bold">₱{(approvalData.newTotal * 0.5).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span></p>
-                <p className="text-xs mt-1">A deposit may be required for large orders.</p>
-              </div>
+              <ApprovalPaymentChoice installment={approvalInstallment} total={approvalData.newTotal} eventDatetime={approvalOrder.event_datetime} />
+              <ApprovalDepositLine
+                installment={approvalInstallment}
+                total={approvalData.newTotal}
+                depositNote="A deposit may be required for large orders."
+              />
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
                 <button type="button" onClick={() => setIsApprovalModalOpen(false)} className="bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm px-6 py-2.5 rounded-lg border border-slate-300 transition-colors">Cancel</button>
-                <button onClick={handleFinalizeApproval} disabled={isApprovalSubmitting} className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50">
+                <button onClick={handleFinalizeApproval} disabled={isApprovalSubmitting || !approvalInstallment.ready}
+                  title={!approvalInstallment.ready && !isApprovalSubmitting ? 'Fix the installment schedule first' : undefined}
+                  className="bg-[#008A45] hover:bg-[#007038] text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50">
                   {isApprovalSubmitting ? 'Approving...' : 'Confirm Approval & Update Total'}
                 </button>
               </div>
