@@ -13,10 +13,15 @@ import { useState, useEffect } from 'react';
 import { History } from 'lucide-react';
 import { supabase } from '../supabase';
 
-// How the four sources read to someone who did not write the trigger.
+// How the sources read to someone who did not write the trigger. The two
+// installment-plan sources take the tones of their nearest relatives: a plan
+// confirms like the 50% auto-confirm (green); ending one with too little paid
+// sends it back like the auto-revert (amber).
 const SOURCE_TONE = {
   'Auto-confirm (50% threshold)': 'bg-emerald-50 text-emerald-700 border-emerald-200',
   'Auto-revert (reversal below 50% threshold)': 'bg-amber-50 text-amber-800 border-amber-200',
+  'Suki installment plan': 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  'Installment plan ended': 'bg-amber-50 text-amber-800 border-amber-200',
   'Manager override': 'bg-blue-50 text-blue-700 border-blue-200',
   Manual: 'bg-slate-100 text-slate-600 border-slate-200',
 };

@@ -20,6 +20,7 @@ import { supabase } from '../supabase';
 import { STATUS_ORDER } from '../utils/bookingStatus';
 import { CONFIRM_PAID_FRACTION } from '../utils/confirmBooking';
 import { LAPSED_OVERRIDE_WARNING } from '../utils/lapsed';
+import { isInstallmentPlan } from '../utils/installments';
 
 const ALL_STATUSES = Object.keys(STATUS_ORDER);
 
@@ -43,10 +44,15 @@ export default function OverrideStatusModal({ booking, isOpen, onClose, onDone, 
   const total = Number(booking.total_amount) || 0;
   const required = total * CONFIRM_PAID_FRACTION;
   const paid = Number(verifiedPaid) || 0;
+  // An installment plan has to be ended before the booking can go back to
+  // Pending or Approved (the database refuses it too), and the 50% deposit
+  // policy does not apply to it.
+  const onPlan = isInstallmentPlan(booking);
+  const blockedByPlan = (status) => onPlan && (status === 'Pending' || status === 'Approved');
 
   // The one conflict worth naming: confirming work the deposit policy would
   // not yet confirm on its own.
-  const policyConflict = (newStatus === 'Confirmed' || newStatus === 'Completed')
+  const policyConflict = !onPlan && (newStatus === 'Confirmed' || newStatus === 'Completed')
     && total > 0 && paid < required;
 
   const unchanged = newStatus === booking.booking_status;
@@ -106,7 +112,9 @@ export default function OverrideStatusModal({ booking, isOpen, onClose, onDone, 
                   key={status}
                   type="button"
                   onClick={() => setNewStatus(status)}
-                  className={`rounded-[10px] border px-3 py-2 text-sm font-semibold transition-colors ${
+                  disabled={blockedByPlan(status)}
+                  title={blockedByPlan(status) ? 'End the installment plan first.' : undefined}
+                  className={`rounded-[10px] border px-3 py-2 text-sm font-semibold transition-colors disabled:opacity-45 disabled:cursor-not-allowed ${
                     newStatus === status
                       ? 'border-[#008A45] bg-[#EAF3F2] text-[#007038]'
                       : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
@@ -119,6 +127,11 @@ export default function OverrideStatusModal({ booking, isOpen, onClose, onDone, 
                 </button>
               ))}
             </div>
+            {onPlan && (
+              <p className="text-[12px] text-slate-500 mt-1.5">
+                This booking is on an installment plan. End the installment plan first to move it back to Pending or Approved.
+              </p>
+            )}
           </div>
 
           {/* The override is the ONE path the lapsed guard exempts, which is
